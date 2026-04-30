@@ -555,17 +555,25 @@ export function LandedCostCalculator() {
                   <TableHead className="min-w-[140px]">Tariff / HS code</TableHead>
                   <TableHead className="min-w-[280px]">Description</TableHead>
                   <TableHead className="min-w-[180px]">Category</TableHead>
-                  <TableHead className="w-20 text-right">Duty %</TableHead>
-                  <TableHead className="w-20 text-right">VAT %</TableHead>
-                  <TableHead className="w-24 text-right">Env levy %</TableHead>
-                  <TableHead className="w-20 text-right">Excise %</TableHead>
+                  <TableHead className="min-w-[112px] whitespace-nowrap text-right">
+                    Duty %
+                  </TableHead>
+                  <TableHead className="min-w-[104px] whitespace-nowrap text-right">
+                    VAT %
+                  </TableHead>
+                  <TableHead className="min-w-[120px] whitespace-nowrap text-right">
+                    Env levy %
+                  </TableHead>
+                  <TableHead className="min-w-[104px] whitespace-nowrap text-right">
+                    Excise %
+                  </TableHead>
                   <TableHead className="min-w-[200px]">Permits / docs</TableHead>
                   <TableHead className="min-w-[160px]">Processing notes</TableHead>
                   <TableHead className="min-w-[160px]">Source / reference</TableHead>
-                  <TableHead className="w-32">Effective</TableHead>
-                  <TableHead className="w-20">Active</TableHead>
+                  <TableHead className="min-w-[150px] whitespace-nowrap">Effective</TableHead>
+                  <TableHead className="min-w-[88px] whitespace-nowrap">Active</TableHead>
                   <TableHead className="min-w-[160px]">Internal notes</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="min-w-[48px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
