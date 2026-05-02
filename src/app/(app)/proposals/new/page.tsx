@@ -8,18 +8,16 @@ import {
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  getMockProject,
-  listMockEstimates,
-  listMockProposals,
-} from '@/lib/mock-store';
+import { listEstimates } from '@/lib/data/estimates';
+import { listProposals } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
-function nextProposalNumber(companyId: string): string {
+async function nextProposalNumber(companyId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const existing = listMockProposals(companyId);
+  const existing = await listProposals(companyId);
   const matching = existing
     .map((p) => p.number)
     .filter((n) => n.startsWith(`PROP-${year}-`))
@@ -33,19 +31,21 @@ export default async function NewProposalPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'proposals')) redirect('/proposals');
   const companyId = await getActiveCompanyId();
-  const estimates: EstimateOption[] = listMockEstimates(companyId).map((e) => {
-    const project = getMockProject(companyId, e.projectId);
-    const customer = project
-      ? getMockCustomer(companyId, project.customerId)
-      : undefined;
-    return {
-      id: e.id,
-      number: e.number,
-      projectName: project?.name ?? 'Unknown project',
-      customerName: customer?.name ?? 'Unknown customer',
-      total: e.total,
-    };
-  });
+  const estimates: EstimateOption[] = await Promise.all(
+    (await listEstimates(companyId)).map(async (e) => {
+      const project = await getProject(companyId, e.projectId);
+      const customer = project
+        ? await getCustomer(companyId, project.customerId)
+        : undefined;
+      return {
+        id: e.id,
+        number: e.number,
+        projectName: project?.name ?? 'Unknown project',
+        customerName: customer?.name ?? 'Unknown customer',
+        total: e.total,
+      };
+    }),
+  );
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -63,7 +63,7 @@ export default async function NewProposalPage() {
         </p>
       </header>
 
-      <ProposalForm estimates={estimates} defaultNumber={nextProposalNumber(companyId)} />
+      <ProposalForm estimates={estimates} defaultNumber={await nextProposalNumber(companyId)} />
     </div>
   );
 }

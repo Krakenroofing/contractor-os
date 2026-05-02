@@ -16,16 +16,20 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
+import { computeProjectStatusCounts } from '@/lib/status-machine';
 import {
-  getMockCustomer,
-  getMockProject,
-  getMockVendor,
-  listChangeOrdersForProject,
-  listEstimatesForProject,
-  listLandedCostsForProject,
-  listProposalsForProject,
-  listPurchaseOrdersForProject,
-} from '@/lib/mock-store';
+  computeProjectInvoiceSummary,
+  listInvoicesForProject,
+} from '@/lib/data/invoices';
+import { getInvoicePayments } from '@/lib/data/invoice-payments';
+import { listChangeOrdersForProject } from '@/lib/data/change-orders';
+import { listEstimatesForProject } from '@/lib/data/estimates';
+import { listLandedCostsForProject } from '@/lib/data/landed-costs';
+import { listProposalsForProject } from '@/lib/data/proposals';
+import { listPurchaseOrdersForProject } from '@/lib/data/purchase-orders';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
+import { getVendor } from '@/lib/data/vendors';
 import { computeProjectFinancials } from '@/modules/job-costing/lib/financials';
 import {
   STATUS_LABEL as CO_STATUS_LABEL,
@@ -81,17 +85,36 @@ export default async function ProjectDetailPage({
   const allowCreateProposal = canCreate(role, 'proposals');
   const allowCreateCO = canCreate(role, 'change_orders');
   const allowCreatePO = canCreate(role, 'purchase_orders');
-  const project = getMockProject(companyId, id);
+  const allowCreateInvoice = canCreate(role, 'invoices');
+  const project = await getProject(companyId, id);
   if (!project) notFound();
-  const customer = getMockCustomer(companyId, project.customerId);
+  const customer = await getCustomer(companyId, project.customerId);
   if (!customer) notFound();
 
-  const fin = computeProjectFinancials(companyId, project.id);
-  const estimates = listEstimatesForProject(project.id);
-  const proposals = listProposalsForProject(project.id);
-  const changeOrders = listChangeOrdersForProject(project.id);
-  const purchaseOrders = listPurchaseOrdersForProject(project.id);
-  const landedCosts = listLandedCostsForProject(project.id);
+  const fin = await computeProjectFinancials(companyId, project.id);
+  const estimates = await listEstimatesForProject(companyId, project.id);
+  const proposals = await listProposalsForProject(companyId, project.id);
+  const changeOrders = await listChangeOrdersForProject(project.id);
+  const purchaseOrders = await listPurchaseOrdersForProject(project.id);
+  const purchaseOrdersWithVendor = await Promise.all(
+    purchaseOrders.map(async (po) => ({
+      po,
+      vendor: await getVendor(companyId, po.vendorId),
+    })),
+  );
+  const landedCosts = await listLandedCostsForProject(project.id);
+  const invoices = await listInvoicesForProject(project.id);
+  const invoiceSummary = await computeProjectInvoiceSummary(project.id);
+  const projectPayments = (
+    await Promise.all(
+      invoices.map(async (inv) => {
+        const payments = await getInvoicePayments(inv.id);
+        return payments.map((p) => ({ ...p, invoiceNumber: inv.number }));
+      }),
+    )
+  )
+    .flat()
+    .sort((a, b) => b.paidDate.localeCompare(a.paidDate));
 
   const address = [
     project.jobsiteAddressLine1,
@@ -164,6 +187,11 @@ export default async function ProjectDetailPage({
             Purchase Orders →
           </Button>
         </Link>
+        <Link href="/invoices">
+          <Button size="sm" variant="outline">
+            Invoices →
+          </Button>
+        </Link>
         <Link href={`/job-costing/${project.id}`}>
           <Button size="sm" variant="outline">
             Job Costing →
@@ -228,6 +256,88 @@ export default async function ProjectDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Workflow status counts */}
+      {(() => {
+        const counts = computeProjectStatusCounts({
+          estimates,
+          proposals,
+          changeOrders,
+          purchaseOrders,
+          invoices,
+        });
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>Workflow status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
+                <Stat
+                  label="Pending COs"
+                  value={String(counts.pendingChangeOrders)}
+                  valueClassName={counts.pendingChangeOrders > 0 ? 'text-amber-700' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Open POs"
+                  value={String(counts.openPurchaseOrders)}
+                  valueClassName={counts.openPurchaseOrders > 0 ? 'text-amber-700' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Unpaid invoices"
+                  value={String(counts.unpaidInvoices)}
+                  valueClassName={counts.unpaidInvoices > 0 ? 'text-amber-700' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Overdue invoices"
+                  value={String(counts.overdueInvoices)}
+                  valueClassName={counts.overdueInvoices > 0 ? 'text-red-600' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Estimates in review"
+                  value={String(counts.internalReviewEstimates)}
+                  valueClassName={counts.internalReviewEstimates > 0 ? 'text-amber-700' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Proposals sent"
+                  value={String(counts.sentProposals)}
+                  valueClassName={counts.sentProposals > 0 ? 'text-blue-700' : 'text-slate-900'}
+                />
+                <Stat
+                  label="Approved estimates"
+                  value={String(counts.approvedEstimates)}
+                  valueClassName="text-emerald-700"
+                />
+                <Stat
+                  label="Approved proposals"
+                  value={String(counts.approvedProposals)}
+                  valueClassName="text-emerald-700"
+                />
+                <Stat
+                  label="Approved COs"
+                  value={String(counts.approvedChangeOrders)}
+                  valueClassName="text-emerald-700"
+                />
+                <Stat
+                  label="Closed POs"
+                  value={String(counts.closedPurchaseOrders)}
+                  valueClassName="text-slate-700"
+                />
+                <Stat
+                  label="Paid invoices"
+                  value={String(counts.paidInvoices)}
+                  valueClassName="text-emerald-700"
+                />
+                <Stat
+                  label="Draft estimates"
+                  value={String(counts.draftEstimates)}
+                  valueClassName="text-slate-600"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Estimates */}
       <Card>
@@ -444,8 +554,7 @@ export default async function ProjectDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {purchaseOrders.map((po) => {
-                  const vendor = getMockVendor(companyId, po.vendorId);
+                {purchaseOrdersWithVendor.map(({ po, vendor }) => {
                   return (
                     <TableRow key={po.id}>
                       <TableCell className="font-mono text-xs text-slate-700">
@@ -487,6 +596,212 @@ export default async function ProjectDetailPage({
                     </TableRow>
                   );
                 })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Invoicing summary */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Invoicing summary</CardTitle>
+            {allowCreateInvoice && (
+              <Link href="/invoices/new">
+                <Button size="sm" variant="outline">
+                  + New invoice
+                </Button>
+              </Link>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <Stat
+              label="Total invoiced"
+              value={formatMoney(invoiceSummary.totalInvoiced)}
+            />
+            <Stat
+              label="Total paid"
+              value={formatMoney(invoiceSummary.totalPaid)}
+              valueClassName="text-emerald-700"
+            />
+            <Stat
+              label="Outstanding"
+              value={formatMoney(invoiceSummary.outstandingBalance)}
+              valueClassName={
+                invoiceSummary.outstandingBalance > 0
+                  ? 'text-amber-700'
+                  : 'text-slate-900'
+              }
+            />
+            <Stat
+              label="Retainage held"
+              value={formatMoney(invoiceSummary.retainageHeld)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Retainage summary */}
+      {(invoiceSummary.retainageHeld > 0 ||
+        invoiceSummary.retainageReleased > 0) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Retainage summary</CardTitle>
+              <Link href="/retainage">
+                <Button size="sm" variant="outline">
+                  Open Retainage →
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <Stat
+                label="Retainage held"
+                value={formatMoney(invoiceSummary.retainageHeld)}
+              />
+              <Stat
+                label="Retainage released"
+                value={formatMoney(invoiceSummary.retainageReleased)}
+                valueClassName="text-emerald-700"
+              />
+              <Stat
+                label="Retainage balance"
+                value={formatMoney(invoiceSummary.retainageBalance)}
+                valueClassName={
+                  invoiceSummary.retainageBalance > 0
+                    ? 'text-amber-700'
+                    : 'text-emerald-700'
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Invoices for this project */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoices ({invoices.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {invoices.length === 0 ? (
+            <Empty>No invoices for this project yet.</Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Number</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Invoice date</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map((inv) => {
+                  const balance =
+                    Number(inv.total) - Number(inv.amountPaid);
+                  const billingLabel = inv.billingType.replace('_', ' ');
+                  return (
+                    <TableRow key={inv.id}>
+                      <TableCell className="font-mono text-xs text-slate-700">
+                        {inv.number}
+                      </TableCell>
+                      <TableCell className="text-slate-600 capitalize">
+                        {billingLabel}
+                      </TableCell>
+                      <TableCell className="text-slate-600 capitalize">
+                        {inv.status}
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {inv.invoiceDate}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(inv.total)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${
+                          balance <= 0 ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                      >
+                        {formatMoney(balance)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/invoices/${inv.id}`}>
+                          <Button size="sm" variant="outline">
+                            View
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Payment history */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Payment history ({projectPayments.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {projectPayments.length === 0 ? (
+            <Empty>No payments recorded against this project yet.</Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Payment #</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projectPayments.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono text-xs text-slate-700">
+                      {p.paymentNumber || '—'}
+                    </TableCell>
+                    <TableCell className="text-slate-600">{p.paidDate}</TableCell>
+                    <TableCell className="font-mono text-xs text-slate-600">
+                      {p.invoiceNumber}
+                    </TableCell>
+                    <TableCell className="text-slate-600 capitalize">
+                      {(p.method ?? '—').replace('_', ' ')}
+                    </TableCell>
+                    <TableCell className="text-slate-600 font-mono text-xs">
+                      {p.reference ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-slate-600 capitalize">
+                      {p.status}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {formatMoney(p.amount)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/payments/${p.id}`}>
+                        <Button size="sm" variant="outline">
+                          View
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

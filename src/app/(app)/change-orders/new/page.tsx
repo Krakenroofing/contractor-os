@@ -5,19 +5,17 @@ import { ChangeOrderForm } from '@/modules/change-orders/components/change-order
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  listMockChangeOrders,
-  listMockCostCodes,
-  listMockProjects,
-  listMockProposals,
-} from '@/lib/mock-store';
+import { listChangeOrders } from '@/lib/data/change-orders';
+import { listCostCodes } from '@/lib/data/cost-codes';
+import { listProposals } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
-function nextChangeOrderNumber(companyId: string): string {
+async function nextChangeOrderNumber(companyId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const existing = listMockChangeOrders(companyId);
+  const existing = await listChangeOrders(companyId);
   const matching = existing
     .map((c) => c.number)
     .filter((n) => n.startsWith(`CO-${year}-`))
@@ -31,19 +29,21 @@ export default async function NewChangeOrderPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'change_orders')) redirect('/change-orders');
   const companyId = await getActiveCompanyId();
-  const projects = listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
-    return {
-      id: p.id,
-      label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
-    };
-  });
-  const proposals = listMockProposals(companyId).map((p) => ({
+  const projects = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+      };
+    }),
+  );
+  const proposals = (await listProposals(companyId)).map((p) => ({
     id: p.id,
     projectId: p.projectId,
     label: p.number,
   }));
-  const costCodes = listMockCostCodes(companyId).map((c) => ({
+  const costCodes = (await listCostCodes(companyId)).map((c) => ({
     id: c.id,
     code: c.code,
     description: c.description,
@@ -69,7 +69,7 @@ export default async function NewChangeOrderPage() {
         projects={projects}
         proposals={proposals}
         costCodes={costCodes}
-        defaultNumber={nextChangeOrderNumber(companyId)}
+        defaultNumber={await nextChangeOrderNumber(companyId)}
       />
     </div>
   );

@@ -11,7 +11,7 @@ import {
   toPercentString,
   toQuantityString,
 } from '@/lib/money';
-import { createMockLandedCost } from '@/lib/mock-store';
+import { createLandedCost } from '@/lib/data/landed-costs';
 import { landedCostFormSchema } from './schema';
 
 export type CreateLandedCostState = {
@@ -84,7 +84,7 @@ export async function createLandedCostAction(
 
   let createdId: string;
   try {
-    const lc = createMockLandedCost(companyId, {
+    const lc = await createLandedCost(companyId, {
       name: data.name,
       projectId: data.projectId,
       vendorId: emptyToNull(data.vendorId ?? null),

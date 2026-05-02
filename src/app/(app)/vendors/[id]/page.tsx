@@ -17,11 +17,11 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import {
-  getMockProject,
-  getMockPurchaseOrderLines,
-  getMockVendor,
+  getPurchaseOrderLines,
   listPurchaseOrdersForVendor,
-} from '@/lib/mock-store';
+} from '@/lib/data/purchase-orders';
+import { getProject } from '@/lib/data/projects';
+import { getVendor } from '@/lib/data/vendors';
 import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
@@ -39,10 +39,10 @@ export default async function VendorDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'vendors');
-  const vendor = getMockVendor(companyId, id);
+  const vendor = await getVendor(companyId, id);
   if (!vendor) notFound();
 
-  const pos = listPurchaseOrdersForVendor(vendor.id).filter((p) => p.status !== 'void');
+  const pos = (await listPurchaseOrdersForVendor(vendor.id)).filter((p) => p.status !== 'void');
 
   let committed = 0;
   let received = 0;
@@ -53,14 +53,16 @@ export default async function VendorDetailPage({
     committed += Number(po.total);
     linkedProjectIds.add(po.projectId);
     if (po.status !== 'received' && po.status !== 'closed') openCount += 1;
-    for (const line of getMockPurchaseOrderLines(po.id)) {
+    for (const line of await getPurchaseOrderLines(po.id)) {
       received += Number(line.quantityReceived) * Number(line.unitCost);
     }
   }
 
-  const linkedProjects = Array.from(linkedProjectIds)
-    .map((pid) => getMockProject(companyId, pid))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  const linkedProjects = (
+    await Promise.all(
+      Array.from(linkedProjectIds).map(async (pid) => await getProject(companyId, pid)),
+    )
+  ).filter((p): p is NonNullable<typeof p> => Boolean(p));
 
   const type = vendor.isSubcontractor ? 'subcontractor' : 'supplier';
   const address = [vendor.addressLine1, vendor.city, vendor.state, vendor.postalCode]
@@ -68,6 +70,18 @@ export default async function VendorDetailPage({
     .join(', ');
 
   const openPOs = pos.filter((p) => p.status !== 'received' && p.status !== 'closed');
+  const openPOsWithProject = await Promise.all(
+    openPOs.map(async (po) => ({
+      po,
+      project: await getProject(companyId, po.projectId),
+    })),
+  );
+  const posWithProject = await Promise.all(
+    pos.map(async (po) => ({
+      po,
+      project: await getProject(companyId, po.projectId),
+    })),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -183,8 +197,7 @@ export default async function VendorDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {openPOs.map((po) => {
-                  const project = getMockProject(companyId, po.projectId);
+                {openPOsWithProject.map(({ po, project }) => {
                   return (
                     <TableRow key={po.id}>
                       <TableCell className="font-mono text-xs text-slate-700">
@@ -241,8 +254,7 @@ export default async function VendorDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pos.map((po) => {
-                  const project = getMockProject(companyId, po.projectId);
+                {posWithProject.map(({ po, project }) => {
                   return (
                     <TableRow key={po.id}>
                       <TableCell className="font-mono text-xs text-slate-700">

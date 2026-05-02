@@ -68,8 +68,10 @@ export const estimates = pgTable(
       .notNull()
       .default('0'),
     validUntil: date('valid_until'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }),
     parentEstimateId: uuid('parent_estimate_id').references((): AnyPgColumn => estimates.id, {
       onDelete: 'set null',
     }),

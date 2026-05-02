@@ -3,12 +3,9 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  getMockProject,
-  listMockEstimates,
-  listMockProjects,
-} from '@/lib/mock-store';
+import { listEstimates } from '@/lib/data/estimates';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject, listProjects } from '@/lib/data/projects';
 import { EstimatesListClient } from '@/modules/estimates/components/estimates-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -21,25 +18,27 @@ export default async function EstimatesPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'estimates');
-  const estimates = listMockEstimates(companyId).map((e) => {
-    const project = getMockProject(companyId, e.projectId);
-    const customer = project
-      ? getMockCustomer(companyId, project.customerId)
-      : undefined;
-    return {
-      id: e.id,
-      number: e.number,
-      projectId: e.projectId,
-      projectName: project?.name ?? '—',
-      customerName: customer?.name ?? '—',
-      status: e.status,
-      createdAt: formatDate(e.createdAt),
-      subtotal: e.subtotal,
-      total: e.total,
-    };
-  });
+  const estimates = await Promise.all(
+    (await listEstimates(companyId)).map(async (e) => {
+      const project = await getProject(companyId, e.projectId);
+      const customer = project
+        ? await getCustomer(companyId, project.customerId)
+        : undefined;
+      return {
+        id: e.id,
+        number: e.number,
+        projectId: e.projectId,
+        projectName: project?.name ?? '—',
+        customerName: customer?.name ?? '—',
+        status: e.status,
+        createdAt: formatDate(e.createdAt),
+        subtotal: e.subtotal,
+        total: e.total,
+      };
+    }),
+  );
 
-  const projects = listMockProjects(companyId).map((p) => ({
+  const projects = (await listProjects(companyId)).map((p) => ({
     id: p.id,
     label: `${p.number} — ${p.name}`,
   }));

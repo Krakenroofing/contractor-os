@@ -16,14 +16,13 @@ import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCostCode,
-  getMockCustomer,
-  getMockEstimate,
-  getMockEstimateLineItems,
-  getMockProject,
-} from '@/lib/mock-store';
-import { STATUS_LABEL, STATUS_TONE } from '@/modules/estimates/schema';
+import { loadCostCodeMap } from '@/lib/data/cost-codes';
+import { getEstimate, getEstimateLineItems } from '@/lib/data/estimates';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
+import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
+import { StatusBadge } from '@/modules/status/components/status-badge';
+import { StatusPanel } from '@/modules/status/components/status-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,12 +41,13 @@ export default async function EstimateDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'estimates');
-  const estimate = getMockEstimate(companyId, id);
+  const estimate = await getEstimate(companyId, id);
   if (!estimate) notFound();
 
-  const project = getMockProject(companyId, estimate.projectId);
-  const customer = project ? getMockCustomer(companyId, project.customerId) : undefined;
-  const lines = getMockEstimateLineItems(estimate.id);
+  const project = await getProject(companyId, estimate.projectId);
+  const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
+  const lines = await getEstimateLineItems(estimate.id);
+  const codeMap = await loadCostCodeMap(companyId, lines.map((l) => l.costCodeId));
 
   const subtotal = Number(estimate.subtotal);
   const total = Number(estimate.total);
@@ -94,8 +94,20 @@ export default async function EstimateDetailPage({
             )}
           </div>
         </div>
-        <Badge tone={STATUS_TONE[estimate.status]}>{STATUS_LABEL[estimate.status]}</Badge>
+        <StatusBadge entityType="estimate" status={estimate.status} />
       </div>
+
+      <StatusPanel
+        entityType="estimate"
+        entityId={estimate.id}
+        status={estimate.status}
+        timestamps={[
+          { label: 'Created', value: estimate.createdAt },
+          { label: 'Submitted', value: estimate.submittedAt },
+          { label: 'Approved', value: estimate.approvedAt },
+          { label: 'Rejected', value: estimate.rejectedAt },
+        ]}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -158,7 +170,7 @@ export default async function EstimateDetailPage({
               </TableHeader>
               <TableBody>
                 {lines.map((l) => {
-                  const code = getMockCostCode(companyId, l.costCodeId);
+                  const code = codeMap.get(l.costCodeId);
                   return (
                     <TableRow key={l.id}>
                       <TableCell className="font-mono text-xs text-slate-700">
@@ -188,6 +200,8 @@ export default async function EstimateDetailPage({
           )}
         </CardContent>
       </Card>
+
+      <ActivityLogCard entityType="estimate" entityId={estimate.id} />
     </div>
   );
 }

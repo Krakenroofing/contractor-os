@@ -1,17 +1,14 @@
 import 'server-only';
 import {
-  getMockCostCode,
-  getMockCustomer,
-  getMockEstimateLineItems,
-  getMockProject,
-  getMockPurchaseOrderLines,
   listJobCostEntriesForProject,
-  listLandedCostsForProject,
   listLaborEntriesForProject,
-  listMockEstimates,
-  listMockProjects,
-  listPurchaseOrdersForProject,
 } from '@/lib/mock-store';
+import { loadCostCodeMap } from '@/lib/data/cost-codes';
+import { getEstimateLineItems, listEstimatesForProject } from '@/lib/data/estimates';
+import { getPurchaseOrderLines, listPurchaseOrdersForProject } from '@/lib/data/purchase-orders';
+import { listLandedCostsForProject } from '@/lib/data/landed-costs';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject, listProjects } from '@/lib/data/projects';
 import { getActiveCompanyId } from '@/lib/active-company';
 import {
   add,
@@ -59,37 +56,35 @@ export type CategoryTotals = {
   actual: number;
 };
 
-function primaryEstimateForProject(companyId: string, projectId: string) {
-  const estimates = listMockEstimates(companyId).filter(
-    (e) => e.projectId === projectId,
-  );
+async function primaryEstimateForProject(companyId: string, projectId: string) {
+  const estimates = await listEstimatesForProject(companyId, projectId);
   if (estimates.length === 0) return null;
   // Prefer approved, then sent, then most recent draft.
   const priority: Record<string, number> = { approved: 0, sent: 1, draft: 2, rejected: 3 };
-  estimates.sort(
+  const sorted = [...estimates].sort(
     (a, b) =>
       (priority[a.status] ?? 99) - (priority[b.status] ?? 99) ||
       +b.createdAt - +a.createdAt,
   );
-  return estimates[0];
+  return sorted[0];
 }
 
-export function computeProjectFinancials(
+export async function computeProjectFinancials(
   companyId: string,
   projectId: string,
-): ProjectFinancials | null {
-  const project = getMockProject(companyId, projectId);
+): Promise<ProjectFinancials | null> {
+  const project = await getProject(companyId, projectId);
   if (!project) return null;
-  const customer = getMockCustomer(companyId, project.customerId);
+  const customer = await getCustomer(companyId, project.customerId);
 
   const originalContract = parseMoney(project.originalContractValue);
   const approvedChangeOrders = parseMoney(project.totalChangeOrders);
   const revisedContractValue = parseMoney(project.contractValue);
 
-  const primaryEstimate = primaryEstimateForProject(companyId, projectId);
+  const primaryEstimate = await primaryEstimateForProject(companyId, projectId);
   const estimatedCost = primaryEstimate ? parseMoney(primaryEstimate.subtotal) : 0;
 
-  const projectPOs = listPurchaseOrdersForProject(projectId).filter(
+  const projectPOs = (await listPurchaseOrdersForProject(projectId)).filter(
     (p) => p.status !== 'void',
   );
 
@@ -100,7 +95,7 @@ export function computeProjectFinancials(
 
   let actualFromPOs = 0;
   for (const po of projectPOs) {
-    const lines = getMockPurchaseOrderLines(po.id);
+    const lines = await getPurchaseOrderLines(po.id);
     for (const line of lines) {
       actualFromPOs = add(
         actualFromPOs,
@@ -117,7 +112,7 @@ export function computeProjectFinancials(
 
   // Landed cost surcharge = total all-in landed cost minus the supplier
   // material we've already captured in PO line totals — avoids double-counting.
-  const landedCosts = listLandedCostsForProject(projectId);
+  const landedCosts = await listLandedCostsForProject(projectId);
   const landedCostTotal = landedCosts.reduce(
     (a, l) => add(a, parseMoney(l.totalLandedCost)),
     0,
@@ -156,16 +151,20 @@ export function computeProjectFinancials(
   };
 }
 
-export function listAllProjectFinancials(companyId: string): ProjectFinancials[] {
-  return listMockProjects(companyId)
-    .map((p) => computeProjectFinancials(companyId, p.id))
-    .filter((x): x is ProjectFinancials => x !== null);
+export async function listAllProjectFinancials(
+  companyId: string,
+): Promise<ProjectFinancials[]> {
+  const projects = await listProjects(companyId);
+  const financials = await Promise.all(
+    projects.map((p) => computeProjectFinancials(companyId, p.id)),
+  );
+  return financials.filter((x): x is ProjectFinancials => x !== null);
 }
 
-export function computeProjectCostCodeBreakdown(
+export async function computeProjectCostCodeBreakdown(
   companyId: string,
   projectId: string,
-): CostCodeBreakdownRow[] {
+): Promise<CostCodeBreakdownRow[]> {
   const aggregates = new Map<
     string,
     { budgeted: number; committed: number; actual: number }
@@ -178,9 +177,9 @@ export function computeProjectCostCodeBreakdown(
     return aggregates.get(codeId)!;
   };
 
-  const primaryEstimate = primaryEstimateForProject(companyId, projectId);
+  const primaryEstimate = await primaryEstimateForProject(companyId, projectId);
   if (primaryEstimate) {
-    const lines = getMockEstimateLineItems(primaryEstimate.id);
+    const lines = await getEstimateLineItems(primaryEstimate.id);
     for (const line of lines) {
       const cost = multiply(Number(line.quantity), Number(line.unitCost));
       const agg = ensure(line.costCodeId);
@@ -188,11 +187,11 @@ export function computeProjectCostCodeBreakdown(
     }
   }
 
-  const projectPOs = listPurchaseOrdersForProject(projectId).filter(
+  const projectPOs = (await listPurchaseOrdersForProject(projectId)).filter(
     (p) => p.status !== 'void',
   );
   for (const po of projectPOs) {
-    const lines = getMockPurchaseOrderLines(po.id);
+    const lines = await getPurchaseOrderLines(po.id);
     for (const line of lines) {
       const agg = ensure(line.costCodeId);
       agg.committed = add(agg.committed, parseMoney(line.lineTotal));
@@ -213,9 +212,11 @@ export function computeProjectCostCodeBreakdown(
     agg.actual = add(agg.actual, parseMoney(e.amount));
   }
 
+  const codeMap = await loadCostCodeMap(companyId, Array.from(aggregates.keys()));
+
   const rows: CostCodeBreakdownRow[] = [];
   for (const [costCodeId, agg] of aggregates) {
-    const code = getMockCostCode(companyId, costCodeId);
+    const code = codeMap.get(costCodeId);
     if (!code) continue;
     rows.push({
       costCodeId,
@@ -253,6 +254,6 @@ export function computeCategoryTotals(rows: CostCodeBreakdownRow[]): CategoryTot
     .filter((c) => c.budgeted > 0 || c.committed > 0 || c.actual > 0);
 }
 
-export function listProjectPurchaseOrders(projectId: string): PurchaseOrder[] {
+export async function listProjectPurchaseOrders(projectId: string): Promise<PurchaseOrder[]> {
   return listPurchaseOrdersForProject(projectId);
 }

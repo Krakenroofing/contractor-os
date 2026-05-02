@@ -5,18 +5,16 @@ import { EstimateForm } from '@/modules/estimates/components/estimate-form';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  listMockCostCodes,
-  listMockEstimates,
-  listMockProjects,
-} from '@/lib/mock-store';
+import { listCostCodes } from '@/lib/data/cost-codes';
+import { listEstimates } from '@/lib/data/estimates';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
-function nextEstimateNumber(companyId: string): string {
+async function nextEstimateNumber(companyId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const existing = listMockEstimates(companyId);
+  const existing = await listEstimates(companyId);
   const matching = existing
     .map((e) => e.number)
     .filter((n) => n.startsWith(`EST-${year}-`))
@@ -30,14 +28,16 @@ export default async function NewEstimatePage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'estimates')) redirect('/estimates');
   const companyId = await getActiveCompanyId();
-  const projects = listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
-    return {
-      id: p.id,
-      label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
-    };
-  });
-  const costCodes = listMockCostCodes(companyId).map((c) => ({
+  const projects = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+      };
+    }),
+  );
+  const costCodes = (await listCostCodes(companyId)).map((c) => ({
     id: c.id,
     code: c.code,
     description: c.description,
@@ -61,7 +61,7 @@ export default async function NewEstimatePage() {
       <EstimateForm
         projects={projects}
         costCodes={costCodes}
-        defaultNumber={nextEstimateNumber(companyId)}
+        defaultNumber={await nextEstimateNumber(companyId)}
       />
     </div>
   );

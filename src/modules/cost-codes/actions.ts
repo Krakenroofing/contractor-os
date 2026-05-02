@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createMockCostCode, DuplicateCostCodeError } from '@/lib/mock-store';
+import { createCostCode, DuplicateCostCodeError } from '@/lib/data/cost-codes';
 import { costCodeFormSchema } from './schema';
 
 export type CreateCostCodeState = {
@@ -30,7 +30,7 @@ export async function createCostCodeAction(
   let createdId: string;
 
   try {
-    const created = createMockCostCode(companyId, {
+    const created = await createCostCode(companyId, {
       code: data.code,
       description: data.description,
       category: data.category,

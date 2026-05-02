@@ -1,6 +1,7 @@
 import 'server-only';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { getMockCustomer, getMockProject, listMockProjects } from '@/lib/mock-store';
+import { listCustomers, getCustomer } from '@/lib/data/customers';
+import { listProjects as listProjectsData, getProject } from '@/lib/data/projects';
 import type { Project } from '@/db/schema';
 
 export type ProjectListRow = {
@@ -19,8 +20,13 @@ export type ProjectListRow = {
 
 export async function listProjects(): Promise<ProjectListRow[]> {
   const companyId = await getActiveCompanyId();
-  return listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
+  const [projects, customers] = await Promise.all([
+    listProjectsData(companyId),
+    listCustomers(companyId),
+  ]);
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+  return projects.map((p) => {
+    const customer = customerById.get(p.customerId);
     return {
       id: p.id,
       number: p.number,
@@ -39,9 +45,9 @@ export async function listProjects(): Promise<ProjectListRow[]> {
 
 export async function getProjectById(id: string) {
   const companyId = await getActiveCompanyId();
-  const project = getMockProject(companyId, id);
+  const project = await getProject(companyId, id);
   if (!project) return null;
-  const customer = getMockCustomer(companyId, project.customerId);
+  const customer = await getCustomer(companyId, project.customerId);
   if (!customer) return null;
   return { project, customer };
 }

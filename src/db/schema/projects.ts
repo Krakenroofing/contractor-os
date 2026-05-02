@@ -53,6 +53,13 @@ export const projects = pgTable(
       .notNull()
       .default('0'),
     notes: text('notes'),
+    // Reconciliation verification — set when an operator confirms the
+    // project's financials match real-world numbers.
+    reconciliationVerifiedAt: timestamp('reconciliation_verified_at', {
+      withTimezone: true,
+    }),
+    reconciliationVerifiedRole: text('reconciliation_verified_role'),
+    reconciliationVerifiedNote: text('reconciliation_verified_note'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

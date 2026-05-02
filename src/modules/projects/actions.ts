@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createMockProject, DuplicateProjectNumberError } from '@/lib/mock-store';
+import { createProject } from '@/lib/data/projects';
+import { DuplicateProjectNumberError } from '@/lib/mock-store';
 import { projectFormSchema } from './schema';
 
 export type CreateProjectState = {
@@ -46,7 +47,7 @@ export async function createProjectAction(
   let createdId: string;
 
   try {
-    const project = createMockProject(companyId, {
+    const project = await createProject(companyId, {
       customerId: data.customerId,
       number: data.number,
       name: data.name,

@@ -12,7 +12,7 @@ import {
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { listMockCostCodes } from '@/lib/mock-store';
+import { listCostCodes } from '@/lib/data/cost-codes';
 import { CATEGORY_LABEL, CATEGORY_TONE, type CostCodeCategory } from '@/modules/cost-codes/schema';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ export default async function CostCodesPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'cost_codes');
-  const costCodes = listMockCostCodes(companyId);
+  const costCodes = await listCostCodes(companyId);
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

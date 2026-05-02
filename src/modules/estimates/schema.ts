@@ -1,18 +1,29 @@
 import { z } from 'zod';
 
-export const estimateStatusValues = ['draft', 'sent', 'approved', 'rejected'] as const;
+// Canonical status set for estimates. The legacy 'sent' value still works on
+// existing rows and is normalized to 'internal_review' for display via
+// @/lib/status-machine.
+export const estimateStatusValues = [
+  'draft',
+  'internal_review',
+  'sent', // legacy alias of internal_review
+  'approved',
+  'rejected',
+] as const;
 export type EstimateStatus = (typeof estimateStatusValues)[number];
 
 export const STATUS_LABEL: Record<EstimateStatus, string> = {
   draft: 'Draft',
-  sent: 'Sent',
+  internal_review: 'Internal review',
+  sent: 'Internal review',
   approved: 'Approved',
   rejected: 'Rejected',
 };
 
-export const STATUS_TONE: Record<EstimateStatus, 'slate' | 'blue' | 'green' | 'red'> = {
+export const STATUS_TONE: Record<EstimateStatus, 'slate' | 'blue' | 'amber' | 'green' | 'red'> = {
   draft: 'slate',
-  sent: 'blue',
+  internal_review: 'amber',
+  sent: 'amber',
   approved: 'green',
   rejected: 'red',
 };

@@ -13,12 +13,10 @@ import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  getMockProject,
-  getMockProposal,
-  listMockChangeOrders,
-} from '@/lib/mock-store';
+import { listChangeOrders } from '@/lib/data/change-orders';
+import { getProposal } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
 import { STATUS_LABEL, STATUS_TONE } from '@/modules/change-orders/schema';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +25,19 @@ export default async function ChangeOrdersPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'change_orders');
-  const cos = listMockChangeOrders(companyId);
+  const cos = await listChangeOrders(companyId);
+  const cosWithRefs = await Promise.all(
+    cos.map(async (c) => {
+      const project = await getProject(companyId, c.projectId);
+      const customer = project
+        ? await getCustomer(companyId, project.customerId)
+        : undefined;
+      const proposal = c.proposalId
+        ? await getProposal(companyId, c.proposalId)
+        : undefined;
+      return { c, project, customer, proposal };
+    }),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
@@ -81,14 +91,7 @@ export default async function ChangeOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {cos.map((c) => {
-                const project = getMockProject(companyId, c.projectId);
-                const customer = project
-                  ? getMockCustomer(companyId, project.customerId)
-                  : undefined;
-                const proposal = c.proposalId
-                  ? getMockProposal(companyId, c.proposalId)
-                  : undefined;
+              {cosWithRefs.map(({ c, project, customer, proposal }) => {
                 return (
                   <TableRow key={c.id}>
                     <TableCell className="font-mono text-xs text-slate-700">

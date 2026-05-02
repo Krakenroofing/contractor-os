@@ -1,6 +1,8 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { getDb, isDatabaseConfigured } from '@/db';
 import type {
+  ActivityLogEntry,
   ChangeOrder,
   ChangeOrderLineItem,
   Company,
@@ -8,6 +10,10 @@ import type {
   Customer,
   Estimate,
   EstimateLineItem,
+  Invoice,
+  InvoiceLineItem,
+  InvoicePayment,
+  InvoiceTemplate,
   JobCostEntry,
   LaborEntry,
   LandedCost,
@@ -15,6 +21,7 @@ import type {
   Proposal,
   PurchaseOrder,
   PurchaseOrderLine,
+  RetainageRelease,
   Vendor,
 } from '@/db/schema';
 
@@ -49,6 +56,12 @@ type Store = {
   laborEntries: LaborEntry[];
   jobCostEntries: JobCostEntry[];
   landedCosts: LandedCost[];
+  invoiceTemplates: InvoiceTemplate[];
+  invoices: Invoice[];
+  invoiceLineItems: InvoiceLineItem[];
+  invoicePayments: InvoicePayment[];
+  retainageReleases: RetainageRelease[];
+  activityLog: ActivityLogEntry[];
 };
 
 declare global {
@@ -143,6 +156,9 @@ function makeProject(
     totalChangeOrders: '0',
     currentBudget: '0',
     notes: null,
+    reconciliationVerifiedAt: null,
+    reconciliationVerifiedRole: null,
+    reconciliationVerifiedNote: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -498,15 +514,24 @@ function buildProposal(input: SeedProposal): Proposal {
     termsAndConditions: input.termsAndConditions,
     pdfUrl: null,
     publicToken: null,
+    submittedAt: input.status !== 'draft' ? now : null,
     sentAt: input.status !== 'draft' ? now : null,
     viewedAt:
       input.status === 'viewed' ||
       input.status === 'accepted' ||
-      input.status === 'declined'
+      input.status === 'approved' ||
+      input.status === 'declined' ||
+      input.status === 'rejected'
         ? now
         : null,
-    acceptedAt: input.status === 'accepted' ? now : null,
-    declinedAt: input.status === 'declined' ? now : null,
+    approvedAt:
+      input.status === 'approved' || input.status === 'accepted' ? now : null,
+    rejectedAt:
+      input.status === 'rejected' || input.status === 'declined' ? now : null,
+    acceptedAt:
+      input.status === 'approved' || input.status === 'accepted' ? now : null,
+    declinedAt:
+      input.status === 'rejected' || input.status === 'declined' ? now : null,
     signatureImageUrl: null,
     signedByName: input.signedByName ?? null,
     signedByEmail: input.signedByEmail ?? null,
@@ -575,8 +600,16 @@ function buildEstimateAndLines(
     markupPercent: '0.000',
     overheadPercent: '0.000',
     validUntil,
+    submittedAt:
+      status === 'internal_review' ||
+      status === 'sent' ||
+      status === 'approved' ||
+      status === 'rejected'
+        ? now
+        : null,
     sentAt: status === 'sent' || status === 'approved' || status === 'rejected' ? now : null,
     approvedAt: status === 'approved' ? now : null,
+    rejectedAt: status === 'rejected' ? now : null,
     parentEstimateId: null,
     createdAt: now,
     updatedAt: now,
@@ -588,6 +621,246 @@ function buildEstimateAndLines(
 // =====================================================================
 // seed
 // =====================================================================
+
+// =====================================================================
+// Invoice template + invoice seed helpers
+// =====================================================================
+
+type SeedInvoiceTemplate = Partial<InvoiceTemplate> &
+  Pick<InvoiceTemplate, 'companyId' | 'name'>;
+
+function buildInvoiceTemplate(over: SeedInvoiceTemplate): InvoiceTemplate {
+  const now = new Date();
+  return {
+    id: randomUUID(),
+    companyId: over.companyId,
+    name: over.name,
+    description: null,
+    isDefault: false,
+    showCompanyBranding: true,
+    showHeader: true,
+    showLineItems: true,
+    showPaymentTerms: true,
+    showRetainage: false,
+    showTaxVat: true,
+    showNotes: true,
+    showSignature: true,
+    showFooter: true,
+    headerLayout: 'standard',
+    lineItemLayout: 'detailed',
+    headerNote: null,
+    paymentTermsText: null,
+    retainageText: null,
+    notesText: null,
+    footerText: null,
+    createdAt: now,
+    updatedAt: now,
+    ...over,
+  };
+}
+
+function seedInvoiceTemplatesForCompany(companyId: string): InvoiceTemplate[] {
+  return [
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Standard Progress Invoice',
+      description:
+        'All sections visible. Most common contractor billing template.',
+      isDefault: true,
+      showRetainage: true,
+      paymentTermsText:
+        'Net 15 from invoice date. Late payments accrue 1.5% per month.',
+      footerText: 'Thank you for your business.',
+    }),
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Deposit Invoice',
+      description: 'Single lump-sum line. Used for upfront deposits.',
+      lineItemLayout: 'lumpsum',
+      showRetainage: false,
+      showLineItems: true,
+      paymentTermsText:
+        'Deposit due upon contract signing. Work begins on receipt.',
+      headerNote: 'Deposit invoice — work has not yet commenced.',
+    }),
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Retainage Billing',
+      description:
+        'Final retainage release. Emphasizes retainage block, hides line items.',
+      showRetainage: true,
+      showLineItems: false,
+      lineItemLayout: 'summary',
+      retainageText:
+        'Final retainage released following punch-list completion and Owner sign-off.',
+      paymentTermsText: 'Net 30 from invoice date.',
+    }),
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Change Order Invoice',
+      description: 'Focused on change-order line items only.',
+      lineItemLayout: 'detailed',
+      showRetainage: false,
+      headerNote:
+        'Change order billing — references the approved CO attached to this project.',
+    }),
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Partner Transparent Cost Breakdown',
+      description:
+        'Open-book partner billing. All line items, costs, and overhead visible.',
+      lineItemLayout: 'detailed',
+      showRetainage: true,
+      headerLayout: 'detailed',
+      paymentTermsText:
+        'Net 15. Open-book — supporting documentation provided on request.',
+      notesText:
+        'Cost breakdown reflects actual costs incurred plus agreed-upon overhead.',
+    }),
+    buildInvoiceTemplate({
+      companyId,
+      name: 'Simple Lump Sum Invoice',
+      description: 'Minimal layout. Single total, no line-item detail.',
+      lineItemLayout: 'lumpsum',
+      showLineItems: true,
+      showRetainage: false,
+      showNotes: false,
+      headerLayout: 'compact',
+    }),
+  ];
+}
+
+type SeedInvoiceLine = {
+  costCodeId?: string | null;
+  description: string;
+  unit?: string | null;
+  quantity: number;
+  unitCost: number;
+};
+
+type SeedInvoice = {
+  companyId: string;
+  number: string;
+  projectId: string;
+  proposalId?: string | null;
+  changeOrderId?: string | null;
+  templateId?: string | null;
+  status: Invoice['status'];
+  billingType: Invoice['billingType'];
+  invoiceDate: string;
+  dueDate: string | null;
+  taxAmount: number;
+  retainagePercent?: number;
+  retainageAmount: number;
+  retainageReleased?: number;
+  expectedRetainageReleaseDate?: string | null;
+  amountPaid: number;
+  notes?: string | null;
+  termsOverride?: string | null;
+  lines: SeedInvoiceLine[];
+  payments?: {
+    paymentNumber: string;
+    paidDate: string;
+    amount: number;
+    method: string;
+    reference?: string;
+    bankAccount?: string;
+    status?: 'pending' | 'received' | 'applied' | 'returned';
+  }[];
+  retainageReleases?: {
+    releaseNumber: string;
+    releaseDate: string;
+    amount: number;
+    paymentId?: string | null;
+    notes?: string | null;
+  }[];
+};
+
+function buildInvoice(input: SeedInvoice): {
+  invoice: Invoice;
+  lines: InvoiceLineItem[];
+  payments: InvoicePayment[];
+  retainageReleases: RetainageRelease[];
+} {
+  const now = new Date();
+  const invoiceId = randomUUID();
+  let subtotal = 0;
+  const lines: InvoiceLineItem[] = input.lines.map((sl, i) => {
+    const lineTotal = sl.quantity * sl.unitCost;
+    subtotal += lineTotal;
+    return {
+      id: randomUUID(),
+      invoiceId,
+      costCodeId: sl.costCodeId ?? null,
+      description: sl.description,
+      unit: sl.unit ?? null,
+      quantity: sl.quantity.toFixed(4),
+      unitCost: sl.unitCost.toFixed(4),
+      lineTotal: lineTotal.toFixed(2),
+      sortOrder: i,
+    };
+  });
+  const total = subtotal + input.taxAmount - input.retainageAmount;
+  // Auto-derive retainage % from held / subtotal when not explicitly provided.
+  const derivedPct =
+    input.retainagePercent ??
+    (subtotal > 0 ? (input.retainageAmount / subtotal) * 100 : 0);
+  const invoice: Invoice = {
+    id: invoiceId,
+    companyId: input.companyId,
+    projectId: input.projectId,
+    proposalId: input.proposalId ?? null,
+    changeOrderId: input.changeOrderId ?? null,
+    templateId: input.templateId ?? null,
+    number: input.number,
+    status: input.status,
+    billingType: input.billingType,
+    invoiceDate: input.invoiceDate,
+    dueDate: input.dueDate,
+    subtotal: subtotal.toFixed(2),
+    taxAmount: input.taxAmount.toFixed(2),
+    retainagePercent: derivedPct.toFixed(3),
+    retainageAmount: input.retainageAmount.toFixed(2),
+    retainageReleased: (input.retainageReleased ?? 0).toFixed(2),
+    expectedRetainageReleaseDate: input.expectedRetainageReleaseDate ?? null,
+    total: total.toFixed(2),
+    amountPaid: input.amountPaid.toFixed(2),
+    notes: input.notes ?? null,
+    termsOverride: input.termsOverride ?? null,
+    sentAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
+    paidAt: input.status === 'paid' ? now : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const payments: InvoicePayment[] =
+    input.payments?.map((p) => ({
+      id: randomUUID(),
+      invoiceId,
+      paymentNumber: p.paymentNumber,
+      paidDate: p.paidDate,
+      amount: p.amount.toFixed(2),
+      method: p.method ?? null,
+      reference: p.reference ?? null,
+      bankAccount: p.bankAccount ?? null,
+      status: p.status ?? 'received',
+      notes: null,
+      createdAt: now,
+    })) ?? [];
+  const retainageReleases: RetainageRelease[] =
+    input.retainageReleases?.map((r) => ({
+      id: randomUUID(),
+      companyId: input.companyId,
+      invoiceId,
+      projectId: input.projectId,
+      paymentId: r.paymentId ?? null,
+      releaseNumber: r.releaseNumber,
+      releaseDate: r.releaseDate,
+      amount: r.amount.toFixed(2),
+      notes: r.notes ?? null,
+      createdAt: now,
+    })) ?? [];
+  return { invoice, lines, payments, retainageReleases };
+}
 
 function seed(): Store {
   // ---------- Companies ----------
@@ -742,7 +1015,7 @@ function seed(): Store {
     KRAKEN_ID,
     'EST-2026-002',
     sunsetProject.id,
-    'sent',
+    'internal_review',
     '2026-05-15',
     [
       { costCode: '01-400', unit: 'sq', quantity: 380, unitCost: 95, markupPercent: 18 },
@@ -772,7 +1045,7 @@ function seed(): Store {
     projectId: smithProject.id,
     estimateId: smithEstimate.estimate.id,
     total: smithEstimate.estimate.total,
-    status: 'accepted',
+    status: 'approved',
     proposalDate: '2026-04-01',
     expiryDate: '2026-05-01',
     scopeOfWork:
@@ -842,7 +1115,7 @@ function seed(): Store {
       number: 'CO-2026-002',
       projectId: sunsetProject.id,
       proposalId: sunsetProposal.id,
-      status: 'pending_customer',
+      status: 'submitted',
       reason: 'conditions',
       description:
         'Additional dry-rot repair discovered on Building B north slope. Replace ~150 sq ft of decking before topcoat application.',
@@ -1114,6 +1387,363 @@ function seed(): Store {
     trbCodeLookup,
   );
 
+  // ---------- Invoice templates + demo invoices ----------
+  const krakenTemplates = seedInvoiceTemplatesForCompany(KRAKEN_ID);
+  const trbTemplates = seedInvoiceTemplatesForCompany(TRB_ID);
+  const krakenStandardTpl = krakenTemplates.find((t) => t.name === 'Standard Progress Invoice')!;
+  const krakenDepositTpl = krakenTemplates.find((t) => t.name === 'Deposit Invoice')!;
+  const krakenCOTpl = krakenTemplates.find((t) => t.name === 'Change Order Invoice')!;
+  const trbDepositTpl = trbTemplates.find((t) => t.name === 'Deposit Invoice')!;
+
+  const smithProgressInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-001',
+    projectId: smithProject.id,
+    proposalId: smithProposal.id,
+    templateId: krakenStandardTpl.id,
+    status: 'partial',
+    billingType: 'progress',
+    invoiceDate: '2026-04-20',
+    dueDate: '2026-05-05',
+    taxAmount: 0,
+    retainagePercent: 10,
+    retainageAmount: 1425,
+    retainageReleased: 0,
+    expectedRetainageReleaseDate: '2026-06-10',
+    amountPaid: 8000,
+    notes: 'Progress billing #1 — 50% milestone after tear-off & decking complete.',
+    lines: [
+      {
+        description: 'Progress billing — Smith roof (50% milestone)',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 14250,
+      },
+    ],
+    payments: [
+      {
+        paymentNumber: 'PAY-2026-001',
+        paidDate: '2026-04-22',
+        amount: 8000,
+        method: 'wire',
+        reference: 'WT-44218',
+        bankAccount: 'Operating — Wells Fargo ••4218',
+        status: 'applied',
+      },
+    ],
+  });
+
+  const smithCOInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-002',
+    projectId: smithProject.id,
+    proposalId: smithProposal.id,
+    changeOrderId: smithCO.co.id,
+    templateId: krakenCOTpl.id,
+    status: 'paid',
+    billingType: 'change_order',
+    invoiceDate: '2026-04-25',
+    dueDate: '2026-05-10',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 2500,
+    notes: 'Approved CO-2026-001: ridge ventilation upgrade.',
+    lines: [
+      {
+        description: 'CO-2026-001 — Ridge ventilation, labor + material',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 2500,
+      },
+    ],
+    payments: [
+      {
+        paymentNumber: 'PAY-2026-002',
+        paidDate: '2026-04-30',
+        amount: 2500,
+        method: 'check',
+        reference: '#1042',
+        bankAccount: 'Operating — Wells Fargo ••4218',
+        status: 'applied',
+      },
+    ],
+  });
+
+  const sunsetDepositInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-003',
+    projectId: sunsetProject.id,
+    proposalId: sunsetProposal.id,
+    templateId: krakenDepositTpl.id,
+    status: 'sent',
+    billingType: 'deposit',
+    invoiceDate: '2026-05-01',
+    dueDate: '2026-05-15',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: '25% deposit due upon contract signing.',
+    lines: [
+      {
+        description: '25% mobilization deposit — Sunset Plaza TPO recoat',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 35500,
+      },
+    ],
+  });
+
+  const baysideDepositInv = buildInvoice({
+    companyId: TRB_ID,
+    number: 'INV-2026-T01',
+    projectId: baysideProject.id,
+    templateId: trbDepositTpl.id,
+    status: 'draft',
+    billingType: 'deposit',
+    invoiceDate: '2026-05-15',
+    dueDate: '2026-05-30',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: '25% deposit on signed contract for Bayside cedar shake re-roof.',
+    lines: [
+      {
+        description: '25% deposit — Bayside Beach House cedar shake re-roof',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 11250,
+      },
+    ],
+  });
+
+  // Aging-spread invoices so AR demo shows every bucket.
+  const smithLateInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-004',
+    projectId: smithProject.id,
+    proposalId: smithProposal.id,
+    templateId: krakenStandardTpl.id,
+    status: 'sent',
+    billingType: 'progress',
+    invoiceDate: '2026-03-15',
+    dueDate: '2026-04-01',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: 'Supplemental sheathing & flashing labor.',
+    lines: [
+      { description: 'Sheathing repair — supplemental', unit: 'lot', quantity: 1, unitCost: 5000 },
+    ],
+  });
+
+  const sunsetMidLateInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-005',
+    projectId: sunsetProject.id,
+    proposalId: sunsetProposal.id,
+    templateId: krakenStandardTpl.id,
+    status: 'sent',
+    billingType: 'milestone',
+    invoiceDate: '2026-02-10',
+    dueDate: '2026-03-01',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: 'Building A milestone: tear-off + primer complete.',
+    lines: [
+      { description: 'Building A — tear-off + primer milestone', unit: 'lot', quantity: 1, unitCost: 7500 },
+    ],
+  });
+
+  const garciaLateInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-006',
+    projectId: garciaProject.id,
+    templateId: krakenStandardTpl.id,
+    status: 'sent',
+    billingType: 'progress',
+    invoiceDate: '2026-01-25',
+    dueDate: '2026-02-15',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: 'Pre-construction & design fees.',
+    lines: [
+      { description: 'Pre-construction & design fees', unit: 'lot', quantity: 1, unitCost: 3200 },
+    ],
+  });
+
+  const baysideOldInv = buildInvoice({
+    companyId: TRB_ID,
+    number: 'INV-2026-T02',
+    projectId: baysideProject.id,
+    templateId: trbDepositTpl.id,
+    status: 'sent',
+    billingType: 'deposit',
+    invoiceDate: '2025-11-20',
+    dueDate: '2025-12-15',
+    taxAmount: 0,
+    retainageAmount: 0,
+    amountPaid: 0,
+    notes: 'Initial planning retainer (long overdue).',
+    lines: [
+      { description: 'Initial planning retainer', unit: 'lot', quantity: 1, unitCost: 2000 },
+    ],
+  });
+
+  // ---------- Retainage demo invoices ----------
+  // Sunset Plaza Building A milestone invoice — fully PAID but with $750
+  // retainage still held; one partial release of $300 already made. This drives
+  // the "partially_released" status in the Retainage dashboard.
+  const sunsetRetentionInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-007',
+    projectId: sunsetProject.id,
+    proposalId: sunsetProposal.id,
+    templateId: krakenStandardTpl.id,
+    status: 'paid',
+    billingType: 'milestone',
+    invoiceDate: '2026-03-25',
+    dueDate: '2026-04-15',
+    taxAmount: 0,
+    retainagePercent: 10,
+    retainageAmount: 750,
+    retainageReleased: 300,
+    expectedRetainageReleaseDate: '2026-07-15',
+    amountPaid: 6750,
+    notes: 'Building A milestone — primer + topcoat complete. Retainage 10%.',
+    lines: [
+      {
+        description: 'Building A — primer + topcoat milestone',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 7500,
+      },
+    ],
+    payments: [
+      {
+        paymentNumber: 'PAY-2026-003',
+        paidDate: '2026-04-12',
+        amount: 6750,
+        method: 'ach',
+        reference: 'ACH-77821',
+        bankAccount: 'Operating — Wells Fargo ••4218',
+        status: 'applied',
+      },
+    ],
+    retainageReleases: [
+      {
+        releaseNumber: 'RTN-2026-001',
+        releaseDate: '2026-04-25',
+        amount: 300,
+        notes: 'Partial retainage release — portion of Building A scope signed off.',
+      },
+    ],
+  });
+
+  // Older completed Smith mini-job — 5% retainage was held and has been fully
+  // RELEASED. Drives the "released" status row.
+  const smithReleasedInv = buildInvoice({
+    companyId: KRAKEN_ID,
+    number: 'INV-2026-008',
+    projectId: smithProject.id,
+    proposalId: smithProposal.id,
+    templateId: krakenStandardTpl.id,
+    status: 'paid',
+    billingType: 'final',
+    invoiceDate: '2026-02-15',
+    dueDate: '2026-03-01',
+    taxAmount: 0,
+    retainagePercent: 5,
+    retainageAmount: 250,
+    retainageReleased: 250,
+    expectedRetainageReleaseDate: '2026-04-15',
+    amountPaid: 4750,
+    notes:
+      'Final retainage on supplemental gutter work — released after punch-list sign-off.',
+    lines: [
+      {
+        description: 'Supplemental gutter scope (final billing)',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 5000,
+      },
+    ],
+    payments: [
+      {
+        paymentNumber: 'PAY-2026-004',
+        paidDate: '2026-03-01',
+        amount: 4750,
+        method: 'check',
+        reference: '#1019',
+        bankAccount: 'Operating — Wells Fargo ••4218',
+        status: 'applied',
+      },
+    ],
+    retainageReleases: [
+      {
+        releaseNumber: 'RTN-2026-002',
+        releaseDate: '2026-04-20',
+        amount: 250,
+        notes: 'Final retainage released after punch-list sign-off.',
+      },
+    ],
+  });
+
+  // Bayside completion invoice — paid but retainage OVERDUE (expected release
+  // 2026-03-30, today is mid-2026). Drives the "overdue" retainage row.
+  const baysideOverdueRetentionInv = buildInvoice({
+    companyId: TRB_ID,
+    number: 'INV-2026-T03',
+    projectId: baysideProject.id,
+    templateId: trbDepositTpl.id,
+    status: 'paid',
+    billingType: 'final',
+    invoiceDate: '2026-01-10',
+    dueDate: '2026-02-10',
+    taxAmount: 0,
+    retainagePercent: 10,
+    retainageAmount: 1500,
+    retainageReleased: 0,
+    expectedRetainageReleaseDate: '2026-03-30',
+    amountPaid: 13500,
+    notes:
+      'Substantial completion billing — 10% retainage held pending Owner sign-off.',
+    lines: [
+      {
+        description: 'Substantial completion — Bayside Beach House',
+        unit: 'lot',
+        quantity: 1,
+        unitCost: 15000,
+      },
+    ],
+    payments: [
+      {
+        paymentNumber: 'PAY-2026-T01',
+        paidDate: '2026-02-08',
+        amount: 13500,
+        method: 'wire',
+        reference: 'WT-T-1109',
+        bankAccount: 'TRB Operating — RBC ••0220',
+        status: 'applied',
+      },
+    ],
+  });
+
+  const seededInvoices = [
+    smithProgressInv,
+    smithCOInv,
+    sunsetDepositInv,
+    baysideDepositInv,
+    smithLateInv,
+    sunsetMidLateInv,
+    garciaLateInv,
+    baysideOldInv,
+    sunsetRetentionInv,
+    smithReleasedInv,
+    baysideOverdueRetentionInv,
+  ];
+
   // ---------- Combine ----------
   return {
     companies: [kraken, trb],
@@ -1141,6 +1771,12 @@ function seed(): Store {
     laborEntries: smithLabor,
     jobCostEntries: [],
     landedCosts: [smithLandedCost, sunsetLandedCost],
+    invoiceTemplates: [...krakenTemplates, ...trbTemplates],
+    invoices: seededInvoices.map((s) => s.invoice),
+    invoiceLineItems: seededInvoices.flatMap((s) => s.lines),
+    invoicePayments: seededInvoices.flatMap((s) => s.payments),
+    retainageReleases: seededInvoices.flatMap((s) => s.retainageReleases),
+    activityLog: [],
   };
 }
 
@@ -1434,6 +2070,478 @@ export function findPurchaseOrderForLandedCost(landedCostId: string) {
   return getStore().purchaseOrders.find((p) => p.landedCostEntryId === landedCostId);
 }
 
+// =====================================================================
+// Invoice templates
+// =====================================================================
+
+export function listMockInvoiceTemplates(companyId: string): InvoiceTemplate[] {
+  return [...getStore().invoiceTemplates]
+    .filter((t) => t.companyId === companyId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getMockInvoiceTemplate(
+  companyId: string,
+  id: string,
+): InvoiceTemplate | undefined {
+  return getStore().invoiceTemplates.find(
+    (t) => t.id === id && t.companyId === companyId,
+  );
+}
+
+export type CreateInvoiceTemplateInput = Omit<
+  InvoiceTemplate,
+  'id' | 'companyId' | 'createdAt' | 'updatedAt'
+>;
+
+export function createMockInvoiceTemplate(
+  companyId: string,
+  input: CreateInvoiceTemplateInput,
+): InvoiceTemplate {
+  const store = getStore();
+  const now = new Date();
+  const tpl: InvoiceTemplate = {
+    id: randomUUID(),
+    companyId,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+  store.invoiceTemplates.push(tpl);
+  return tpl;
+}
+
+// =====================================================================
+// Invoices
+// =====================================================================
+
+export function listMockInvoices(companyId: string): Invoice[] {
+  return [...getStore().invoices]
+    .filter((i) => i.companyId === companyId)
+    .sort((a, b) => +b.createdAt - +a.createdAt);
+}
+
+export function getMockInvoice(companyId: string, id: string): Invoice | undefined {
+  return getStore().invoices.find((i) => i.id === id && i.companyId === companyId);
+}
+
+export function getMockInvoiceLineItems(invoiceId: string): InvoiceLineItem[] {
+  return getStore()
+    .invoiceLineItems.filter((l) => l.invoiceId === invoiceId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function getMockInvoicePayments(invoiceId: string): InvoicePayment[] {
+  return getStore()
+    .invoicePayments.filter((p) => p.invoiceId === invoiceId)
+    .sort((a, b) => a.paidDate.localeCompare(b.paidDate));
+}
+
+export function listInvoicePaymentsForCompany(companyId: string): InvoicePayment[] {
+  const store = getStore();
+  const invoiceIds = new Set(
+    store.invoices.filter((i) => i.companyId === companyId).map((i) => i.id),
+  );
+  return store.invoicePayments.filter((p) => invoiceIds.has(p.invoiceId));
+}
+
+// =====================================================================
+// Payments — first-class
+// =====================================================================
+
+export function listMockPayments(companyId: string): InvoicePayment[] {
+  return [...listInvoicePaymentsForCompany(companyId)].sort((a, b) =>
+    b.paidDate.localeCompare(a.paidDate),
+  );
+}
+
+export function getMockPayment(
+  companyId: string,
+  id: string,
+): InvoicePayment | undefined {
+  const store = getStore();
+  const payment = store.invoicePayments.find((p) => p.id === id);
+  if (!payment) return undefined;
+  const inv = store.invoices.find((i) => i.id === payment.invoiceId);
+  if (!inv || inv.companyId !== companyId) return undefined;
+  return payment;
+}
+
+export class DuplicatePaymentNumberError extends Error {
+  constructor() {
+    super('Payment number already used');
+    this.name = 'DuplicatePaymentNumberError';
+  }
+}
+
+export type CreatePaymentInput = {
+  invoiceId: string;
+  paymentNumber: string;
+  paidDate: string;
+  amount: string;
+  method: string;
+  reference: string | null;
+  bankAccount: string | null;
+  status: InvoicePayment['status'];
+  notes: string | null;
+};
+
+/**
+ * Recompute invoice.amountPaid and invoice.status based on the current set of
+ * payments. Counts only payments with status in {received, applied} as "paid".
+ * Status transitions:
+ *   - balance <= 0  → paid
+ *   - amountPaid > 0 → partial
+ *   - else stays at sent / draft (overdue is derived from dueDate at render time)
+ */
+function recomputeInvoicePaymentState(invoiceId: string): void {
+  const store = getStore();
+  const inv = store.invoices.find((i) => i.id === invoiceId);
+  if (!inv) return;
+  const total = Number(inv.total);
+  let paid = 0;
+  for (const p of store.invoicePayments) {
+    if (p.invoiceId !== invoiceId) continue;
+    if (p.status === 'received' || p.status === 'applied') {
+      paid += Number(p.amount);
+    }
+  }
+  // Round to 2dp string for storage.
+  inv.amountPaid = paid.toFixed(2);
+  if (paid >= total - 0.005) {
+    inv.status = 'paid';
+    inv.paidAt = new Date();
+  } else if (paid > 0) {
+    inv.status = 'partial';
+    inv.paidAt = null;
+  } else if (inv.status === 'paid' || inv.status === 'partial') {
+    // Reverted (e.g., payment returned). Step back to "sent" if it was already sent.
+    inv.status = 'sent';
+    inv.paidAt = null;
+  }
+  inv.updatedAt = new Date();
+}
+
+/**
+ * Public wrapper around the in-memory invoice payment-state recompute. Used
+ * by the dual-backend `recomputeInvoicePaymentState` in
+ * @/lib/data/invoice-payments for the demo path.
+ */
+export function recomputeInvoicePaymentStateInMemory(invoiceId: string): void {
+  recomputeInvoicePaymentState(invoiceId);
+}
+
+export function createMockPayment(
+  companyId: string,
+  input: CreatePaymentInput,
+): InvoicePayment {
+  const store = getStore();
+  // Verify invoice belongs to active company.
+  const inv = store.invoices.find(
+    (i) => i.id === input.invoiceId && i.companyId === companyId,
+  );
+  if (!inv) {
+    throw new Error('Invoice not found in active company');
+  }
+  if (
+    store.invoicePayments.some(
+      (p) => p.paymentNumber === input.paymentNumber && p.paymentNumber !== '',
+    )
+  ) {
+    throw new DuplicatePaymentNumberError();
+  }
+  const now = new Date();
+  const payment: InvoicePayment = {
+    id: randomUUID(),
+    invoiceId: input.invoiceId,
+    paymentNumber: input.paymentNumber,
+    paidDate: input.paidDate,
+    amount: input.amount,
+    method: input.method,
+    reference: input.reference,
+    bankAccount: input.bankAccount,
+    status: input.status,
+    notes: input.notes,
+    createdAt: now,
+  };
+  store.invoicePayments.push(payment);
+  recomputeInvoicePaymentState(input.invoiceId);
+  return payment;
+}
+
+// =====================================================================
+// Retainage releases — first-class
+// =====================================================================
+
+export class DuplicateRetainageReleaseNumberError extends Error {
+  constructor() {
+    super('Retainage release number already used');
+    this.name = 'DuplicateRetainageReleaseNumberError';
+  }
+}
+
+export class RetainageOverReleaseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetainageOverReleaseError';
+  }
+}
+
+export function listMockRetainageReleases(companyId: string): RetainageRelease[] {
+  return [...getStore().retainageReleases]
+    .filter((r) => r.companyId === companyId)
+    .sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
+}
+
+export function getMockRetainageRelease(
+  companyId: string,
+  id: string,
+): RetainageRelease | undefined {
+  return getStore().retainageReleases.find(
+    (r) => r.id === id && r.companyId === companyId,
+  );
+}
+
+export function listRetainageReleasesForInvoice(
+  invoiceId: string,
+): RetainageRelease[] {
+  return [...getStore().retainageReleases]
+    .filter((r) => r.invoiceId === invoiceId)
+    .sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
+}
+
+export function listRetainageReleasesForProject(
+  projectId: string,
+): RetainageRelease[] {
+  return [...getStore().retainageReleases]
+    .filter((r) => r.projectId === projectId)
+    .sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
+}
+
+/**
+ * Recompute invoice.retainageReleased from the persisted retainage_releases
+ * table. Caps at retainageAmount so a partial-release plus cleanup stays
+ * mathematically consistent.
+ */
+function recomputeInvoiceRetainageState(invoiceId: string): void {
+  const store = getStore();
+  const inv = store.invoices.find((i) => i.id === invoiceId);
+  if (!inv) return;
+  let released = 0;
+  for (const r of store.retainageReleases) {
+    if (r.invoiceId === invoiceId) released += Number(r.amount);
+  }
+  inv.retainageReleased = released.toFixed(2);
+  inv.updatedAt = new Date();
+}
+
+/**
+ * Public wrapper around the in-memory invoice retainage-state recompute. Used
+ * by the dual-backend `recomputeInvoiceRetainageState` in
+ * @/lib/data/retainage-releases for the demo path.
+ */
+export function recomputeInvoiceRetainageStateInMemory(invoiceId: string): void {
+  recomputeInvoiceRetainageState(invoiceId);
+}
+
+export type CreateRetainageReleaseInput = {
+  invoiceId: string;
+  releaseNumber: string;
+  releaseDate: string;
+  amount: string;
+  paymentId: string | null;
+  notes: string | null;
+};
+
+export function createMockRetainageRelease(
+  companyId: string,
+  input: CreateRetainageReleaseInput,
+): RetainageRelease {
+  const store = getStore();
+  const inv = store.invoices.find(
+    (i) => i.id === input.invoiceId && i.companyId === companyId,
+  );
+  if (!inv) {
+    throw new Error('Invoice not found in active company');
+  }
+  if (
+    input.releaseNumber !== '' &&
+    store.retainageReleases.some(
+      (r) =>
+        r.companyId === companyId &&
+        r.releaseNumber === input.releaseNumber,
+    )
+  ) {
+    throw new DuplicateRetainageReleaseNumberError();
+  }
+  const heldAmount = Number(inv.retainageAmount);
+  const alreadyReleased = Number(inv.retainageReleased);
+  const incoming = Number(input.amount);
+  const balance = heldAmount - alreadyReleased;
+  if (incoming > balance + 0.005) {
+    throw new RetainageOverReleaseError(
+      `Cannot release ${input.amount}; only ${balance.toFixed(2)} of retainage remains held.`,
+    );
+  }
+  const now = new Date();
+  const release: RetainageRelease = {
+    id: randomUUID(),
+    companyId,
+    invoiceId: input.invoiceId,
+    projectId: inv.projectId,
+    paymentId: input.paymentId,
+    releaseNumber: input.releaseNumber,
+    releaseDate: input.releaseDate,
+    amount: input.amount,
+    notes: input.notes,
+    createdAt: now,
+  };
+  store.retainageReleases.push(release);
+  recomputeInvoiceRetainageState(input.invoiceId);
+  return release;
+}
+
+export function listInvoicesForProject(projectId: string): Invoice[] {
+  return [...getStore().invoices]
+    .filter((i) => i.projectId === projectId)
+    .sort((a, b) => +b.createdAt - +a.createdAt);
+}
+
+export class DuplicateInvoiceNumberError extends Error {
+  constructor() {
+    super('Invoice number already used');
+    this.name = 'DuplicateInvoiceNumberError';
+  }
+}
+
+export type CreateInvoiceInput = {
+  number: string;
+  projectId: string;
+  proposalId: string | null;
+  changeOrderId: string | null;
+  templateId: string | null;
+  status: Invoice['status'];
+  billingType: Invoice['billingType'];
+  invoiceDate: string;
+  dueDate: string | null;
+  subtotal: string;
+  taxAmount: string;
+  retainagePercent?: string;
+  retainageAmount: string;
+  retainageReleased?: string;
+  expectedRetainageReleaseDate?: string | null;
+  total: string;
+  amountPaid: string;
+  notes: string | null;
+  termsOverride: string | null;
+  lines: Array<{
+    costCodeId: string | null;
+    description: string;
+    unit: string | null;
+    quantity: string;
+    unitCost: string;
+    lineTotal: string;
+  }>;
+};
+
+export function createMockInvoice(
+  companyId: string,
+  input: CreateInvoiceInput,
+): Invoice {
+  const store = getStore();
+  if (
+    store.invoices.some((i) => i.number === input.number && i.companyId === companyId)
+  ) {
+    throw new DuplicateInvoiceNumberError();
+  }
+  const now = new Date();
+  const invoiceId = randomUUID();
+  const invoice: Invoice = {
+    id: invoiceId,
+    companyId,
+    projectId: input.projectId,
+    proposalId: input.proposalId,
+    changeOrderId: input.changeOrderId,
+    templateId: input.templateId,
+    number: input.number,
+    status: input.status,
+    billingType: input.billingType,
+    invoiceDate: input.invoiceDate,
+    dueDate: input.dueDate,
+    subtotal: input.subtotal,
+    taxAmount: input.taxAmount,
+    retainagePercent: input.retainagePercent ?? '0.000',
+    retainageAmount: input.retainageAmount,
+    retainageReleased: input.retainageReleased ?? '0.00',
+    expectedRetainageReleaseDate: input.expectedRetainageReleaseDate ?? null,
+    total: input.total,
+    amountPaid: input.amountPaid,
+    notes: input.notes,
+    termsOverride: input.termsOverride,
+    sentAt:
+      input.status !== 'draft' && input.status !== 'void' ? now : null,
+    paidAt: input.status === 'paid' ? now : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.invoices.push(invoice);
+
+  input.lines.forEach((l, i) => {
+    store.invoiceLineItems.push({
+      id: randomUUID(),
+      invoiceId,
+      costCodeId: l.costCodeId,
+      description: l.description,
+      unit: l.unit,
+      quantity: l.quantity,
+      unitCost: l.unitCost,
+      lineTotal: l.lineTotal,
+      sortOrder: i,
+    });
+  });
+
+  return invoice;
+}
+
+// =====================================================================
+// Project invoice summary (for project detail integration)
+// =====================================================================
+
+export type ProjectInvoiceSummary = {
+  invoiceCount: number;
+  totalInvoiced: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  retainageHeld: number;
+  retainageReleased: number;
+  retainageBalance: number;
+};
+
+export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceSummary {
+  const store = getStore();
+  const invs = store.invoices.filter((i) => i.projectId === projectId);
+  let totalInvoiced = 0;
+  let totalPaid = 0;
+  let retainageHeld = 0;
+  let retainageReleased = 0;
+  for (const inv of invs) {
+    if (inv.status === 'void') continue;
+    totalInvoiced += Number(inv.total);
+    totalPaid += Number(inv.amountPaid);
+    retainageHeld += Number(inv.retainageAmount);
+    retainageReleased += Number(inv.retainageReleased);
+  }
+  return {
+    invoiceCount: invs.length,
+    totalInvoiced,
+    totalPaid,
+    outstandingBalance: totalInvoiced - totalPaid,
+    retainageHeld,
+    retainageReleased,
+    retainageBalance: retainageHeld - retainageReleased,
+  };
+}
+
 export function listEstimatesForProject(projectId: string): Estimate[] {
   return getStore()
     .estimates.filter((e) => e.projectId === projectId)
@@ -1544,7 +2652,17 @@ export function createMockVendor(companyId: string, input: CreateVendorInput): V
 
 export function createMockProject(
   companyId: string,
-  input: Omit<Project, 'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'>,
+  input: Omit<
+    Project,
+    | 'id'
+    | 'companyId'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'reconciliationVerifiedAt'
+    | 'reconciliationVerifiedRole'
+    | 'reconciliationVerifiedNote'
+  >,
 ): Project {
   const store = getStore();
   if (
@@ -1559,12 +2677,40 @@ export function createMockProject(
   const project: Project = {
     id: randomUUID(),
     companyId,
+    reconciliationVerifiedAt: null,
+    reconciliationVerifiedRole: null,
+    reconciliationVerifiedNote: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
     ...input,
   };
   store.projects.push(project);
+  return project;
+}
+
+/**
+ * Set or clear the reconciliation-verified flag on an in-memory project.
+ * Used by the dual-backend `markProjectVerified` in @/lib/data/projects.
+ */
+export function setProjectVerifiedInMemory(
+  companyId: string,
+  projectId: string,
+  patch: {
+    verifiedAt: Date | null;
+    verifiedRole: string | null;
+    verifiedNote: string | null;
+  },
+): Project | undefined {
+  const store = getStore();
+  const project = store.projects.find(
+    (p) => p.id === projectId && p.companyId === companyId && !p.deletedAt,
+  );
+  if (!project) return undefined;
+  project.reconciliationVerifiedAt = patch.verifiedAt;
+  project.reconciliationVerifiedRole = patch.verifiedRole;
+  project.reconciliationVerifiedNote = patch.verifiedNote;
+  project.updatedAt = new Date();
   return project;
 }
 
@@ -1634,11 +2780,19 @@ export function createMockEstimate(
     markupPercent: '0.000',
     overheadPercent: '0.000',
     validUntil: input.validUntil,
+    submittedAt:
+      input.status === 'internal_review' ||
+      input.status === 'sent' ||
+      input.status === 'approved' ||
+      input.status === 'rejected'
+        ? now
+        : null,
     sentAt:
       input.status === 'sent' || input.status === 'approved' || input.status === 'rejected'
         ? now
         : null,
     approvedAt: input.status === 'approved' ? now : null,
+    rejectedAt: input.status === 'rejected' ? now : null,
     parentEstimateId: null,
     createdAt: now,
     updatedAt: now,
@@ -1710,16 +2864,26 @@ export function createMockProposal(
     termsAndConditions: input.termsAndConditions,
     pdfUrl: null,
     publicToken: null,
+    submittedAt:
+      input.status !== 'draft' && input.status !== 'expired' ? now : null,
     sentAt:
       input.status !== 'draft' && input.status !== 'expired' ? now : null,
     viewedAt:
       input.status === 'viewed' ||
       input.status === 'accepted' ||
-      input.status === 'declined'
+      input.status === 'approved' ||
+      input.status === 'declined' ||
+      input.status === 'rejected'
         ? now
         : null,
-    acceptedAt: input.status === 'accepted' ? now : null,
-    declinedAt: input.status === 'declined' ? now : null,
+    approvedAt:
+      input.status === 'approved' || input.status === 'accepted' ? now : null,
+    rejectedAt:
+      input.status === 'rejected' || input.status === 'declined' ? now : null,
+    acceptedAt:
+      input.status === 'accepted' || input.status === 'approved' ? now : null,
+    declinedAt:
+      input.status === 'declined' || input.status === 'rejected' ? now : null,
     signatureImageUrl: null,
     signedByName: null,
     signedByEmail: null,
@@ -1828,6 +2992,18 @@ function applyApprovedCOToProject(store: Store, projectId: string, amount: numbe
   project.updatedAt = new Date();
 }
 
+/**
+ * Public wrapper around the in-memory CO->project rollup. Used by the
+ * dual-backend `applyApprovedCOToProject` in @/lib/data/change-orders for the
+ * demo path.
+ */
+export function applyApprovedCOToProjectInMemory(
+  projectId: string,
+  amount: number,
+): void {
+  applyApprovedCOToProject(getStore(), projectId, amount);
+}
+
 export type CreatePurchaseOrderInput = {
   number: string;
   projectId: string;
@@ -1908,4 +3084,424 @@ export function createMockPurchaseOrder(
   });
 
   return po;
+}
+
+// =====================================================================
+// Activity log
+// =====================================================================
+
+export type EntityType =
+  | 'estimate'
+  | 'proposal'
+  | 'change_order'
+  | 'purchase_order'
+  | 'invoice'
+  | 'payment'
+  | 'retainage_release';
+
+export type AppendActivityInput = {
+  entityType: EntityType;
+  entityId: string;
+  kind: string;
+  summary: string;
+  actorRole: string | null;
+};
+
+export function appendActivity(
+  companyId: string,
+  input: AppendActivityInput,
+): ActivityLogEntry {
+  const store = getStore();
+  const entry: ActivityLogEntry = {
+    id: randomUUID(),
+    companyId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    kind: input.kind,
+    summary: input.summary,
+    actorRole: input.actorRole,
+    createdAt: new Date(),
+  };
+  store.activityLog.push(entry);
+  return entry;
+}
+
+export function listActivityForEntity(
+  companyId: string,
+  entityType: EntityType,
+  entityId: string,
+): ActivityLogEntry[] {
+  return [...getStore().activityLog]
+    .filter(
+      (e) =>
+        e.companyId === companyId &&
+        e.entityType === entityType &&
+        e.entityId === entityId,
+    )
+    .sort((a, b) => +b.createdAt - +a.createdAt);
+}
+
+// =====================================================================
+// Generic status updaters (used by transition action)
+// =====================================================================
+
+type StatusEntityKey =
+  | 'estimate'
+  | 'proposal'
+  | 'change_order'
+  | 'purchase_order'
+  | 'invoice'
+  | 'payment';
+
+export class EntityNotFoundError extends Error {
+  constructor(message = 'Entity not found in active company') {
+    super(message);
+    this.name = 'EntityNotFoundError';
+  }
+}
+
+/**
+ * Look up an entity by company + id and apply a status patch. Also stamps
+ * relevant timestamp columns (submittedAt / approvedAt / paidAt / etc.).
+ *
+ * Dispatches between Postgres (when DATABASE_URL is set, for the 5 entities
+ * we've migrated: estimate / proposal / change_order / purchase_order — invoice
+ * and payment still live in the mock store this phase) and the in-memory
+ * fallback. Returns the previous status string for use in the audit-log
+ * summary.
+ */
+export async function updateEntityStatus(
+  companyId: string,
+  entity: StatusEntityKey,
+  id: string,
+  newStatus: string,
+): Promise<{ previousStatus: string }> {
+  if (isDatabaseConfigured()) {
+    const dbResult = await updateEntityStatusDb(companyId, entity, id, newStatus);
+    if (dbResult) return dbResult;
+    // For invoice / payment we fall through to the in-memory branch below
+    // because those modules haven't been migrated yet.
+  }
+
+  const store = getStore();
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  switch (entity) {
+    case 'estimate': {
+      const e = store.estimates.find((x) => x.id === id && x.companyId === companyId);
+      if (!e) throw new EntityNotFoundError();
+      const prev = e.status;
+      e.status = newStatus as Estimate['status'];
+      if (newStatus === 'internal_review' && !e.submittedAt) e.submittedAt = now;
+      if (newStatus === 'sent' && !e.sentAt) e.sentAt = now;
+      if (newStatus === 'approved') e.approvedAt = now;
+      if (newStatus === 'rejected') e.rejectedAt = now;
+      e.updatedAt = now;
+      return { previousStatus: prev };
+    }
+    case 'proposal': {
+      const p = store.proposals.find((x) => x.id === id && x.companyId === companyId);
+      if (!p) throw new EntityNotFoundError();
+      const prev = p.status;
+      p.status = newStatus as Proposal['status'];
+      if (newStatus === 'sent' && !p.sentAt) p.sentAt = now;
+      if (newStatus === 'approved') {
+        p.approvedAt = now;
+        p.acceptedAt = now;
+      }
+      if (newStatus === 'rejected') {
+        p.rejectedAt = now;
+        p.declinedAt = now;
+      }
+      p.updatedAt = now;
+      return { previousStatus: prev };
+    }
+    case 'change_order': {
+      const c = store.changeOrders.find((x) => x.id === id && x.companyId === companyId);
+      if (!c) throw new EntityNotFoundError();
+      const prev = c.status;
+      c.status = newStatus as ChangeOrder['status'];
+      if (newStatus === 'submitted' && !c.submittedAt) c.submittedAt = today;
+      if (newStatus === 'approved') {
+        c.approvedAt = today;
+        if (!c.customerSignedAt) c.customerSignedAt = now;
+        // Apply approved CO to project contract value (matches createMockChangeOrder).
+        applyApprovedCOToProject(store, c.projectId, Number(c.total));
+      }
+      if (newStatus === 'rejected') c.rejectedAt = today;
+      c.updatedAt = now;
+      return { previousStatus: prev };
+    }
+    case 'purchase_order': {
+      const po = store.purchaseOrders.find(
+        (x) => x.id === id && x.companyId === companyId,
+      );
+      if (!po) throw new EntityNotFoundError();
+      const prev = po.status;
+      po.status = newStatus as PurchaseOrder['status'];
+      if (newStatus === 'issued' && !po.issuedAt) po.issuedAt = now;
+      if (newStatus === 'closed') po.closedAt = now;
+      po.updatedAt = now;
+      return { previousStatus: prev };
+    }
+    case 'invoice': {
+      const inv = store.invoices.find((x) => x.id === id && x.companyId === companyId);
+      if (!inv) throw new EntityNotFoundError();
+      const prev = inv.status;
+      inv.status = newStatus as Invoice['status'];
+      if (newStatus === 'sent' && !inv.sentAt) inv.sentAt = now;
+      if (newStatus === 'paid') inv.paidAt = now;
+      inv.updatedAt = now;
+      return { previousStatus: prev };
+    }
+    case 'payment': {
+      const p = store.invoicePayments.find((x) => x.id === id);
+      if (!p) throw new EntityNotFoundError();
+      const inv = store.invoices.find((i) => i.id === p.invoiceId);
+      if (!inv || inv.companyId !== companyId) throw new EntityNotFoundError();
+      const prev = p.status;
+      p.status = newStatus as InvoicePayment['status'];
+      // Reapply payment-state recompute since received/applied toggles drive
+      // invoice amountPaid and status.
+      recomputeInvoicePaymentStateExternal(p.invoiceId);
+      return { previousStatus: prev };
+    }
+  }
+}
+
+/**
+ * DB branch of updateEntityStatus. Returns null for entities that haven't
+ * been migrated to Postgres yet (invoice / payment), letting the caller fall
+ * through to the in-memory branch.
+ */
+async function updateEntityStatusDb(
+  companyId: string,
+  entity: StatusEntityKey,
+  id: string,
+  newStatus: string,
+): Promise<{ previousStatus: string } | null> {
+  // Local imports to keep this function tree-shakeable in demo mode.
+  const { eq, and, sql } = await import('drizzle-orm');
+  const {
+    estimates: estimatesTable,
+    proposals: proposalsTable,
+    changeOrders: changeOrdersTable,
+    purchaseOrders: purchaseOrdersTable,
+    projects: projectsTable,
+  } = await import('@/db/schema');
+  const db = getDb()!;
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  switch (entity) {
+    case 'estimate': {
+      const cur = await db
+        .select()
+        .from(estimatesTable)
+        .where(and(eq(estimatesTable.id, id), eq(estimatesTable.companyId, companyId)))
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const e = cur[0];
+      const prev = e.status;
+      const patch: Record<string, unknown> = {
+        status: newStatus,
+        updatedAt: now,
+      };
+      if (newStatus === 'internal_review' && !e.submittedAt) patch.submittedAt = now;
+      if (newStatus === 'sent' && !e.sentAt) patch.sentAt = now;
+      if (newStatus === 'approved') patch.approvedAt = now;
+      if (newStatus === 'rejected') patch.rejectedAt = now;
+      await db
+        .update(estimatesTable)
+        .set(patch)
+        .where(and(eq(estimatesTable.id, id), eq(estimatesTable.companyId, companyId)));
+      return { previousStatus: prev };
+    }
+    case 'proposal': {
+      const cur = await db
+        .select()
+        .from(proposalsTable)
+        .where(and(eq(proposalsTable.id, id), eq(proposalsTable.companyId, companyId)))
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const p = cur[0];
+      const prev = p.status;
+      const patch: Record<string, unknown> = {
+        status: newStatus,
+        updatedAt: now,
+      };
+      if (newStatus === 'sent' && !p.sentAt) patch.sentAt = now;
+      if (newStatus === 'approved') {
+        patch.approvedAt = now;
+        patch.acceptedAt = now;
+      }
+      if (newStatus === 'rejected') {
+        patch.rejectedAt = now;
+        patch.declinedAt = now;
+      }
+      await db
+        .update(proposalsTable)
+        .set(patch)
+        .where(and(eq(proposalsTable.id, id), eq(proposalsTable.companyId, companyId)));
+      return { previousStatus: prev };
+    }
+    case 'change_order': {
+      const cur = await db
+        .select()
+        .from(changeOrdersTable)
+        .where(
+          and(eq(changeOrdersTable.id, id), eq(changeOrdersTable.companyId, companyId)),
+        )
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const c = cur[0];
+      const prev = c.status;
+      const patch: Record<string, unknown> = {
+        status: newStatus,
+        updatedAt: now,
+      };
+      if (newStatus === 'submitted' && !c.submittedAt) patch.submittedAt = today;
+      if (newStatus === 'approved') {
+        patch.approvedAt = today;
+        if (!c.customerSignedAt) patch.customerSignedAt = now;
+      }
+      if (newStatus === 'rejected') patch.rejectedAt = today;
+      await db
+        .update(changeOrdersTable)
+        .set(patch)
+        .where(
+          and(eq(changeOrdersTable.id, id), eq(changeOrdersTable.companyId, companyId)),
+        );
+      // Roll the approved CO total into the project contract value.
+      if (newStatus === 'approved' && prev !== 'approved') {
+        const amount = Number(c.total);
+        await db
+          .update(projectsTable)
+          .set({
+            contractValue: sql`(${projectsTable.contractValue}::numeric + ${amount})::text`,
+            totalChangeOrders: sql`(${projectsTable.totalChangeOrders}::numeric + ${amount})::text`,
+            updatedAt: now,
+          })
+          .where(eq(projectsTable.id, c.projectId));
+      }
+      return { previousStatus: prev };
+    }
+    case 'purchase_order': {
+      const cur = await db
+        .select()
+        .from(purchaseOrdersTable)
+        .where(
+          and(
+            eq(purchaseOrdersTable.id, id),
+            eq(purchaseOrdersTable.companyId, companyId),
+          ),
+        )
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const po = cur[0];
+      const prev = po.status;
+      const patch: Record<string, unknown> = {
+        status: newStatus,
+        updatedAt: now,
+      };
+      if (newStatus === 'issued' && !po.issuedAt) patch.issuedAt = now;
+      if (newStatus === 'closed') patch.closedAt = now;
+      await db
+        .update(purchaseOrdersTable)
+        .set(patch)
+        .where(
+          and(
+            eq(purchaseOrdersTable.id, id),
+            eq(purchaseOrdersTable.companyId, companyId),
+          ),
+        );
+      return { previousStatus: prev };
+    }
+    case 'invoice': {
+      const { invoices: invoicesTable } = await import('@/db/schema');
+      const cur = await db
+        .select()
+        .from(invoicesTable)
+        .where(
+          and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)),
+        )
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const inv = cur[0];
+      const prev = inv.status;
+      const patch: Record<string, unknown> = {
+        status: newStatus,
+        updatedAt: now,
+      };
+      if (newStatus === 'sent' && !inv.sentAt) patch.sentAt = now;
+      if (newStatus === 'paid') patch.paidAt = now;
+      await db
+        .update(invoicesTable)
+        .set(patch)
+        .where(
+          and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)),
+        );
+      return { previousStatus: prev };
+    }
+    case 'payment': {
+      const { invoices: invoicesTable, invoicePayments: invoicePaymentsTable } =
+        await import('@/db/schema');
+      const cur = await db
+        .select({ p: invoicePaymentsTable, invoice: invoicesTable })
+        .from(invoicePaymentsTable)
+        .innerJoin(invoicesTable, eq(invoicePaymentsTable.invoiceId, invoicesTable.id))
+        .where(
+          and(
+            eq(invoicePaymentsTable.id, id),
+            eq(invoicesTable.companyId, companyId),
+          ),
+        )
+        .limit(1);
+      if (cur.length === 0) throw new EntityNotFoundError();
+      const p = cur[0].p;
+      const prev = p.status;
+      await db
+        .update(invoicePaymentsTable)
+        .set({ status: newStatus as InvoicePayment['status'] })
+        .where(eq(invoicePaymentsTable.id, id));
+      // After flipping payment status, invoice amountPaid + status must be
+      // recomputed (since received/applied counts toward paid).
+      const { recomputeInvoicePaymentState } = await import(
+        '@/lib/data/invoice-payments'
+      );
+      await recomputeInvoicePaymentState(p.invoiceId);
+      return { previousStatus: prev };
+    }
+  }
+}
+
+/**
+ * Public wrapper around the (file-private) recompute used by createMockPayment.
+ * Exposed so updateEntityStatus can re-run it after status flips.
+ */
+function recomputeInvoicePaymentStateExternal(invoiceId: string): void {
+  const store = getStore();
+  const inv = store.invoices.find((i) => i.id === invoiceId);
+  if (!inv) return;
+  const total = Number(inv.total);
+  let paid = 0;
+  for (const p of store.invoicePayments) {
+    if (p.invoiceId !== invoiceId) continue;
+    if (p.status === 'received' || p.status === 'applied') {
+      paid += Number(p.amount);
+    }
+  }
+  inv.amountPaid = paid.toFixed(2);
+  if (paid >= total - 0.005) {
+    inv.status = 'paid';
+    inv.paidAt = new Date();
+  } else if (paid > 0) {
+    inv.status = 'partial';
+    inv.paidAt = null;
+  } else if (inv.status === 'paid' || inv.status === 'partial') {
+    inv.status = 'sent';
+    inv.paidAt = null;
+  }
+  inv.updatedAt = new Date();
 }

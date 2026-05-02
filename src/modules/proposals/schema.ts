@@ -1,11 +1,16 @@
 import { z } from 'zod';
 
+// Canonical status set for proposals. Legacy values (viewed/accepted/declined)
+// are still accepted on existing rows and normalized for display via
+// @/lib/status-machine.
 export const proposalStatusValues = [
   'draft',
   'sent',
   'viewed',
-  'accepted',
-  'declined',
+  'approved',
+  'accepted', // legacy alias of approved
+  'rejected',
+  'declined', // legacy alias of rejected
   'expired',
 ] as const;
 export type ProposalStatus = (typeof proposalStatusValues)[number];
@@ -13,17 +18,21 @@ export type ProposalStatus = (typeof proposalStatusValues)[number];
 export const STATUS_LABEL: Record<ProposalStatus, string> = {
   draft: 'Draft',
   sent: 'Sent',
-  viewed: 'Viewed',
-  accepted: 'Accepted',
-  declined: 'Declined',
+  viewed: 'Sent', // canonical display: still in "sent" state
+  approved: 'Approved',
+  accepted: 'Approved', // canonical display
+  rejected: 'Rejected',
+  declined: 'Rejected', // canonical display
   expired: 'Expired',
 };
 
 export const STATUS_TONE: Record<ProposalStatus, 'slate' | 'blue' | 'amber' | 'green' | 'red'> = {
   draft: 'slate',
   sent: 'blue',
-  viewed: 'amber',
+  viewed: 'blue',
+  approved: 'green',
   accepted: 'green',
+  rejected: 'red',
   declined: 'red',
   expired: 'slate',
 };

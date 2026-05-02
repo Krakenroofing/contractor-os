@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createMockCustomer } from '@/lib/mock-store';
+import { createCustomer } from '@/lib/data/customers';
 import { customerFormSchema } from './schema';
 
 export type CreateCustomerState = {
@@ -43,7 +43,7 @@ export async function createCustomerAction(
   let createdId: string;
 
   try {
-    const customer = createMockCustomer(companyId, {
+    const customer = await createCustomer(companyId, {
       name: data.name,
       customerType: data.customerType,
       primaryContactName: emptyToNull(data.primaryContactName ?? null),

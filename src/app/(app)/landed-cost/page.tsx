@@ -13,7 +13,8 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import { getMockProject, listMockLandedCosts } from '@/lib/mock-store';
+import { listLandedCosts } from '@/lib/data/landed-costs';
+import { getProject } from '@/lib/data/projects';
 import { LandedCostCalculator } from '@/modules/landed-cost/components/landed-cost-calculator';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,13 @@ export default async function LandedCostPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'landed_cost');
-  const saved = listMockLandedCosts(companyId);
+  const saved = await listLandedCosts(companyId);
+  const savedWithProject = await Promise.all(
+    saved.map(async (l) => ({
+      l,
+      project: l.projectId ? await getProject(companyId, l.projectId) : undefined,
+    })),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -72,10 +79,7 @@ export default async function LandedCostPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {saved.map((l) => {
-                  const project = l.projectId
-                    ? getMockProject(companyId, l.projectId)
-                    : undefined;
+                {savedWithProject.map(({ l, project }) => {
                   const dutyPlusVat =
                     Number(l.dutyAmount) + Number(l.vatAmount);
                   return (

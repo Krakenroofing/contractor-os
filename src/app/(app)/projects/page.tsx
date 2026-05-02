@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { getMockCustomer, listMockProjects } from '@/lib/mock-store';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
 import { ProjectsListClient } from '@/modules/projects/components/projects-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -12,19 +13,21 @@ export default async function ProjectsPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'projects');
-  const projects = listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
-    return {
-      id: p.id,
-      number: p.number,
-      name: p.name,
-      status: p.status,
-      customerName: customer?.name ?? 'Unknown customer',
-      contractValue: p.contractValue,
-      currentBudget: p.currentBudget,
-      totalChangeOrders: p.totalChangeOrders,
-    };
-  });
+  const projects = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        number: p.number,
+        name: p.name,
+        status: p.status,
+        customerName: customer?.name ?? 'Unknown customer',
+        contractValue: p.contractValue,
+        currentBudget: p.currentBudget,
+        totalChangeOrders: p.totalChangeOrders,
+      };
+    }),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

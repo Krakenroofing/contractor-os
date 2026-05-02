@@ -4,22 +4,22 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import {
-  getMockPurchaseOrderLines,
-  listMockVendors,
+  getPurchaseOrderLines,
   listPurchaseOrdersForVendor,
-} from '@/lib/mock-store';
+} from '@/lib/data/purchase-orders';
+import { listVendors } from '@/lib/data/vendors';
 import { VendorsListClient } from '@/modules/vendors/components/vendors-list-client';
 
 export const dynamic = 'force-dynamic';
 
-function vendorTotals(vendorId: string) {
-  const pos = listPurchaseOrdersForVendor(vendorId).filter((p) => p.status !== 'void');
+async function vendorTotals(vendorId: string) {
+  const pos = (await listPurchaseOrdersForVendor(vendorId)).filter((p) => p.status !== 'void');
   let committed = 0;
   let openCount = 0;
   for (const po of pos) {
     committed += Number(po.total);
     if (po.status !== 'received' && po.status !== 'closed') openCount += 1;
-    void getMockPurchaseOrderLines; // silence unused warn — kept for future receipts
+    void getPurchaseOrderLines; // silence unused warn — kept for future receipts
   }
   return { committed, openCount };
 }
@@ -28,20 +28,22 @@ export default async function VendorsPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'vendors');
-  const vendors = listMockVendors(companyId).map((v) => {
-    const totals = vendorTotals(v.id);
-    return {
-      id: v.id,
-      name: v.name,
-      isSubcontractor: v.isSubcontractor,
-      primaryContactName: v.primaryContactName,
-      email: v.email,
-      phone: v.phone,
-      defaultTerms: v.defaultTerms,
-      openPOCount: totals.openCount,
-      committed: totals.committed,
-    };
-  });
+  const vendors = await Promise.all(
+    (await listVendors(companyId)).map(async (v) => {
+      const totals = await vendorTotals(v.id);
+      return {
+        id: v.id,
+        name: v.name,
+        isSubcontractor: v.isSubcontractor,
+        primaryContactName: v.primaryContactName,
+        email: v.email,
+        phone: v.phone,
+        defaultTerms: v.defaultTerms,
+        openPOCount: totals.openCount,
+        committed: totals.committed,
+      };
+    }),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

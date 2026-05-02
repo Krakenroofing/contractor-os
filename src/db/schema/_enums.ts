@@ -40,7 +40,8 @@ export const costCodeCategoryEnum = pgEnum('cost_code_category', [
 
 export const estimateStatusEnum = pgEnum('estimate_status', [
   'draft',
-  'sent',
+  'internal_review',
+  'sent', // legacy — normalized to internal_review for display
   'approved',
   'rejected',
 ]);
@@ -48,16 +49,19 @@ export const estimateStatusEnum = pgEnum('estimate_status', [
 export const proposalStatusEnum = pgEnum('proposal_status', [
   'draft',
   'sent',
-  'viewed',
-  'accepted',
-  'declined',
+  'viewed', // legacy — normalized to sent for display
+  'approved',
+  'accepted', // legacy — normalized to approved
+  'rejected',
+  'declined', // legacy — normalized to rejected
   'expired',
 ]);
 
 export const changeOrderStatusEnum = pgEnum('change_order_status', [
   'draft',
-  'pending_internal',
-  'pending_customer',
+  'submitted',
+  'pending_internal', // legacy — normalized to submitted for display
+  'pending_customer', // legacy — normalized to submitted for display
   'approved',
   'rejected',
   'void',
@@ -86,4 +90,45 @@ export const jobCostSourceEnum = pgEnum('job_cost_source', [
   'labor_entry',
   'bill_import',
   'qbo_sync',
+]);
+
+export const invoiceStatusEnum = pgEnum('invoice_status', [
+  'draft',
+  'sent',
+  'partial',
+  'paid',
+  'overdue',
+  'void',
+]);
+
+export const invoiceBillingTypeEnum = pgEnum('invoice_billing_type', [
+  'progress',
+  'milestone',
+  'final',
+  'retainage',
+  'change_order',
+  'deposit',
+]);
+
+export const paymentStatusEnum = pgEnum('payment_status', [
+  'pending',
+  'received',
+  'applied',
+  'returned',
+]);
+
+export const paymentMethodEnum = pgEnum('payment_method', [
+  'ach',
+  'wire',
+  'check',
+  'credit_card',
+  'cash',
+  'other',
+]);
+
+export const retainageStatusEnum = pgEnum('retainage_status', [
+  'held',
+  'partially_released',
+  'released',
+  'overdue',
 ]);

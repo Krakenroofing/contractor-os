@@ -3,12 +3,10 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  getMockEstimate,
-  getMockProject,
-  listMockProposals,
-} from '@/lib/mock-store';
+import { getEstimate } from '@/lib/data/estimates';
+import { listProposals } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
 import { ProposalsListClient } from '@/modules/proposals/components/proposals-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -17,22 +15,24 @@ export default async function ProposalsPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'proposals');
-  const proposals = listMockProposals(companyId).map((p) => {
-    const project = getMockProject(companyId, p.projectId);
-    const customer = project ? getMockCustomer(companyId, project.customerId) : undefined;
-    const estimate = getMockEstimate(companyId, p.estimateId);
-    return {
-      id: p.id,
-      number: p.number,
-      projectName: project?.name ?? '—',
-      customerName: customer?.name ?? '—',
-      estimateNumber: estimate?.number ?? '—',
-      status: p.status,
-      proposalDate: p.proposalDate,
-      expiryDate: p.expiryDate,
-      total: p.total,
-    };
-  });
+  const proposals = await Promise.all(
+    (await listProposals(companyId)).map(async (p) => {
+      const project = await getProject(companyId, p.projectId);
+      const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
+      const estimate = await getEstimate(companyId, p.estimateId);
+      return {
+        id: p.id,
+        number: p.number,
+        projectName: project?.name ?? '—',
+        customerName: customer?.name ?? '—',
+        estimateNumber: estimate?.number ?? '—',
+        status: p.status,
+        proposalDate: p.proposalDate,
+        expiryDate: p.expiryDate,
+        total: p.total,
+      };
+    }),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

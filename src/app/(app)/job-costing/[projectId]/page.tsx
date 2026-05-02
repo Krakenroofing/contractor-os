@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { formatMoney } from '@/lib/money';
-import { getMockVendor, listLandedCostsForProject } from '@/lib/mock-store';
+import { listLandedCostsForProject } from '@/lib/data/landed-costs';
+import { getVendor } from '@/lib/data/vendors';
 import {
   computeCategoryTotals,
   computeProjectCostCodeBreakdown,
@@ -73,13 +74,19 @@ export default async function JobCostingProjectPage({
 }) {
   const { projectId } = await params;
   const companyId = await getActiveCompanyId();
-  const fin = computeProjectFinancials(companyId, projectId);
+  const fin = await computeProjectFinancials(companyId, projectId);
   if (!fin) notFound();
 
-  const breakdown = computeProjectCostCodeBreakdown(companyId, projectId);
+  const breakdown = await computeProjectCostCodeBreakdown(companyId, projectId);
   const categoryTotals = computeCategoryTotals(breakdown);
-  const projectPOs = listProjectPurchaseOrders(projectId);
-  const projectLandedCosts = listLandedCostsForProject(projectId);
+  const projectPOs = await listProjectPurchaseOrders(projectId);
+  const projectPOsWithVendor = await Promise.all(
+    projectPOs.map(async (po) => ({
+      po,
+      vendor: await getVendor(companyId, po.vendorId),
+    })),
+  );
+  const projectLandedCosts = await listLandedCostsForProject(projectId);
 
   return (
     <div className="p-8 space-y-6 max-w-[100rem]">
@@ -357,8 +364,7 @@ export default async function JobCostingProjectPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {projectPOs.map((po) => {
-                  const vendor = getMockVendor(companyId, po.vendorId);
+                {projectPOsWithVendor.map(({ po, vendor }) => {
                   return (
                     <TableRow key={po.id}>
                       <TableCell className="font-mono text-xs text-slate-700">

@@ -5,12 +5,10 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  listMockProjects,
-  listMockPurchaseOrders,
-  listMockVendors,
-} from '@/lib/mock-store';
+import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
+import { listVendors } from '@/lib/data/vendors';
 import { LandedCostForm } from '@/modules/landed-cost/components/landed-cost-form';
 import { SEED_TARIFF_LIBRARY } from '@/modules/landed-cost/data';
 
@@ -22,18 +20,20 @@ export default async function ShippingCalculatorPage() {
 
   const companyId = await getActiveCompanyId();
 
-  const projects = listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
-    return {
-      id: p.id,
-      label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
-    };
-  });
-  const vendors = listMockVendors(companyId).map((v) => ({
+  const projects = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+      };
+    }),
+  );
+  const vendors = (await listVendors(companyId)).map((v) => ({
     id: v.id,
     label: v.name,
   }));
-  const purchaseOrders = listMockPurchaseOrders(companyId).map((po) => ({
+  const purchaseOrders = (await listPurchaseOrders(companyId)).map((po) => ({
     id: po.id,
     number: po.number,
     projectId: po.projectId,

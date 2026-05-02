@@ -1,9 +1,13 @@
 import { z } from 'zod';
 
+// Canonical status set for change orders. Legacy values
+// (pending_internal/pending_customer) are still accepted and normalized for
+// display to "Submitted" via @/lib/status-machine.
 export const changeOrderStatusValues = [
   'draft',
-  'pending_internal',
-  'pending_customer',
+  'submitted',
+  'pending_internal', // legacy alias of submitted
+  'pending_customer', // legacy alias of submitted
   'approved',
   'rejected',
   'void',
@@ -12,8 +16,9 @@ export type ChangeOrderStatus = (typeof changeOrderStatusValues)[number];
 
 export const STATUS_LABEL: Record<ChangeOrderStatus, string> = {
   draft: 'Draft',
-  pending_internal: 'Pending Internal',
-  pending_customer: 'Pending Customer',
+  submitted: 'Submitted',
+  pending_internal: 'Submitted',
+  pending_customer: 'Submitted',
   approved: 'Approved',
   rejected: 'Rejected',
   void: 'Void',
@@ -24,6 +29,7 @@ export const STATUS_TONE: Record<
   'slate' | 'blue' | 'amber' | 'green' | 'red'
 > = {
   draft: 'slate',
+  submitted: 'amber',
   pending_internal: 'amber',
   pending_customer: 'amber',
   approved: 'green',

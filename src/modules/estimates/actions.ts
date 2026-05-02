@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createMockEstimate, DuplicateEstimateNumberError } from '@/lib/mock-store';
+import { createEstimate, DuplicateEstimateNumberError } from '@/lib/data/estimates';
 import { calcEstimateTotals, lineTotal } from './lib/calc';
 import { estimateFormSchema } from './schema';
 
@@ -54,7 +54,7 @@ export async function createEstimateAction(
   const companyId = await getActiveCompanyId();
   let createdId: string;
   try {
-    const estimate = createMockEstimate(companyId, {
+    const estimate = await createEstimate(companyId, {
       number: data.number,
       projectId: data.projectId,
       status: data.status,

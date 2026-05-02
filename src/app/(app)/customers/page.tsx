@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { listMockCustomers } from '@/lib/mock-store';
+import { listCustomers } from '@/lib/data/customers';
 import { CustomersListClient } from '@/modules/customers/components/customers-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export default async function CustomersPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'customers');
-  const customers = listMockCustomers(companyId).map((c) => ({
+  const customers = (await listCustomers(companyId)).map((c) => ({
     id: c.id,
     name: c.name,
     customerType: c.customerType,

@@ -10,13 +10,13 @@ import { DocumentBranding } from '@/components/document-branding';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCustomer,
-  getMockEstimate,
-  getMockProject,
-  getMockProposal,
-} from '@/lib/mock-store';
-import { STATUS_LABEL, STATUS_TONE } from '@/modules/proposals/schema';
+import { getEstimate } from '@/lib/data/estimates';
+import { getProposal } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
+import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
+import { StatusBadge } from '@/modules/status/components/status-badge';
+import { StatusPanel } from '@/modules/status/components/status-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,16 +35,16 @@ export default async function ProposalDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'proposals');
-  const proposal = getMockProposal(companyId, id);
+  const proposal = await getProposal(companyId, id);
   if (!proposal) notFound();
 
-  const project = getMockProject(companyId, proposal.projectId);
-  const customer = project ? getMockCustomer(companyId, project.customerId) : undefined;
-  const estimate = getMockEstimate(companyId, proposal.estimateId);
+  const project = await getProject(companyId, proposal.projectId);
+  const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
+  const estimate = await getEstimate(companyId, proposal.estimateId);
 
   const signed =
-    proposal.status === 'accepted' &&
-    (proposal.signedByName || proposal.acceptedAt);
+    (proposal.status === 'accepted' || proposal.status === 'approved') &&
+    (proposal.signedByName || proposal.acceptedAt || proposal.approvedAt);
 
   return (
     <div className="p-8 space-y-6 max-w-5xl">
@@ -96,8 +96,26 @@ export default async function ProposalDetailPage({
             )}
           </div>
         </div>
-        <Badge tone={STATUS_TONE[proposal.status]}>{STATUS_LABEL[proposal.status]}</Badge>
+        <StatusBadge entityType="proposal" status={proposal.status} />
       </div>
+
+      <StatusPanel
+        entityType="proposal"
+        entityId={proposal.id}
+        status={proposal.status}
+        timestamps={[
+          { label: 'Created', value: proposal.createdAt },
+          { label: 'Sent', value: proposal.sentAt },
+          {
+            label: 'Approved',
+            value: proposal.approvedAt ?? proposal.acceptedAt,
+          },
+          {
+            label: 'Rejected',
+            value: proposal.rejectedAt ?? proposal.declinedAt,
+          },
+        ]}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -177,6 +195,8 @@ export default async function ProposalDetailPage({
           )}
         </CardContent>
       </Card>
+
+      <ActivityLogCard entityType="proposal" entityId={proposal.id} />
     </div>
   );
 }

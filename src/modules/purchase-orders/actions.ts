@@ -10,9 +10,9 @@ import {
   toQuantityString,
 } from '@/lib/money';
 import {
-  createMockPurchaseOrder,
+  createPurchaseOrder,
   DuplicatePONumberError,
-} from '@/lib/mock-store';
+} from '@/lib/data/purchase-orders';
 import { purchaseOrderFormSchema } from './schema';
 
 export type CreatePurchaseOrderState = {
@@ -80,7 +80,7 @@ export async function createPurchaseOrderAction(
   const companyId = await getActiveCompanyId();
   let createdId: string;
   try {
-    const po = createMockPurchaseOrder(companyId, {
+    const po = await createPurchaseOrder(companyId, {
       number: data.number,
       projectId: data.projectId,
       vendorId: data.vendorId,

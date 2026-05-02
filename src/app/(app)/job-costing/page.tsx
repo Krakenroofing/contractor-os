@@ -13,6 +13,12 @@ import {
 import { getActiveCompanyId } from '@/lib/active-company';
 import { formatMoney } from '@/lib/money';
 import { listAllProjectFinancials } from '@/modules/job-costing/lib/financials';
+import {
+  buildAgingRowsForCompany,
+  calcCashCollectedThisMonth,
+  formatMonthYear,
+  summarizeAging,
+} from '@/modules/accounts-receivable/lib/ar';
 import type { Project } from '@/db/schema';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +46,12 @@ const STATUS_LABEL: Record<Project['status'], string> = {
 
 export default async function JobCostingPage() {
   const companyId = await getActiveCompanyId();
-  const rows = listAllProjectFinancials(companyId);
+  const rows = await listAllProjectFinancials(companyId);
+  const asOf = new Date();
+  const arRows = await buildAgingRowsForCompany(companyId, asOf);
+  const arSummary = summarizeAging(arRows);
+  const cashThisMonth = await calcCashCollectedThisMonth(companyId, asOf);
+  const monthLabel = formatMonthYear(asOf);
 
   const totalRevised = rows.reduce((a, r) => a + r.revisedContractValue, 0);
   const totalEstCost = rows.reduce((a, r) => a + r.estimatedCost, 0);
@@ -79,6 +90,47 @@ export default async function JobCostingPage() {
             totalGP < 0 ? 'text-red-600' : totalGP > 0 ? 'text-emerald-700' : 'text-slate-900'
           }
         />
+      </div>
+
+      {/* AR snapshot — links to /accounts-receivable */}
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <p className="text-xs uppercase tracking-wide text-slate-500">
+            Accounts receivable snapshot
+          </p>
+          <Link
+            href="/accounts-receivable"
+            className="text-xs text-slate-600 hover:underline"
+          >
+            View AR aging →
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ARStat
+            label="Total outstanding AR"
+            value={formatMoney(arSummary.totalAR)}
+            sub={`${arSummary.invoiceCount} open ${
+              arSummary.invoiceCount === 1 ? 'invoice' : 'invoices'
+            }`}
+          />
+          <ARStat
+            label="Overdue invoices"
+            value={String(arSummary.overdueCount)}
+            sub={
+              arSummary.overdueCount === 0
+                ? 'all current'
+                : `${formatMoney(
+                    arSummary.b1_30 + arSummary.b31_60 + arSummary.b61_90 + arSummary.b90_plus,
+                  )} past due`
+            }
+            valueClassName={arSummary.overdueCount > 0 ? 'text-red-600' : undefined}
+          />
+          <ARStat
+            label={`Cash collected (${monthLabel})`}
+            value={formatMoney(cashThisMonth)}
+            valueClassName="text-emerald-700"
+          />
+        </div>
       </div>
 
       {rows.length === 0 ? (
@@ -168,6 +220,32 @@ export default async function JobCostingPage() {
           </Table>
         </div>
       )}
+    </div>
+  );
+}
+
+function ARStat({
+  label,
+  value,
+  sub,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <p
+        className={`mt-1 text-xl font-semibold tabular-nums ${
+          valueClassName ?? 'text-slate-900'
+        }`}
+      >
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
     </div>
   );
 }

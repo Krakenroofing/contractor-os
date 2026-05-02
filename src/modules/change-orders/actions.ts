@@ -4,9 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
 import {
-  createMockChangeOrder,
+  createChangeOrder,
   DuplicateChangeOrderNumberError,
-} from '@/lib/mock-store';
+} from '@/lib/data/change-orders';
 import { calcEstimateTotals, lineTotal } from '@/modules/estimates/lib/calc';
 import { changeOrderFormSchema } from './schema';
 
@@ -63,7 +63,7 @@ export async function createChangeOrderAction(
   const companyId = await getActiveCompanyId();
   let createdId: string;
   try {
-    const co = createMockChangeOrder(companyId, {
+    const co = await createChangeOrder(companyId, {
       number: data.number,
       projectId: data.projectId,
       proposalId: emptyToNull(data.proposalId ?? null),

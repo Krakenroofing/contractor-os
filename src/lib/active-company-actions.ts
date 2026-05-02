@@ -2,11 +2,11 @@
 
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { getMockCompany } from './mock-store';
+import { getCompany } from '@/lib/data/companies';
 import { ACTIVE_COMPANY_COOKIE } from './active-company';
 
 export async function setActiveCompanyAction(companyId: string) {
-  if (!getMockCompany(companyId)) {
+  if (!(await getCompany(companyId))) {
     return { error: 'Unknown company' };
   }
   const c = await cookies();

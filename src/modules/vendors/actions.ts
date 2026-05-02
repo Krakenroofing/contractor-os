@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createMockVendor } from '@/lib/mock-store';
+import { createVendor } from '@/lib/data/vendors';
 import { vendorFormSchema } from './schema';
 
 export type CreateVendorState = {
@@ -44,7 +44,7 @@ export async function createVendorAction(
   let createdId: string;
 
   try {
-    const vendor = createMockVendor(companyId, {
+    const vendor = await createVendor(companyId, {
       name: data.name,
       primaryContactName: emptyToNull(data.primaryContactName ?? null),
       email: emptyToNull(data.email ?? null),

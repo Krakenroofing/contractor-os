@@ -3,12 +3,9 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockProject,
-  getMockVendor,
-  listMockPurchaseOrders,
-  listMockVendors,
-} from '@/lib/mock-store';
+import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import { getProject } from '@/lib/data/projects';
+import { getVendor, listVendors } from '@/lib/data/vendors';
 import { PurchaseOrdersListClient } from '@/modules/purchase-orders/components/purchase-orders-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -17,26 +14,28 @@ export default async function PurchaseOrdersPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'purchase_orders');
-  const pos = listMockPurchaseOrders(companyId).map((p) => {
-    const vendor = getMockVendor(companyId, p.vendorId);
-    const project = getMockProject(companyId, p.projectId);
-    return {
-      id: p.id,
-      number: p.number,
-      vendorId: p.vendorId,
-      vendorName: vendor?.name ?? '—',
-      projectName: project?.name ?? '—',
-      status: p.status,
-      issueDate: p.issueDate,
-      expectedDeliveryDate: p.expectedDeliveryDate,
-      subtotal: p.subtotal,
-      taxAmount: p.taxAmount,
-      shipping: p.shipping,
-      total: p.total,
-    };
-  });
+  const pos = await Promise.all(
+    (await listPurchaseOrders(companyId)).map(async (p) => {
+      const vendor = await getVendor(companyId, p.vendorId);
+      const project = await getProject(companyId, p.projectId);
+      return {
+        id: p.id,
+        number: p.number,
+        vendorId: p.vendorId,
+        vendorName: vendor?.name ?? '—',
+        projectName: project?.name ?? '—',
+        status: p.status,
+        issueDate: p.issueDate,
+        expectedDeliveryDate: p.expectedDeliveryDate,
+        subtotal: p.subtotal,
+        taxAmount: p.taxAmount,
+        shipping: p.shipping,
+        total: p.total,
+      };
+    }),
+  );
 
-  const vendors = listMockVendors(companyId).map((v) => ({ id: v.id, label: v.name }));
+  const vendors = (await listVendors(companyId)).map((v) => ({ id: v.id, label: v.name }));
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

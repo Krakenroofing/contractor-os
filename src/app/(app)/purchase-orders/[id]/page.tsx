@@ -18,16 +18,15 @@ import { DocumentBranding } from '@/components/document-branding';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getMockCostCode,
-  getMockCustomer,
-  getMockLandedCost,
-  getMockProject,
-  getMockPurchaseOrder,
-  getMockPurchaseOrderLines,
-  getMockVendor,
-} from '@/lib/mock-store';
-import { STATUS_LABEL, STATUS_TONE } from '@/modules/purchase-orders/schema';
+import { loadCostCodeMap } from '@/lib/data/cost-codes';
+import { getLandedCost } from '@/lib/data/landed-costs';
+import { getPurchaseOrder, getPurchaseOrderLines } from '@/lib/data/purchase-orders';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
+import { getVendor } from '@/lib/data/vendors';
+import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
+import { StatusBadge } from '@/modules/status/components/status-badge';
+import { StatusPanel } from '@/modules/status/components/status-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,15 +39,16 @@ export default async function PurchaseOrderDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'purchase_orders');
-  const po = getMockPurchaseOrder(companyId, id);
+  const po = await getPurchaseOrder(companyId, id);
   if (!po) notFound();
 
-  const vendor = getMockVendor(companyId, po.vendorId);
-  const project = getMockProject(companyId, po.projectId);
-  const customer = project ? getMockCustomer(companyId, project.customerId) : undefined;
-  const lines = getMockPurchaseOrderLines(po.id);
+  const vendor = await getVendor(companyId, po.vendorId);
+  const project = await getProject(companyId, po.projectId);
+  const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
+  const lines = await getPurchaseOrderLines(po.id);
+  const codeMap = await loadCostCodeMap(companyId, lines.map((l) => l.costCodeId));
   const landedCost = po.landedCostEntryId
-    ? getMockLandedCost(companyId, po.landedCostEntryId)
+    ? await getLandedCost(companyId, po.landedCostEntryId)
     : undefined;
 
   const subtotal = Number(po.subtotal);
@@ -104,8 +104,19 @@ export default async function PurchaseOrderDetailPage({
             )}
           </div>
         </div>
-        <Badge tone={STATUS_TONE[po.status]}>{STATUS_LABEL[po.status]}</Badge>
+        <StatusBadge entityType="purchase_order" status={po.status} />
       </div>
+
+      <StatusPanel
+        entityType="purchase_order"
+        entityId={po.id}
+        status={po.status}
+        timestamps={[
+          { label: 'Created', value: po.createdAt },
+          { label: 'Issued', value: po.issuedAt },
+          { label: 'Closed', value: po.closedAt },
+        ]}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -244,7 +255,7 @@ export default async function PurchaseOrderDetailPage({
               </TableHeader>
               <TableBody>
                 {lines.map((l) => {
-                  const code = getMockCostCode(companyId, l.costCodeId);
+                  const code = codeMap.get(l.costCodeId);
                   const ordered = Number(l.quantityOrdered);
                   const received = Number(l.quantityReceived);
                   return (
@@ -324,6 +335,8 @@ export default async function PurchaseOrderDetailPage({
       )}
 
       <CompanyStandardTerms />
+
+      <ActivityLogCard entityType="purchase_order" entityId={po.id} />
     </div>
   );
 }

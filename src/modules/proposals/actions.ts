@@ -3,11 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { getEstimate } from '@/lib/data/estimates';
 import {
-  createMockProposal,
+  createProposal,
   DuplicateProposalNumberError,
-  getMockEstimate,
-} from '@/lib/mock-store';
+} from '@/lib/data/proposals';
 import { proposalFormSchema } from './schema';
 
 export type CreateProposalState = {
@@ -45,14 +45,14 @@ export async function createProposalAction(
 
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
-  const estimate = getMockEstimate(companyId, data.estimateId);
+  const estimate = await getEstimate(companyId, data.estimateId);
   if (!estimate) {
     return { errors: { estimateId: ['Estimate not found'] } };
   }
 
   let createdId: string;
   try {
-    const proposal = createMockProposal(companyId, {
+    const proposal = await createProposal(companyId, {
       number: data.number,
       projectId: estimate.projectId,
       estimateId: estimate.id,

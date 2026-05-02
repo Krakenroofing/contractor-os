@@ -18,19 +18,18 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import {
-  getMockChangeOrder,
-  getMockChangeOrderLineItems,
-  getMockCostCode,
-  getMockCustomer,
-  getMockProject,
-  getMockProposal,
-} from '@/lib/mock-store';
+import { getChangeOrder, getChangeOrderLineItems } from '@/lib/data/change-orders';
+import { loadCostCodeMap } from '@/lib/data/cost-codes';
+import { getProposal } from '@/lib/data/proposals';
+import { getCustomer } from '@/lib/data/customers';
+import { getProject } from '@/lib/data/projects';
 import {
   REASON_LABEL,
   STATUS_LABEL,
-  STATUS_TONE,
 } from '@/modules/change-orders/schema';
+import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
+import { StatusBadge } from '@/modules/status/components/status-badge';
+import { StatusPanel } from '@/modules/status/components/status-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,15 +42,16 @@ export default async function ChangeOrderDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'change_orders');
-  const co = getMockChangeOrder(companyId, id);
+  const co = await getChangeOrder(companyId, id);
   if (!co) notFound();
 
-  const project = getMockProject(companyId, co.projectId);
-  const customer = project ? getMockCustomer(companyId, project.customerId) : undefined;
+  const project = await getProject(companyId, co.projectId);
+  const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
   const proposal = co.proposalId
-    ? getMockProposal(companyId, co.proposalId)
+    ? await getProposal(companyId, co.proposalId)
     : undefined;
-  const lines = getMockChangeOrderLineItems(co.id);
+  const lines = await getChangeOrderLineItems(co.id);
+  const codeMap = await loadCostCodeMap(companyId, lines.map((l) => l.costCodeId));
 
   const subtotal = Number(co.subtotal);
   const total = Number(co.total);
@@ -110,8 +110,20 @@ export default async function ChangeOrderDetailPage({
             )}
           </div>
         </div>
-        <Badge tone={STATUS_TONE[co.status]}>{STATUS_LABEL[co.status]}</Badge>
+        <StatusBadge entityType="change_order" status={co.status} />
       </div>
+
+      <StatusPanel
+        entityType="change_order"
+        entityId={co.id}
+        status={co.status}
+        timestamps={[
+          { label: 'Created', value: co.createdAt },
+          { label: 'Submitted', value: co.submittedAt },
+          { label: 'Approved', value: co.approvedAt },
+          { label: 'Rejected', value: co.rejectedAt },
+        ]}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -192,7 +204,7 @@ export default async function ChangeOrderDetailPage({
               </TableHeader>
               <TableBody>
                 {lines.map((l) => {
-                  const code = getMockCostCode(companyId, l.costCodeId);
+                  const code = codeMap.get(l.costCodeId);
                   return (
                     <TableRow key={l.id}>
                       <TableCell className="font-mono text-xs text-slate-700">
@@ -296,6 +308,8 @@ export default async function ChangeOrderDetailPage({
           )}
         </CardContent>
       </Card>
+
+      <ActivityLogCard entityType="change_order" entityId={co.id} />
     </div>
   );
 }

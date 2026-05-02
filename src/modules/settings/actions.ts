@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { updateMockCompany } from '@/lib/mock-store';
+import { updateCompany } from '@/lib/data/companies';
 import { companySettingsFormSchema } from './schema';
 
 export type CompanySettingsState = {
@@ -47,7 +47,7 @@ export async function updateCompanySettingsAction(
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
 
-  const updated = updateMockCompany(companyId, {
+  const updated = await updateCompany(companyId, {
     name: data.name,
     email: emptyToNull(data.email ?? null),
     phone: emptyToNull(data.phone ?? null),

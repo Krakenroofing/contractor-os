@@ -15,12 +15,10 @@ import {
 } from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
-import {
-  getMockLandedCost,
-  getMockProject,
-  listMockPurchaseOrders,
-  getMockVendor,
-} from '@/lib/mock-store';
+import { getLandedCost } from '@/lib/data/landed-costs';
+import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import { getProject } from '@/lib/data/projects';
+import { getVendor } from '@/lib/data/vendors';
 import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
@@ -35,13 +33,19 @@ export default async function LandedCostDetailPage({
 }) {
   const { id } = await params;
   const companyId = await getActiveCompanyId();
-  const lc = getMockLandedCost(companyId, id);
+  const lc = await getLandedCost(companyId, id);
   if (!lc) notFound();
 
-  const project = lc.projectId ? getMockProject(companyId, lc.projectId) : undefined;
-  const vendor = lc.vendorId ? getMockVendor(companyId, lc.vendorId) : undefined;
-  const linkedPOs = listMockPurchaseOrders(companyId).filter(
+  const project = lc.projectId ? await getProject(companyId, lc.projectId) : undefined;
+  const vendor = lc.vendorId ? await getVendor(companyId, lc.vendorId) : undefined;
+  const linkedPOs = (await listPurchaseOrders(companyId)).filter(
     (p) => p.landedCostEntryId === lc.id,
+  );
+  const linkedPOsWithVendor = await Promise.all(
+    linkedPOs.map(async (po) => ({
+      po,
+      vendor: await getVendor(companyId, po.vendorId),
+    })),
   );
 
   return (
@@ -251,8 +255,7 @@ export default async function LandedCostDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {linkedPOs.map((po) => {
-                  const vendor = getMockVendor(companyId, po.vendorId);
+                {linkedPOsWithVendor.map(({ po, vendor }) => {
                   return (
                     <TableRow key={po.id}>
                       <TableCell className="font-mono text-xs text-slate-700">

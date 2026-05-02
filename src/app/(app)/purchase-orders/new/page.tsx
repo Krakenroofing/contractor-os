@@ -6,20 +6,18 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import {
-  getMockCustomer,
-  listMockCostCodes,
-  listMockLandedCosts,
-  listMockProjects,
-  listMockPurchaseOrders,
-  listMockVendors,
-} from '@/lib/mock-store';
+import { listCostCodes } from '@/lib/data/cost-codes';
+import { listLandedCosts } from '@/lib/data/landed-costs';
+import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
+import { listVendors } from '@/lib/data/vendors';
 
 export const dynamic = 'force-dynamic';
 
-function nextPONumber(companyId: string): string {
+async function nextPONumber(companyId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const existing = listMockPurchaseOrders(companyId);
+  const existing = await listPurchaseOrders(companyId);
   const matching = existing
     .map((p) => p.number)
     .filter((n) => n.startsWith(`PO-${year}-`))
@@ -33,20 +31,22 @@ export default async function NewPurchaseOrderPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'purchase_orders')) redirect('/purchase-orders');
   const companyId = await getActiveCompanyId();
-  const projects = listMockProjects(companyId).map((p) => {
-    const customer = getMockCustomer(companyId, p.customerId);
-    return {
-      id: p.id,
-      label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
-    };
-  });
-  const vendors = listMockVendors(companyId).map((v) => ({ id: v.id, label: v.name }));
-  const costCodes = listMockCostCodes(companyId).map((c) => ({
+  const projects = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+      };
+    }),
+  );
+  const vendors = (await listVendors(companyId)).map((v) => ({ id: v.id, label: v.name }));
+  const costCodes = (await listCostCodes(companyId)).map((c) => ({
     id: c.id,
     code: c.code,
     description: c.description,
   }));
-  const landedCosts = listMockLandedCosts(companyId).map((l) => ({
+  const landedCosts = (await listLandedCosts(companyId)).map((l) => ({
     id: l.id,
     projectId: l.projectId,
     label: `${l.name} · ${formatMoney(l.totalLandedCost)} total`,
@@ -73,7 +73,7 @@ export default async function NewPurchaseOrderPage() {
         vendors={vendors}
         costCodes={costCodes}
         landedCosts={landedCosts}
-        defaultNumber={nextPONumber(companyId)}
+        defaultNumber={await nextPONumber(companyId)}
       />
     </div>
   );

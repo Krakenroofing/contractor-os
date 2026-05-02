@@ -5,7 +5,7 @@ import { ProjectForm } from '@/modules/projects/components/project-form';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { listMockCustomers } from '@/lib/mock-store';
+import { listCustomers } from '@/lib/data/customers';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,7 @@ export default async function NewProjectPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) redirect('/projects');
   const companyId = await getActiveCompanyId();
-  const customers = listMockCustomers(companyId).map((c) => ({ id: c.id, name: c.name }));
+  const customers = (await listCustomers(companyId)).map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <div className="p-8 max-w-3xl space-y-6">

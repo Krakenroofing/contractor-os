@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { getMockCustomer, listMockProjects } from '@/lib/mock-store';
+import { getCustomer } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
 import type { Customer } from '@/db/schema';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export default async function CustomerDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'customers');
-  const customer = getMockCustomer(companyId, id);
+  const customer = await getCustomer(companyId, id);
   if (!customer) notFound();
 
   const billingAddress = [
@@ -43,7 +44,7 @@ export default async function CustomerDetailPage({
     .filter(Boolean)
     .join(', ');
 
-  const linkedProjects = listMockProjects(companyId).filter(
+  const linkedProjects = (await listProjects(companyId)).filter(
     (p) => p.customerId === customer.id,
   );
 
