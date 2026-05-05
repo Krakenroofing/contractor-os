@@ -1,13 +1,15 @@
 import { pgEnum } from 'drizzle-orm/pg-core';
 
+// Canonical app-level roles. Kept in lock-step with the ROLES tuple in
+// @/lib/permissions so the DB enum value and the app-level Role union are
+// the same string set — no normalization needed when reading a membership.
 export const membershipRoleEnum = pgEnum('membership_role', [
   'owner',
-  'admin',
   'project_manager',
   'estimator',
-  'office_admin',
-  'field_lead',
-  'accountant',
+  'accounting',
+  'field_user',
+  'view_only',
 ]);
 
 export const membershipStatusEnum = pgEnum('membership_status', [

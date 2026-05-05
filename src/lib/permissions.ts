@@ -46,6 +46,7 @@ export const RESOURCES = [
   'backfill',
   'reconciliation',
   'reports',
+  'invitations',
   'settings',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
@@ -77,6 +78,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: RW,
     reconciliation: RW,
     reports: RW,
+    invitations: RW,
     settings: RW,
   },
   project_manager: {
@@ -99,6 +101,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: NONE,
     reconciliation: READ,
     reports: RW,
+    invitations: NONE,
     settings: NONE,
   },
   estimator: {
@@ -121,6 +124,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: NONE,
     reconciliation: NONE,
     reports: READ,
+    invitations: NONE,
     settings: NONE,
   },
   accounting: {
@@ -143,6 +147,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: RW,
     reconciliation: RW,
     reports: RW,
+    invitations: NONE,
     settings: NONE,
   },
   field_user: {
@@ -165,6 +170,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: NONE,
     reconciliation: NONE,
     reports: NONE,
+    invitations: NONE,
     settings: NONE,
   },
   view_only: {
@@ -187,6 +193,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     backfill: READ,
     reconciliation: READ,
     reports: READ,
+    invitations: NONE,
     settings: NONE,
   },
 };

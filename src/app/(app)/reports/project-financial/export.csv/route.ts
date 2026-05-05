@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
       'Total cost',
       'Gross profit',
       'Margin %',
+      'Verified',
     ],
     ...report.rows.map((r) => [
       r.projectNumber,
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
       r.totalCost,
       r.grossProfit,
       r.marginPct,
+      r.verifiedAt ? r.verifiedAt.toISOString().slice(0, 10) : '',
     ]),
     [],
     [
@@ -74,6 +76,7 @@ export async function GET(req: NextRequest) {
       report.totals.totalCost,
       report.totals.grossProfit,
       report.weightedMarginPct,
+      '',
     ],
   ];
 

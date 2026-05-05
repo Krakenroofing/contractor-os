@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { add, formatMoney, parseMoney } from '@/lib/money';
 import { getInvoice } from '@/lib/data/invoices';
@@ -59,11 +60,13 @@ export default async function PaymentsPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — payments are first-class records linked to invoices. Recording a
-        payment automatically updates the invoice's amount paid, balance due, and
-        status.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — payments are first-class records linked to invoices. Recording a
+          payment automatically updates the invoice's amount paid, balance due, and
+          status.
+        </div>
+      )}
 
       <header className="flex items-center justify-between">
         <div>

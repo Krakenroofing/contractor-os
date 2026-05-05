@@ -55,6 +55,7 @@ export type ProjectFinancialRow = {
   totalCost: number;
   grossProfit: number;
   marginPct: number;
+  verifiedAt: Date | null;
 };
 
 export type ProjectFinancialReport = {
@@ -144,6 +145,7 @@ export async function buildProjectFinancialReport(
         totalCost: round2(totalCost),
         grossProfit: round2(grossProfit),
         marginPct,
+        verifiedAt: project.reconciliationVerifiedAt,
       };
     }),
   );

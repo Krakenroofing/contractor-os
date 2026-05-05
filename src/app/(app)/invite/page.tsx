@@ -1,0 +1,176 @@
+import { redirect } from 'next/navigation';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { getActiveCompany } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { isAuthEnabled } from '@/lib/auth';
+import { canCreate, ROLE_LABELS, type Role } from '@/lib/permissions';
+import { listInvitationsForCompany } from '@/lib/data/invitations';
+import { isExpired } from '@/modules/invitations/lib/tokens';
+import { InviteForm } from '@/modules/invitations/components/invite-form';
+import { RevokeButton } from '@/modules/invitations/components/revoke-button';
+
+export const dynamic = 'force-dynamic';
+
+export default async function InvitePage() {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invitations')) redirect('/dashboard');
+
+  const company = await getActiveCompany();
+  const invites = await listInvitationsForCompany(company.id);
+
+  // Categorize for display
+  const pending = invites.filter(
+    (i) => !i.acceptedAt && !i.revokedAt && !isExpired(i.expiresAt),
+  );
+  const expired = invites.filter(
+    (i) => !i.acceptedAt && !i.revokedAt && isExpired(i.expiresAt),
+  );
+  const accepted = invites.filter((i) => !!i.acceptedAt);
+  const revoked = invites.filter((i) => !!i.revokedAt && !i.acceptedAt);
+
+  return (
+    <div className="p-8 max-w-5xl space-y-6">
+      <div
+        className={`rounded-md px-4 py-2 text-sm border ${
+          isAuthEnabled()
+            ? 'bg-blue-50 border-blue-200 text-blue-900'
+            : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}
+      >
+        {isAuthEnabled() ? (
+          <>
+            Invite users to <span className="font-medium">{company.name}</span>.
+            Each invite is a single-use link tied to a role. The recipient sets
+            their password on the linked page; their membership is created
+            automatically.
+          </>
+        ) : (
+          <>
+            Demo mode — invitations require Supabase Auth. Set{' '}
+            <code className="font-mono text-xs">NEXT_PUBLIC_SUPABASE_URL</code>{' '}
+            and{' '}
+            <code className="font-mono text-xs">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{' '}
+            in <code className="font-mono text-xs">.env.local</code>, then
+            restart the dev server. See SETUP.md for full instructions.
+          </>
+        )}
+      </div>
+
+      <header>
+        <h1 className="text-2xl font-semibold text-slate-900">Invite users</h1>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Acting as {ROLE_LABELS[role]} of {company.name}
+        </p>
+      </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>New invitation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InviteForm companyName={company.name} />
+        </CardContent>
+      </Card>
+
+      {pending.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Pending invitations ({pending.length})</CardTitle>
+              <Badge tone="amber">awaiting acceptance</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Sent</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pending.map((i) => (
+                  <TableRow key={i.id}>
+                    <TableCell className="text-slate-900">{i.email}</TableCell>
+                    <TableCell>
+                      <Badge tone="slate">
+                        {ROLE_LABELS[i.role as Role] ?? i.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">
+                      {i.createdAt.toISOString().slice(0, 10)}
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">
+                      {i.expiresAt.toISOString().slice(0, 10)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <RevokeButton invitationId={i.id} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {(accepted.length > 0 || expired.length > 0 || revoked.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>History</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...accepted, ...expired, ...revoked].map((i) => (
+                  <TableRow key={i.id}>
+                    <TableCell className="text-slate-700">{i.email}</TableCell>
+                    <TableCell>
+                      <Badge tone="slate">
+                        {ROLE_LABELS[i.role as Role] ?? i.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {i.acceptedAt ? (
+                        <Badge tone="green">
+                          accepted {i.acceptedAt.toISOString().slice(0, 10)}
+                        </Badge>
+                      ) : i.revokedAt ? (
+                        <Badge tone="red">revoked</Badge>
+                      ) : (
+                        <Badge tone="slate">expired</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">
+                      {i.createdAt.toISOString().slice(0, 10)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

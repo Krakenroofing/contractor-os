@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   getPurchaseOrderLines,
@@ -47,10 +48,12 @@ export default async function VendorsPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — vendors loaded from the in-memory mock store. Open POs and committed
-        spend are rolled up live.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — vendors loaded from the in-memory mock store. Open POs and committed
+          spend are rolled up live.
+        </div>
+      )}
 
       <header className="flex items-center justify-between">
         <div>

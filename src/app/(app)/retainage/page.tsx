@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import {
@@ -30,11 +31,13 @@ export default async function RetainagePage() {
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — retainage is derived live from invoices with a retainage % and the
-        retainage_releases table. Releasing retainage updates the invoice's released
-        total and the project financial summary.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — retainage is derived live from invoices with a retainage % and the
+          retainage_releases table. Releasing retainage updates the invoice's released
+          total and the project financial summary.
+        </div>
+      )}
 
       <header className="flex items-center justify-between">
         <div>

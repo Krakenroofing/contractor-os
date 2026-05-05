@@ -1,10 +1,13 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { CompanySwitcher } from '@/components/company-switcher';
 import { NavLink } from '@/components/nav-link';
 import { RoleSwitcher } from '@/components/role-switcher';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
 import { listCompanies } from '@/lib/data/companies';
+import { listMembershipsForUser } from '@/lib/data/memberships';
 import { canView, type Resource } from '@/lib/permissions';
 
 const mainNav: { href: string; label: string; resource: Resource }[] = [
@@ -30,10 +33,42 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/job-costing', label: 'Job Costing', resource: 'job_costing' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },
+  { href: '/invite', label: 'Invite Users', resource: 'invitations' },
   { href: '/backfill', label: 'Backfill (Historical)', resource: 'backfill' },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const authEnabled = isAuthEnabled();
+  const demoMode = isDevDemoMode();
+  const currentUser = await getCurrentUser();
+
+  // Production fail-safe: if auth env vars are missing AND we're in production,
+  // refuse to render the app shell (which would otherwise display the synthetic
+  // demo user). Middleware already handles this for non-public routes; this is
+  // the layout-level belt-and-suspenders for any path the matcher missed.
+  if (!authEnabled && !demoMode) {
+    redirect('/login' as never);
+  }
+
+  // Auth-enabled but no signed-in user. Middleware should have already
+  // redirected; this is the layout-level safety net (e.g. cookie cleared
+  // mid-render).
+  if (authEnabled && !currentUser) {
+    redirect('/login' as never);
+  }
+
+  // Auth-enabled gate: if the signed-in user has no active memberships,
+  // bounce them to /no-access. Demo mode skips this — there are no real
+  // memberships in the in-memory store.
+  if (authEnabled && currentUser) {
+    const memberships = await listMembershipsForUser(currentUser.id);
+    if (memberships.length === 0) {
+      // URL-object form bypasses typedRoutes literal narrowing for routes
+      // outside the (app) group that the type system hasn't picked up yet.
+      redirect('/no-access' as never);
+    }
+  }
+
   const activeCompanyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const companies = (await listCompanies()).map((c) => ({ id: c.id, name: c.name }));
@@ -44,15 +79,28 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen">
       <aside className="w-64 shrink-0 border-r border-slate-200 bg-white flex flex-col">
-        <div className="px-6 py-5 border-b border-slate-200">
+        <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between gap-2">
           <Link href={{ pathname: '/dashboard' }} className="text-base font-semibold text-slate-900">
             Contractor OS
           </Link>
+          {/* Demo-mode badge — local development only. Never rendered in
+              production builds (see isDevDemoMode in src/lib/auth). */}
+          {demoMode && (
+            <span
+              className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900"
+              title="Demo mode: env vars missing, running on local mock store"
+            >
+              Demo
+            </span>
+          )}
         </div>
 
         <div className="px-3 py-3 border-b border-slate-200 space-y-3">
           <CompanySwitcher companies={companies} activeCompanyId={activeCompanyId} />
-          <RoleSwitcher activeRole={role} />
+          {/* RoleSwitcher is a developer affordance — it lets you preview the
+              UI as a different role. In auth-enabled mode the role comes from
+              the user's membership row, so the switcher would be misleading. */}
+          {!authEnabled && <RoleSwitcher activeRole={role} />}
         </div>
 
         <nav className="p-3 space-y-1 flex-1">
@@ -70,6 +118,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <nav className="p-3 space-y-1 border-t border-slate-200">
             <NavLink href="/settings" label="Settings" />
           </nav>
+        )}
+
+        {authEnabled && currentUser && (
+          <div className="p-3 border-t border-slate-200">
+            <p className="px-3 py-1 text-xs text-slate-500 truncate">
+              {currentUser.name}
+            </p>
+            <Link
+              href={{ pathname: '/logout' }}
+              className="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-md"
+            >
+              Sign out
+            </Link>
+          </div>
         )}
       </aside>
       <main className="flex-1">{children}</main>

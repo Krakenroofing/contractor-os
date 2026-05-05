@@ -1,6 +1,7 @@
-// Server component that wraps every report page. Renders the print-aware
-// header (which is hidden when printing), the filter bar, and the report
-// body. The body is the only thing that ends up on a printed page.
+// Server component that wraps every report page. Renders the screen header
+// (visible on screen, hidden in print), the branded print header (hidden on
+// screen, visible in print), the filter bar (hidden in print), and the
+// report body (always visible).
 
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import {
@@ -10,9 +11,10 @@ import {
   type ReportFilters,
   type ReportType,
 } from '@/modules/reports/lib/filters';
+import { BrandedPrintHeader } from './branded-print-header';
 import { FilterBar } from './filter-bar';
 
-export function ReportShell({
+export async function ReportShell({
   type,
   filters,
   projects,
@@ -36,23 +38,16 @@ export function ReportShell({
         />
       </div>
 
-      {/* Print-only header: appears on the printed page only. */}
-      <div className="hidden print:block mb-4">
-        <p className="text-xs text-slate-500">{companyName}</p>
-        <h1 className="text-xl font-semibold text-slate-900">
-          {REPORT_LABEL[type]}
-        </h1>
-        <p className="text-xs text-slate-500 mt-1">
-          {describeRange(filters)} · generated {new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
-        </p>
-      </div>
+      {/* Branded header — print only. */}
+      <BrandedPrintHeader type={type} filters={filters} />
 
       <header className="print:hidden">
         <h1 className="text-2xl font-semibold text-slate-900">
           {REPORT_LABEL[type]}
         </h1>
         <p className="text-sm text-slate-500 mt-1 max-w-3xl">
-          {REPORT_DESCRIPTION[type]} · scoped to {companyName} · {describeRange(filters)}
+          {REPORT_DESCRIPTION[type]} · scoped to {companyName} ·{' '}
+          {describeRange(filters)}
         </p>
       </header>
 

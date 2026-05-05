@@ -14,7 +14,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
         return (
           <Fragment key={`${c.label}-${i}`}>
             {c.href && !isLast ? (
-              <Link href={c.href} className="hover:text-slate-900 hover:underline">
+              <Link href={{ pathname: c.href }} className="hover:text-slate-900 hover:underline">
                 {c.label}
               </Link>
             ) : (

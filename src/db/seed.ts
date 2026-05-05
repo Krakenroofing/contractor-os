@@ -35,6 +35,7 @@ import {
   invoices,
   invoiceTemplates,
   landedCosts,
+  memberships,
   projects,
   proposals,
   purchaseOrderLines,
@@ -85,18 +86,44 @@ async function main() {
   console.log(`  ${allCompanies.length} company row(s)`);
 
   console.log('→ Seeding users (placeholder demo accounts)…');
+  // Stable UUIDs so memberships can reference these rows on re-run. When you
+  // wire up real Supabase Auth, replace these with the auth.users.id values
+  // for your real owners (or leave them and add fresh user rows alongside).
+  const KRAKEN_OWNER_ID = '00000000-0000-0000-0000-0000000000aa';
+  const TRB_OWNER_ID = '00000000-0000-0000-0000-0000000000ab';
   await db
     .insert(users)
     .values([
       {
+        id: KRAKEN_OWNER_ID,
         email: 'owner@krakenroofing.example',
         name: 'Kraken Owner',
         phone: '(242) 555-0100',
       },
       {
+        id: TRB_OWNER_ID,
         email: 'owner@trbltd.example',
         name: 'TRB Owner',
         phone: '(242) 555-0200',
+      },
+    ])
+    .onConflictDoNothing();
+
+  console.log('→ Seeding memberships…');
+  await db
+    .insert(memberships)
+    .values([
+      {
+        companyId: KRAKEN_ID,
+        userId: KRAKEN_OWNER_ID,
+        role: 'owner',
+        status: 'active',
+      },
+      {
+        companyId: TRB_ID,
+        userId: TRB_OWNER_ID,
+        role: 'owner',
+        status: 'active',
       },
     ])
     .onConflictDoNothing();

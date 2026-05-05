@@ -11,6 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { isDevDemoMode } from '@/lib/auth';
 import { formatMoney } from '@/lib/money';
 import { listAllProjectFinancials } from '@/modules/job-costing/lib/financials';
 import {
@@ -64,10 +65,12 @@ export default async function JobCostingPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — job costing rolls up live from estimates, approved change orders,
-        purchase orders (committed + received), and labor entries.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — job costing rolls up live from estimates, approved change orders,
+          purchase orders (committed + received), and labor entries.
+        </div>
+      )}
 
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Job Costing</h1>

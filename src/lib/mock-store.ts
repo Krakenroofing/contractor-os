@@ -72,13 +72,20 @@ declare global {
 // =====================================================================
 // builders
 // =====================================================================
+//
+// MARKER: dup-keys-fix-2026-05-05
+// If this comment is missing from your deployed source, the deployed branch
+// is older than the local fix. Builders below previously specified id/name/
+// slug/customerId both explicitly and via `...over`, which is a duplicate-key
+// error under strict TS / ESLint. The fix is to drop the explicit lines and
+// let `...over` (constrained by Pick<>) provide them.
 
 function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slug'>): Company {
   const now = new Date();
+  // Defaults first, then spread `over` to apply caller overrides. Because
+  // `over` carries the required id/name/slug via Pick<>, the result is a
+  // complete `Company` row.
   return {
-    id: over.id,
-    name: over.name,
-    slug: over.slug,
     logoUrl: null,
     email: null,
     phone: null,
@@ -111,7 +118,6 @@ function makeCustomer(
   return {
     id: randomUUID(),
     companyId,
-    name: over.name,
     primaryContactName: null,
     email: null,
     phone: null,
@@ -137,9 +143,6 @@ function makeProject(
   return {
     id: randomUUID(),
     companyId,
-    customerId: over.customerId,
-    number: over.number,
-    name: over.name,
     status: 'lead',
     jobsiteAddressLine1: null,
     jobsiteAddressLine2: null,
@@ -190,7 +193,6 @@ function makeVendor(
   return {
     id: randomUUID(),
     companyId,
-    name: over.name,
     primaryContactName: null,
     email: null,
     phone: null,
@@ -633,8 +635,6 @@ function buildInvoiceTemplate(over: SeedInvoiceTemplate): InvoiceTemplate {
   const now = new Date();
   return {
     id: randomUUID(),
-    companyId: over.companyId,
-    name: over.name,
     description: null,
     isDefault: false,
     showCompanyBranding: true,

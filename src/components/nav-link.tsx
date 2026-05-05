@@ -9,7 +9,7 @@ export function NavLink({ href, label }: { href: string; label: string }) {
   const active = pathname === href || pathname.startsWith(href + '/');
   return (
     <Link
-      href={href}
+      href={{ pathname: href }}
       className={cn(
         'block rounded-md px-3 py-2 text-sm transition-colors',
         active

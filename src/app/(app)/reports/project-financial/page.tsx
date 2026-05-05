@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -102,6 +103,11 @@ export default async function ProjectFinancialReportPage({
                       {r.projectNumber}
                     </span>
                     {r.projectName}
+                    {r.verifiedAt && (
+                      <Badge tone="green" className="ml-2">
+                        Verified
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell className="text-slate-600">{r.status.replace('_', ' ')}</TableCell>

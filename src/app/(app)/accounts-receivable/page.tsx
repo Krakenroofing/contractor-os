@@ -1,5 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { isDevDemoMode } from '@/lib/auth';
 import { formatMoney } from '@/lib/money';
 import {
   buildAgingRowsForCompany,
@@ -21,10 +22,12 @@ export default async function AccountsReceivablePage() {
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — accounts receivable derived live from invoices and payment history.
-        Aging buckets are calculated against today's date.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — accounts receivable derived live from invoices and payment history.
+          Aging buckets are calculated against today's date.
+        </div>
+      )}
 
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">

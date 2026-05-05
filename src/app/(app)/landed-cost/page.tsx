@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listLandedCosts } from '@/lib/data/landed-costs';
@@ -33,11 +34,13 @@ export default async function LandedCostPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — saved entries below come from the mock store and feed purchase
-        orders + project job costing. The calculator below is a scratch pad (in-memory
-        only).
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — saved entries below come from the mock store and feed purchase
+          orders + project job costing. The calculator below is a scratch pad (in-memory
+          only).
+        </div>
+      )}
 
       <header className="flex items-start justify-between gap-4">
         <div>

@@ -12,6 +12,7 @@ import {
 import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { getProposal } from '@/lib/data/proposals';
@@ -41,11 +42,13 @@ export default async function ChangeOrdersPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
-      <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
-        Demo mode — change orders loaded from the in-memory mock store
-        (<code className="font-mono">src/lib/mock-store.ts</code>). Approved COs roll
-        into the project's contract value and approved-CO summary on /projects.
-      </div>
+      {isDevDemoMode() && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
+          Demo mode — change orders loaded from the in-memory mock store
+          (<code className="font-mono">src/lib/mock-store.ts</code>). Approved COs roll
+          into the project's contract value and approved-CO summary on /projects.
+        </div>
+      )}
 
       <header className="flex items-center justify-between">
         <div>
