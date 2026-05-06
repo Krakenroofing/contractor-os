@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ArchiveProjectForm } from '@/modules/projects/components/archive-project-form';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -134,17 +135,27 @@ export default async function ProjectDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/projects">
           <Button variant="outline" size="sm">
             ← Back to Projects
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/projects/new">
-            <Button size="sm">New Project</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && (
+            <Link href={{ pathname: `/projects/${project.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && <ArchiveProjectForm id={project.id} />}
+          {allowCreate && (
+            <Link href="/projects/new">
+              <Button size="sm">New Project</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-4">

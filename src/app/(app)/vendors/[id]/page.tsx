@@ -26,6 +26,7 @@ import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
 } from '@/modules/purchase-orders/schema';
+import { ArchiveVendorForm } from '@/modules/vendors/components/archive-vendor-form';
 import { TYPE_LABEL, TYPE_TONE } from '@/modules/vendors/schema';
 
 export const dynamic = 'force-dynamic';
@@ -89,17 +90,27 @@ export default async function VendorDetailPage({
         items={[{ href: '/vendors', label: 'Vendors' }, { label: vendor.name }]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/vendors">
           <Button variant="outline" size="sm">
             ← Back to Vendors
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/vendors/new">
-            <Button size="sm">New Vendor</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && (
+            <Link href={{ pathname: `/vendors/${vendor.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && <ArchiveVendorForm id={vendor.id} />}
+          {allowCreate && (
+            <Link href="/vendors/new">
+              <Button size="sm">New Vendor</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-4">

@@ -8,6 +8,8 @@ import {
   listMockProjects as mockList,
   getMockProject as mockGet,
   createMockProject as mockCreate,
+  updateMockProject as mockUpdate,
+  softDeleteMockProject as mockSoftDelete,
   setProjectVerifiedInMemory,
   DuplicateProjectNumberError,
 } from '@/lib/mock-store';
@@ -25,6 +27,11 @@ export type CreateProjectInput = Omit<
   | 'reconciliationVerifiedRole'
   | 'reconciliationVerifiedNote'
 >;
+
+// Updates exclude immutable fields (id, companyId, number) — number doubles
+// as a stable display identifier, so we don't allow renumbering through the
+// edit form. If renumbering is ever needed, build a separate dedicated flow.
+export type UpdateProjectInput = Partial<Omit<CreateProjectInput, 'number'>>;
 
 export type ProjectVerificationPatch = {
   verifiedAt: Date | null;
@@ -127,4 +134,56 @@ export async function createProject(
     return rows[0];
   }
   return mockCreate(companyId, input);
+}
+
+export async function updateProject(
+  companyId: string,
+  id: string,
+  patch: UpdateProjectInput,
+): Promise<Project | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(projects)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(projects.id, id),
+          eq(projects.companyId, companyId),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockUpdate(companyId, id, patch);
+}
+
+/**
+ * Soft-delete a project. Status='lost' is the right end-of-lifecycle for a
+ * project we abandoned chasing; soft-delete is for projects created in
+ * error (typo, wrong company) that should disappear from lists. Estimates,
+ * invoices, and POs FK'd to the project keep their reference for history.
+ */
+export async function softDeleteProject(
+  companyId: string,
+  id: string,
+): Promise<Project | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const now = new Date();
+    const rows = await db
+      .update(projects)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(projects.id, id),
+          eq(projects.companyId, companyId),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockSoftDelete(companyId, id);
 }

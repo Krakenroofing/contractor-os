@@ -6,13 +6,60 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { createVendorAction, type CreateVendorState } from '../actions';
-import { TYPE_LABEL, vendorTypeValues } from '../schema';
+import {
+  createVendorAction,
+  updateVendorAction,
+  type CreateVendorState,
+  type UpdateVendorState,
+} from '../actions';
+import { TYPE_LABEL, vendorTypeValues, type VendorType } from '../schema';
 
-const initialState: CreateVendorState = {};
+export type VendorFormInitialValues = {
+  id?: string;
+  name: string;
+  vendorType: VendorType;
+  primaryContactName: string;
+  email: string;
+  phone: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  defaultTerms: string;
+  notes: string;
+};
 
-export function VendorForm() {
-  const [state, formAction, pending] = useActionState(createVendorAction, initialState);
+const blankInitial: VendorFormInitialValues = {
+  name: '',
+  vendorType: 'supplier',
+  primaryContactName: '',
+  email: '',
+  phone: '',
+  addressLine1: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  defaultTerms: '',
+  notes: '',
+};
+
+type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
+
+export function VendorForm({
+  mode = { kind: 'create' },
+  initial,
+}: {
+  mode?: Mode;
+  initial?: VendorFormInitialValues;
+}) {
+  const values = initial ?? blankInitial;
+  const isEdit = mode.kind === 'edit';
+
+  const initialState: CreateVendorState | UpdateVendorState = {};
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateVendorAction : createVendorAction,
+    initialState,
+  );
   const err = (key: string) => state.errors?.[key]?.[0];
 
   return (
@@ -23,6 +70,8 @@ export function VendorForm() {
         </div>
       )}
 
+      {isEdit && <input type="hidden" name="id" value={mode.id} />}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field
           label="Company name"
@@ -30,11 +79,16 @@ export function VendorForm() {
           className="md:col-span-2"
           required
         >
-          <Input name="name" placeholder="ABC Roofing Supply" required />
+          <Input
+            name="name"
+            placeholder="ABC Roofing Supply"
+            required
+            defaultValue={values.name}
+          />
         </Field>
 
         <Field label="Vendor type" error={err('vendorType')}>
-          <Select name="vendorType" defaultValue="supplier">
+          <Select name="vendorType" defaultValue={values.vendorType}>
             {vendorTypeValues.map((t) => (
               <option key={t} value={t}>
                 {TYPE_LABEL[t]}
@@ -44,36 +98,53 @@ export function VendorForm() {
         </Field>
 
         <Field label="Payment terms" error={err('defaultTerms')}>
-          <Input name="defaultTerms" placeholder="Net 30" />
+          <Input
+            name="defaultTerms"
+            placeholder="Net 30"
+            defaultValue={values.defaultTerms}
+          />
         </Field>
 
         <Field label="Primary contact" error={err('primaryContactName')}>
-          <Input name="primaryContactName" placeholder="Greg Patterson" />
+          <Input
+            name="primaryContactName"
+            placeholder="Greg Patterson"
+            defaultValue={values.primaryContactName}
+          />
         </Field>
 
         <Field label="Email" error={err('email')}>
-          <Input name="email" type="email" placeholder="orders@vendor.example" />
+          <Input
+            name="email"
+            type="email"
+            placeholder="orders@vendor.example"
+            defaultValue={values.email}
+          />
         </Field>
 
         <Field label="Phone" error={err('phone')}>
-          <Input name="phone" placeholder="(303) 555-0301" />
+          <Input
+            name="phone"
+            placeholder="(303) 555-0301"
+            defaultValue={values.phone}
+          />
         </Field>
       </div>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Address</legend>
         <Field label="Street" error={err('addressLine1')}>
-          <Input name="addressLine1" />
+          <Input name="addressLine1" defaultValue={values.addressLine1} />
         </Field>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="City" error={err('city')}>
-            <Input name="city" />
+            <Input name="city" defaultValue={values.city} />
           </Field>
           <Field label="State" error={err('state')}>
-            <Input name="state" />
+            <Input name="state" defaultValue={values.state} />
           </Field>
           <Field label="Postal code" error={err('postalCode')}>
-            <Input name="postalCode" />
+            <Input name="postalCode" defaultValue={values.postalCode} />
           </Field>
         </div>
       </fieldset>
@@ -84,14 +155,21 @@ export function VendorForm() {
           rows={3}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Insurance certificates, scheduling rules, etc."
+          defaultValue={values.notes}
         />
       </Field>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create vendor'}
+          {pending
+            ? isEdit
+              ? 'Saving…'
+              : 'Creating…'
+            : isEdit
+              ? 'Save changes'
+              : 'Create vendor'}
         </Button>
-        <Link href="/vendors">
+        <Link href={isEdit ? `/vendors/${mode.id}` : '/vendors'}>
           <Button type="button" variant="ghost">
             Cancel
           </Button>

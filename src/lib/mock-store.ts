@@ -3505,3 +3505,112 @@ function recomputeInvoicePaymentStateExternal(invoiceId: string): void {
   }
   inv.updatedAt = new Date();
 }
+
+// =====================================================================
+// Edit / soft-delete for customers, vendors, projects.
+// =====================================================================
+//
+// Mirrors the matching DB-backed operations in src/lib/data/{customers,
+// vendors,projects}.ts. Soft-delete sets deletedAt; list/get filter by
+// deletedAt IS NULL so archived rows disappear from the UI but FK
+// references on dependent records keep working.
+
+export function updateMockCustomer(
+  companyId: string,
+  id: string,
+  patch: Partial<Omit<Customer, 'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'>>,
+): Customer | undefined {
+  const store = getStore();
+  const c = store.customers.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!c) return undefined;
+  Object.assign(c, patch, { updatedAt: new Date() });
+  return c;
+}
+
+export function softDeleteMockCustomer(
+  companyId: string,
+  id: string,
+): Customer | undefined {
+  const store = getStore();
+  const c = store.customers.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!c) return undefined;
+  const now = new Date();
+  c.deletedAt = now;
+  c.updatedAt = now;
+  return c;
+}
+
+export function updateMockVendor(
+  companyId: string,
+  id: string,
+  patch: Partial<Omit<Vendor, 'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'>>,
+): Vendor | undefined {
+  const store = getStore();
+  const v = store.vendors.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!v) return undefined;
+  Object.assign(v, patch, { updatedAt: new Date() });
+  return v;
+}
+
+export function softDeleteMockVendor(
+  companyId: string,
+  id: string,
+): Vendor | undefined {
+  const store = getStore();
+  const v = store.vendors.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!v) return undefined;
+  const now = new Date();
+  v.deletedAt = now;
+  v.updatedAt = now;
+  return v;
+}
+
+export function updateMockProject(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Omit<
+      Project,
+      | 'id'
+      | 'companyId'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'deletedAt'
+      | 'reconciliationVerifiedAt'
+      | 'reconciliationVerifiedRole'
+      | 'reconciliationVerifiedNote'
+      | 'number'
+    >
+  >,
+): Project | undefined {
+  const store = getStore();
+  const p = store.projects.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!p) return undefined;
+  Object.assign(p, patch, { updatedAt: new Date() });
+  return p;
+}
+
+export function softDeleteMockProject(
+  companyId: string,
+  id: string,
+): Project | undefined {
+  const store = getStore();
+  const p = store.projects.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!p) return undefined;
+  const now = new Date();
+  p.deletedAt = now;
+  p.updatedAt = now;
+  return p;
+}

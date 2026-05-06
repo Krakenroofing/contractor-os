@@ -9,12 +9,16 @@ import {
   listMockCustomers as mockList,
   getMockCustomer as mockGet,
   createMockCustomer as mockCreate,
+  updateMockCustomer as mockUpdate,
+  softDeleteMockCustomer as mockSoftDelete,
 } from '@/lib/mock-store';
 
 export type CreateCustomerInput = Omit<
   Customer,
   'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'
 >;
+
+export type UpdateCustomerInput = Partial<CreateCustomerInput>;
 
 export async function listCustomers(companyId: string): Promise<Customer[]> {
   if (isDatabaseConfigured()) {
@@ -63,4 +67,56 @@ export async function createCustomer(
     return rows[0];
   }
   return mockCreate(companyId, input);
+}
+
+export async function updateCustomer(
+  companyId: string,
+  id: string,
+  patch: UpdateCustomerInput,
+): Promise<Customer | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(customers)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(customers.id, id),
+          eq(customers.companyId, companyId),
+          isNull(customers.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockUpdate(companyId, id, patch);
+}
+
+/**
+ * Soft-delete a customer. The row is preserved (FK references like projects
+ * keep working) but it stops appearing in lists / lookups. We deliberately
+ * never hard-delete because customer history is referenced from projects,
+ * estimates, and invoices.
+ */
+export async function softDeleteCustomer(
+  companyId: string,
+  id: string,
+): Promise<Customer | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const now = new Date();
+    const rows = await db
+      .update(customers)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(customers.id, id),
+          eq(customers.companyId, companyId),
+          isNull(customers.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockSoftDelete(companyId, id);
 }

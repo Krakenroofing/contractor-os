@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArchiveCustomerForm } from '@/modules/customers/components/archive-customer-form';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -57,17 +58,27 @@ export default async function CustomerDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/customers">
           <Button variant="outline" size="sm">
             ← Back to Customers
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/customers/new">
-            <Button size="sm">New Customer</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && (
+            <Link href={{ pathname: `/customers/${customer.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && <ArchiveCustomerForm id={customer.id} />}
+          {allowCreate && (
+            <Link href="/customers/new">
+              <Button size="sm">New Customer</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-4">

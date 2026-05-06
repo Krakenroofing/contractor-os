@@ -6,12 +6,50 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { createProjectAction, type CreateProjectState } from '../actions';
+import {
+  createProjectAction,
+  updateProjectAction,
+  type CreateProjectState,
+  type UpdateProjectState,
+} from '../actions';
 import { projectStatusValues } from '../schema';
 
-const initialState: CreateProjectState = {};
+type ProjectStatus = (typeof projectStatusValues)[number];
 
-const statusLabel: Record<(typeof projectStatusValues)[number], string> = {
+export type ProjectFormInitialValues = {
+  id?: string;
+  customerId: string;
+  number: string;
+  name: string;
+  status: ProjectStatus;
+  jobsiteAddressLine1: string;
+  jobsiteCity: string;
+  jobsiteState: string;
+  jobsitePostalCode: string;
+  startDate: string;
+  targetCompletionDate: string;
+  contractValue: string;
+  estimatedBudget: string;
+  notes: string;
+};
+
+const blankInitial: ProjectFormInitialValues = {
+  customerId: '',
+  number: '',
+  name: '',
+  status: 'lead',
+  jobsiteAddressLine1: '',
+  jobsiteCity: '',
+  jobsiteState: '',
+  jobsitePostalCode: '',
+  startDate: '',
+  targetCompletionDate: '',
+  contractValue: '0',
+  estimatedBudget: '0',
+  notes: '',
+};
+
+const statusLabel: Record<ProjectStatus, string> = {
   lead: 'Lead',
   estimating: 'Estimating',
   won: 'Won',
@@ -20,13 +58,25 @@ const statusLabel: Record<(typeof projectStatusValues)[number], string> = {
   lost: 'Lost',
 };
 
+type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
+
 export function ProjectForm({
   customers,
+  mode = { kind: 'create' },
+  initial,
 }: {
   customers: { id: string; name: string }[];
+  mode?: Mode;
+  initial?: ProjectFormInitialValues;
 }) {
-  const [state, formAction, pending] = useActionState(createProjectAction, initialState);
+  const values = initial ?? blankInitial;
+  const isEdit = mode.kind === 'edit';
 
+  const initialState: CreateProjectState | UpdateProjectState = {};
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateProjectAction : createProjectAction,
+    initialState,
+  );
   const err = (key: string) => state.errors?.[key]?.[0];
 
   return (
@@ -37,13 +87,30 @@ export function ProjectForm({
         </div>
       )}
 
+      {isEdit && <input type="hidden" name="id" value={mode.id} />}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Project number" error={err('number')} required>
-          <Input name="number" placeholder="2026-004" required />
+          {/* Project number is the stable display identifier — locked once
+              created. readOnly (not disabled) so the value still submits
+              with the form so create/edit share the same Zod schema. */}
+          <Input
+            name="number"
+            placeholder="2026-004"
+            required
+            defaultValue={values.number}
+            readOnly={isEdit}
+            className={isEdit ? 'bg-slate-50 text-slate-600' : undefined}
+          />
+          {isEdit && (
+            <p className="text-xs text-slate-500">
+              Project number is locked. Contact support if you need to renumber.
+            </p>
+          )}
         </Field>
 
         <Field label="Status" error={err('status')}>
-          <Select name="status" defaultValue="lead">
+          <Select name="status" defaultValue={values.status}>
             {projectStatusValues.map((s) => (
               <option key={s} value={s}>
                 {statusLabel[s]}
@@ -53,11 +120,16 @@ export function ProjectForm({
         </Field>
 
         <Field label="Project name" error={err('name')} className="md:col-span-2" required>
-          <Input name="name" placeholder="Smith residence — full roof replacement" required />
+          <Input
+            name="name"
+            placeholder="Smith residence — full roof replacement"
+            required
+            defaultValue={values.name}
+          />
         </Field>
 
         <Field label="Customer" error={err('customerId')} className="md:col-span-2" required>
-          <Select name="customerId" required defaultValue="">
+          <Select name="customerId" required defaultValue={values.customerId}>
             <option value="" disabled>
               {customers.length === 0
                 ? 'No customers — create one first'
@@ -76,7 +148,7 @@ export function ProjectForm({
             name="contractValue"
             inputMode="decimal"
             placeholder="0.00"
-            defaultValue="0"
+            defaultValue={values.contractValue}
           />
         </Field>
 
@@ -85,33 +157,43 @@ export function ProjectForm({
             name="estimatedBudget"
             inputMode="decimal"
             placeholder="0.00"
-            defaultValue="0"
+            defaultValue={values.estimatedBudget}
           />
         </Field>
 
         <Field label="Start date" error={err('startDate')}>
-          <Input name="startDate" type="date" />
+          <Input name="startDate" type="date" defaultValue={values.startDate} />
         </Field>
 
         <Field label="Target completion" error={err('targetCompletionDate')}>
-          <Input name="targetCompletionDate" type="date" />
+          <Input
+            name="targetCompletionDate"
+            type="date"
+            defaultValue={values.targetCompletionDate}
+          />
         </Field>
       </div>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Jobsite address</legend>
         <Field label="Street" error={err('jobsiteAddressLine1')}>
-          <Input name="jobsiteAddressLine1" />
+          <Input
+            name="jobsiteAddressLine1"
+            defaultValue={values.jobsiteAddressLine1}
+          />
         </Field>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="City" error={err('jobsiteCity')}>
-            <Input name="jobsiteCity" />
+            <Input name="jobsiteCity" defaultValue={values.jobsiteCity} />
           </Field>
           <Field label="State" error={err('jobsiteState')}>
-            <Input name="jobsiteState" />
+            <Input name="jobsiteState" defaultValue={values.jobsiteState} />
           </Field>
           <Field label="Postal code" error={err('jobsitePostalCode')}>
-            <Input name="jobsitePostalCode" />
+            <Input
+              name="jobsitePostalCode"
+              defaultValue={values.jobsitePostalCode}
+            />
           </Field>
         </div>
       </fieldset>
@@ -121,14 +203,21 @@ export function ProjectForm({
           name="notes"
           rows={3}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          defaultValue={values.notes}
         />
       </Field>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create project'}
+          {pending
+            ? isEdit
+              ? 'Saving…'
+              : 'Creating…'
+            : isEdit
+              ? 'Save changes'
+              : 'Create project'}
         </Button>
-        <Link href="/projects">
+        <Link href={isEdit ? `/projects/${mode.id}` : '/projects'}>
           <Button type="button" variant="ghost">
             Cancel
           </Button>

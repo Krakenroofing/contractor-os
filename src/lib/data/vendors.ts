@@ -8,10 +8,13 @@ import {
   listMockVendors as mockList,
   getMockVendor as mockGet,
   createMockVendor as mockCreate,
+  updateMockVendor as mockUpdate,
+  softDeleteMockVendor as mockSoftDelete,
   type CreateVendorInput,
 } from '@/lib/mock-store';
 
 export type { CreateVendorInput };
+export type UpdateVendorInput = Partial<CreateVendorInput>;
 
 export async function listVendors(companyId: string): Promise<Vendor[]> {
   if (isDatabaseConfigured()) {
@@ -60,4 +63,54 @@ export async function createVendor(
     return rows[0];
   }
   return mockCreate(companyId, input);
+}
+
+export async function updateVendor(
+  companyId: string,
+  id: string,
+  patch: UpdateVendorInput,
+): Promise<Vendor | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(vendors)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(vendors.id, id),
+          eq(vendors.companyId, companyId),
+          isNull(vendors.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockUpdate(companyId, id, patch);
+}
+
+/**
+ * Soft-delete a vendor. PO history references vendors, so we never
+ * hard-delete — just stop showing them in lists.
+ */
+export async function softDeleteVendor(
+  companyId: string,
+  id: string,
+): Promise<Vendor | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const now = new Date();
+    const rows = await db
+      .update(vendors)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(vendors.id, id),
+          eq(vendors.companyId, companyId),
+          isNull(vendors.deletedAt),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockSoftDelete(companyId, id);
 }
