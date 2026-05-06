@@ -109,7 +109,7 @@ export async function middleware(req: NextRequest) {
   if (user && pathname === '/login') {
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    return withRefreshedCookies(NextResponse.redirect(url), response);
   }
 
   // Not signed in and trying to load an app route → bounce to login.
@@ -117,10 +117,26 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
-    return NextResponse.redirect(url);
+    return withRefreshedCookies(NextResponse.redirect(url), response);
   }
 
   return response;
+}
+
+/**
+ * Copy any cookies the Supabase client wrote to `source` (the running
+ * NextResponse.next() response from setAll) onto `target` (a redirect
+ * NextResponse). Without this, refreshed access/refresh tokens written
+ * during middleware are silently dropped on redirect, and the browser
+ * keeps using the stale tokens — which manifests as the user being
+ * bounced to /login on every other navigation as the access token
+ * approaches expiry.
+ */
+function withRefreshedCookies(target: NextResponse, source: NextResponse): NextResponse {
+  for (const cookie of source.cookies.getAll()) {
+    target.cookies.set(cookie);
+  }
+  return target;
 }
 
 export const config = {

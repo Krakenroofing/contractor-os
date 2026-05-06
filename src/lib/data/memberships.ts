@@ -5,12 +5,17 @@
 // the demo user "owner" so the UI can keep its existing role-switcher.
 
 import 'server-only';
+import { cache } from 'react';
 import { and, eq } from 'drizzle-orm';
 import { memberships, type Membership } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import type { Role } from '@/lib/permissions';
 
-export async function listMembershipsForUser(
+// Both reads are wrapped in React.cache so layout + active-company +
+// active-role + diagnostics + page don't each issue a duplicate query
+// during the same render. (Drizzle is fast, but the layout-then-page
+// pattern can produce ~6 redundant queries per nav, which adds up.)
+export const listMembershipsForUser = cache(async function listMembershipsForUser(
   userId: string,
 ): Promise<Membership[]> {
   if (isDatabaseConfigured()) {
@@ -21,9 +26,9 @@ export async function listMembershipsForUser(
       .where(and(eq(memberships.userId, userId), eq(memberships.status, 'active')));
   }
   return [];
-}
+});
 
-export async function getMembership(
+export const getMembership = cache(async function getMembership(
   userId: string,
   companyId: string,
 ): Promise<Membership | undefined> {
@@ -43,7 +48,7 @@ export async function getMembership(
     return rows[0];
   }
   return undefined;
-}
+});
 
 /**
  * Upsert a membership row. Used during onboarding to ensure a freshly-signed-up

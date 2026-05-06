@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CompanySwitcher } from '@/components/company-switcher';
-import { DiagnosticsBanner } from '@/components/diagnostics-banner';
 import { NavLink } from '@/components/nav-link';
 import { RoleSwitcher } from '@/components/role-switcher';
 import { getActiveCompanyId } from '@/lib/active-company';
@@ -147,12 +146,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         )}
       </aside>
-      <main className="flex-1">
-        <div className="px-6 pt-3">
-          <DiagnosticsBanner />
-        </div>
-        {children}
-      </main>
+      <main className="flex-1">{children}</main>
     </div>
   );
 }

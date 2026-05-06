@@ -17,6 +17,7 @@
 //      production.
 
 import 'server-only';
+import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import {
   getSupabaseServerClient,
@@ -48,8 +49,17 @@ const DEMO_USER: AuthUser = {
  * Returns DEMO_USER ONLY in local dev demo mode (env vars missing AND
  * not production). In production with missing env vars, returns null —
  * the middleware will redirect to /login.
+ *
+ * Wrapped in React.cache so multiple server components / helpers calling
+ * getCurrentUser() during the same request share a single
+ * supabase.auth.getUser() roundtrip. Without this, layout + active-company
+ * + active-role + page each trigger an independent network call, and if
+ * the access token is near expiry, parallel renders all race to refresh
+ * the (single-use) Supabase refresh token. Whichever loses the race gets
+ * null back from getUser() and the layout's `if (!currentUser) redirect('/login')`
+ * fires, kicking the user back to the login screen on every sidebar nav.
  */
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
   if (isDevDemoMode()) return DEMO_USER;
   if (!isAuthEnabled()) return null;
   const supabase = await getSupabaseServerClient();
@@ -62,7 +72,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     email: data.user.email ?? null,
     name: meta.name?.trim() || data.user.email || data.user.id,
   };
-}
+});
 
 /**
  * Same as getCurrentUser but redirects to /login when not authenticated.

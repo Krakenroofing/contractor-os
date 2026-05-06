@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { KRAKEN_ID } from './mock-store';
@@ -30,7 +31,7 @@ const COOKIE_NAME = 'cos_company_id';
  * In auth-enabled mode this never returns the synthetic KRAKEN_ID, so
  * authenticated users only see companies they're actually members of.
  */
-export async function getActiveCompanyId(): Promise<string> {
+export const getActiveCompanyId = cache(async function getActiveCompanyId(): Promise<string> {
   const c = await cookies();
   const stored = c.get(COOKIE_NAME)?.value;
 
@@ -53,7 +54,7 @@ export async function getActiveCompanyId(): Promise<string> {
   // /login, but if a server action somehow reached here we refuse to
   // synthesize a tenant id.
   redirect('/login' as never);
-}
+});
 
 export async function getActiveCompany(): Promise<Company> {
   const id = await getActiveCompanyId();
