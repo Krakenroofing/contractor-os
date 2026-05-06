@@ -17,6 +17,7 @@ import {
   listPurchaseOrdersForVendor as mockListForVendor,
   findPurchaseOrderForLandedCost as mockFindForLandedCost,
   createMockPurchaseOrder as mockCreate,
+  updateMockPurchaseOrderHeader as mockUpdateHeader,
   DuplicatePONumberError,
 } from '@/lib/mock-store';
 
@@ -220,4 +221,42 @@ export async function createPurchaseOrder(
     return po;
   }
   return mockCreate(companyId, input);
+}
+
+/**
+ * Header-only update — issue / expected-delivery dates, ship-to address,
+ * notes. Line items, totals, vendor, project, and status (which gates
+ * receipt / closed lifecycle) are NOT touched here. Edit only allowed
+ * while the PO is still `draft`; the action layer enforces that.
+ */
+export type UpdatePurchaseOrderHeaderInput = {
+  issueDate: string | null;
+  expectedDeliveryDate: string | null;
+  shipToAddressLine1: string | null;
+  shipToCity: string | null;
+  shipToState: string | null;
+  shipToPostalCode: string | null;
+  notes: string | null;
+};
+
+export async function updatePurchaseOrderHeader(
+  companyId: string,
+  id: string,
+  patch: UpdatePurchaseOrderHeaderInput,
+): Promise<PurchaseOrder | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(purchaseOrders)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(purchaseOrders.id, id),
+          eq(purchaseOrders.companyId, companyId),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+  return mockUpdateHeader(companyId, id, patch);
 }

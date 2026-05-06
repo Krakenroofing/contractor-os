@@ -3614,3 +3614,85 @@ export function softDeleteMockProject(
   p.updatedAt = now;
   return p;
 }
+
+// =====================================================================
+// Header-only edits for estimates / invoices / purchase orders.
+// =====================================================================
+//
+// Mirrors the matching DB-backed `update*Header` operations. Line items,
+// totals, status, and lifecycle fields are deliberately NOT touched —
+// these helpers only patch the metadata fields the edit form exposes.
+// The action layer gates these to status='draft' so receipts / payments /
+// retainage tracking can't be silently corrupted by an edit on a record
+// already in motion.
+
+export function updateMockEstimateHeader(
+  companyId: string,
+  id: string,
+  patch: { validUntil: string | null },
+): Estimate | undefined {
+  const store = getStore();
+  const e = store.estimates.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!e) return undefined;
+  e.validUntil = patch.validUntil;
+  e.updatedAt = new Date();
+  return e;
+}
+
+export function updateMockInvoiceHeader(
+  companyId: string,
+  id: string,
+  patch: {
+    invoiceDate: string;
+    dueDate: string | null;
+    billingType: Invoice['billingType'];
+    notes: string | null;
+    termsOverride: string | null;
+    expectedRetainageReleaseDate: string | null;
+  },
+): Invoice | undefined {
+  const store = getStore();
+  const inv = store.invoices.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!inv) return undefined;
+  inv.invoiceDate = patch.invoiceDate;
+  inv.dueDate = patch.dueDate;
+  inv.billingType = patch.billingType;
+  inv.notes = patch.notes;
+  inv.termsOverride = patch.termsOverride;
+  inv.expectedRetainageReleaseDate = patch.expectedRetainageReleaseDate;
+  inv.updatedAt = new Date();
+  return inv;
+}
+
+export function updateMockPurchaseOrderHeader(
+  companyId: string,
+  id: string,
+  patch: {
+    issueDate: string | null;
+    expectedDeliveryDate: string | null;
+    shipToAddressLine1: string | null;
+    shipToCity: string | null;
+    shipToState: string | null;
+    shipToPostalCode: string | null;
+    notes: string | null;
+  },
+): PurchaseOrder | undefined {
+  const store = getStore();
+  const po = store.purchaseOrders.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!po) return undefined;
+  po.issueDate = patch.issueDate;
+  po.expectedDeliveryDate = patch.expectedDeliveryDate;
+  po.shipToAddressLine1 = patch.shipToAddressLine1;
+  po.shipToCity = patch.shipToCity;
+  po.shipToState = patch.shipToState;
+  po.shipToPostalCode = patch.shipToPostalCode;
+  po.notes = patch.notes;
+  po.updatedAt = new Date();
+  return po;
+}

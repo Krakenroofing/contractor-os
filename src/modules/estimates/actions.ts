@@ -2,12 +2,25 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { createEstimate, DuplicateEstimateNumberError } from '@/lib/data/estimates';
+import { getActiveRole } from '@/lib/active-role';
+import { canCreate } from '@/lib/permissions';
+import {
+  createEstimate,
+  DuplicateEstimateNumberError,
+  getEstimate,
+  updateEstimateHeader,
+} from '@/lib/data/estimates';
 import { calcEstimateTotals, lineTotal } from './lib/calc';
 import { estimateFormSchema } from './schema';
 
 export type CreateEstimateState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+export type UpdateEstimateHeaderState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
@@ -89,4 +102,56 @@ export async function createEstimateAction(
 
   revalidatePath('/estimates');
   redirect(`/estimates/${createdId}`);
+}
+
+const headerUpdateSchema = z.object({
+  id: z.string().uuid('Missing or invalid id'),
+  validUntil: z.string().optional().or(z.literal('')),
+});
+
+export async function updateEstimateHeaderAction(
+  _prev: UpdateEstimateHeaderState,
+  formData: FormData,
+): Promise<UpdateEstimateHeaderState> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'estimates')) {
+    return { formError: 'You do not have permission to edit estimates.' };
+  }
+
+  const parsed = headerUpdateSchema.safeParse({
+    id: formData.get('id'),
+    validUntil: formData.get('validUntil') ?? '',
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const existing = await getEstimate(companyId, parsed.data.id);
+  if (!existing) {
+    return { formError: 'Estimate not found.' };
+  }
+  // Once status leaves `draft` the totals and line items have been seen by
+  // the customer or downstream entities. Refuse header edits past that
+  // point — the workflow status panel is the right place to operate on a
+  // sent / approved / rejected estimate.
+  if (existing.status !== 'draft') {
+    return {
+      formError: `Estimate is in status "${existing.status}" — only drafts can be edited.`,
+    };
+  }
+
+  try {
+    const updated = await updateEstimateHeader(companyId, parsed.data.id, {
+      validUntil: emptyToNull(parsed.data.validUntil ?? null),
+    });
+    if (!updated) return { formError: 'Estimate not found in active company.' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save estimate: ${message}` };
+  }
+
+  revalidatePath('/estimates');
+  revalidatePath(`/estimates/${parsed.data.id}`);
+  redirect(`/estimates/${parsed.data.id}`);
 }

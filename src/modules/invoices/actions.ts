@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -17,10 +18,17 @@ import {
 import {
   createInvoice,
   DuplicateInvoiceNumberError,
+  getInvoice,
+  updateInvoiceHeader,
 } from '@/lib/data/invoices';
-import { invoiceFormSchema } from './schema';
+import { billingTypeValues, invoiceFormSchema } from './schema';
 
 export type CreateInvoiceState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+export type UpdateInvoiceHeaderState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
@@ -151,4 +159,74 @@ export async function createInvoiceAction(
   revalidatePath(`/projects/${data.projectId}`);
   if (retainage > 0) revalidatePath('/retainage');
   redirect(`/invoices/${createdId}`);
+}
+
+const headerUpdateSchema = z.object({
+  id: z.string().uuid('Missing or invalid id'),
+  invoiceDate: z.string().min(1, 'Invoice date is required'),
+  dueDate: z.string().optional().or(z.literal('')),
+  billingType: z.enum(billingTypeValues),
+  expectedRetainageReleaseDate: z.string().optional().or(z.literal('')),
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  termsOverride: z.string().max(4000).optional().or(z.literal('')),
+});
+
+export async function updateInvoiceHeaderAction(
+  _prev: UpdateInvoiceHeaderState,
+  formData: FormData,
+): Promise<UpdateInvoiceHeaderState> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { formError: 'You do not have permission to edit invoices.' };
+  }
+
+  const parsed = headerUpdateSchema.safeParse({
+    id: formData.get('id'),
+    invoiceDate: formData.get('invoiceDate'),
+    dueDate: formData.get('dueDate') ?? '',
+    billingType: formData.get('billingType') ?? 'progress',
+    expectedRetainageReleaseDate:
+      formData.get('expectedRetainageReleaseDate') ?? '',
+    notes: formData.get('notes') ?? '',
+    termsOverride: formData.get('termsOverride') ?? '',
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const existing = await getInvoice(companyId, parsed.data.id);
+  if (!existing) {
+    return { formError: 'Invoice not found.' };
+  }
+  // Refuse edits once the invoice has been sent / partially paid / paid /
+  // overdue / void. Payments and retainage tracking are derived from the
+  // header — silently mutating dates here would corrupt them.
+  if (existing.status !== 'draft') {
+    return {
+      formError: `Invoice is in status "${existing.status}" — only drafts can be edited.`,
+    };
+  }
+
+  try {
+    const updated = await updateInvoiceHeader(companyId, parsed.data.id, {
+      invoiceDate: parsed.data.invoiceDate,
+      dueDate: emptyToNull(parsed.data.dueDate ?? null),
+      billingType: parsed.data.billingType,
+      notes: emptyToNull(parsed.data.notes ?? null),
+      termsOverride: emptyToNull(parsed.data.termsOverride ?? null),
+      expectedRetainageReleaseDate: emptyToNull(
+        parsed.data.expectedRetainageReleaseDate ?? null,
+      ),
+    });
+    if (!updated) return { formError: 'Invoice not found in active company.' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save invoice: ${message}` };
+  }
+
+  revalidatePath('/invoices');
+  revalidatePath(`/invoices/${parsed.data.id}`);
+  if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  redirect(`/invoices/${parsed.data.id}`);
 }

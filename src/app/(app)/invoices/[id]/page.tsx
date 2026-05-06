@@ -74,17 +74,26 @@ export default async function InvoiceDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/invoices">
           <Button variant="outline" size="sm">
             ← Back to Invoices
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/invoices/new">
-            <Button size="sm">New Invoice</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && invoice.status === 'draft' && (
+            <Link href={{ pathname: `/invoices/${invoice.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
+            <Link href="/invoices/new">
+              <Button size="sm">New Invoice</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {show('showCompanyBranding') && <DocumentBranding />}

@@ -69,17 +69,26 @@ export default async function PurchaseOrderDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/purchase-orders">
           <Button variant="outline" size="sm">
             ← Back to Purchase Orders
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/purchase-orders/new">
-            <Button size="sm">New Purchase Order</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && po.status === 'draft' && (
+            <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
+            <Link href="/purchase-orders/new">
+              <Button size="sm">New Purchase Order</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <DocumentBranding />

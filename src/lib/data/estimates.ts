@@ -21,6 +21,7 @@ import {
   getMockEstimateLineItems as mockGetLines,
   listEstimatesForProject as mockListForProject,
   createMockEstimate as mockCreate,
+  updateMockEstimateHeader as mockUpdateHeader,
   DuplicateEstimateNumberError,
 } from '@/lib/mock-store';
 
@@ -181,3 +182,31 @@ export async function createEstimate(
 
 // Status transitions for all 6 workflow entities live in the central
 // `updateEntityStatus` dispatcher in @/lib/mock-store, which is now DB-aware.
+
+/**
+ * Header-only patch. Line items are NOT editable in this update path —
+ * once an estimate has lines, recreating-with-new-lines is the safe way
+ * to change them (avoids partial recomputes of subtotal / total / line
+ * sort order). Edit only allowed while the estimate is still `draft`;
+ * the action layer enforces that.
+ */
+export type UpdateEstimateHeaderInput = {
+  validUntil: string | null;
+};
+
+export async function updateEstimateHeader(
+  companyId: string,
+  id: string,
+  patch: UpdateEstimateHeaderInput,
+): Promise<Estimate | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(estimates)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(estimates.id, id), eq(estimates.companyId, companyId)))
+      .returning();
+    return rows[0];
+  }
+  return mockUpdateHeader(companyId, id, patch);
+}

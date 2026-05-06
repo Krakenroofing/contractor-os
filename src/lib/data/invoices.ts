@@ -19,6 +19,7 @@ import {
   getMockInvoiceLineItems as mockGetLines,
   listInvoicesForProject as mockListForProject,
   createMockInvoice as mockCreate,
+  updateMockInvoiceHeader as mockUpdateHeader,
   computeProjectInvoiceSummary as mockComputeSummary,
   DuplicateInvoiceNumberError,
   type CreateInvoiceInput,
@@ -145,6 +146,38 @@ export async function createInvoice(
     return inv;
   }
   return mockCreate(companyId, input);
+}
+
+/**
+ * Header-only update — invoice metadata (dates, billing type, notes,
+ * terms override). Line items, totals, retainage release tracking, and
+ * payment-driven status are NOT touched here. Edit only allowed while
+ * the invoice is still `draft`; the action layer enforces that.
+ */
+export type UpdateInvoiceHeaderInput = {
+  invoiceDate: string;
+  dueDate: string | null;
+  billingType: Invoice['billingType'];
+  notes: string | null;
+  termsOverride: string | null;
+  expectedRetainageReleaseDate: string | null;
+};
+
+export async function updateInvoiceHeader(
+  companyId: string,
+  id: string,
+  patch: UpdateInvoiceHeaderInput,
+): Promise<Invoice | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .update(invoices)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+      .returning();
+    return rows[0];
+  }
+  return mockUpdateHeader(companyId, id, patch);
 }
 
 /**

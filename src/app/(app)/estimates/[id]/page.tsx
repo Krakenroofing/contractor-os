@@ -63,17 +63,26 @@ export default async function EstimateDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/estimates">
           <Button variant="outline" size="sm">
             ← Back to Estimates
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/estimates/new">
-            <Button size="sm">New Estimate</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && estimate.status === 'draft' && (
+            <Link href={{ pathname: `/estimates/${estimate.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
+            <Link href="/estimates/new">
+              <Button size="sm">New Estimate</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-4">
