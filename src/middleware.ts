@@ -24,6 +24,18 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 const PUBLIC_PATHS = ['/login', '/logout', '/accept-invite', '/no-access'];
 
+/**
+ * Names of the request headers middleware uses to forward the validated
+ * Supabase user identity to the page render. Server components read from
+ * these instead of calling supabase.auth.getUser() themselves — middleware
+ * is the single source of truth for "is there a session, and who is it?"
+ *
+ * Stripped from inbound requests before validation so an attacker cannot
+ * impersonate a user by sending these headers from the outside.
+ */
+export const SUPABASE_USER_ID_HEADER = 'x-supabase-user-id';
+export const SUPABASE_USER_EMAIL_HEADER = 'x-supabase-user-email';
+
 function isAuthEnabled() {
   return (
     typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
@@ -37,56 +49,37 @@ function isDevDemoMode() {
   return !isAuthEnabled() && process.env.NODE_ENV !== 'production';
 }
 
-/**
- * Identify Next.js Router prefetch requests. The Link component fires
- * speculative RSC prefetches for in-viewport hrefs, and these go through
- * middleware exactly like real navigations. If we let getUser() refresh
- * the Supabase session during a prefetch, the (rotating, single-use)
- * refresh token gets consumed against Supabase's server, but the
- * Set-Cookie headers on a prefetch response are not always applied to
- * the document's cookie jar. The browser keeps the OLD refresh token,
- * the user clicks the prefetched link, the actual nav request sends the
- * stale refresh token, Supabase rejects it, getUser() returns null, and
- * the user lands back on /login — exactly the symptom we hit on every
- * sidebar click after the access token edges past expiry.
- *
- * Skipping the refresh on prefetches keeps the existing tokens intact
- * for the real navigation that follows.
- */
 function isPrefetchRequest(req: NextRequest): boolean {
-  // Next 13/14/15 sets these on RSC prefetches. Any one is enough.
   return (
     req.headers.get('next-router-prefetch') === '1' ||
     req.headers.get('purpose') === 'prefetch' ||
-    req.headers.get('x-purpose') === 'prefetch' ||
-    req.headers.get('x-moz') === 'prefetch'
+    req.headers.get('x-purpose') === 'prefetch'
   );
+}
+
+function authCookieNamesPresent(req: NextRequest): string[] {
+  return req.cookies
+    .getAll()
+    .map((c) => c.name)
+    .filter((n) => n.startsWith('sb-'));
 }
 
 function logRequest(
   req: NextRequest,
   hasUser: boolean,
+  userId: string | null,
   redirectTo: string | null,
 ) {
-  // Per-request log line. Visible in Vercel function logs. Strip after
-  // session persistence is verified in production.
   console.log(
     `[contractor-os] mw ${req.method} ${req.nextUrl.pathname}` +
       ` hasUser=${hasUser}` +
+      ` userId=${userId ?? '-'}` +
       ` prefetch=${isPrefetchRequest(req)}` +
       ` rsc=${req.headers.get('rsc') === '1'}` +
+      ` sbCookies=[${authCookieNamesPresent(req).join(',')}]` +
       (redirectTo ? ` → redirect ${redirectTo}` : ''),
   );
 }
-
-/**
- * Names of the request headers middleware uses to forward the validated
- * Supabase user to server components. Stripped from inbound requests
- * before validation so an attacker cannot impersonate a user by sending
- * these headers from the outside.
- */
-export const SUPABASE_USER_ID_HEADER = 'x-supabase-user-id';
-export const SUPABASE_USER_EMAIL_HEADER = 'x-supabase-user-email';
 
 export async function middleware(req: NextRequest) {
   // Local-dev demo mode — no gating, cookie-driven role/company swaps work.
@@ -99,42 +92,30 @@ export async function middleware(req: NextRequest) {
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
 
-  // Strip any inbound copies of the auth-forwarding headers. Browsers can't
-  // normally set arbitrary request headers on a top-level navigation, but
-  // strip defensively so a misconfigured proxy or a curl can't impersonate
-  // a user by sending x-supabase-user-id directly.
-  const requestHeaders = new Headers(req.headers);
-  requestHeaders.delete(SUPABASE_USER_ID_HEADER);
-  requestHeaders.delete(SUPABASE_USER_EMAIL_HEADER);
+  // Strip any inbound copies of the auth-forwarding headers so they can't
+  // be spoofed from outside.
+  req.headers.delete(SUPABASE_USER_ID_HEADER);
+  req.headers.delete(SUPABASE_USER_EMAIL_HEADER);
 
   // Production-misconfigured: no Supabase env vars, but we're in production.
   // Refuse to silently fall through; force every protected route to /login.
   if (!isAuthEnabled()) {
     if (isPublic) {
-      logRequest(req, false, null);
-      return NextResponse.next({ request: { headers: requestHeaders } });
+      logRequest(req, false, null, null);
+      return NextResponse.next({ request: req });
     }
-    logRequest(req, false, '/login (auth not configured)');
+    logRequest(req, false, null, '/login (auth not configured)');
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
     return NextResponse.redirect(url);
   }
 
-  // PREFETCH BAILOUT — see isPrefetchRequest() above. Don't validate the
-  // session (and so don't risk consuming a rotating refresh token) for
-  // speculative prefetches. Server components reading
-  // SUPABASE_USER_ID_HEADER will see no user on a prefetch and skip data
-  // work, but the page itself only re-renders on the real navigation that
-  // follows, which goes through the full getUser() path below.
-  if (isPrefetchRequest(req)) {
-    logRequest(req, false, null);
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  }
-
   // Build the response we'll return so we can attach refreshed Supabase
-  // session cookies to it.
-  let response = NextResponse.next({ request: { headers: requestHeaders } });
+  // session cookies to it. Pass `request: req` so any subsequent mutations
+  // to req.cookies / req.headers (by setAll below or by us setting the
+  // user-id header) propagate downstream to the page render.
+  let response = NextResponse.next({ request: req });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -145,10 +126,13 @@ export async function middleware(req: NextRequest) {
         setAll: (
           cookiesToSet: { name: string; value: string; options?: CookieOptions }[],
         ) => {
+          // Canonical Supabase Next.js pattern: write the new cookies onto
+          // the inbound request (so the same render pass sees them) AND
+          // onto the outbound response (so the browser stores them).
           for (const { name, value } of cookiesToSet) {
             req.cookies.set(name, value);
           }
-          response = NextResponse.next({ request: { headers: requestHeaders } });
+          response = NextResponse.next({ request: req });
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, options);
           }
@@ -158,29 +142,45 @@ export async function middleware(req: NextRequest) {
   );
 
   // getUser() is the source of truth for "is there a valid session?".
-  // It also refreshes the access token if needed and sets the cookies via
-  // setAll above. Wrapped in try/catch because a transient network error
-  // talking to Supabase Auth shouldn't sign every user out — fall through
-  // as unauthenticated, the next request will retry.
+  // It refreshes the access token if needed and writes new cookies via
+  // the setAll callback above. Wrapped in try/catch — a transient network
+  // hiccup talking to Supabase Auth must not sign every user out; treat
+  // it as "we don't know" and let the existing cookies survive to the
+  // next request.
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
   try {
     const result = await supabase.auth.getUser();
     user = result.data.user;
   } catch (err) {
-    console.error('[contractor-os] mw getUser threw:', err);
+    console.error(
+      `[contractor-os] mw getUser threw on ${pathname}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 
-  // If we have a validated user, forward their identity to the page render
-  // via request headers. This is the canonical hand-off — server components
-  // read from these headers instead of calling supabase.auth.getUser()
-  // themselves, which would otherwise cause concurrent refresh races
-  // against the (single-use, rotating) refresh token and result in random
-  // "session lost" redirects mid-navigation.
+  // Forward validated user identity to the page render via REQUEST headers.
+  // Server components read from these instead of calling getUser themselves,
+  // which is what was producing the "session lost on every other sidebar
+  // click" symptom: each server component (layout + active-company +
+  // active-role + page) was creating its own Supabase client and racing the
+  // single-use, rotating refresh token. Centralising validation here
+  // eliminates the race.
+  //
+  // CRITICAL: we do NOT skip this on Next-Router prefetches. Earlier
+  // attempts bailed out on prefetch (to avoid consuming the refresh token
+  // speculatively), but that left the user header unset during prefetch
+  // renders of the dynamic (app) layout — which then called redirect('/login')
+  // because getCurrentUser() returned null. Next's router cached that
+  // redirect against the prefetched destination, so the next user click
+  // replayed the cached redirect to /login. Always running getUser keeps
+  // the prefetched render and the real-click render on the same code path.
   if (user) {
-    requestHeaders.set(SUPABASE_USER_ID_HEADER, user.id);
-    requestHeaders.set(SUPABASE_USER_EMAIL_HEADER, user.email ?? '');
-    // Re-issue the response so the modified headers are forwarded.
-    const next = NextResponse.next({ request: { headers: requestHeaders } });
+    req.headers.set(SUPABASE_USER_ID_HEADER, user.id);
+    req.headers.set(SUPABASE_USER_EMAIL_HEADER, user.email ?? '');
+    // Re-issue the response so the modified request headers (which now
+    // include the user-id header) are forwarded to the destination route.
+    // Carry over any Set-Cookie headers setAll wrote above.
+    const next = NextResponse.next({ request: req });
     for (const cookie of response.cookies.getAll()) {
       next.cookies.set(cookie);
     }
@@ -189,7 +189,7 @@ export async function middleware(req: NextRequest) {
 
   // Already signed in but on /login → bounce to dashboard.
   if (user && pathname === '/login') {
-    logRequest(req, true, '/dashboard');
+    logRequest(req, true, user.id, '/dashboard');
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
     return withRefreshedCookies(NextResponse.redirect(url), response);
@@ -197,14 +197,14 @@ export async function middleware(req: NextRequest) {
 
   // Not signed in and trying to load an app route → bounce to login.
   if (!user && !isPublic) {
-    logRequest(req, false, '/login');
+    logRequest(req, false, null, '/login');
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
     return withRefreshedCookies(NextResponse.redirect(url), response);
   }
 
-  logRequest(req, Boolean(user), null);
+  logRequest(req, Boolean(user), user?.id ?? null, null);
   return response;
 }
 
