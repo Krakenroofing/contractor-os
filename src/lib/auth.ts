@@ -18,12 +18,17 @@
 
 import 'server-only';
 import { cache } from 'react';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import {
   getSupabaseServerClient,
   isAuthEnabled,
   isDevDemoMode,
 } from '@/lib/auth/supabase-server';
+import {
+  SUPABASE_USER_EMAIL_HEADER,
+  SUPABASE_USER_ID_HEADER,
+} from '@/middleware';
 
 export { isAuthEnabled, isDevDemoMode };
 
@@ -46,31 +51,40 @@ const DEMO_USER: AuthUser = {
 /**
  * Returns the currently authenticated user, or null if not signed in.
  *
- * Returns DEMO_USER ONLY in local dev demo mode (env vars missing AND
- * not production). In production with missing env vars, returns null —
- * the middleware will redirect to /login.
+ * The middleware (src/middleware.ts) is the SOLE caller of
+ * supabase.auth.getUser() in the server tree. It validates the session
+ * (and refreshes the access token via the rotating refresh token if
+ * needed), then forwards the resulting user identity to the page render
+ * via the SUPABASE_USER_ID_HEADER / SUPABASE_USER_EMAIL_HEADER request
+ * headers. This function just reads those headers — no Supabase call,
+ * no network roundtrip, no possibility of consuming the refresh token
+ * a second time from a server component and losing it.
  *
- * Wrapped in React.cache so multiple server components / helpers calling
- * getCurrentUser() during the same request share a single
- * supabase.auth.getUser() roundtrip. Without this, layout + active-company
- * + active-role + page each trigger an independent network call, and if
- * the access token is near expiry, parallel renders all race to refresh
- * the (single-use) Supabase refresh token. Whichever loses the race gets
- * null back from getUser() and the layout's `if (!currentUser) redirect('/login')`
- * fires, kicking the user back to the login screen on every sidebar nav.
+ * Why the indirection? Earlier versions called getUser() directly here.
+ * Layout + active-company + active-role + page each issued an
+ * independent getUser() per render. Whenever the access token was near
+ * expiry, those parallel calls all raced to refresh the (single-use,
+ * rotating) Supabase refresh token; whichever lost the race received
+ * null, the layout's `if (!currentUser) redirect('/login')` fired, and
+ * the user was bounced to login on roughly every sidebar nav. Centralising
+ * the validation in middleware and passing a header downstream eliminates
+ * that race entirely.
+ *
+ * Returns DEMO_USER ONLY in local-dev demo mode. In production-misconfigured
+ * mode (env vars missing on a deployed instance), returns null and the
+ * middleware redirects every protected route to /login.
  */
 export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
   if (isDevDemoMode()) return DEMO_USER;
   if (!isAuthEnabled()) return null;
-  const supabase = await getSupabaseServerClient();
-  if (!supabase) return null;
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
-  const meta = (data.user.user_metadata ?? {}) as { name?: string };
+  const h = await headers();
+  const id = h.get(SUPABASE_USER_ID_HEADER);
+  if (!id) return null;
+  const email = h.get(SUPABASE_USER_EMAIL_HEADER) || null;
   return {
-    id: data.user.id,
-    email: data.user.email ?? null,
-    name: meta.name?.trim() || data.user.email || data.user.id,
+    id,
+    email,
+    name: email || id,
   };
 });
 
