@@ -6,6 +6,25 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
+/**
+ * Apply hardened production cookie attributes — same logic as the
+ * middleware's hardener. Force `Secure` on Vercel HTTPS so newer Chrome /
+ * Safari builds actually persist the cookie. Local dev keeps Supabase's
+ * defaults so http://localhost still works.
+ */
+function hardenCookieOptions(
+  options: CookieOptions | undefined,
+): CookieOptions {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    ...options,
+    path: options?.path ?? '/',
+    sameSite: options?.sameSite ?? 'lax',
+    secure: isProduction ? true : (options?.secure ?? false),
+    httpOnly: options?.httpOnly ?? false,
+  };
+}
+
 export function isAuthEnabled(): boolean {
   return (
     typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
@@ -48,11 +67,21 @@ export async function getSupabaseServerClient() {
           // Route Handler" — that's expected when this client is used during
           // a server component render. The middleware refreshes the session.
           try {
+            console.log(
+              `[contractor-os] supabase-server setAll: ${cookiesToSet
+                .map(
+                  (c) =>
+                    `${c.name}(len=${c.value?.length ?? 0}${
+                      c.value === '' ? ',CLEAR' : ''
+                    })`,
+                )
+                .join(', ')}`,
+            );
             for (const { name, value, options } of cookiesToSet) {
-              cookieStore.set(name, value, options);
+              cookieStore.set(name, value, hardenCookieOptions(options));
             }
           } catch {
-            // ignore
+            // ignore — server component render
           }
         },
       },

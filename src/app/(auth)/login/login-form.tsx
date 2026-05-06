@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +13,6 @@ export function LoginForm({
   nextUrl: string;
   initialError: string | null;
 }) {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(initialError);
@@ -29,7 +27,7 @@ export function LoginForm({
         setError('Auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.');
         return;
       }
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
@@ -37,14 +35,41 @@ export function LoginForm({
         setError(signInError.message);
         return;
       }
-      // Use a full reload so the middleware re-runs with the new session
-      // cookie. router.refresh() alone doesn't clear stale RSC payloads.
+
+      // FORENSIC LOGGING — temporary. Verifies that signInWithPassword actually
+      // produced a session AND that document.cookie now contains the
+      // sb-*-auth-token. If the session is set but the cookie isn't, the
+      // browser is rejecting the cookie (most likely missing Secure flag on
+      // HTTPS; see supabase-browser.ts hardening).
+      const sbCookies = document.cookie
+        .split(';')
+        .map((c) => c.trim().split('=')[0])
+        .filter((n) => n.startsWith('sb-'));
+      // eslint-disable-next-line no-console
+      console.log('[contractor-os] login signIn result', {
+        hasSession: Boolean(data?.session),
+        userId: data?.user?.id ?? null,
+        sbCookiesAfterSignIn: sbCookies,
+        href: window.location.href,
+      });
+      if (data?.session && sbCookies.length === 0) {
+        // The login API call worked, but document.cookie didn't accept the
+        // cookie. Surface this to the user so they don't sit in a confusing
+        // loop where dashboard appears to load but the next nav redirects.
+        setError(
+          'Signed in, but the browser rejected the auth cookie. ' +
+            'Try disabling "Block third-party cookies" for this site, or ' +
+            'open in a non-incognito window.',
+        );
+        return;
+      }
+
+      // Hard navigation rather than router.replace — guarantees the
+      // middleware sees the freshly-set cookie on the next request without
+      // any RSC payload caching weirdness.
       const target =
         nextUrl && nextUrl.startsWith('/') ? nextUrl : '/dashboard';
-      // The `next` param is user-supplied; typedRoutes can't narrow it to a
-      // literal Route, so we cast through unknown.
-      router.replace(target as unknown as Parameters<typeof router.replace>[0]);
-      router.refresh();
+      window.location.assign(target);
     });
   }
 

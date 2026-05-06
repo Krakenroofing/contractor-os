@@ -69,14 +69,22 @@ function logRequest(
   hasUser: boolean,
   userId: string | null,
   redirectTo: string | null,
+  outgoingCookies?: { name: string; value: string }[],
 ) {
+  const outgoing = outgoingCookies
+    ? `setCookie=[${outgoingCookies
+        .map((c) => `${c.name}(${c.value?.length ?? 0}b)`)
+        .join(',')}]`
+    : 'setCookie=[]';
   console.log(
     `[contractor-os] mw ${req.method} ${req.nextUrl.pathname}` +
       ` hasUser=${hasUser}` +
       ` userId=${userId ?? '-'}` +
       ` prefetch=${isPrefetchRequest(req)}` +
       ` rsc=${req.headers.get('rsc') === '1'}` +
+      ` host=${req.headers.get('host') ?? '-'}` +
       ` sbCookies=[${authCookieNamesPresent(req).join(',')}]` +
+      ` ${outgoing}` +
       (redirectTo ? ` → redirect ${redirectTo}` : ''),
   );
 }
@@ -101,10 +109,10 @@ export async function middleware(req: NextRequest) {
   // Refuse to silently fall through; force every protected route to /login.
   if (!isAuthEnabled()) {
     if (isPublic) {
-      logRequest(req, false, null, null);
+      logRequest(req, false, null, null, []);
       return NextResponse.next({ request: req });
     }
-    logRequest(req, false, null, '/login (auth not configured)');
+    logRequest(req, false, null, '/login (auth not configured)', []);
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
@@ -129,12 +137,30 @@ export async function middleware(req: NextRequest) {
           // Canonical Supabase Next.js pattern: write the new cookies onto
           // the inbound request (so the same render pass sees them) AND
           // onto the outbound response (so the browser stores them).
+          console.log(
+            `[contractor-os] mw setAll firing on ${pathname}: ${cookiesToSet
+              .map(
+                (c) =>
+                  `${c.name}(len=${c.value?.length ?? 0}${
+                    c.value === '' ? ',CLEAR' : ''
+                  })`,
+              )
+              .join(', ')}`,
+          );
           for (const { name, value } of cookiesToSet) {
             req.cookies.set(name, value);
           }
           response = NextResponse.next({ request: req });
           for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
+            // Force `secure: true` in production. Vercel only serves over
+            // HTTPS, and modern Chrome/Safari are strict about persisting
+            // session cookies set without the Secure flag — symptom is the
+            // cookie shows up in the response but never lands in the
+            // browser's cookie jar. Supabase's defaults don't set Secure,
+            // hence this hardening. Local dev (http://localhost) keeps
+            // Supabase's default so cookies still work without TLS.
+            const finalOptions = hardenCookieOptions(options);
+            response.cookies.set(name, value, finalOptions);
           }
         },
       },
@@ -189,7 +215,7 @@ export async function middleware(req: NextRequest) {
 
   // Already signed in but on /login → bounce to dashboard.
   if (user && pathname === '/login') {
-    logRequest(req, true, user.id, '/dashboard');
+    logRequest(req, true, user.id, '/dashboard', response.cookies.getAll());
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
     return withRefreshedCookies(NextResponse.redirect(url), response);
@@ -197,14 +223,14 @@ export async function middleware(req: NextRequest) {
 
   // Not signed in and trying to load an app route → bounce to login.
   if (!user && !isPublic) {
-    logRequest(req, false, null, '/login');
+    logRequest(req, false, null, '/login', response.cookies.getAll());
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
     return withRefreshedCookies(NextResponse.redirect(url), response);
   }
 
-  logRequest(req, Boolean(user), user?.id ?? null, null);
+  logRequest(req, Boolean(user), user?.id ?? null, null, response.cookies.getAll());
   return response;
 }
 
@@ -222,6 +248,29 @@ function withRefreshedCookies(target: NextResponse, source: NextResponse): NextR
     target.cookies.set(cookie);
   }
   return target;
+}
+
+/**
+ * Apply the hardened production cookie attributes on top of whatever
+ * Supabase's setAll handed us. Supabase's defaults are
+ * { path: '/', sameSite: 'lax', httpOnly: false, maxAge: 400d } with
+ * NO `secure` flag. On Vercel HTTPS that's borderline — recent Chrome
+ * builds will silently drop session cookies set without `Secure`, and
+ * that's the most likely explanation for "no cookie in DevTools after
+ * login" reports. Force Secure in production; leave it off for local
+ * http dev where Secure cookies wouldn't be sent.
+ */
+function hardenCookieOptions(
+  options: CookieOptions | undefined,
+): CookieOptions {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    ...options,
+    path: options?.path ?? '/',
+    sameSite: options?.sameSite ?? 'lax',
+    secure: isProduction ? true : (options?.secure ?? false),
+    httpOnly: options?.httpOnly ?? false,
+  };
 }
 
 export const config = {
