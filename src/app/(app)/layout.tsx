@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CompanySwitcher } from '@/components/company-switcher';
+import { DiagnosticsBanner } from '@/components/diagnostics-banner';
 import { NavLink } from '@/components/nav-link';
 import { RoleSwitcher } from '@/components/role-switcher';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
-import { listCompanies } from '@/lib/data/companies';
+import { getCompany, listCompanies } from '@/lib/data/companies';
 import { listMembershipsForUser } from '@/lib/data/memberships';
 import { canView, type Resource } from '@/lib/permissions';
 
@@ -60,9 +61,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Auth-enabled gate: if the signed-in user has no active memberships,
   // bounce them to /no-access. Demo mode skips this — there are no real
   // memberships in the in-memory store.
+  let userMemberships: Awaited<ReturnType<typeof listMembershipsForUser>> = [];
   if (authEnabled && currentUser) {
-    const memberships = await listMembershipsForUser(currentUser.id);
-    if (memberships.length === 0) {
+    userMemberships = await listMembershipsForUser(currentUser.id);
+    if (userMemberships.length === 0) {
       // URL-object form bypasses typedRoutes literal narrowing for routes
       // outside the (app) group that the type system hasn't picked up yet.
       redirect('/no-access' as never);
@@ -71,7 +73,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const activeCompanyId = await getActiveCompanyId();
   const role = await getActiveRole();
-  const companies = (await listCompanies()).map((c) => ({ id: c.id, name: c.name }));
+
+  // In auth-enabled mode the company switcher must only show companies the
+  // current user has a membership in — otherwise the dropdown leaks every
+  // tenant's name and confuses users by listing companies they can't switch
+  // into. Demo mode keeps the full list so cookie-driven tenant swaps work.
+  const companies = authEnabled
+    ? (
+        await Promise.all(userMemberships.map((m) => getCompany(m.companyId)))
+      )
+        .filter((c): c is NonNullable<typeof c> => Boolean(c))
+        .map((c) => ({ id: c.id, name: c.name }))
+    : (await listCompanies()).map((c) => ({ id: c.id, name: c.name }));
 
   const filteredNav = mainNav.filter((item) => canView(role, item.resource));
   const settingsAllowed = canView(role, 'settings');
@@ -134,7 +147,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         )}
       </aside>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1">
+        <div className="px-6 pt-3">
+          <DiagnosticsBanner />
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

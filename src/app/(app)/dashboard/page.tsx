@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { isAuthEnabled, isDevDemoMode } from '@/lib/auth';
+import { isDevDemoMode } from '@/lib/auth';
 import { canCreate, canView, ROLE_LABELS } from '@/lib/permissions';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dashboard';
@@ -50,41 +50,9 @@ export default async function DashboardPage() {
     alerts.proposalsExpiringSoon.count;
 
   const demoMode = isDevDemoMode();
-  const authEnabled = isAuthEnabled();
-
-  // Server-side log — appears in Vercel function logs on each dashboard render.
-  // Use this to confirm whether the deployed runtime is actually reading the
-  // expected env vars.
-  console.log(
-    `[contractor-os] dashboard render — NODE_ENV=${process.env.NODE_ENV ?? 'unset'} authEnabled=${authEnabled} demoMode=${demoMode}`,
-  );
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
-      {/* Prominent runtime-mode banner. Shows the same three values as the
-          server log on every dashboard render. Remove once production auth
-          flow is verified. */}
-      <div
-        className={`rounded-md border px-4 py-2 text-xs font-mono flex flex-wrap gap-x-4 gap-y-1 ${
-          demoMode
-            ? 'bg-amber-50 border-amber-300 text-amber-900'
-            : authEnabled
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-              : 'bg-red-50 border-red-300 text-red-900'
-        }`}
-      >
-        <span>NODE_ENV: <strong>{process.env.NODE_ENV ?? 'unset'}</strong></span>
-        <span>authEnabled: <strong>{String(authEnabled)}</strong></span>
-        <span>demoMode: <strong>{String(demoMode)}</strong></span>
-        <span>
-          {demoMode
-            ? '← local dev demo'
-            : authEnabled
-              ? '← real auth, production-ready'
-              : '← MISCONFIGURED: no env vars in production'}
-        </span>
-      </div>
-
       {demoMode && (
         <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm text-blue-900">
           Demo mode — every figure is derived live from the in-memory store for{' '}
@@ -335,14 +303,6 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* TEMPORARY runtime-mode debug footer. Remove once production auth flow
-          is verified. Visible to all roles so deployment regressions show up
-          in user reports. */}
-      <footer className="pt-6 border-t border-slate-200 text-[11px] font-mono text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
-        <span>NODE_ENV: <span className="text-slate-600">{process.env.NODE_ENV ?? 'unset'}</span></span>
-        <span>authEnabled: <span className="text-slate-600">{String(authEnabled)}</span></span>
-        <span>demoMode: <span className="text-slate-600">{String(demoMode)}</span></span>
-      </footer>
     </div>
   );
 }
