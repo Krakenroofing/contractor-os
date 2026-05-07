@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   add,
@@ -43,6 +44,7 @@ export async function createInvoiceAction(
   _prev: CreateInvoiceState,
   formData: FormData,
 ): Promise<CreateInvoiceState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'invoices')) {
     return { formError: 'Not allowed to create invoices.' };
@@ -175,6 +177,7 @@ export async function updateInvoiceHeaderAction(
   _prev: UpdateInvoiceHeaderState,
   formData: FormData,
 ): Promise<UpdateInvoiceHeaderState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'invoices')) {
     return { formError: 'You do not have permission to edit invoices.' };

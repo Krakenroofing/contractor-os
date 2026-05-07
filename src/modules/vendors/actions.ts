@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   createVendor,
@@ -53,6 +54,7 @@ export async function createVendorAction(
   _prev: CreateVendorState,
   formData: FormData,
 ): Promise<CreateVendorState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'vendors')) {
     return { formError: 'You do not have permission to create vendors.' };
@@ -100,6 +102,7 @@ export async function updateVendorAction(
   _prev: UpdateVendorState,
   formData: FormData,
 ): Promise<UpdateVendorState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'vendors')) {
     return { formError: 'You do not have permission to edit vendors.' };
@@ -151,6 +154,7 @@ export async function archiveVendorAction(
   _prev: ArchiveVendorState,
   formData: FormData,
 ): Promise<ArchiveVendorState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'vendors')) {
     return { formError: 'You do not have permission to archive vendors.' };

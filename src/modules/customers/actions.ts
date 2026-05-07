@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   createCustomer,
@@ -52,6 +53,7 @@ export async function createCustomerAction(
   _prev: CreateCustomerState,
   formData: FormData,
 ): Promise<CreateCustomerState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'customers')) {
     return { formError: 'You do not have permission to create customers.' };
@@ -96,6 +98,7 @@ export async function updateCustomerAction(
   _prev: UpdateCustomerState,
   formData: FormData,
 ): Promise<UpdateCustomerState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'customers')) {
     return { formError: 'You do not have permission to edit customers.' };
@@ -146,6 +149,7 @@ export async function archiveCustomerAction(
   _prev: ArchiveCustomerState,
   formData: FormData,
 ): Promise<ArchiveCustomerState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'customers')) {
     return { formError: 'You do not have permission to archive customers.' };

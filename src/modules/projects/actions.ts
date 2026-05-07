@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   createProject,
@@ -56,6 +57,7 @@ export async function createProjectAction(
   _prev: CreateProjectState,
   formData: FormData,
 ): Promise<CreateProjectState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) {
     return { formError: 'You do not have permission to create projects.' };
@@ -111,6 +113,7 @@ export async function updateProjectAction(
   _prev: UpdateProjectState,
   formData: FormData,
 ): Promise<UpdateProjectState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) {
     return { formError: 'You do not have permission to edit projects.' };
@@ -171,6 +174,7 @@ export async function archiveProjectAction(
   _prev: ArchiveProjectState,
   formData: FormData,
 ): Promise<ArchiveProjectState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) {
     return { formError: 'You do not have permission to archive projects.' };

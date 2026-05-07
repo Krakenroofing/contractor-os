@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   createEstimate,
@@ -113,6 +114,7 @@ export async function updateEstimateHeaderAction(
   _prev: UpdateEstimateHeaderState,
   formData: FormData,
 ): Promise<UpdateEstimateHeaderState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'estimates')) {
     return { formError: 'You do not have permission to edit estimates.' };

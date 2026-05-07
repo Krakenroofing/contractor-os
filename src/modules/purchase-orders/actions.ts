@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   calcPOTotals,
@@ -133,6 +134,7 @@ export async function updatePurchaseOrderHeaderAction(
   _prev: UpdatePurchaseOrderHeaderState,
   formData: FormData,
 ): Promise<UpdatePurchaseOrderHeaderState> {
+  await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'purchase_orders')) {
     return { formError: 'You do not have permission to edit purchase orders.' };

@@ -57,6 +57,26 @@ function isPrefetchRequest(req: NextRequest): boolean {
   );
 }
 
+/**
+ * Identify Next.js Server Action POSTs. Next attaches the `next-action`
+ * header to every server-action invocation (it's the action ID).
+ *
+ * IMPORTANT: middleware MUST NOT issue a plain HTTP redirect (307/302) to
+ * an action POST. React 19's useActionState transport expects an RSC
+ * action stream as the response — a plain redirect can't be parsed and
+ * surfaces in the browser as
+ *
+ *   Uncaught Error: An unexpected response was received from the server.
+ *
+ * For unauthenticated action POSTs we therefore forward the request to
+ * the action handler with no auth header set; the action's own
+ * `requireAuth()` / `getActiveCompanyId()` path will call
+ * `redirect('/login')`, which IS RSC-aware and the client can follow.
+ */
+function isServerActionRequest(req: NextRequest): boolean {
+  return req.method === 'POST' && req.headers.has('next-action');
+}
+
 function authCookieNamesPresent(req: NextRequest): string[] {
   return req.cookies
     .getAll()
@@ -300,6 +320,20 @@ export async function middleware(req: NextRequest) {
 
   // Not signed in and trying to load an app route → bounce to login.
   if (!user && !isPublic) {
+    if (isServerActionRequest(req)) {
+      // See isServerActionRequest() comment. A 307 here would crash
+      // useActionState with "An unexpected response was received from
+      // the server." Forward to the action without setting the user
+      // header; the action will see null user and redirect itself via
+      // `redirect('/login')`, which IS RSC-aware.
+      logRequest(req, false, null, '(action — let through, no auth)', {
+        mode: 'getUser',
+        expiresAt,
+        refreshed: setAllFired,
+        outgoingCookies: response.cookies.getAll(),
+      });
+      return response;
+    }
     logRequest(req, false, null, '/login', {
       mode: 'getUser',
       expiresAt,
