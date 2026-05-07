@@ -67,16 +67,6 @@ export async function getSupabaseServerClient() {
           // Route Handler" — that's expected when this client is used during
           // a server component render. The middleware refreshes the session.
           try {
-            console.log(
-              `[contractor-os] supabase-server setAll: ${cookiesToSet
-                .map(
-                  (c) =>
-                    `${c.name}(len=${c.value?.length ?? 0}${
-                      c.value === '' ? ',CLEAR' : ''
-                    })`,
-                )
-                .join(', ')}`,
-            );
             for (const { name, value, options } of cookiesToSet) {
               cookieStore.set(name, value, hardenCookieOptions(options));
             }

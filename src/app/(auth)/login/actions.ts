@@ -84,16 +84,9 @@ export async function signInAction(
     },
   });
 
-  const { data, error: signInError } = await supabase.auth.signInWithPassword({
+  const { error: signInError } = await supabase.auth.signInWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
-  });
-
-  console.log('[contractor-os] signInAction', {
-    ok: !signInError,
-    userId: data?.user?.id ?? null,
-    error: signInError?.message ?? null,
-    cookiesWritten: cookiesWritten.map((c) => `${c.name}(${c.valueLen}b)`),
   });
 
   if (signInError) {
@@ -102,21 +95,11 @@ export async function signInAction(
 
   // Defensive check: signInWithPassword succeeded, but if setAll never
   // fired we'd have no cookies on the response and the next request would
-  // come back unauthenticated. Surface the bug instead of silently
-  // redirecting into a broken state.
+  // come back unauthenticated.
   if (cookiesWritten.length === 0) {
     return {
       error:
-        'Sign in succeeded but the server failed to write the auth cookie. Check Vercel function logs for [contractor-os] signInAction output.',
-    };
-  }
-
-  // Confirm the just-written session validates round-trip.
-  const { data: verify } = await supabase.auth.getUser();
-  if (!verify.user) {
-    return {
-      error:
-        'Sign in succeeded but the session did not persist. Check Vercel function logs.',
+        'Sign in succeeded but the server failed to write the auth cookie. Please try again.',
     };
   }
 
