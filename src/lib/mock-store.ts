@@ -1917,14 +1917,38 @@ export function getMockVendor(companyId: string, id: string): Vendor | undefined
   );
 }
 
+/**
+ * Returns ONLY the company's own library codes. Used by the seed script so
+ * each company's codes go into the right library exactly once.
+ *
+ * The UI / data-layer reads from `listMockReadableCostCodes` instead, which
+ * also folds in the global library.
+ */
 export function listMockCostCodes(companyId: string): CostCode[] {
   const libId = LIBRARY_BY_COMPANY[companyId];
   if (!libId) return [];
-  // Companies see their own library AND the global standard library.
+  return [...getStore().costCodes]
+    .filter((c) => c.libraryId === libId)
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/** Just the global library — exposed separately for the seed script. */
+export function listMockGlobalCostCodes(): CostCode[] {
+  return [...getStore().costCodes]
+    .filter((c) => c.libraryId === GLOBAL_COST_CODE_LIBRARY_ID)
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
+ * Company library + global library, ordered for UI rendering. This is what
+ * the data layer uses in mock mode.
+ */
+export function listMockReadableCostCodes(companyId: string): CostCode[] {
+  const libId = LIBRARY_BY_COMPANY[companyId];
+  if (!libId) return [];
   return [...getStore().costCodes]
     .filter((c) => c.libraryId === libId || c.libraryId === GLOBAL_COST_CODE_LIBRARY_ID)
     .sort((a, b) => {
-      // Group by division (NULLs last), then by sortOrder, then by code.
       const da = a.division ?? '~~~';
       const db = b.division ?? '~~~';
       if (da !== db) return da.localeCompare(db);

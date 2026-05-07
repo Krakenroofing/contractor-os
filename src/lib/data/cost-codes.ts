@@ -11,7 +11,7 @@ import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { costCodes, costCodeLibraries, type CostCode } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
-  listMockCostCodes as mockList,
+  listMockReadableCostCodes as mockList,
   getMockCostCode as mockGet,
   createMockCostCode as mockCreate,
   updateMockCostCode as mockUpdate,

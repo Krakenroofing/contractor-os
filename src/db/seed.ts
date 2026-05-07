@@ -49,6 +49,7 @@ import {
   TRB_ID,
   KRAKEN_LIBRARY_ID,
   TRB_LIBRARY_ID,
+  GLOBAL_COST_CODE_LIBRARY_ID,
   // Foundation
   listMockCompanies,
   listMockCustomers,
@@ -57,6 +58,7 @@ import {
   // Financial — direct in-memory readers (do NOT use the data layer here, as
   // it would dispatch to the empty DB during the seed)
   listMockCostCodes,
+  listMockGlobalCostCodes,
   listMockEstimates,
   getMockEstimateLineItems,
   listMockProposals,
@@ -176,13 +178,23 @@ async function main() {
         name: 'TRB Ltd. — Standard',
         isGlobal: false,
       },
+      {
+        id: GLOBAL_COST_CODE_LIBRARY_ID,
+        companyId: null,
+        name: 'Standard Contractor Library',
+        isGlobal: true,
+      },
     ])
     .onConflictDoNothing();
 
   console.log('→ Seeding cost codes…');
+  // Each company's own codes go into its library; global codes go into the
+  // shared library exactly once. The unique index (library_id, code) makes
+  // re-runs safe regardless.
   const allCostCodes = [
     ...listMockCostCodes(KRAKEN_ID),
     ...listMockCostCodes(TRB_ID),
+    ...listMockGlobalCostCodes(),
   ];
   if (allCostCodes.length > 0) {
     await db.insert(costCodes).values(allCostCodes).onConflictDoNothing();

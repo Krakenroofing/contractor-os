@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { createCostCodeAction, type CreateCostCodeState } from '../actions';
 import { CATEGORY_LABEL, costCodeCategoryValues } from '../schema';
+import { COST_CODE_DIVISIONS } from '@/lib/data/cost-code-defaults';
 
 const initialState: CreateCostCodeState = {};
 
@@ -25,14 +26,15 @@ export function CostCodeForm() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Code" error={err('code')} required>
-          <Input name="code" placeholder="01-100" required />
+          <Input name="code" placeholder="07-5400-TPO" required />
         </Field>
 
-        <Field label="Category" error={err('category')} required>
-          <Select name="category" defaultValue="labor" required>
-            {costCodeCategoryValues.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABEL[c]}
+        <Field label="Division" error={err('division')}>
+          <Select name="division" defaultValue="">
+            <option value="">— None —</option>
+            {COST_CODE_DIVISIONS.map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.code} — {d.name}
               </option>
             ))}
           </Select>
@@ -44,7 +46,31 @@ export function CostCodeForm() {
           className="md:col-span-2"
           required
         >
-          <Input name="description" placeholder="Roof Tear-Off" required />
+          <Input name="description" placeholder="TPO Membrane" required />
+        </Field>
+
+        <Field label="Category" error={err('category')} required>
+          <Select name="category" defaultValue="material" required>
+            {costCodeCategoryValues.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABEL[c]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Sort order" error={err('sortOrder')}>
+          <Input
+            name="sortOrder"
+            type="number"
+            inputMode="numeric"
+            placeholder="0"
+            defaultValue="0"
+          />
+        </Field>
+
+        <Field label="Notes" error={err('notes')} className="md:col-span-2">
+          <Input name="notes" placeholder="Optional notes for estimators" />
         </Field>
       </div>
 
