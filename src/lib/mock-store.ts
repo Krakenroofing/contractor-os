@@ -2624,12 +2624,25 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
   const invs = store.invoices.filter((i) => i.projectId === projectId);
   let totalInvoiced = 0;
   let totalPaid = 0;
+  let outstandingBalance = 0;
   let retainageHeld = 0;
   let retainageReleased = 0;
   for (const inv of invs) {
     if (inv.status === 'void') continue;
-    totalInvoiced += Number(inv.total);
-    totalPaid += Number(inv.amountPaid);
+    // Compute paid from payment rows directly — matches the canonical
+    // formula in @/modules/invoices/lib/financials and stays correct even
+    // if `inv.amount_paid` is briefly stale.
+    const total = Number(inv.total);
+    let paid = 0;
+    for (const p of store.invoicePayments) {
+      if (p.invoiceId !== inv.id) continue;
+      if (p.status === 'received' || p.status === 'applied') {
+        paid += Number(p.amount);
+      }
+    }
+    totalInvoiced += total;
+    totalPaid += paid;
+    outstandingBalance += Math.max(0, total - paid);
     retainageHeld += Number(inv.retainageAmount);
     retainageReleased += Number(inv.retainageReleased);
   }
@@ -2637,7 +2650,7 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
     invoiceCount: invs.length,
     totalInvoiced,
     totalPaid,
-    outstandingBalance: totalInvoiced - totalPaid,
+    outstandingBalance,
     retainageHeld,
     retainageReleased,
     retainageBalance: retainageHeld - retainageReleased,
@@ -3394,9 +3407,50 @@ export async function updateEntityStatus(
       const inv = store.invoices.find((x) => x.id === id && x.companyId === companyId);
       if (!inv) throw new EntityNotFoundError();
       const prev = inv.status;
+
+      // CRITICAL: when transitioning to "paid", we cannot simply flip the
+      // status field — `invoices.amount_paid` is the cache the dashboard / AR
+      // / aging logic all read. Without a matching payment row, that cache
+      // stays stale and the dashboard would still show the invoice in
+      // outstanding AR. So we record a balancing payment for the remaining
+      // balance, then run the recompute (which derives status from numbers).
+      if (newStatus === 'paid') {
+        const total = Number(inv.total);
+        let alreadyPaid = 0;
+        for (const p of store.invoicePayments) {
+          if (p.invoiceId !== inv.id) continue;
+          if (p.status === 'received' || p.status === 'applied') {
+            alreadyPaid += Number(p.amount);
+          }
+        }
+        const remaining = Math.max(0, total - alreadyPaid);
+        if (remaining > 0.005) {
+          store.invoicePayments.push({
+            id: randomUUID(),
+            invoiceId: inv.id,
+            paymentNumber: '', // empty — real payments use sequence numbers
+            paidDate: today,
+            amount: remaining.toFixed(2),
+            method: 'manual_mark_paid',
+            reference: null,
+            bankAccount: null,
+            status: 'received',
+            notes: 'Auto-recorded by Mark Paid action',
+            createdAt: now,
+          });
+        }
+        // recomputeInvoicePaymentState below will set status='paid',
+        // amountPaid=total, paidAt=now, and bump updatedAt.
+        recomputeInvoicePaymentStateExternal(inv.id);
+        return { previousStatus: prev };
+      }
+
+      // Non-paid transitions (mark sent / mark overdue) leave amount_paid
+      // alone but still must keep the derived status honest. Set the field,
+      // then re-run recompute so e.g. flipping "paid → sent" after a refund
+      // payment keeps the numbers consistent with the (manual) override.
       inv.status = newStatus as Invoice['status'];
       if (newStatus === 'sent' && !inv.sentAt) inv.sentAt = now;
-      if (newStatus === 'paid') inv.paidAt = now;
       inv.updatedAt = now;
       return { previousStatus: prev };
     }
@@ -3564,7 +3618,10 @@ async function updateEntityStatusDb(
       return { previousStatus: prev };
     }
     case 'invoice': {
-      const { invoices: invoicesTable } = await import('@/db/schema');
+      const {
+        invoices: invoicesTable,
+        invoicePayments: invoicePaymentsTable,
+      } = await import('@/db/schema');
       const cur = await db
         .select()
         .from(invoicesTable)
@@ -3575,12 +3632,48 @@ async function updateEntityStatusDb(
       if (cur.length === 0) throw new EntityNotFoundError();
       const inv = cur[0];
       const prev = inv.status;
+
+      // See the parallel block in the in-memory branch above for the
+      // architectural rationale: "Mark Paid" must record a balancing payment
+      // row so amount_paid (the cache the dashboard reads) stays truthful.
+      if (newStatus === 'paid') {
+        const allPayments = await db
+          .select()
+          .from(invoicePaymentsTable)
+          .where(eq(invoicePaymentsTable.invoiceId, id));
+        let alreadyPaid = 0;
+        for (const p of allPayments) {
+          if (p.status === 'received' || p.status === 'applied') {
+            alreadyPaid += Number(p.amount);
+          }
+        }
+        const total = Number(inv.total);
+        const remaining = Math.max(0, total - alreadyPaid);
+        if (remaining > 0.005) {
+          await db.insert(invoicePaymentsTable).values({
+            invoiceId: id,
+            paymentNumber: '',
+            paidDate: today,
+            amount: remaining.toFixed(2),
+            method: 'manual_mark_paid',
+            reference: null,
+            bankAccount: null,
+            status: 'received',
+            notes: 'Auto-recorded by Mark Paid action',
+          });
+        }
+        const { recomputeInvoicePaymentState } = await import(
+          '@/lib/data/invoice-payments'
+        );
+        await recomputeInvoicePaymentState(id);
+        return { previousStatus: prev };
+      }
+
       const patch: Record<string, unknown> = {
         status: newStatus,
         updatedAt: now,
       };
       if (newStatus === 'sent' && !inv.sentAt) patch.sentAt = now;
-      if (newStatus === 'paid') patch.paidAt = now;
       await db
         .update(invoicesTable)
         .set(patch)

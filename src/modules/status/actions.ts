@@ -23,19 +23,41 @@ export type TransitionState = {
   formError?: string;
 };
 
+// `/dashboard` is included for any entity transition that can move money —
+// invoices and payments — because the dashboard's outstanding-AR /
+// total-paid / cash-this-month tiles are derived live and must refresh
+// alongside the source pages. Estimates / COs / POs also flow into
+// projected GP via job-costing, so they get `/dashboard` too.
 const REVALIDATE_BY_ENTITY: Record<EntityType, (id: string) => string[]> = {
-  estimate: (id) => [`/estimates`, `/estimates/${id}`, `/projects`],
-  proposal: (id) => [`/proposals`, `/proposals/${id}`, `/projects`],
-  change_order: (id) => [`/change-orders`, `/change-orders/${id}`, `/projects`],
-  purchase_order: (id) => [`/purchase-orders`, `/purchase-orders/${id}`, `/projects`],
+  estimate: (id) => [`/estimates`, `/estimates/${id}`, `/projects`, `/dashboard`],
+  proposal: (id) => [`/proposals`, `/proposals/${id}`, `/projects`, `/dashboard`],
+  change_order: (id) => [
+    `/change-orders`,
+    `/change-orders/${id}`,
+    `/projects`,
+    `/dashboard`,
+  ],
+  purchase_order: (id) => [
+    `/purchase-orders`,
+    `/purchase-orders/${id}`,
+    `/projects`,
+    `/dashboard`,
+  ],
   invoice: (id) => [
     `/invoices`,
     `/invoices/${id}`,
     `/accounts-receivable`,
     `/retainage`,
     `/projects`,
+    `/dashboard`,
   ],
-  payment: (id) => [`/payments`, `/payments/${id}`, `/accounts-receivable`, `/projects`],
+  payment: (id) => [
+    `/payments`,
+    `/payments/${id}`,
+    `/accounts-receivable`,
+    `/projects`,
+    `/dashboard`,
+  ],
 };
 
 function isEntityType(v: unknown): v is EntityType {

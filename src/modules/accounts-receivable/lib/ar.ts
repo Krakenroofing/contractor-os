@@ -9,8 +9,13 @@ import { listInvoices } from '@/lib/data/invoices';
 import { listInvoicePaymentsForCompany } from '@/lib/data/invoice-payments';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
-import { add, parseMoney, round2, subtract } from '@/lib/money';
+import { add, parseMoney, round2 } from '@/lib/money';
 import type { Invoice, InvoicePayment } from '@/db/schema';
+import {
+  computeInvoiceFinancials,
+  deriveInvoiceStatus,
+  groupPaymentsByInvoice,
+} from '@/modules/invoices/lib/financials';
 import {
   bucketForDaysOverdue,
   daysBetween,
@@ -41,13 +46,15 @@ export {
 async function buildAgingRow(
   companyId: string,
   inv: Invoice,
+  payments: InvoicePayment[],
   asOf: Date,
 ): Promise<AgingRow | null> {
-  if (inv.status === 'void' || inv.status === 'paid') return null;
-  const total = parseMoney(inv.total);
-  const paid = parseMoney(inv.amountPaid);
-  const balance = subtract(total, paid);
-  if (balance <= 0) return null;
+  if (inv.status === 'void') return null;
+  // Balance is computed from payment rows directly — never trust
+  // `inv.amount_paid` here because a manual "Mark Paid" status flip can
+  // leave the cache stale until the next recompute.
+  const fin = computeInvoiceFinancials(inv, payments);
+  if (fin.balance <= 0) return null;
 
   const project = await getProject(companyId, inv.projectId);
   const customer = project
@@ -56,8 +63,9 @@ async function buildAgingRow(
 
   const daysOverdue = inv.dueDate ? daysBetween(inv.dueDate, asOf) : 0;
   const bucket = bucketForDaysOverdue(daysOverdue);
-  const derivedStatus =
-    inv.status === 'sent' && daysOverdue > 0 ? 'overdue' : inv.status;
+  // Derived status uses the canonical helper so AR list and the dashboard
+  // agree on what "paid" / "partial" / "overdue" mean.
+  const derivedStatus = deriveInvoiceStatus(inv, fin.paid, asOf);
 
   return {
     invoiceId: inv.id,
@@ -68,9 +76,9 @@ async function buildAgingRow(
     customerName: customer?.name ?? 'Unknown customer',
     invoiceDate: inv.invoiceDate,
     dueDate: inv.dueDate,
-    total,
-    amountPaid: paid,
-    balance,
+    total: fin.total,
+    amountPaid: fin.paid,
+    balance: fin.balance,
     daysOverdue,
     bucket,
     status: inv.status,
@@ -83,8 +91,12 @@ export async function buildAgingRowsForCompany(
   asOf: Date = new Date(),
 ): Promise<AgingRow[]> {
   const invoices = await listInvoices(companyId);
+  const allPayments = await listInvoicePaymentsForCompany(companyId);
+  const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
   const rows = await Promise.all(
-    invoices.map((inv) => buildAgingRow(companyId, inv, asOf)),
+    invoices.map((inv) =>
+      buildAgingRow(companyId, inv, paymentsByInvoice.get(inv.id) ?? [], asOf),
+    ),
   );
   return rows
     .filter((r): r is AgingRow => r !== null)

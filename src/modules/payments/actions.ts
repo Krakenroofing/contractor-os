@@ -85,5 +85,9 @@ export async function createPaymentAction(
   revalidatePath(`/invoices/${data.invoiceId}`);
   revalidatePath(`/projects/${invoice.projectId}`);
   revalidatePath('/accounts-receivable');
+  // Dashboard tiles (outstanding AR, total paid, cash-this-month) are
+  // derived from payment rows live — must refresh whenever a payment is
+  // recorded.
+  revalidatePath('/dashboard');
   redirect(`/payments/${createdId}`);
 }

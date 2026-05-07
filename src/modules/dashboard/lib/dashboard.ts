@@ -7,6 +7,7 @@
 
 import 'server-only';
 import { listInvoices } from '@/lib/data/invoices';
+import { listInvoicePaymentsForCompany } from '@/lib/data/invoice-payments';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
@@ -23,6 +24,10 @@ import {
   summarizeRetainage,
 } from '@/modules/retainage/lib/retainage';
 import { listAllProjectFinancials } from '@/modules/job-costing/lib/financials';
+import {
+  computeInvoiceFinancials,
+  groupPaymentsByInvoice,
+} from '@/modules/invoices/lib/financials';
 
 // ===== Types =====
 
@@ -125,16 +130,27 @@ export async function buildDashboardData(
   }
 
   // ---- Invoices + AR ----
+  // Compute totals directly from payment rows so a stale `amount_paid` cache
+  // (which can drift when a manual "Mark Paid" status flip lands without a
+  // matching payment row) cannot lie to the dashboard. Source of truth is the
+  // invoice_payments table, joined per-invoice.
   const invoices = await listInvoices(companyId);
+  const allPayments = await listInvoicePaymentsForCompany(companyId);
+  const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
   let totalInvoiced = 0;
   let totalPaid = 0;
+  let outstandingAR = 0;
   for (const inv of invoices) {
     const c = normalizeStatus('invoice', inv.status);
     if (c === 'void') continue;
-    totalInvoiced = add(totalInvoiced, parseMoney(inv.total));
-    totalPaid = add(totalPaid, parseMoney(inv.amountPaid));
+    const fin = computeInvoiceFinancials(inv, paymentsByInvoice.get(inv.id) ?? []);
+    totalInvoiced = add(totalInvoiced, fin.total);
+    totalPaid = add(totalPaid, fin.paid);
+    outstandingAR = add(outstandingAR, fin.balance);
   }
-  const outstandingAR = subtract(totalInvoiced, totalPaid);
+  // outstandingAR equals subtract(totalInvoiced, totalPaid) under the
+  // invariant — kept as a separate sum so over-payments on one invoice
+  // never silently offset under-payments on another.
 
   const agingRows = await buildAgingRowsForCompany(companyId, asOf);
   const agingSummary = summarizeAging(agingRows);

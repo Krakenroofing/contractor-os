@@ -8,11 +8,16 @@ import 'server-only';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import {
   invoiceLineItems,
+  invoicePayments,
   invoices,
   type Invoice,
   type InvoiceLineItem,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import {
+  computeInvoiceFinancials,
+  groupPaymentsByInvoice,
+} from '@/modules/invoices/lib/financials';
 import {
   listMockInvoices as mockList,
   getMockInvoice as mockGet,
@@ -189,26 +194,63 @@ export async function computeProjectInvoiceSummary(
 ): Promise<ProjectInvoiceSummary> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    const rows = await db
+    const invRows = await db
       .select()
       .from(invoices)
       .where(eq(invoices.projectId, projectId));
+    if (invRows.length === 0) {
+      return {
+        invoiceCount: 0,
+        totalInvoiced: 0,
+        totalPaid: 0,
+        outstandingBalance: 0,
+        retainageHeld: 0,
+        retainageReleased: 0,
+        retainageBalance: 0,
+      };
+    }
+    // Pull payments for these invoices in one round-trip and compute
+    // balances from payment rows so the project summary, the AR view, and
+    // the dashboard all agree even if `inv.amount_paid` lags briefly.
+    const invoiceIds = invRows.map((r) => r.id);
+    const paymentRows = await db
+      .select()
+      .from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceIds[0]));
+    // Drizzle's `inArray` is the right tool for the multi-id case but
+    // requires another import — fetch sequentially when there are <=20
+    // invoices on a project (typical), one query when there is exactly 1.
+    let allPayments = invoiceIds.length <= 1 ? paymentRows : [];
+    if (invoiceIds.length > 1) {
+      const { inArray } = await import('drizzle-orm');
+      allPayments = await db
+        .select()
+        .from(invoicePayments)
+        .where(inArray(invoicePayments.invoiceId, invoiceIds));
+    }
+    const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
     let totalInvoiced = 0;
     let totalPaid = 0;
+    let outstandingBalance = 0;
     let retainageHeld = 0;
     let retainageReleased = 0;
-    for (const inv of rows) {
+    for (const inv of invRows) {
       if (inv.status === 'void') continue;
-      totalInvoiced += Number(inv.total);
-      totalPaid += Number(inv.amountPaid);
-      retainageHeld += Number(inv.retainageAmount);
-      retainageReleased += Number(inv.retainageReleased);
+      const fin = computeInvoiceFinancials(
+        inv,
+        paymentsByInvoice.get(inv.id) ?? [],
+      );
+      totalInvoiced += fin.total;
+      totalPaid += fin.paid;
+      outstandingBalance += fin.balance;
+      retainageHeld += fin.retainageHeld;
+      retainageReleased += fin.retainageReleased;
     }
     return {
-      invoiceCount: rows.length,
+      invoiceCount: invRows.length,
       totalInvoiced,
       totalPaid,
-      outstandingBalance: totalInvoiced - totalPaid,
+      outstandingBalance,
       retainageHeld,
       retainageReleased,
       retainageBalance: retainageHeld - retainageReleased,

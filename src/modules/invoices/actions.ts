@@ -159,6 +159,8 @@ export async function createInvoiceAction(
 
   revalidatePath('/invoices');
   revalidatePath(`/projects/${data.projectId}`);
+  revalidatePath('/dashboard');
+  revalidatePath('/accounts-receivable');
   if (retainage > 0) revalidatePath('/retainage');
   redirect(`/invoices/${createdId}`);
 }
@@ -230,6 +232,7 @@ export async function updateInvoiceHeaderAction(
 
   revalidatePath('/invoices');
   revalidatePath(`/invoices/${parsed.data.id}`);
+  revalidatePath('/dashboard');
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
   redirect(`/invoices/${parsed.data.id}`);
 }
