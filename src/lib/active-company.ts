@@ -37,11 +37,29 @@ export const getActiveCompanyId = cache(async function getActiveCompanyId(): Pro
 
   if (isAuthEnabled()) {
     const user = await getCurrentUser();
-    if (!user) redirect('/login' as never);
+    if (!user) {
+      console.log(
+        `AUTH DEBUG getActiveCompanyId user_exists=false stored_cookie=${stored ?? 'none'} redirect_reason=NO_USER → /login`,
+      );
+      redirect('/login' as never);
+    }
     const memberships = await listMembershipsForUser(user.id);
     const validIds = new Set(memberships.map((m) => m.companyId));
-    if (stored && validIds.has(stored)) return stored;
-    if (memberships[0]) return memberships[0].companyId;
+    if (stored && validIds.has(stored)) {
+      console.log(
+        `AUTH DEBUG getActiveCompanyId user_id=${user.id} membership_count=${memberships.length} resolved=cookie company_id=${stored}`,
+      );
+      return stored;
+    }
+    if (memberships[0]) {
+      console.log(
+        `AUTH DEBUG getActiveCompanyId user_id=${user.id} membership_count=${memberships.length} resolved=first_membership company_id=${memberships[0].companyId}`,
+      );
+      return memberships[0].companyId;
+    }
+    console.log(
+      `AUTH DEBUG getActiveCompanyId user_id=${user.id} membership_count=0 redirect_reason=NO_MEMBERSHIPS → /no-access`,
+    );
     redirect('/no-access' as never);
   }
 
@@ -53,6 +71,9 @@ export const getActiveCompanyId = cache(async function getActiveCompanyId(): Pro
   // Production-misconfigured. Middleware redirects protected routes to
   // /login, but if a server action somehow reached here we refuse to
   // synthesize a tenant id.
+  console.log(
+    `AUTH DEBUG getActiveCompanyId production_misconfigured redirect_reason=NO_ENV → /login`,
+  );
   redirect('/login' as never);
 });
 

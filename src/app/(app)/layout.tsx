@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CompanySwitcher } from '@/components/company-switcher';
 import { NavLink } from '@/components/nav-link';
@@ -9,6 +10,10 @@ import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
 import { getCompany, listCompanies } from '@/lib/data/companies';
 import { listMembershipsForUser } from '@/lib/data/memberships';
 import { canView, type Resource } from '@/lib/permissions';
+import {
+  SUPABASE_USER_EMAIL_HEADER,
+  SUPABASE_USER_ID_HEADER,
+} from '@/middleware';
 
 const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/dashboard', label: 'Dashboard', resource: 'dashboard' },
@@ -42,11 +47,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const demoMode = isDevDemoMode();
   const currentUser = await getCurrentUser();
 
+  // FORENSIC LOGGING — temporary. Reports exactly what the layout sees on
+  // every render, so the next "redirected to /login" report has a single
+  // log line that names the file and reason.
+  const h = await headers();
+  const headerUserId = h.get(SUPABASE_USER_ID_HEADER);
+  const headerUserEmail = h.get(SUPABASE_USER_EMAIL_HEADER);
+  const logBase =
+    `AUTH DEBUG layout ` +
+    `auth_enabled=${authEnabled} ` +
+    `demo_mode=${demoMode} ` +
+    `header_user_id=${headerUserId ?? 'null'} ` +
+    `header_user_email=${headerUserEmail ?? 'null'} ` +
+    `current_user_id=${currentUser?.id ?? 'null'}`;
+
   // Production fail-safe: if auth env vars are missing AND we're in production,
   // refuse to render the app shell (which would otherwise display the synthetic
   // demo user). Middleware already handles this for non-public routes; this is
   // the layout-level belt-and-suspenders for any path the matcher missed.
   if (!authEnabled && !demoMode) {
+    console.log(`${logBase} redirect_reason=NO_AUTH_CONFIGURED → /login`);
     redirect('/login' as never);
   }
 
@@ -54,6 +74,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // redirected; this is the layout-level safety net (e.g. cookie cleared
   // mid-render).
   if (authEnabled && !currentUser) {
+    console.log(`${logBase} redirect_reason=AUTH_ENABLED_NO_USER → /login`);
     redirect('/login' as never);
   }
 
@@ -64,6 +85,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (authEnabled && currentUser) {
     userMemberships = await listMembershipsForUser(currentUser.id);
     if (userMemberships.length === 0) {
+      console.log(
+        `${logBase} membership_count=0 redirect_reason=NO_MEMBERSHIPS → /no-access`,
+      );
       // URL-object form bypasses typedRoutes literal narrowing for routes
       // outside the (app) group that the type system hasn't picked up yet.
       redirect('/no-access' as never);
@@ -72,6 +96,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const activeCompanyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  console.log(
+    `${logBase} membership_count=${userMemberships.length} ` +
+      `active_company_id=${activeCompanyId} role=${role} redirect_reason=NONE (rendered)`,
+  );
 
   // In auth-enabled mode the company switcher must only show companies the
   // current user has a membership in — otherwise the dropdown leaks every
