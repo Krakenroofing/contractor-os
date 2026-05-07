@@ -38,6 +38,14 @@ export async function updateCompanySettingsAction(
     proposalValidityDays: formData.get('proposalValidityDays') ?? '30',
     standardPaymentTerms: formData.get('standardPaymentTerms') ?? '',
     standardWarrantyLanguage: formData.get('standardWarrantyLanguage') ?? '',
+    // Phase 1 banking / TIN
+    tinNumber: formData.get('tinNumber') ?? '',
+    bankName: formData.get('bankName') ?? '',
+    bankBranch: formData.get('bankBranch') ?? '',
+    bankAccountName: formData.get('bankAccountName') ?? '',
+    bankAccountNumber: formData.get('bankAccountNumber') ?? '',
+    bankAddress: formData.get('bankAddress') ?? '',
+    paymentNotes: formData.get('paymentNotes') ?? '',
   });
 
   if (!parsed.success) {
@@ -65,6 +73,14 @@ export async function updateCompanySettingsAction(
     proposalValidityDays: Number(data.proposalValidityDays),
     standardPaymentTerms: emptyToNull(data.standardPaymentTerms ?? null),
     standardWarrantyLanguage: emptyToNull(data.standardWarrantyLanguage ?? null),
+    // Phase 1 banking / TIN
+    tinNumber: emptyToNull(data.tinNumber ?? null),
+    bankName: emptyToNull(data.bankName ?? null),
+    bankBranch: emptyToNull(data.bankBranch ?? null),
+    bankAccountName: emptyToNull(data.bankAccountName ?? null),
+    bankAccountNumber: emptyToNull(data.bankAccountNumber ?? null),
+    bankAddress: emptyToNull(data.bankAddress ?? null),
+    paymentNotes: emptyToNull(data.paymentNotes ?? null),
   });
 
   if (!updated) {

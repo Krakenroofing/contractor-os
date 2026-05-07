@@ -144,6 +144,54 @@ export function CompanySettingsForm({ company }: { company: Company }) {
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">
+          Banking & TIN
+        </legend>
+        <p className="text-xs text-slate-500">
+          These fields populate the wire-instructions block on invoices when an
+          invoice template has that section enabled.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Tax ID (TIN)" error={err('tinNumber')}>
+            <Input name="tinNumber" defaultValue={company.tinNumber ?? ''} />
+          </Field>
+          <Field label="Bank name" error={err('bankName')}>
+            <Input name="bankName" defaultValue={company.bankName ?? ''} />
+          </Field>
+          <Field label="Branch" error={err('bankBranch')}>
+            <Input name="bankBranch" defaultValue={company.bankBranch ?? ''} />
+          </Field>
+          <Field label="Account name" error={err('bankAccountName')}>
+            <Input
+              name="bankAccountName"
+              defaultValue={company.bankAccountName ?? ''}
+            />
+          </Field>
+          <Field label="Account number" error={err('bankAccountNumber')}>
+            <Input
+              name="bankAccountNumber"
+              defaultValue={company.bankAccountNumber ?? ''}
+            />
+          </Field>
+          <Field label="Bank address" error={err('bankAddress')}>
+            <Input
+              name="bankAddress"
+              defaultValue={company.bankAddress ?? ''}
+            />
+          </Field>
+        </div>
+        <Field label="Additional payment notes" error={err('paymentNotes')}>
+          <textarea
+            name="paymentNotes"
+            rows={3}
+            defaultValue={company.paymentNotes ?? ''}
+            className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            placeholder="Wire transfers may take 1-2 business days. Reference invoice number on payment."
+          />
+        </Field>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
           Standard document language
         </legend>
         <Field label="Standard payment terms" error={err('standardPaymentTerms')}>

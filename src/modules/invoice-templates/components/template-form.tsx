@@ -50,6 +50,32 @@ export function InvoiceTemplateForm({ defaults }: { defaults?: Defaults }) {
     retainageText: defaults?.retainageText ?? '',
     notesText: defaults?.notesText ?? '',
     footerText: defaults?.footerText ?? '',
+
+    // Phase 1 additions
+    titleOverride: defaults?.titleOverride ?? '',
+    tinLabel: defaults?.tinLabel ?? 'TIN',
+    issuedByLabel: defaults?.issuedByLabel ?? 'Issued by',
+    showBillToTin: defaults?.showBillToTin ?? false,
+    billToAttentionLabel: defaults?.billToAttentionLabel ?? 'Attention',
+    showProjectMetadata: defaults?.showProjectMetadata ?? true,
+    poNumberLabel: defaults?.poNumberLabel ?? 'Purchase Order',
+    billingNumberLabel: defaults?.billingNumberLabel ?? 'Billing #',
+    projectDescriptionLabel:
+      defaults?.projectDescriptionLabel ?? 'Project description',
+    showWireInstructions: defaults?.showWireInstructions ?? false,
+    wireInstructionsNote: defaults?.wireInstructionsNote ?? '',
+    showQualifications: defaults?.showQualifications ?? false,
+    qualificationsText: defaults?.qualificationsText ?? '',
+    showAccountHistory: defaults?.showAccountHistory ?? false,
+    accountHistoryLabel: defaults?.accountHistoryLabel ?? 'Account history',
+    showProgressBilling: defaults?.showProgressBilling ?? false,
+    progressBillingLabel: defaults?.progressBillingLabel ?? 'Progress billing',
+    contractValueLabel: defaults?.contractValueLabel ?? 'Total contract value',
+    changeOrdersLabel: defaults?.changeOrdersLabel ?? 'Approved change orders',
+    priorBilledLabel: defaults?.priorBilledLabel ?? 'Less previously billed',
+    retainageHeldLabel: defaults?.retainageHeldLabel ?? 'Less retainage',
+    vatLabel: defaults?.vatLabel ?? 'VAT',
+    vatRatePercent: defaults?.vatRatePercent ?? '0',
   };
 
   return (
@@ -162,6 +188,171 @@ export function InvoiceTemplateForm({ defaults }: { defaults?: Defaults }) {
         />
       </fieldset>
 
+      {/* ========================================================== */}
+      {/* Phase 1 additions: header overrides, project metadata,
+          progress billing, VAT, banking, qualifications, history. */}
+      {/* ========================================================== */}
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Header customisation
+        </legend>
+        <Field
+          label="Title override (e.g. VAT Invoice, Progress Invoice, Request for Change Order)"
+        >
+          <Input
+            name="titleOverride"
+            defaultValue={d.titleOverride}
+            placeholder="Leave blank to use 'Invoice'"
+          />
+        </Field>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="TIN label">
+            <Input name="tinLabel" defaultValue={d.tinLabel} />
+          </Field>
+          <Field label="'Issued by' label">
+            <Input name="issuedByLabel" defaultValue={d.issuedByLabel} />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Bill-to extras
+        </legend>
+        <Field label="Bill-to attention label">
+          <Input
+            name="billToAttentionLabel"
+            defaultValue={d.billToAttentionLabel}
+          />
+        </Field>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Project metadata block
+        </legend>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Purchase order label">
+            <Input name="poNumberLabel" defaultValue={d.poNumberLabel} />
+          </Field>
+          <Field label="Billing number label">
+            <Input
+              name="billingNumberLabel"
+              defaultValue={d.billingNumberLabel}
+            />
+          </Field>
+          <Field
+            label="Project description label"
+            className="md:col-span-2"
+          >
+            <Input
+              name="projectDescriptionLabel"
+              defaultValue={d.projectDescriptionLabel}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Progress billing summary
+        </legend>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Block heading">
+            <Input
+              name="progressBillingLabel"
+              defaultValue={d.progressBillingLabel}
+            />
+          </Field>
+          <Field label="Total contract value label">
+            <Input
+              name="contractValueLabel"
+              defaultValue={d.contractValueLabel}
+            />
+          </Field>
+          <Field label="Approved change orders label">
+            <Input
+              name="changeOrdersLabel"
+              defaultValue={d.changeOrdersLabel}
+            />
+          </Field>
+          <Field label="Less-previously-billed label">
+            <Input
+              name="priorBilledLabel"
+              defaultValue={d.priorBilledLabel}
+            />
+          </Field>
+          <Field label="Less-retainage label" className="md:col-span-2">
+            <Input
+              name="retainageHeldLabel"
+              defaultValue={d.retainageHeldLabel}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          VAT row
+        </legend>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="VAT label" error={err('vatLabel')}>
+            <Input name="vatLabel" defaultValue={d.vatLabel} />
+          </Field>
+          <Field
+            label="VAT rate (%)"
+            error={err('vatRatePercent')}
+          >
+            <Input
+              name="vatRatePercent"
+              inputMode="decimal"
+              defaultValue={String(d.vatRatePercent ?? '0')}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Wire / bank instructions
+        </legend>
+        <p className="text-xs text-slate-500">
+          Bank details are pulled from the active company&apos;s settings.
+          Configure them under <strong>Settings → Banking & TIN</strong>.
+        </p>
+        <TextareaField
+          name="wireInstructionsNote"
+          label="Wire instructions note (optional)"
+          rows={2}
+          defaultValue={d.wireInstructionsNote ?? ''}
+        />
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Qualifications & exclusions
+        </legend>
+        <TextareaField
+          name="qualificationsText"
+          label="Qualifications text"
+          rows={4}
+          defaultValue={d.qualificationsText ?? ''}
+        />
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Account history
+        </legend>
+        <Field label="Section heading">
+          <Input
+            name="accountHistoryLabel"
+            defaultValue={d.accountHistoryLabel}
+          />
+        </Field>
+      </fieldset>
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save template'}
@@ -181,14 +372,16 @@ function Field({
   error,
   children,
   required,
+  className,
 }: {
   label: string;
   error?: string;
   children: React.ReactNode;
   required?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${className ?? ''}`}>
       <Label>
         {label}
         {required && <span className="text-red-600 ml-0.5">*</span>}

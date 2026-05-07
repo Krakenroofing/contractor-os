@@ -28,6 +28,18 @@ export const companies = pgTable('companies', {
   standardPaymentTerms: text('standard_payment_terms'),
   standardWarrantyLanguage: text('standard_warranty_language'),
   fiscalYearStartMonth: integer('fiscal_year_start_month').notNull().default(1),
+
+  // Tax / banking — surfaced on invoices when the active template enables
+  // wire-instruction or TIN sections. Nullable so existing companies keep
+  // working with no data backfill.
+  tinNumber: text('tin_number'),
+  bankName: text('bank_name'),
+  bankBranch: text('bank_branch'),
+  bankAccountName: text('bank_account_name'),
+  bankAccountNumber: text('bank_account_number'),
+  bankAddress: text('bank_address'),
+  paymentNotes: text('payment_notes'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

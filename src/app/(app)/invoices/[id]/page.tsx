@@ -14,11 +14,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney, parseMoney, subtract } from '@/lib/money';
-import { getInvoice, getInvoiceLineItems } from '@/lib/data/invoices';
+import {
+  getInvoice,
+  getInvoiceLineItems,
+  listInvoicesForProject,
+} from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
 import { getChangeOrder } from '@/lib/data/change-orders';
@@ -59,7 +63,40 @@ export default async function InvoiceDetailPage({
   const lines = await getInvoiceLineItems(invoice.id);
   const payments = await getInvoicePayments(invoice.id);
 
+  // Phase 1: pull the active company for the wire-instructions / TIN block,
+  // and all prior invoices on the same project for the account-history /
+  // progress-billing aggregates. Both are cheap (already loaded for other
+  // sections via React.cache or direct query).
+  const company = await getActiveCompany();
+  const allProjectInvoices = project
+    ? await listInvoicesForProject(project.id)
+    : [];
+  const otherInvoices = allProjectInvoices
+    .filter((i) => i.id !== invoice.id && i.status !== 'void')
+    .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
+  // Sum of prior non-void invoice totals on the same project (excluding this
+  // invoice). Used by the progress-billing block.
+  const priorBilledOnProject = otherInvoices
+    .filter((i) => i.invoiceDate <= invoice.invoiceDate)
+    .reduce((sum, i) => sum + Number(i.total), 0);
+
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
+
+  // VAT row: derive from template.vatRatePercent if > 0, else use the
+  // invoice's stored taxAmount as a passthrough.
+  const vatRatePct = template ? Number(template.vatRatePercent) : 0;
+  const vatAmount =
+    vatRatePct > 0
+      ? (Number(invoice.subtotal) * vatRatePct) / 100
+      : Number(invoice.taxAmount);
+
+  // Title override (e.g. "VAT Invoice", "Progress Invoice", "Request for
+  // Change Order"). Falls back to a sensible default when the template
+  // doesn't set one.
+  const invoiceTitle =
+    template?.titleOverride && template.titleOverride.trim() !== ''
+      ? template.titleOverride
+      : 'Invoice';
 
   // Template flags (default-on for unconfigured fields)
   const show = (key: keyof NonNullable<typeof template>, defaultOn = true): boolean =>
@@ -100,6 +137,9 @@ export default async function InvoiceDetailPage({
 
       <div className="flex items-start justify-between gap-4">
         <div>
+          <p className="text-xs uppercase tracking-wide text-slate-500">
+            {invoiceTitle}
+          </p>
           <p className="font-mono text-xs text-slate-500">{invoice.number}</p>
           <h1 className="text-2xl font-semibold text-slate-900">
             {project?.name ?? 'Invoice'}
@@ -162,6 +202,73 @@ export default async function InvoiceDetailPage({
         <KPI label="Total" value={formatMoney(invoice.total)} highlight />
       </div>
 
+      {/* Phase 1: Project metadata block — PO, billing label, project
+          description. Falls back gracefully when individual fields are
+          empty. */}
+      {template?.showProjectMetadata && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Project</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-1">
+            {invoice.purchaseOrderNumber && (
+              <Row
+                label={template.poNumberLabel}
+                value={invoice.purchaseOrderNumber}
+              />
+            )}
+            {invoice.billingLabel && (
+              <Row
+                label={template.billingNumberLabel}
+                value={invoice.billingLabel}
+              />
+            )}
+            {project?.name && (
+              <Row label="Project name" value={project.name} />
+            )}
+            {project?.notes && (
+              <Row
+                label={template.projectDescriptionLabel}
+                value={project.notes}
+              />
+            )}
+            {invoice.termsOverride && (
+              <Row label="Payment terms" value={invoice.termsOverride} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Phase 1: Bill-to block. Customer info already shown in header,
+          so only render the dedicated card if the template wants the TIN
+          line surfaced or a dedicated layout. */}
+      {customer && template?.showBillToTin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bill to</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-1">
+            <Row label="Client" value={customer.name} />
+            {customer.primaryContactName && (
+              <Row
+                label={template.billToAttentionLabel}
+                value={customer.primaryContactName}
+              />
+            )}
+            {customer.email && <Row label="Email" value={customer.email} />}
+            {customer.phone && <Row label="Phone" value={customer.phone} />}
+            {/* TIN intentionally rendered as TBD until customer.tinNumber
+                is added in a later phase — for now the row appears only
+                when the toggle is on, signalling to the user that the
+                template expects this data. */}
+            <Row
+              label={template.tinLabel}
+              value="—"
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {show('showLineItems') && (
         <Card>
           <CardHeader>
@@ -220,12 +327,19 @@ export default async function InvoiceDetailPage({
           <div className="space-y-1">
             <Row label="Subtotal" value={formatMoney(invoice.subtotal)} />
             {show('showTaxVat') && (
-              <Row label="Tax / VAT" value={formatMoney(invoice.taxAmount)} />
+              <Row
+                label={
+                  vatRatePct > 0
+                    ? `${template?.vatLabel ?? 'VAT'} (${vatRatePct.toFixed(2)}%)`
+                    : (template?.vatLabel ?? 'Tax / VAT')
+                }
+                value={formatMoney(vatAmount)}
+              />
             )}
             {show('showRetainage') && Number(invoice.retainageAmount) > 0 && (
               <>
                 <Row
-                  label={`Retainage held (${Number(invoice.retainagePercent).toFixed(2)}%)`}
+                  label={`${template?.retainageHeldLabel ?? 'Retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
                   value={`(${formatMoney(invoice.retainageAmount)})`}
                 />
                 {Number(invoice.retainageReleased) > 0 && (
@@ -250,6 +364,171 @@ export default async function InvoiceDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Phase 1: Progress billing summary. Aggregates project-level
+          numbers (contract, change orders, prior billed, retainage held)
+          for the current project — useful for AIA-style progress invoices. */}
+      {template?.showProgressBilling && project && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{template.progressBillingLabel}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <div className="space-y-1">
+              <Row
+                label={template.contractValueLabel}
+                value={formatMoney(project.originalContractValue)}
+              />
+              <Row
+                label={template.changeOrdersLabel}
+                value={formatMoney(project.totalChangeOrders)}
+              />
+              <Row
+                label="Total project value"
+                value={formatMoney(project.contractValue)}
+                bold
+              />
+              <Row
+                label="% billed (this invoice)"
+                value={
+                  Number(project.contractValue) > 0
+                    ? `${(
+                        (Number(invoice.subtotal) /
+                          Number(project.contractValue)) *
+                        100
+                      ).toFixed(2)}%`
+                    : '—'
+                }
+              />
+              <Row
+                label={template.priorBilledLabel}
+                value={`(${formatMoney(priorBilledOnProject)})`}
+              />
+              {Number(invoice.retainageAmount) > 0 && (
+                <Row
+                  label={template.retainageHeldLabel}
+                  value={`(${formatMoney(invoice.retainageAmount)})`}
+                />
+              )}
+              <Row
+                label="Invoice subtotal"
+                value={formatMoney(invoice.subtotal)}
+              />
+              {vatRatePct > 0 && (
+                <Row
+                  label={`${template.vatLabel} (${vatRatePct.toFixed(2)}%)`}
+                  value={formatMoney(vatAmount)}
+                />
+              )}
+              <Row
+                label="Invoice final total"
+                value={formatMoney(invoice.total)}
+                bold
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Phase 1: Account history — prior invoices for the same project. */}
+      {template?.showAccountHistory && otherInvoices.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{template.accountHistoryLabel}</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice date</TableHead>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">{template.vatLabel}</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {otherInvoices.map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell className="text-slate-600">
+                      {inv.invoiceDate}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-700">
+                      {inv.number}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(inv.total)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {formatMoney(inv.taxAmount)}
+                    </TableCell>
+                    <TableCell className="text-slate-600 capitalize">
+                      {inv.status}
+                    </TableCell>
+                    <TableCell className="text-slate-600 truncate max-w-xs">
+                      {inv.notes ?? '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Phase 1: Wire instructions. Pulls bank fields from the active
+          company. Only renders if the template enables this section AND
+          the company actually has banking data set. */}
+      {template?.showWireInstructions &&
+        (company.bankName ||
+          company.bankAccountName ||
+          company.bankAccountNumber) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Wire instructions</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm">
+              <div className="space-y-1">
+                {company.bankName && (
+                  <Row label="Bank name" value={company.bankName} />
+                )}
+                {company.bankBranch && (
+                  <Row label="Branch" value={company.bankBranch} />
+                )}
+                {company.bankAccountName && (
+                  <Row label="Account name" value={company.bankAccountName} />
+                )}
+                {company.bankAddress && (
+                  <Row label="Address" value={company.bankAddress} />
+                )}
+                {company.bankAccountNumber && (
+                  <Row
+                    label="Account number"
+                    value={company.bankAccountNumber}
+                  />
+                )}
+              </div>
+              {(company.paymentNotes || template.wireInstructionsNote) && (
+                <p className="mt-3 text-slate-700 whitespace-pre-wrap">
+                  {company.paymentNotes ?? template.wireInstructionsNote}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+      {/* Phase 1: Qualifications & exclusions block. */}
+      {template?.showQualifications && template.qualificationsText && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Qualifications & exclusions</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm whitespace-pre-wrap text-slate-800">
+            {template.qualificationsText}
+          </CardContent>
+        </Card>
+      )}
 
       {show('showRetainage') && template?.retainageText && (
         <Card>

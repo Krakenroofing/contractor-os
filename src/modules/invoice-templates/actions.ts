@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
+import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { createInvoiceTemplate } from '@/lib/data/invoice-templates';
 import { invoiceTemplateFormSchema } from './schema';
@@ -19,19 +20,13 @@ function emptyToNull(v: string | null | undefined): string | null {
   return t === '' ? null : t;
 }
 
-export async function createInvoiceTemplateAction(
-  _prev: CreateInvoiceTemplateState,
-  formData: FormData,
-): Promise<CreateInvoiceTemplateState> {
-  const role = await getActiveRole();
-  if (!canCreate(role, 'invoice_templates')) {
-    return { formError: 'Not allowed to create invoice templates.' };
-  }
-
-  const parsed = invoiceTemplateFormSchema.safeParse({
+function readForm(formData: FormData) {
+  return {
     name: formData.get('name'),
     description: formData.get('description') ?? '',
     isDefault: formData.get('isDefault') ?? '',
+
+    // Existing toggles
     showCompanyBranding: formData.get('showCompanyBranding') ?? '',
     showHeader: formData.get('showHeader') ?? '',
     showLineItems: formData.get('showLineItems') ?? '',
@@ -48,8 +43,55 @@ export async function createInvoiceTemplateAction(
     retainageText: formData.get('retainageText') ?? '',
     notesText: formData.get('notesText') ?? '',
     footerText: formData.get('footerText') ?? '',
-  });
 
+    // Phase 1 additions
+    titleOverride: formData.get('titleOverride') ?? '',
+    tinLabel: formData.get('tinLabel') ?? '',
+    issuedByLabel: formData.get('issuedByLabel') ?? '',
+    showBillToTin: formData.get('showBillToTin') ?? '',
+    billToAttentionLabel: formData.get('billToAttentionLabel') ?? '',
+    showProjectMetadata: formData.get('showProjectMetadata') ?? '',
+    poNumberLabel: formData.get('poNumberLabel') ?? '',
+    billingNumberLabel: formData.get('billingNumberLabel') ?? '',
+    projectDescriptionLabel: formData.get('projectDescriptionLabel') ?? '',
+    showWireInstructions: formData.get('showWireInstructions') ?? '',
+    wireInstructionsNote: formData.get('wireInstructionsNote') ?? '',
+    showQualifications: formData.get('showQualifications') ?? '',
+    qualificationsText: formData.get('qualificationsText') ?? '',
+    showAccountHistory: formData.get('showAccountHistory') ?? '',
+    accountHistoryLabel: formData.get('accountHistoryLabel') ?? '',
+    showProgressBilling: formData.get('showProgressBilling') ?? '',
+    progressBillingLabel: formData.get('progressBillingLabel') ?? '',
+    contractValueLabel: formData.get('contractValueLabel') ?? '',
+    changeOrdersLabel: formData.get('changeOrdersLabel') ?? '',
+    priorBilledLabel: formData.get('priorBilledLabel') ?? '',
+    retainageHeldLabel: formData.get('retainageHeldLabel') ?? '',
+    vatLabel: formData.get('vatLabel') ?? '',
+    vatRatePercent: formData.get('vatRatePercent') ?? '',
+  };
+}
+
+/** Map a parsed form value back to the column form: empty string → null OR
+ * empty string → "Default Label". Used for the new label-override columns. */
+function labelOrDefault(
+  value: string | undefined,
+  fallback: string,
+): string {
+  const v = (value ?? '').trim();
+  return v === '' ? fallback : v;
+}
+
+export async function createInvoiceTemplateAction(
+  _prev: CreateInvoiceTemplateState,
+  formData: FormData,
+): Promise<CreateInvoiceTemplateState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoice_templates')) {
+    return { formError: 'Not allowed to create invoice templates.' };
+  }
+
+  const parsed = invoiceTemplateFormSchema.safeParse(readForm(formData));
   if (!parsed.success) {
     return { errors: parsed.error.flatten().fieldErrors };
   }
@@ -60,6 +102,7 @@ export async function createInvoiceTemplateAction(
   let createdId: string;
   try {
     const tpl = await createInvoiceTemplate(companyId, {
+      // Existing fields
       name: data.name,
       description: emptyToNull(data.description ?? null),
       isDefault: data.isDefault,
@@ -79,6 +122,56 @@ export async function createInvoiceTemplateAction(
       retainageText: emptyToNull(data.retainageText ?? null),
       notesText: emptyToNull(data.notesText ?? null),
       footerText: emptyToNull(data.footerText ?? null),
+
+      // Phase 1 additions — labels fall back to column-level defaults via
+      // labelOrDefault, free-text fields stay null when empty.
+      titleOverride: emptyToNull(data.titleOverride ?? null),
+      tinLabel: labelOrDefault(data.tinLabel, 'TIN'),
+      issuedByLabel: labelOrDefault(data.issuedByLabel, 'Issued by'),
+      showBillToTin: data.showBillToTin,
+      billToAttentionLabel: labelOrDefault(
+        data.billToAttentionLabel,
+        'Attention',
+      ),
+      showProjectMetadata: data.showProjectMetadata,
+      poNumberLabel: labelOrDefault(data.poNumberLabel, 'Purchase Order'),
+      billingNumberLabel: labelOrDefault(data.billingNumberLabel, 'Billing #'),
+      projectDescriptionLabel: labelOrDefault(
+        data.projectDescriptionLabel,
+        'Project description',
+      ),
+      showWireInstructions: data.showWireInstructions,
+      wireInstructionsNote: emptyToNull(data.wireInstructionsNote ?? null),
+      showQualifications: data.showQualifications,
+      qualificationsText: emptyToNull(data.qualificationsText ?? null),
+      showAccountHistory: data.showAccountHistory,
+      accountHistoryLabel: labelOrDefault(
+        data.accountHistoryLabel,
+        'Account history',
+      ),
+      showProgressBilling: data.showProgressBilling,
+      progressBillingLabel: labelOrDefault(
+        data.progressBillingLabel,
+        'Progress billing',
+      ),
+      contractValueLabel: labelOrDefault(
+        data.contractValueLabel,
+        'Total contract value',
+      ),
+      changeOrdersLabel: labelOrDefault(
+        data.changeOrdersLabel,
+        'Approved change orders',
+      ),
+      priorBilledLabel: labelOrDefault(
+        data.priorBilledLabel,
+        'Less previously billed',
+      ),
+      retainageHeldLabel: labelOrDefault(
+        data.retainageHeldLabel,
+        'Less retainage',
+      ),
+      vatLabel: labelOrDefault(data.vatLabel, 'VAT'),
+      vatRatePercent: data.vatRatePercent,
     });
     createdId = tpl.id;
   } catch (err) {

@@ -5,7 +5,9 @@
       "Bash(echo \"EXITCODE=$?\")",
       "Bash(npm run *)",
       "Bash(echo \"TSC_EXIT=$?\")",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(rm drizzle/0000_phase1_invoice_template_expansion.sql)",
+      "Bash(rm -rf drizzle/meta)"
     ]
   }
 }

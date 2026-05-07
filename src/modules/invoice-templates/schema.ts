@@ -10,10 +10,21 @@ const checkbox = z
   .optional()
   .transform((v) => v === 'on' || v === 'true');
 
+const numericString = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim() !== '' ? v.trim() : '0'))
+  .refine(
+    (v) => !Number.isNaN(Number(v)) && Number(v) >= 0,
+    'Must be a non-negative number',
+  );
+
 export const invoiceTemplateFormSchema = z.object({
   name: z.string().min(1, 'Template name is required').max(200),
   description: z.string().max(500).optional().or(z.literal('')),
   isDefault: checkbox,
+
+  // ===== Existing toggles =====
   showCompanyBranding: checkbox,
   showHeader: checkbox,
   showLineItems: checkbox,
@@ -30,6 +41,38 @@ export const invoiceTemplateFormSchema = z.object({
   retainageText: optionalString,
   notesText: optionalString,
   footerText: optionalString,
+
+  // ===== Phase 1 additions =====
+  titleOverride: optionalString,
+  tinLabel: optionalString,
+  issuedByLabel: optionalString,
+
+  showBillToTin: checkbox,
+  billToAttentionLabel: optionalString,
+
+  showProjectMetadata: checkbox,
+  poNumberLabel: optionalString,
+  billingNumberLabel: optionalString,
+  projectDescriptionLabel: optionalString,
+
+  showWireInstructions: checkbox,
+  wireInstructionsNote: optionalString,
+
+  showQualifications: checkbox,
+  qualificationsText: optionalString,
+
+  showAccountHistory: checkbox,
+  accountHistoryLabel: optionalString,
+
+  showProgressBilling: checkbox,
+  progressBillingLabel: optionalString,
+  contractValueLabel: optionalString,
+  changeOrdersLabel: optionalString,
+  priorBilledLabel: optionalString,
+  retainageHeldLabel: optionalString,
+
+  vatLabel: optionalString,
+  vatRatePercent: numericString,
 });
 
 export type InvoiceTemplateFormParsed = z.output<typeof invoiceTemplateFormSchema>;
@@ -44,6 +87,12 @@ export const SECTION_LABEL = {
   showNotes: 'Notes block',
   showSignature: 'Signature / approval block',
   showFooter: 'Footer text',
+  showBillToTin: 'Bill-to TIN line',
+  showProjectMetadata: 'Project metadata block (PO, billing #, description)',
+  showWireInstructions: 'Wire / bank instructions',
+  showQualifications: 'Qualifications & exclusions',
+  showAccountHistory: 'Account history (prior invoices)',
+  showProgressBilling: 'Progress billing summary',
 } as const;
 
 export const HEADER_LAYOUT_LABEL: Record<

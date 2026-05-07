@@ -27,6 +27,16 @@ export const companySettingsFormSchema = z.object({
     .refine((v) => /^\d+$/.test(v) && Number(v) >= 0, 'Must be a non-negative integer'),
   standardPaymentTerms: z.string().max(4000).optional().or(z.literal('')),
   standardWarrantyLanguage: z.string().max(4000).optional().or(z.literal('')),
+
+  // Phase 1 banking / TIN fields. All optional — used by the wire-instructions
+  // section on invoices when an invoice template enables that section.
+  tinNumber: z.string().max(100).optional().or(z.literal('')),
+  bankName: z.string().max(200).optional().or(z.literal('')),
+  bankBranch: z.string().max(200).optional().or(z.literal('')),
+  bankAccountName: z.string().max(200).optional().or(z.literal('')),
+  bankAccountNumber: z.string().max(100).optional().or(z.literal('')),
+  bankAddress: z.string().max(500).optional().or(z.literal('')),
+  paymentNotes: z.string().max(2000).optional().or(z.literal('')),
 });
 
 export type CompanySettingsFormParsed = z.output<typeof companySettingsFormSchema>;

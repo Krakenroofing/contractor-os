@@ -10,10 +10,41 @@ import {
   createMockInvoiceTemplate as mockCreate,
 } from '@/lib/mock-store';
 
-export type CreateInvoiceTemplateInput = Omit<
+// All InvoiceTemplate fields except id/companyId/timestamps. The Phase 1
+// additions (header overrides, banking section toggles, progress-billing
+// labels, VAT row config, etc.) are accepted as optional so the existing
+// create action keeps working unchanged — defaults defined on the column
+// in src/db/schema/invoice-templates.ts apply when omitted.
+type FullInput = Omit<
   InvoiceTemplate,
   'id' | 'companyId' | 'createdAt' | 'updatedAt'
 >;
+type Phase1Optional =
+  | 'titleOverride'
+  | 'tinLabel'
+  | 'issuedByLabel'
+  | 'showBillToTin'
+  | 'billToAttentionLabel'
+  | 'showProjectMetadata'
+  | 'poNumberLabel'
+  | 'billingNumberLabel'
+  | 'projectDescriptionLabel'
+  | 'showWireInstructions'
+  | 'wireInstructionsNote'
+  | 'showQualifications'
+  | 'qualificationsText'
+  | 'showAccountHistory'
+  | 'accountHistoryLabel'
+  | 'showProgressBilling'
+  | 'progressBillingLabel'
+  | 'contractValueLabel'
+  | 'changeOrdersLabel'
+  | 'priorBilledLabel'
+  | 'retainageHeldLabel'
+  | 'vatLabel'
+  | 'vatRatePercent';
+export type CreateInvoiceTemplateInput =
+  Omit<FullInput, Phase1Optional> & Partial<Pick<FullInput, Phase1Optional>>;
 
 export async function listInvoiceTemplates(
   companyId: string,
@@ -50,17 +81,48 @@ export async function getInvoiceTemplate(
   return mockGet(companyId, id);
 }
 
+// Default values for Phase 1 columns when the caller doesn't supply them.
+// Keep aligned with the column-level defaults declared in
+// src/db/schema/invoice-templates.ts so create-via-DB and create-via-mock
+// produce identical rows.
+const PHASE1_DEFAULTS = {
+  titleOverride: null,
+  tinLabel: 'TIN',
+  issuedByLabel: 'Issued by',
+  showBillToTin: false,
+  billToAttentionLabel: 'Attention',
+  showProjectMetadata: true,
+  poNumberLabel: 'Purchase Order',
+  billingNumberLabel: 'Billing #',
+  projectDescriptionLabel: 'Project description',
+  showWireInstructions: false,
+  wireInstructionsNote: null,
+  showQualifications: false,
+  qualificationsText: null,
+  showAccountHistory: false,
+  accountHistoryLabel: 'Account history',
+  showProgressBilling: false,
+  progressBillingLabel: 'Progress billing',
+  contractValueLabel: 'Total contract value',
+  changeOrdersLabel: 'Approved change orders',
+  priorBilledLabel: 'Less previously billed',
+  retainageHeldLabel: 'Less retainage',
+  vatLabel: 'VAT',
+  vatRatePercent: '0',
+} as const satisfies Pick<FullInput, Phase1Optional>;
+
 export async function createInvoiceTemplate(
   companyId: string,
   input: CreateInvoiceTemplateInput,
 ): Promise<InvoiceTemplate> {
+  const filled: FullInput = { ...PHASE1_DEFAULTS, ...input };
   if (isDatabaseConfigured()) {
     const db = getDb()!;
     const inserted = await db
       .insert(invoiceTemplates)
-      .values({ ...input, companyId })
+      .values({ ...filled, companyId })
       .returning();
     return inserted[0];
   }
-  return mockCreate(companyId, input);
+  return mockCreate(companyId, filled);
 }

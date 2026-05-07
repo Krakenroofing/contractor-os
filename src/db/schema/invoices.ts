@@ -65,6 +65,12 @@ export const invoices = pgTable(
       .default('0'),
     notes: text('notes'),
     termsOverride: text('terms_override'),
+    // Phase 1: optional human-readable billing label for the Project
+    // metadata block, e.g. "Billing #3 of 12" or "Final billing".
+    billingLabel: text('billing_label'),
+    // Phase 1: optional per-invoice PO override. Falls back to nothing
+    // when null. Rendered in the Project metadata block.
+    purchaseOrderNumber: text('purchase_order_number'),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
