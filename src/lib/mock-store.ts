@@ -1,6 +1,10 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { getDb, isDatabaseConfigured } from '@/db';
+import {
+  DEFAULT_COST_CODES,
+  GLOBAL_COST_CODE_LIBRARY_ID,
+} from '@/lib/data/cost-code-defaults';
 import type {
   ActivityLogEntry,
   ChangeOrder,
@@ -30,6 +34,10 @@ export const KRAKEN_ID = '00000000-0000-0000-0000-000000000001';
 export const TRB_ID = '00000000-0000-0000-0000-000000000002';
 export const KRAKEN_LIBRARY_ID = '00000000-0000-0000-0000-000000000010';
 export const TRB_LIBRARY_ID = '00000000-0000-0000-0000-000000000011';
+
+// Re-exported here so call-sites can import the constant without reaching
+// into @/lib/data/cost-code-defaults directly.
+export { GLOBAL_COST_CODE_LIBRARY_ID };
 
 // Backward-compat alias for any callers still referencing this.
 export const MOCK_COMPANY_ID = KRAKEN_ID;
@@ -179,7 +187,8 @@ function makeProject(
 
 function makeCostCode(
   libraryId: string,
-  over: Pick<CostCode, 'code' | 'description' | 'category'>,
+  over: Pick<CostCode, 'code' | 'description' | 'category'> &
+    Partial<Pick<CostCode, 'division' | 'parentId' | 'isActive' | 'sortOrder' | 'notes'>>,
 ): CostCode {
   const now = new Date();
   return {
@@ -188,6 +197,11 @@ function makeCostCode(
     code: over.code,
     description: over.description,
     category: over.category,
+    division: over.division ?? null,
+    parentId: over.parentId ?? null,
+    isActive: over.isActive ?? true,
+    sortOrder: over.sortOrder ?? 0,
+    notes: over.notes ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -1393,6 +1407,20 @@ function seed(): Store {
   ];
   const trbCodeLookup = new Map(trbCostCodes.map((c) => [c.code, c]));
 
+  // Global library — same DEFAULT_COST_CODES that the SQL migration seeds. In
+  // demo mode we read these into the in-memory store so the listing UI shows
+  // the same divisions/codes the production schema would.
+  const globalCostCodes: CostCode[] = DEFAULT_COST_CODES.map((d) =>
+    makeCostCode(GLOBAL_COST_CODE_LIBRARY_ID, {
+      code: d.code,
+      description: d.description,
+      category: d.category,
+      division: d.division,
+      sortOrder: d.sortOrder,
+      isActive: true,
+    }),
+  );
+
   const pacificCedar = makeVendor(TRB_ID, {
     name: 'Pacific Cedar Imports',
     primaryContactName: 'Erin Walters',
@@ -1784,7 +1812,7 @@ function seed(): Store {
     companies: [kraken, trb],
     customers: [acme, smith, garcia, bayside],
     projects: [smithProject, sunsetProject, garciaProject, baysideProject],
-    costCodes: [...krakenCostCodes, ...trbCostCodes],
+    costCodes: [...krakenCostCodes, ...trbCostCodes, ...globalCostCodes],
     estimates: [
       smithEstimate.estimate,
       sunsetEstimate.estimate,
@@ -1892,14 +1920,26 @@ export function getMockVendor(companyId: string, id: string): Vendor | undefined
 export function listMockCostCodes(companyId: string): CostCode[] {
   const libId = LIBRARY_BY_COMPANY[companyId];
   if (!libId) return [];
+  // Companies see their own library AND the global standard library.
   return [...getStore().costCodes]
-    .filter((c) => c.libraryId === libId)
-    .sort((a, b) => a.code.localeCompare(b.code));
+    .filter((c) => c.libraryId === libId || c.libraryId === GLOBAL_COST_CODE_LIBRARY_ID)
+    .sort((a, b) => {
+      // Group by division (NULLs last), then by sortOrder, then by code.
+      const da = a.division ?? '~~~';
+      const db = b.division ?? '~~~';
+      if (da !== db) return da.localeCompare(db);
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.code.localeCompare(b.code);
+    });
 }
 
 export function getMockCostCode(companyId: string, id: string): CostCode | undefined {
   const libId = LIBRARY_BY_COMPANY[companyId];
-  return getStore().costCodes.find((c) => c.id === id && c.libraryId === libId);
+  return getStore().costCodes.find(
+    (c) =>
+      c.id === id &&
+      (c.libraryId === libId || c.libraryId === GLOBAL_COST_CODE_LIBRARY_ID),
+  );
 }
 
 export function listMockEstimates(companyId: string): Estimate[] {
@@ -2754,12 +2794,22 @@ export function setProjectVerifiedInMemory(
 
 export function createMockCostCode(
   companyId: string,
-  input: Pick<CostCode, 'code' | 'description' | 'category'>,
+  input: Pick<CostCode, 'code' | 'description' | 'category'> &
+    Partial<Pick<CostCode, 'division' | 'sortOrder' | 'notes'>>,
 ): CostCode {
   const store = getStore();
   const libraryId = LIBRARY_BY_COMPANY[companyId];
   if (!libraryId) throw new Error('No cost code library for company');
-  if (store.costCodes.some((c) => c.code === input.code && c.libraryId === libraryId)) {
+  // Reject collisions inside the company library OR with the read-only global
+  // library — both are visible to this company so a duplicate would be
+  // ambiguous in pickers / reports.
+  if (
+    store.costCodes.some(
+      (c) =>
+        c.code === input.code &&
+        (c.libraryId === libraryId || c.libraryId === GLOBAL_COST_CODE_LIBRARY_ID),
+    )
+  ) {
     throw new DuplicateCostCodeError();
   }
   const now = new Date();
@@ -2769,10 +2819,43 @@ export function createMockCostCode(
     code: input.code,
     description: input.description,
     category: input.category,
+    division: input.division ?? null,
+    parentId: null,
+    isActive: true,
+    sortOrder: input.sortOrder ?? 0,
+    notes: input.notes ?? null,
     createdAt: now,
     updatedAt: now,
   };
   store.costCodes.push(code);
+  return code;
+}
+
+/**
+ * Update a cost code in the mock store. Returns the updated row, or undefined
+ * if no row matches. Codes from the global library are read-only — attempting
+ * to update one returns undefined without raising so the caller can show a
+ * friendly message.
+ */
+export function updateMockCostCode(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Pick<CostCode, 'description' | 'category' | 'division' | 'sortOrder' | 'isActive' | 'notes'>
+  >,
+): CostCode | undefined {
+  const store = getStore();
+  const libId = LIBRARY_BY_COMPANY[companyId];
+  if (!libId) return undefined;
+  const code = store.costCodes.find((c) => c.id === id && c.libraryId === libId);
+  if (!code) return undefined;
+  if (patch.description !== undefined) code.description = patch.description;
+  if (patch.category !== undefined) code.category = patch.category;
+  if (patch.division !== undefined) code.division = patch.division;
+  if (patch.sortOrder !== undefined) code.sortOrder = patch.sortOrder;
+  if (patch.isActive !== undefined) code.isActive = patch.isActive;
+  if (patch.notes !== undefined) code.notes = patch.notes;
+  code.updatedAt = new Date();
   return code;
 }
 

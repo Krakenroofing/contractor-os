@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
 import { costCodeCategoryEnum } from './_enums';
@@ -32,11 +33,23 @@ export const costCodes = pgTable(
     code: text('code').notNull(),
     description: text('description').notNull(),
     category: costCodeCategoryEnum('category').notNull(),
+    division: text('division'),
+    parentId: uuid('parent_id').references((): AnyPgColumn => costCodes.id, {
+      onDelete: 'set null',
+    }),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     libraryCodeUniq: uniqueIndex('cost_codes_library_code_uniq').on(t.libraryId, t.code),
+    libraryDivisionSortIdx: index('cost_codes_library_division_sort_idx').on(
+      t.libraryId,
+      t.division,
+      t.sortOrder,
+    ),
   }),
 );
 
