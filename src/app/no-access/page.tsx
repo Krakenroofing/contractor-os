@@ -5,7 +5,6 @@
 // Lives at the root level so it doesn't try to render the (app) sidebar
 // (which would fail because the layout assumes a company is active).
 
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getCurrentUser } from '@/lib/auth';
@@ -41,11 +40,13 @@ export default async function NoAccessPage() {
           )}
 
           <div className="flex items-center gap-2 pt-2">
-            <Link href={{ pathname: '/logout' }}>
-              <Button size="sm" variant="outline">
+            {/* POST-form, NOT a <Link>. /logout is POST-only — see
+                src/app/logout/route.ts. */}
+            <form action="/logout" method="post">
+              <Button size="sm" variant="outline" type="submit">
                 Sign out
               </Button>
-            </Link>
+            </form>
           </div>
         </CardContent>
       </Card>

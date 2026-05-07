@@ -169,55 +169,21 @@ export async function middleware(req: NextRequest) {
   // even though their cookies were valid.
   // ===================================================================
   let user: { id: string; email: string | null } | null = null;
-  let getUserError: string | null = null;
-  let getUserThrew = false;
   try {
     const { data, error } = await supabase.auth.getUser();
     if (data.user && !error) {
       user = { id: data.user.id, email: data.user.email ?? null };
-    } else if (error) {
-      getUserError = error.message ?? String(error);
     }
-  } catch (err) {
-    getUserThrew = true;
-    getUserError = err instanceof Error ? err.message : String(err);
+  } catch {
+    // Network/transport error — fall through to getSession fallback below.
   }
 
-  let usedSessionFallback = false;
   if (!user) {
     const session = await safeGetSession(supabase);
     if (session?.user) {
       user = { id: session.user.id, email: session.user.email ?? null };
-      usedSessionFallback = true;
     }
   }
-
-  const sbCookieNames = req.cookies
-    .getAll()
-    .map((c) => c.name)
-    .filter((n) => n.startsWith('sb-'));
-  console.log(
-    `AUTH DEBUG middleware ` +
-      `pathname=${pathname} ` +
-      `user_exists=${Boolean(user)} ` +
-      `session_exists=${Boolean(user)} ` +
-      `session_fallback_used=${usedSessionFallback} ` +
-      `getUser_error=${getUserError ?? 'none'} ` +
-      `getUser_threw=${getUserThrew} ` +
-      `is_prefetch=false ` +
-      `is_public=${isPublic} ` +
-      `is_action=${isServerActionRequest(req)} ` +
-      `sb_cookies=[${sbCookieNames.join(',')}] ` +
-      `redirect_reason=${
-        !user && !isPublic
-          ? isServerActionRequest(req)
-            ? 'NONE (action let through)'
-            : 'no_user → /login'
-          : user && pathname === '/login'
-            ? 'has_user_on_login → /dashboard'
-            : 'NONE (proceed)'
-      }`,
-  );
 
   if (user) {
     req.headers.set(SUPABASE_USER_ID_HEADER, user.id);
