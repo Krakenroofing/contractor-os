@@ -25,10 +25,16 @@ async function nextPaymentNumber(companyId: string): Promise<string> {
   return `PAY-${year}-${String(next).padStart(3, '0')}`;
 }
 
-export default async function NewPaymentPage() {
+export default async function NewPaymentPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ invoiceId?: string }>;
+}) {
   const role = await getActiveRole();
   if (!canCreate(role, 'payments')) redirect('/payments');
   const companyId = await getActiveCompanyId();
+  const sp = (await searchParams) ?? {};
+  const defaultInvoiceId = typeof sp.invoiceId === 'string' ? sp.invoiceId : undefined;
 
   // Show non-void invoices that aren't fully paid; sort by oldest first so the
   // most overdue invoice surfaces near the top.
@@ -83,6 +89,7 @@ export default async function NewPaymentPage() {
         invoices={invoices}
         defaultPaymentNumber={await nextPaymentNumber(companyId)}
         defaultPaidDate={new Date().toISOString().slice(0, 10)}
+        defaultInvoiceId={defaultInvoiceId}
       />
     </div>
   );

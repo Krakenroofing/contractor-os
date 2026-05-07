@@ -3906,6 +3906,112 @@ export function updateMockInvoiceHeader(
   return inv;
 }
 
+/**
+ * Full-form invoice update for the mock store. Mirrors the DB-backed
+ * `updateInvoiceFull` in @/lib/data/invoices: replaces line items in
+ * place, writes back the totals, then re-runs the payment recompute so
+ * amount_paid + status reflect the new total.
+ */
+export function updateMockInvoiceFull(
+  companyId: string,
+  id: string,
+  patch: {
+    billingType: Invoice['billingType'];
+    invoiceDate: string;
+    dueDate: string | null;
+    subtotal: string;
+    taxAmount: string;
+    retainagePercent: string;
+    retainageAmount: string;
+    expectedRetainageReleaseDate: string | null;
+    total: string;
+    notes: string | null;
+    termsOverride: string | null;
+    lines: Array<{
+      costCodeId: string | null;
+      description: string;
+      unit: string | null;
+      quantity: string;
+      unitCost: string;
+      lineTotal: string;
+    }>;
+  },
+): Invoice | undefined {
+  const store = getStore();
+  const inv = store.invoices.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!inv) return undefined;
+
+  // Replace line items: drop existing, insert new in order. Keeping the
+  // invoice id stable preserves payment FK linkage.
+  store.invoiceLineItems = store.invoiceLineItems.filter(
+    (l) => l.invoiceId !== id,
+  );
+  for (let i = 0; i < patch.lines.length; i++) {
+    const l = patch.lines[i];
+    store.invoiceLineItems.push({
+      id: randomUUID(),
+      invoiceId: id,
+      costCodeId: l.costCodeId,
+      description: l.description,
+      unit: l.unit,
+      quantity: l.quantity,
+      unitCost: l.unitCost,
+      lineTotal: l.lineTotal,
+      sortOrder: i,
+    });
+  }
+
+  inv.billingType = patch.billingType;
+  inv.invoiceDate = patch.invoiceDate;
+  inv.dueDate = patch.dueDate;
+  inv.subtotal = patch.subtotal;
+  inv.taxAmount = patch.taxAmount;
+  inv.retainagePercent = patch.retainagePercent;
+  inv.retainageAmount = patch.retainageAmount;
+  inv.expectedRetainageReleaseDate = patch.expectedRetainageReleaseDate;
+  inv.total = patch.total;
+  inv.notes = patch.notes;
+  inv.termsOverride = patch.termsOverride;
+  inv.updatedAt = new Date();
+
+  // Re-derive amount_paid + status from existing payment rows against the
+  // new total. recomputeInvoicePaymentState handles overpayment (status →
+  // paid even if total dropped below paid sum) and underpayment.
+  recomputeInvoicePaymentState(id);
+  return inv;
+}
+
+/**
+ * Hard-delete a draft invoice. Returns false (and changes nothing) if the
+ * invoice has payment rows or retainage releases attached, or is not a
+ * draft. Cascades line items.
+ */
+export function deleteMockDraftInvoice(
+  companyId: string,
+  id: string,
+): boolean {
+  const store = getStore();
+  const inv = store.invoices.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!inv) return false;
+  if (inv.status !== 'draft') return false;
+  const hasPayments = store.invoicePayments.some((p) => p.invoiceId === id);
+  if (hasPayments) return false;
+  const hasReleases = store.retainageReleases.some(
+    (r) => r.invoiceId === id,
+  );
+  if (hasReleases) return false;
+
+  store.invoiceLineItems = store.invoiceLineItems.filter(
+    (l) => l.invoiceId !== id,
+  );
+  store.invoices = store.invoices.filter((x) => x.id !== id);
+  return true;
+}
+
 export function updateMockPurchaseOrderHeader(
   companyId: string,
   id: string,

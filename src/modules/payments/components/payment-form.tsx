@@ -31,13 +31,17 @@ export function PaymentForm({
   invoices,
   defaultPaymentNumber,
   defaultPaidDate,
+  defaultInvoiceId,
 }: {
   invoices: PaymentInvoiceOption[];
   defaultPaymentNumber: string;
   defaultPaidDate: string;
+  /** Preselect a specific invoice — used when the user clicks "Pay" on
+   *  an invoice row (the URL carries `?invoiceId=…`). */
+  defaultInvoiceId?: string;
 }) {
   const [state, formAction, pending] = useActionState(createPaymentAction, initialState);
-  const [invoiceId, setInvoiceId] = useState('');
+  const [invoiceId, setInvoiceId] = useState(defaultInvoiceId ?? '');
   const [amount, setAmount] = useState('');
 
   const selectedInvoice = useMemo(

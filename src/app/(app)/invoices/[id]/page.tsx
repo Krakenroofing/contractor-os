@@ -33,6 +33,7 @@ import { BILLING_TYPE_LABEL } from '@/modules/invoices/schema';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
+import { InvoiceActionsBar } from '@/modules/invoices/components/invoice-actions-bar';
 
 export const dynamic = 'force-dynamic';
 
@@ -118,16 +119,17 @@ export default async function InvoiceDetailPage({
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          {allowCreate && invoice.status === 'draft' && (
-            <Link href={{ pathname: `/invoices/${invoice.id}/edit` }}>
-              <Button size="sm" variant="outline">
-                Edit
-              </Button>
-            </Link>
-          )}
+          <InvoiceActionsBar
+            id={invoice.id}
+            status={invoice.status}
+            hasPayments={payments.length > 0}
+            allowEdit={allowCreate}
+          />
           {allowCreate && (
             <Link href="/invoices/new">
-              <Button size="sm">New Invoice</Button>
+              <Button size="sm" variant="outline">
+                New Invoice
+              </Button>
             </Link>
           )}
         </div>

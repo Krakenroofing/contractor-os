@@ -14,8 +14,9 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
-import { add, formatMoney, parseMoney, subtract } from '@/lib/money';
+import { add, formatMoney } from '@/lib/money';
 import { listInvoices } from '@/lib/data/invoices';
+import { listInvoicePaymentsForCompany } from '@/lib/data/invoice-payments';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import {
@@ -23,33 +24,67 @@ import {
   STATUS_LABEL,
   STATUS_TONE,
 } from '@/modules/invoices/schema';
+import {
+  computeInvoiceFinancials,
+  groupPaymentsByInvoice,
+} from '@/modules/invoices/lib/financials';
+import { ReconcileButton } from '@/modules/invoices/components/reconcile-button';
 
 export const dynamic = 'force-dynamic';
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ showVoid?: string }>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const showVoid = sp.showVoid === '1';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'invoices');
 
-  const invoices = await listInvoices(companyId);
+  const allInvoices = await listInvoices(companyId);
+  const allPayments = await listInvoicePaymentsForCompany(companyId);
+  const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
+
+  // Filter out void invoices unless the user explicitly opted in. Void
+  // invoices stay reachable via the toggle so users can still see and
+  // un-void them (un-void is a future feature; for now, voids are read-only).
+  const visibleInvoices = showVoid
+    ? allInvoices
+    : allInvoices.filter((i) => i.status !== 'void');
+
   const invoicesWithRefs = await Promise.all(
-    invoices.map(async (inv) => {
+    visibleInvoices.map(async (inv) => {
       const project = await getProject(companyId, inv.projectId);
       const customer = project
         ? await getCustomer(companyId, project.customerId)
         : undefined;
-      return { inv, project, customer };
+      const fin = computeInvoiceFinancials(
+        inv,
+        paymentsByInvoice.get(inv.id) ?? [],
+      );
+      return { inv, project, customer, fin };
     }),
   );
 
+  // Totals are computed from payment rows so the list, dashboard, and AR
+  // page agree even when the cached `amount_paid` lags briefly.
   let totalInvoiced = 0;
   let totalPaid = 0;
-  for (const inv of invoices) {
+  let outstanding = 0;
+  for (const inv of allInvoices) {
     if (inv.status === 'void') continue;
-    totalInvoiced = add(totalInvoiced, parseMoney(inv.total));
-    totalPaid = add(totalPaid, parseMoney(inv.amountPaid));
+    const fin = computeInvoiceFinancials(
+      inv,
+      paymentsByInvoice.get(inv.id) ?? [],
+    );
+    totalInvoiced = add(totalInvoiced, fin.total);
+    totalPaid = add(totalPaid, fin.paid);
+    outstanding = add(outstanding, fin.balance);
   }
-  const outstanding = subtract(totalInvoiced, totalPaid);
+
+  const voidCount = allInvoices.filter((i) => i.status === 'void').length;
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
@@ -60,23 +95,46 @@ export default async function InvoicesPage() {
         </div>
       )}
 
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Invoices</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {invoices.length} {invoices.length === 1 ? 'invoice' : 'invoices'}
+            {visibleInvoices.length}{' '}
+            {visibleInvoices.length === 1 ? 'invoice' : 'invoices'}
+            {!showVoid && voidCount > 0 && (
+              <>
+                {' '}
+                <span className="text-slate-400">
+                  · {voidCount} void hidden
+                </span>
+              </>
+            )}
           </p>
         </div>
-        {allowCreate && (
-          <Link href="/invoices/new">
-            <Button>New Invoice</Button>
+        <div className="flex items-center gap-2">
+          {allowCreate && <ReconcileButton />}
+          <Link
+            href={{ pathname: '/invoices', query: showVoid ? {} : { showVoid: '1' } }}
+          >
+            <Button size="sm" variant="outline">
+              {showVoid ? 'Hide void' : 'Show void'}
+            </Button>
           </Link>
-        )}
+          {allowCreate && (
+            <Link href="/invoices/new">
+              <Button>New Invoice</Button>
+            </Link>
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KPI label="Total invoiced" value={formatMoney(totalInvoiced)} />
-        <KPI label="Total paid" value={formatMoney(totalPaid)} valueClassName="text-emerald-700" />
+        <KPI
+          label="Total paid"
+          value={formatMoney(totalPaid)}
+          valueClassName="text-emerald-700"
+        />
         <KPI
           label="Outstanding balance"
           value={formatMoney(outstanding)}
@@ -84,7 +142,7 @@ export default async function InvoicesPage() {
         />
       </div>
 
-      {invoices.length === 0 ? (
+      {visibleInvoices.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">No invoices yet.</p>
           {allowCreate && (
@@ -113,10 +171,14 @@ export default async function InvoicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoicesWithRefs.map(({ inv, project, customer }) => {
-                const balance = subtract(parseMoney(inv.total), parseMoney(inv.amountPaid));
+              {invoicesWithRefs.map(({ inv, project, customer, fin }) => {
+                const balance = fin.balance;
+                const isVoid = inv.status === 'void';
+                const canEditRow = allowCreate && !isVoid;
+                const canRecordPayment =
+                  allowCreate && !isVoid && inv.status !== 'paid';
                 return (
-                  <TableRow key={inv.id}>
+                  <TableRow key={inv.id} className={isVoid ? 'opacity-60' : ''}>
                     <TableCell className="font-mono text-xs text-slate-700">
                       {inv.number}
                     </TableCell>
@@ -134,8 +196,12 @@ export default async function InvoicesPage() {
                         {STATUS_LABEL[inv.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate-600">{inv.invoiceDate}</TableCell>
-                    <TableCell className="text-slate-600">{inv.dueDate ?? '—'}</TableCell>
+                    <TableCell className="text-slate-600">
+                      {inv.invoiceDate}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {inv.dueDate ?? '—'}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {formatMoney(inv.total)}
                     </TableCell>
@@ -147,11 +213,27 @@ export default async function InvoicesPage() {
                       {formatMoney(balance)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/invoices/${inv.id}`}>
-                        <Button size="sm" variant="outline">
-                          View Invoice
-                        </Button>
-                      </Link>
+                      <div className="flex items-center justify-end gap-1">
+                        <Link href={`/invoices/${inv.id}`}>
+                          <Button size="sm" variant="outline">
+                            View
+                          </Button>
+                        </Link>
+                        {canEditRow && (
+                          <Link href={`/invoices/${inv.id}/edit`}>
+                            <Button size="sm" variant="outline">
+                              Edit
+                            </Button>
+                          </Link>
+                        )}
+                        {canRecordPayment && (
+                          <Link href={`/payments/new?invoiceId=${inv.id}`}>
+                            <Button size="sm" variant="outline">
+                              Pay
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

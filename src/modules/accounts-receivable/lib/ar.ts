@@ -110,10 +110,19 @@ export async function calcCashCollectedThisMonth(
   asOf: Date = new Date(),
 ): Promise<number> {
   const payments: InvoicePayment[] = await listInvoicePaymentsForCompany(companyId);
+  // Pull invoice statuses so we can exclude payments tied to voided invoices.
+  // The user-visible contract is "voided invoices don't count toward any
+  // dashboard metric, including cash" — see the void/delete spec.
+  const invoiceList = await listInvoices(companyId);
+  const voidedInvoiceIds = new Set(
+    invoiceList.filter((i) => i.status === 'void').map((i) => i.id),
+  );
   const year = asOf.getUTCFullYear();
   const month = asOf.getUTCMonth();
   let total = 0;
   for (const p of payments) {
+    if (voidedInvoiceIds.has(p.invoiceId)) continue;
+    if (p.status !== 'received' && p.status !== 'applied') continue;
     if (isInMonth(p.paidDate, year, month)) {
       total = add(total, parseMoney(p.amount));
     }

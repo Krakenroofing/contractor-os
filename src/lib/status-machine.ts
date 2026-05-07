@@ -233,7 +233,7 @@ export type Transition = {
   /** Resulting canonical status. */
   to: string;
   /** Visual hint for the button. */
-  variant?: 'default' | 'outline' | 'ghost';
+  variant?: 'default' | 'outline' | 'ghost' | 'destructive';
 };
 
 type TransitionMap = Record<string, Transition[]>;
@@ -310,15 +310,38 @@ const PO_TRANSITIONS: TransitionMap = {
   closed: [],
 };
 
+// Every non-void state can be voided — it's the soft-delete path. Voided
+// invoices stay in the database (so payment history, retainage, audit log
+// all keep their FKs) but are filtered out of dashboard / AR / list by
+// default. The transition is destructive in user terms, so the StatusPanel
+// renders it with the destructive variant.
+const VOID_INVOICE_TRANSITION = {
+  action: 'mark_void',
+  label: 'Void invoice',
+  to: 'void',
+  variant: 'destructive' as const,
+};
+
 const INVOICE_TRANSITIONS: TransitionMap = {
-  draft: [{ action: 'mark_sent', label: 'Mark sent', to: 'sent' }],
+  draft: [
+    { action: 'mark_sent', label: 'Mark sent', to: 'sent' },
+    VOID_INVOICE_TRANSITION,
+  ],
   sent: [
     { action: 'mark_paid', label: 'Mark paid', to: 'paid' },
     { action: 'mark_overdue', label: 'Mark overdue', to: 'overdue', variant: 'outline' },
+    VOID_INVOICE_TRANSITION,
   ],
-  partial: [{ action: 'mark_paid', label: 'Mark paid', to: 'paid' }],
-  paid: [],
-  overdue: [{ action: 'mark_paid', label: 'Mark paid', to: 'paid' }],
+  partial: [
+    { action: 'mark_paid', label: 'Mark paid', to: 'paid' },
+    VOID_INVOICE_TRANSITION,
+  ],
+  paid: [VOID_INVOICE_TRANSITION],
+  overdue: [
+    { action: 'mark_paid', label: 'Mark paid', to: 'paid' },
+    VOID_INVOICE_TRANSITION,
+  ],
+  void: [],
 };
 
 const PAYMENT_TRANSITIONS: TransitionMap = {

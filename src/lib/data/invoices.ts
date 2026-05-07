@@ -25,11 +25,14 @@ import {
   listInvoicesForProject as mockListForProject,
   createMockInvoice as mockCreate,
   updateMockInvoiceHeader as mockUpdateHeader,
+  updateMockInvoiceFull as mockUpdateFull,
+  deleteMockDraftInvoice as mockDeleteDraft,
   computeProjectInvoiceSummary as mockComputeSummary,
   DuplicateInvoiceNumberError,
   type CreateInvoiceInput,
   type ProjectInvoiceSummary,
 } from '@/lib/mock-store';
+import { recomputeInvoicePaymentState } from '@/lib/data/invoice-payments';
 
 export { DuplicateInvoiceNumberError };
 export type { CreateInvoiceInput, ProjectInvoiceSummary };
@@ -183,6 +186,138 @@ export async function updateInvoiceHeader(
     return rows[0];
   }
   return mockUpdateHeader(companyId, id, patch);
+}
+
+/**
+ * Full-form invoice update: lines + totals + retainage + tax + dates +
+ * notes. Customer/project/invoice-number are intentionally NOT in the
+ * patch — those changes are forbidden via the action layer because they
+ * silently break the audit trail. Existing payments stay linked; after
+ * the patch lands we re-run `recomputeInvoicePaymentState` so amount_paid
+ * and the derived status reflect the new total.
+ */
+export type UpdateInvoiceFullInput = {
+  billingType: Invoice['billingType'];
+  invoiceDate: string;
+  dueDate: string | null;
+  subtotal: string;
+  taxAmount: string;
+  retainagePercent: string;
+  retainageAmount: string;
+  expectedRetainageReleaseDate: string | null;
+  total: string;
+  notes: string | null;
+  termsOverride: string | null;
+  lines: Array<{
+    costCodeId: string | null;
+    description: string;
+    unit: string | null;
+    quantity: string;
+    unitCost: string;
+    lineTotal: string;
+  }>;
+};
+
+export async function updateInvoiceFull(
+  companyId: string,
+  id: string,
+  patch: UpdateInvoiceFullInput,
+): Promise<Invoice | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    // Verify ownership before mutating anything.
+    const existing = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+      .limit(1);
+    if (existing.length === 0) return undefined;
+
+    // Replace line items in-place: delete old, insert new. Keeping the
+    // invoice row's id stable means existing payment FKs are preserved.
+    await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
+    if (patch.lines.length > 0) {
+      await db.insert(invoiceLineItems).values(
+        patch.lines.map((l, i) => ({
+          invoiceId: id,
+          costCodeId: l.costCodeId,
+          description: l.description,
+          unit: l.unit,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          lineTotal: l.lineTotal,
+          sortOrder: i,
+        })),
+      );
+    }
+
+    await db
+      .update(invoices)
+      .set({
+        billingType: patch.billingType,
+        invoiceDate: patch.invoiceDate,
+        dueDate: patch.dueDate,
+        subtotal: patch.subtotal,
+        taxAmount: patch.taxAmount,
+        retainagePercent: patch.retainagePercent,
+        retainageAmount: patch.retainageAmount,
+        expectedRetainageReleaseDate: patch.expectedRetainageReleaseDate,
+        total: patch.total,
+        notes: patch.notes,
+        termsOverride: patch.termsOverride,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)));
+
+    // Re-derive amount_paid + status against the new total. If the new
+    // total is below the sum of payments, status auto-flips to 'paid';
+    // if above, it drops to 'partial' or 'sent'.
+    await recomputeInvoicePaymentState(id);
+
+    const fresh = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.id, id))
+      .limit(1);
+    return fresh[0];
+  }
+  return mockUpdateFull(companyId, id, patch);
+}
+
+/**
+ * Hard-delete a draft invoice. Returns false if the invoice has any payment
+ * rows or retainage releases — those callers must use the void transition
+ * instead so history is preserved.
+ */
+export async function deleteDraftInvoice(
+  companyId: string,
+  id: string,
+): Promise<boolean> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const inv = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+      .limit(1);
+    if (inv.length === 0) return false;
+    if (inv[0].status !== 'draft') return false;
+
+    // Refuse delete when payments exist. Retainage releases are FK-protected
+    // by `onDelete: 'restrict'`, so we let the database enforce that path.
+    const pays = await db
+      .select({ id: invoicePayments.id })
+      .from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, id))
+      .limit(1);
+    if (pays.length > 0) return false;
+
+    // line items cascade via onDelete: 'cascade'. retainage_releases is
+    // restrict; if a stray release exists we surface the FK error.
+    await db.delete(invoices).where(eq(invoices.id, id));
+    return true;
+  }
+  return mockDeleteDraft(companyId, id);
 }
 
 /**
