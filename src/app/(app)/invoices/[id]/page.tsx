@@ -34,6 +34,7 @@ import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
 import { InvoiceActionsBar } from '@/modules/invoices/components/invoice-actions-bar';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,6 +120,7 @@ export default async function InvoiceDetailPage({
           </Button>
         </Link>
         <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="invoice" id={invoice.id} />
           <InvoiceActionsBar
             id={invoice.id}
             status={invoice.status}

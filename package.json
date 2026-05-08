@@ -15,9 +15,11 @@
     "db:seed": "tsx --tsconfig tsconfig.json src/db/seed.ts"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.10.2",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.36.4",
+    "exceljs": "^4.4.0",
     "next": "^15.1.0",
     "postgres": "^3.4.5",
     "react": "^19.0.0",

@@ -23,6 +23,7 @@ import { getProject } from '@/lib/data/projects';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,6 +71,7 @@ export default async function EstimateDetailPage({
           </Button>
         </Link>
         <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="estimate" id={estimate.id} />
           {allowCreate && estimate.status === 'draft' && (
             <Link href={{ pathname: `/estimates/${estimate.id}/edit` }}>
               <Button size="sm" variant="outline">

@@ -13,7 +13,8 @@
       "Bash(npx tsx *)",
       "Bash(node scripts/backfill-invoices-runner.cjs)",
       "Bash(node scripts/verify-backfill-runner.cjs)",
-      "Bash(node scripts/verify-ar-reconciliation-runner.cjs)"
+      "Bash(node scripts/verify-ar-reconciliation-runner.cjs)",
+      "Bash(npm install *)"
     ]
   }
 }

@@ -17,6 +17,7 @@ import { getProject } from '@/lib/data/projects';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,11 +62,14 @@ export default async function ProposalDetailPage({
             ← Back to Proposals
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/proposals/new">
-            <Button size="sm">New Proposal</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="proposal" id={proposal.id} />
+          {allowCreate && (
+            <Link href="/proposals/new">
+              <Button size="sm">New Proposal</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <DocumentBranding />
