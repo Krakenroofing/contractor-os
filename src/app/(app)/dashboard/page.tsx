@@ -6,7 +6,7 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate, canView, ROLE_LABELS } from '@/lib/permissions';
-import { formatMoney, formatPercent } from '@/lib/money';
+import { formatMoney } from '@/lib/money';
 import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dashboard';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
 
@@ -25,7 +25,6 @@ export default async function DashboardPage() {
   const canSeeRetainage = canView(role, 'retainage');
   const canSeePOs = canView(role, 'purchase_orders');
   const canSeeProposals = canView(role, 'proposals');
-  const canSeeJobCosting = canView(role, 'job_costing');
 
   // Quick-link visibility — hide buttons the active role can't act on.
   const quickLinks: { href: string; label: string; resource: Parameters<typeof canCreate>[1] }[] = [
@@ -166,46 +165,6 @@ export default async function DashboardPage() {
               value={formatMoney(kpis.cashCollectedThisMonth)}
               valueClassName="text-emerald-700"
               hint="received & applied"
-            />
-          </div>
-        </section>
-      )}
-
-      {canSeeJobCosting && (
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
-            Profitability (active projects)
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <KPI
-              label="Projected gross profit"
-              value={formatMoney(kpis.projectedGrossProfit)}
-              valueClassName={
-                kpis.projectedGrossProfit > 0
-                  ? 'text-emerald-700'
-                  : kpis.projectedGrossProfit < 0
-                    ? 'text-red-600'
-                    : undefined
-              }
-              href="/job-costing"
-              highlight
-            />
-            <KPI
-              label="Projected gross margin"
-              value={formatPercent(kpis.projectedGrossMarginPct, 2)}
-              valueClassName={
-                kpis.projectedGrossMarginPct >= 20
-                  ? 'text-emerald-700'
-                  : kpis.projectedGrossMarginPct >= 10
-                    ? 'text-amber-700'
-                    : 'text-red-600'
-              }
-              hint="revised contract vs. estimated cost"
-            />
-            <KPI
-              label="Active projects under track"
-              value={String(kpis.activeProjects)}
-              hint="contributing to margin %"
             />
           </div>
         </section>
