@@ -19,12 +19,22 @@ import { getProject } from '@/lib/data/projects';
 import {
   getDailyReport,
   getManpowerForReport,
+  listPhotosForReport,
 } from '@/lib/data/daily-reports';
-import { STATUS_LABEL, STATUS_TONE } from '@/modules/daily-reports/schema';
+import { createSignedPhotoUrl } from '@/lib/storage/daily-report-photos';
+import {
+  STATUS_LABEL,
+  STATUS_TONE,
+} from '@/modules/daily-reports/schema';
 import {
   VoidReportForm,
   DeleteReportForm,
 } from '@/modules/daily-reports/components/report-actions';
+import { PhotoUploader } from '@/modules/daily-reports/components/photo-uploader';
+import {
+  PhotoCard,
+  type PhotoCardData,
+} from '@/modules/daily-reports/components/photo-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +54,21 @@ export default async function DailyReportViewPage({
   const report = await getDailyReport(companyId, reportId);
   if (!report) notFound();
   const manpower = await getManpowerForReport(report.id);
+  const photos = await listPhotosForReport(report.id);
+  const photoCards: PhotoCardData[] = await Promise.all(
+    photos.map(async (p) => ({
+      id: p.id,
+      caption: p.caption ?? '',
+      category: p.category,
+      visibleToClient: p.visibleToClient,
+      fileName: p.fileName,
+      signedUrl: await createSignedPhotoUrl(p.storagePath),
+      uploadedAt:
+        p.uploadedAt instanceof Date
+          ? p.uploadedAt.toISOString()
+          : String(p.uploadedAt),
+    })),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-5xl">
@@ -173,6 +198,41 @@ export default async function DailyReportViewPage({
                 ))}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Photos ({photoCards.length})</CardTitle>
+            <span className="text-xs text-slate-500">
+              {report.includePhotosInExport
+                ? 'Photos toggle is ON for client export — only photos marked client-visible will appear.'
+                : 'Photos are excluded from client export.'}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {allowEdit && (
+            <PhotoUploader projectId={project.id} reportId={report.id} />
+          )}
+          {photoCards.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No photos yet. Upload one above.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {photoCards.map((p) => (
+                <PhotoCard
+                  key={p.id}
+                  projectId={project.id}
+                  reportId={report.id}
+                  photo={p}
+                  allowEdit={allowEdit}
+                />
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

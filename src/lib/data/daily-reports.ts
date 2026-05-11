@@ -17,10 +17,13 @@ import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import {
   dailyReports,
   dailyReportManpower,
+  dailyReportPhotos,
   type DailyReport,
   type DailyReportManpower,
+  type DailyReportPhoto,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { deleteDailyReportPhotoBlob } from '@/lib/storage/daily-report-photos';
 
 export class DailyReportsNotAvailableInDemoError extends Error {
   constructor() {
@@ -257,6 +260,104 @@ export async function voidDailyReport(
     )
     .returning();
   return rows[0];
+}
+
+// ===========================================================================
+// Photos
+// ===========================================================================
+
+export type CreatePhotoRecordInput = Omit<
+  DailyReportPhoto,
+  'id' | 'uploadedAt'
+>;
+
+export type UpdatePhotoInput = Partial<
+  Pick<DailyReportPhoto, 'caption' | 'category' | 'visibleToClient'>
+>;
+
+export async function listPhotosForReport(
+  reportId: string,
+): Promise<DailyReportPhoto[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(dailyReportPhotos)
+    .where(eq(dailyReportPhotos.dailyReportId, reportId))
+    .orderBy(asc(dailyReportPhotos.sortOrder), asc(dailyReportPhotos.uploadedAt));
+}
+
+export async function getPhoto(
+  companyId: string,
+  photoId: string,
+): Promise<DailyReportPhoto | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(dailyReportPhotos)
+    .where(
+      and(
+        eq(dailyReportPhotos.id, photoId),
+        eq(dailyReportPhotos.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export async function createPhotoRecord(
+  input: CreatePhotoRecordInput,
+): Promise<DailyReportPhoto> {
+  const db = requireDb();
+  const [row] = await db.insert(dailyReportPhotos).values(input).returning();
+  return row;
+}
+
+export async function updatePhotoRecord(
+  companyId: string,
+  photoId: string,
+  patch: UpdatePhotoInput,
+): Promise<DailyReportPhoto | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(dailyReportPhotos)
+    .set(patch)
+    .where(
+      and(
+        eq(dailyReportPhotos.id, photoId),
+        eq(dailyReportPhotos.companyId, companyId),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+export async function deletePhotoRecord(
+  companyId: string,
+  photoId: string,
+): Promise<DailyReportPhoto | undefined> {
+  const db = requireDb();
+  const existing = await getPhoto(companyId, photoId);
+  if (!existing) return undefined;
+  await db
+    .delete(dailyReportPhotos)
+    .where(
+      and(
+        eq(dailyReportPhotos.id, photoId),
+        eq(dailyReportPhotos.companyId, companyId),
+      ),
+    );
+  // Best-effort blob cleanup. If storage delete fails the DB row is already
+  // gone — that's the right priority because an orphaned blob is harmless
+  // (it just costs storage) but a dangling row would render as a broken
+  // signed URL.
+  try {
+    await deleteDailyReportPhotoBlob(existing.storagePath);
+  } catch {
+    // swallow — see comment above
+  }
+  return existing;
 }
 
 export async function softDeleteDailyReport(

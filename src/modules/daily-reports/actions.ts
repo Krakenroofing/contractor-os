@@ -13,13 +13,24 @@ import {
   updateDailyReport,
   voidDailyReport,
   softDeleteDailyReport,
+  getDailyReport,
+  createPhotoRecord,
+  updatePhotoRecord,
+  deletePhotoRecord,
   DailyReportsNotAvailableInDemoError,
   DuplicateDailyReportDateError,
   type ManpowerRowInput,
 } from '@/lib/data/daily-reports';
 import {
+  uploadDailyReportPhoto,
+  ALLOWED_PHOTO_MIME,
+  MAX_PHOTO_BYTES,
+  PhotoStorageNotConfiguredError,
+} from '@/lib/storage/daily-report-photos';
+import {
   dailyReportFormSchema,
   manpowerListSchema,
+  photoCategoryValues,
 } from './schema';
 
 export type DailyReportFormState = {
@@ -334,6 +345,163 @@ export async function voidDailyReportAction(
   revalidatePath(`/projects/${projectId}/daily-reports`);
   revalidatePath(`/projects/${projectId}/daily-reports/${reportId}`);
   return {};
+}
+
+// ===========================================================================
+// Photo actions
+// ===========================================================================
+
+export type PhotoActionState = {
+  formError?: string;
+  ok?: boolean;
+};
+
+export async function uploadPhotoAction(
+  projectId: string,
+  reportId: string,
+  _prev: PhotoActionState,
+  formData: FormData,
+): Promise<PhotoActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'daily_reports')) {
+    return { formError: 'You do not have permission to upload photos.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const report = await getDailyReport(companyId, reportId);
+  if (!report) return { formError: 'Daily report not found.' };
+
+  const file = formData.get('photo');
+  if (!(file instanceof File) || file.size === 0) {
+    return { formError: 'Choose a photo to upload.' };
+  }
+  if (file.size > MAX_PHOTO_BYTES) {
+    return {
+      formError: `Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max is ${Math.round(
+        MAX_PHOTO_BYTES / 1024 / 1024,
+      )}MB.`,
+    };
+  }
+  const mime = (file.type || '').toLowerCase();
+  if (!ALLOWED_PHOTO_MIME.has(mime)) {
+    return {
+      formError: `Unsupported file type: ${file.type || 'unknown'}. Use JPG, PNG, WebP, or HEIC.`,
+    };
+  }
+
+  const captionRaw = (formData.get('caption') ?? '').toString();
+  const categoryRaw = (formData.get('category') ?? 'progress').toString();
+  const visibleRaw =
+    formData.get('visibleToClient') === 'on' ||
+    formData.get('visibleToClient') === 'true';
+  const category = (photoCategoryValues as readonly string[]).includes(categoryRaw)
+    ? (categoryRaw as (typeof photoCategoryValues)[number])
+    : 'progress';
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const upload = await uploadDailyReportPhoto({
+      companyId,
+      projectId: report.projectId,
+      reportId: report.id,
+      bytes,
+      mimeType: mime,
+    });
+    await createPhotoRecord({
+      dailyReportId: report.id,
+      projectId: report.projectId,
+      companyId,
+      storagePath: upload.storagePath,
+      fileName: file.name || null,
+      mimeType: mime,
+      byteSize: file.size,
+      caption: emptyToNull(captionRaw),
+      category,
+      visibleToClient: visibleRaw,
+      uploadedBy: user.id,
+      sortOrder: 0,
+    });
+  } catch (err) {
+    if (err instanceof PhotoStorageNotConfiguredError) {
+      return { formError: err.message };
+    }
+    if (err instanceof DailyReportsNotAvailableInDemoError) {
+      return { formError: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Photo upload failed: ${message}` };
+  }
+
+  revalidatePath(`/projects/${projectId}/daily-reports/${reportId}`);
+  return { ok: true };
+}
+
+export async function updatePhotoAction(
+  projectId: string,
+  reportId: string,
+  photoId: string,
+  _prev: PhotoActionState,
+  formData: FormData,
+): Promise<PhotoActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'daily_reports')) {
+    return { formError: 'You do not have permission to edit photos.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  const captionRaw = (formData.get('caption') ?? '').toString();
+  const categoryRaw = (formData.get('category') ?? 'progress').toString();
+  const visibleRaw =
+    formData.get('visibleToClient') === 'on' ||
+    formData.get('visibleToClient') === 'true';
+  const category = (photoCategoryValues as readonly string[]).includes(categoryRaw)
+    ? (categoryRaw as (typeof photoCategoryValues)[number])
+    : 'progress';
+
+  try {
+    const out = await updatePhotoRecord(companyId, photoId, {
+      caption: emptyToNull(captionRaw),
+      category,
+      visibleToClient: visibleRaw,
+    });
+    if (!out) return { formError: 'Photo not found.' };
+  } catch (err) {
+    if (err instanceof DailyReportsNotAvailableInDemoError) {
+      return { formError: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save photo: ${message}` };
+  }
+  revalidatePath(`/projects/${projectId}/daily-reports/${reportId}`);
+  return { ok: true };
+}
+
+export async function deletePhotoAction(
+  projectId: string,
+  reportId: string,
+  photoId: string,
+  _prev: PhotoActionState,
+  _formData: FormData,
+): Promise<PhotoActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'daily_reports')) {
+    return { formError: 'You do not have permission to delete photos.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const out = await deletePhotoRecord(companyId, photoId);
+    if (!out) return { formError: 'Photo not found.' };
+  } catch (err) {
+    if (err instanceof DailyReportsNotAvailableInDemoError) {
+      return { formError: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to delete photo: ${message}` };
+  }
+  revalidatePath(`/projects/${projectId}/daily-reports/${reportId}`);
+  return { ok: true };
 }
 
 export async function deleteDailyReportAction(
