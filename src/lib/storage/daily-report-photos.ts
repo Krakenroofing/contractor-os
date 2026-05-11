@@ -113,6 +113,32 @@ export async function createSignedPhotoUrl(
   return data.signedUrl;
 }
 
+/**
+ * Download a photo's bytes and return a base64 data URL suitable for
+ * embedding in a server-rendered PDF (@react-pdf/renderer accepts data URLs
+ * from `<Image src=...>`). Returns null if Storage isn't configured or the
+ * download fails — callers should skip the photo rather than crash the
+ * whole export.
+ */
+export async function getDailyReportPhotoDataUrl(
+  storagePath: string,
+  mimeType: string | null,
+): Promise<string | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client.storage
+    .from(DAILY_REPORT_PHOTOS_BUCKET)
+    .download(storagePath);
+  if (error || !data) return null;
+  try {
+    const buf = Buffer.from(await data.arrayBuffer());
+    const mime = mimeType || 'image/jpeg';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteDailyReportPhotoBlob(
   storagePath: string,
 ): Promise<void> {

@@ -3,6 +3,7 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
 } from '@react-pdf/renderer';
 import { pdfTheme, formatMoneyForPdf, formatQty } from './theme';
@@ -10,6 +11,8 @@ import type {
   DocumentPayload,
   DocumentLine,
   DocumentTotalsRow,
+  DocumentDataTable,
+  DocumentImage,
 } from '@/lib/exports/types';
 
 // One PDF template that renders any DocumentPayload. Composed from primitive
@@ -172,6 +175,38 @@ const styles = StyleSheet.create({
     color: pdfTheme.colors.accentText,
     fontSize: pdfTheme.fontSize.md,
     fontFamily: 'Helvetica-Bold',
+  },
+  dataTableTitle: {
+    fontSize: pdfTheme.fontSize.md,
+    fontFamily: 'Helvetica-Bold',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  imageGallery: {
+    marginTop: pdfTheme.spacing.section,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  imageCell: {
+    width: '50%',
+    paddingRight: 6,
+    paddingBottom: 10,
+  },
+  imageBox: {
+    borderWidth: 1,
+    borderColor: pdfTheme.colors.border,
+    backgroundColor: pdfTheme.colors.rowAlt,
+    padding: 4,
+  },
+  imageEl: {
+    width: '100%',
+    height: 160,
+    objectFit: 'cover',
+  },
+  imageCaption: {
+    fontSize: pdfTheme.fontSize.xs,
+    color: pdfTheme.colors.muted,
+    marginTop: 3,
   },
 });
 
@@ -446,6 +481,86 @@ function ProseSections({ payload }: { payload: DocumentPayload }) {
   );
 }
 
+function DataTables({ tables }: { tables: DocumentDataTable[] }) {
+  if (tables.length === 0) return null;
+  return (
+    <View style={{ marginTop: pdfTheme.spacing.section }}>
+      {tables.map((t, i) => {
+        const cols = distributeWidths(t.columns.map((c) => c.widthPct));
+        return (
+          <View key={i} wrap={false} style={{ marginBottom: 10 }}>
+            <Text style={styles.dataTableTitle}>{t.title}</Text>
+            <View style={styles.table}>
+              <View style={styles.th}>
+                {t.columns.map((c, ci) => (
+                  <Cell key={ci} w={cols[ci]} align={c.align ?? 'left'}>
+                    {c.label}
+                  </Cell>
+                ))}
+              </View>
+              {t.rows.map((row, ri) => (
+                <View
+                  key={ri}
+                  style={[styles.tr, ri % 2 === 1 ? styles.trAlt : {}]}
+                >
+                  {row.map((cell, ci) => (
+                    <BodyCell
+                      key={ci}
+                      w={cols[ci]}
+                      align={t.columns[ci]?.align ?? 'left'}
+                    >
+                      {cell}
+                    </BodyCell>
+                  ))}
+                </View>
+              ))}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function distributeWidths(widths: (number | undefined)[]): number[] {
+  // Fill in any undefined widths by splitting the remaining percentage
+  // evenly across them. Sum is normalized to 100.
+  const total = widths.reduce<number>((s, w) => s + (w ?? 0), 0);
+  const missing = widths.filter((w) => w === undefined).length;
+  const remaining = Math.max(0, 100 - total);
+  const each = missing > 0 ? remaining / missing : 0;
+  const distributed = widths.map((w) => (w === undefined ? each : w));
+  const sum = distributed.reduce((s, w) => s + w, 0);
+  // Normalize if the explicit widths don't add to 100.
+  if (sum > 0 && Math.abs(sum - 100) > 0.5) {
+    return distributed.map((w) => (w * 100) / sum);
+  }
+  return distributed;
+}
+
+function ImageGallery({ images }: { images: DocumentImage[] }) {
+  if (images.length === 0) return null;
+  return (
+    <View style={styles.imageGallery}>
+      {images.map((img, i) => (
+        <View key={i} style={styles.imageCell} wrap={false}>
+          <View style={styles.imageBox}>
+            <Image src={img.src} style={styles.imageEl} />
+            {img.caption ? (
+              <Text style={styles.imageCaption}>{img.caption}</Text>
+            ) : null}
+            {img.category ? (
+              <Text style={styles.imageCaption}>
+                Category: {img.category}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function DocumentPdf({ payload }: { payload: DocumentPayload }) {
   const currency = payload.company.defaultCurrency ?? 'USD';
   return (
@@ -461,7 +576,9 @@ export function DocumentPdf({ payload }: { payload: DocumentPayload }) {
           currency={currency}
         />
         <TotalsBlock totals={payload.totals} currency={currency} />
+        <DataTables tables={payload.dataTables ?? []} />
         <ProseSections payload={payload} />
+        <ImageGallery images={payload.imageGallery ?? []} />
 
         <View style={styles.footer} fixed>
           <Text style={styles.pageNumber}>

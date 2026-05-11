@@ -106,6 +106,15 @@ export default async function DailyReportViewPage({
               ← Back
             </Button>
           </Link>
+          <a
+            href={`/api/exports/daily_report/${report.id}/pdf`}
+            target="_blank"
+            rel="noopener"
+          >
+            <Button size="sm" variant="outline">
+              Export PDF
+            </Button>
+          </a>
           {allowEdit && (
             <Link
               href={`/projects/${project.id}/daily-reports/${report.id}/edit`}
