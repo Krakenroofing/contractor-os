@@ -134,3 +134,21 @@ export const retainageStatusEnum = pgEnum('retainage_status', [
   'released',
   'overdue',
 ]);
+
+export const dailyReportStatusEnum = pgEnum('daily_report_status', [
+  'draft',
+  'complete',
+  'exported',
+  'sent_to_client',
+  'void',
+]);
+
+export const dailyReportPhotoCategoryEnum = pgEnum('daily_report_photo_category', [
+  'progress',
+  'safety',
+  'issue',
+  'delivery',
+  'inspection',
+  'weather',
+  'other',
+]);

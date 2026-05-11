@@ -31,6 +31,11 @@ import { listPurchaseOrdersForProject } from '@/lib/data/purchase-orders';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
+import { listDailyReportsForProject } from '@/lib/data/daily-reports';
+import {
+  STATUS_LABEL as DR_STATUS_LABEL,
+  STATUS_TONE as DR_STATUS_TONE,
+} from '@/modules/daily-reports/schema';
 import { computeProjectFinancials } from '@/modules/job-costing/lib/financials';
 import {
   STATUS_LABEL as CO_STATUS_LABEL,
@@ -87,6 +92,7 @@ export default async function ProjectDetailPage({
   const allowCreateCO = canCreate(role, 'change_orders');
   const allowCreatePO = canCreate(role, 'purchase_orders');
   const allowCreateInvoice = canCreate(role, 'invoices');
+  const allowCreateDailyReport = canCreate(role, 'daily_reports');
   const project = await getProject(companyId, id);
   if (!project) notFound();
   const customer = await getCustomer(companyId, project.customerId);
@@ -104,6 +110,8 @@ export default async function ProjectDetailPage({
     })),
   );
   const landedCosts = await listLandedCostsForProject(project.id);
+  const dailyReports = await listDailyReportsForProject(companyId, project.id);
+  const recentDailyReports = dailyReports.slice(0, 5);
   const invoices = await listInvoicesForProject(project.id);
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
   const projectPayments = (
@@ -206,6 +214,11 @@ export default async function ProjectDetailPage({
         <Link href={`/job-costing/${project.id}`}>
           <Button size="sm" variant="outline">
             Job Costing →
+          </Button>
+        </Link>
+        <Link href={`/projects/${project.id}/daily-reports`}>
+          <Button size="sm" variant="outline">
+            Daily Reports →
           </Button>
         </Link>
       </div>
@@ -857,6 +870,79 @@ export default async function ProjectDetailPage({
                     </TableCell>
                     <TableCell className="text-right">
                       <Link href={`/landed-cost/${l.id}`}>
+                        <Button size="sm" variant="outline">
+                          View
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Daily Reports */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Daily Reports ({dailyReports.length})</CardTitle>
+            <div className="flex items-center gap-2">
+              <Link href={`/projects/${project.id}/daily-reports`}>
+                <Button size="sm" variant="outline">
+                  View all →
+                </Button>
+              </Link>
+              {allowCreateDailyReport && (
+                <Link href={`/projects/${project.id}/daily-reports/new`}>
+                  <Button size="sm" variant="outline">
+                    + New daily report
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {recentDailyReports.length === 0 ? (
+            <Empty>No daily reports for this project yet.</Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Foreman</TableHead>
+                  <TableHead className="text-right"># Men</TableHead>
+                  <TableHead>Weather</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentDailyReports.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium text-slate-900">
+                      {r.reportDate}
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone={DR_STATUS_TONE[r.status]}>
+                        {DR_STATUS_LABEL[r.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {r.foremanName ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {r.menOnSite}
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">
+                      {[r.weatherCondition, r.weatherTemperatureF ? `${r.weatherTemperatureF}°F` : null]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/projects/${project.id}/daily-reports/${r.id}`}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
