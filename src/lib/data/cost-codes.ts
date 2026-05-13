@@ -1,21 +1,46 @@
 // Async data accessor for cost codes (dual-backend: Postgres or mock store).
 //
-// Each company has its own `cost_code_libraries` row (KRAKEN_LIBRARY_ID /
-// TRB_LIBRARY_ID in demo) plus access to a single read-only Global library
-// (GLOBAL_COST_CODE_LIBRARY_ID) seeded with the standard contractor codes
-// from `cost-code-defaults.ts`. Listing returns the union; mutations always
-// target the company library.
+// Library model — OVERLAY:
+//
+//   Every company owns one row in `cost_code_libraries` (is_global=false).
+//   That row starts empty and is the destination for any custom codes the
+//   company creates. Queries here always UNION the company library with the
+//   single Global library (id=…099, is_global=true), so the standard ~80
+//   contractor cost codes appear in every company's dropdown automatically.
+//
+//   Mutations (createCostCode / updateCostCode) always target the company
+//   library — the global library is read-only.
+//
+// Lazy provisioning:
+//
+//   resolveCostCodeLibraryId() ensures the company row exists. On first read
+//   for any company that doesn't have one yet, it INSERTs a row with name
+//   "<Company> — Cost Codes". A partial unique index on cost_code_libraries
+//   (company_id WHERE company_id IS NOT NULL) makes this race-safe; a
+//   concurrent INSERT is dropped by ON CONFLICT and we re-SELECT.
+//
+//   The backfill migration (2026-05-13_cost_code_library_per_company.sql)
+//   pre-creates rows for every existing company so the first read doesn't
+//   eat a write latency, but lazy provisioning is the safety net for any
+//   company that slipped through (e.g. a company created between migration
+//   and deploy).
 
 import 'server-only';
+import { cache } from 'react';
 import { and, asc, eq, inArray, or } from 'drizzle-orm';
-import { costCodes, costCodeLibraries, type CostCode } from '@/db/schema';
+import {
+  companies,
+  costCodes,
+  costCodeLibraries,
+  type CostCode,
+} from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
   listMockReadableCostCodes as mockList,
   getMockCostCode as mockGet,
   createMockCostCode as mockCreate,
   updateMockCostCode as mockUpdate,
-  getCompanyLibraryId,
+  getCompanyLibraryId as mockGetCompanyLibraryId,
   DuplicateCostCodeError,
 } from '@/lib/mock-store';
 import { GLOBAL_COST_CODE_LIBRARY_ID } from '@/lib/data/cost-code-defaults';
@@ -49,10 +74,64 @@ function compareCostCodes(a: CostCode, b: CostCode): number {
   return a.code.localeCompare(b.code);
 }
 
+/**
+ * Returns the company's cost-code library id, lazily creating the row if
+ * needed. Cached per-request via React.cache() so multiple data-layer calls
+ * in the same render share one DB hit.
+ *
+ * In demo mode (no DATABASE_URL) delegates to the mock-store's hardcoded map.
+ */
+export const resolveCostCodeLibraryId = cache(
+  async (companyId: string): Promise<string | undefined> => {
+    if (!isDatabaseConfigured()) {
+      return mockGetCompanyLibraryId(companyId);
+    }
+    const db = getDb()!;
+
+    const existing = await db
+      .select({ id: costCodeLibraries.id })
+      .from(costCodeLibraries)
+      .where(eq(costCodeLibraries.companyId, companyId))
+      .limit(1);
+    if (existing[0]) return existing[0].id;
+
+    // Look up the company name so the new library row has a meaningful label.
+    const companyRow = await db
+      .select({ name: companies.name })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+    const libName = companyRow[0]
+      ? `${companyRow[0].name} — Cost Codes`
+      : 'Company Cost Codes';
+
+    // No explicit `target` — `onConflictDoNothing()` lets any unique
+    // constraint violation drop the insert silently. The only relevant
+    // constraint here is the partial unique index
+    // cost_code_libraries_company_uniq, so this still ensures one library
+    // per company while keeping the codegen simple (Drizzle's target syntax
+    // doesn't cleanly express a partial-index WHERE clause).
+    const inserted = await db
+      .insert(costCodeLibraries)
+      .values({ companyId, name: libName, isGlobal: false })
+      .onConflictDoNothing()
+      .returning({ id: costCodeLibraries.id });
+    if (inserted[0]) return inserted[0].id;
+
+    // Conflict path — a concurrent request created the row first. Re-select.
+    const after = await db
+      .select({ id: costCodeLibraries.id })
+      .from(costCodeLibraries)
+      .where(eq(costCodeLibraries.companyId, companyId))
+      .limit(1);
+    return after[0]?.id;
+  },
+);
+
 export async function listCostCodes(companyId: string): Promise<CostCode[]> {
-  const libraryId = getCompanyLibraryId(companyId);
-  if (!libraryId) return [];
   if (isDatabaseConfigured()) {
+    const libraryId = await resolveCostCodeLibraryId(companyId);
+    if (!libraryId) return [];
     const db = getDb()!;
     const rows = await db
       .select()
@@ -66,6 +145,7 @@ export async function listCostCodes(companyId: string): Promise<CostCode[]> {
       .orderBy(asc(costCodes.division), asc(costCodes.sortOrder), asc(costCodes.code));
     return rows;
   }
+  // Demo path uses the mock-store's synchronous map.
   return mockList(companyId);
 }
 
@@ -73,9 +153,9 @@ export async function getCostCode(
   companyId: string,
   id: string,
 ): Promise<CostCode | undefined> {
-  const libraryId = getCompanyLibraryId(companyId);
-  if (!libraryId) return undefined;
   if (isDatabaseConfigured()) {
+    const libraryId = await resolveCostCodeLibraryId(companyId);
+    if (!libraryId) return undefined;
     const db = getDb()!;
     const rows = await db
       .select()
@@ -104,9 +184,9 @@ export async function loadCostCodeMap(
   ids: string[],
 ): Promise<Map<string, CostCode>> {
   if (ids.length === 0) return new Map();
-  const libraryId = getCompanyLibraryId(companyId);
-  if (!libraryId) return new Map();
   if (isDatabaseConfigured()) {
+    const libraryId = await resolveCostCodeLibraryId(companyId);
+    if (!libraryId) return new Map();
     const db = getDb()!;
     const rows = await db
       .select()
@@ -134,9 +214,9 @@ export async function createCostCode(
   companyId: string,
   input: CreateCostCodeInput,
 ): Promise<CostCode> {
-  const libraryId = getCompanyLibraryId(companyId);
-  if (!libraryId) throw new Error('No cost code library for company');
   if (isDatabaseConfigured()) {
+    const libraryId = await resolveCostCodeLibraryId(companyId);
+    if (!libraryId) throw new Error('No cost code library for company');
     const db = getDb()!;
     // Reject collisions in the company library OR the global library so
     // pickers / reports stay unambiguous.
@@ -180,9 +260,9 @@ export async function updateCostCode(
   id: string,
   patch: UpdateCostCodeInput,
 ): Promise<CostCode | undefined> {
-  const libraryId = getCompanyLibraryId(companyId);
-  if (!libraryId) return undefined;
   if (isDatabaseConfigured()) {
+    const libraryId = await resolveCostCodeLibraryId(companyId);
+    if (!libraryId) return undefined;
     const db = getDb()!;
     const rows = await db
       .update(costCodes)

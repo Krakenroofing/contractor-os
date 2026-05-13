@@ -9,19 +9,32 @@ import {
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
 import { costCodeCategoryEnum } from './_enums';
 
-export const costCodeLibraries = pgTable('cost_code_libraries', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  isGlobal: boolean('is_global').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const costCodeLibraries = pgTable(
+  'cost_code_libraries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    isGlobal: boolean('is_global').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // One non-global library per company. The global library has
+    // company_id IS NULL and is excluded from the uniqueness check via the
+    // partial-index WHERE clause. Mirrors
+    // migrations/2026-05-13_cost_code_library_per_company.sql.
+    companyUniq: uniqueIndex('cost_code_libraries_company_uniq')
+      .on(t.companyId)
+      .where(sql`${t.companyId} IS NOT NULL`),
+  }),
+);
 
 export const costCodes = pgTable(
   'cost_codes',
