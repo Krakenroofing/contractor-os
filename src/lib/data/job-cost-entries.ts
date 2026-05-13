@@ -57,17 +57,21 @@ export async function listJobCostEntriesForProject(
 ): Promise<JobCostEntry[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
-  return await db
-    .select()
-    .from(jobCostEntries)
-    .where(
-      and(
-        eq(jobCostEntries.companyId, companyId),
-        eq(jobCostEntries.projectId, projectId),
-        isNull(jobCostEntries.deletedAt),
-      ),
-    )
-    .orderBy(desc(jobCostEntries.entryDate), desc(jobCostEntries.createdAt));
+  return withMigrationFallback(
+    () =>
+      db
+        .select()
+        .from(jobCostEntries)
+        .where(
+          and(
+            eq(jobCostEntries.companyId, companyId),
+            eq(jobCostEntries.projectId, projectId),
+            isNull(jobCostEntries.deletedAt),
+          ),
+        )
+        .orderBy(desc(jobCostEntries.entryDate), desc(jobCostEntries.createdAt)),
+    [] as JobCostEntry[],
+  );
 }
 
 export async function getJobCostEntry(
@@ -141,7 +145,32 @@ export async function softDeleteJobCostEntry(
 // ---------------------------------------------------------------------------
 // Aggregations consumed by computeProjectFinancials & breakdowns.
 // All sums use SQL aggregation so they stay O(1) regardless of entry count.
+//
+// Migration tolerance: wrapped in `withMigrationFallback` to return 0/[] if
+// the Phase 1 migration hasn't added the new columns yet (42703 =
+// undefined_column). The dashboard fans out through computeProjectFinancials
+// across every project, so a missing column would otherwise crash the
+// homepage between deploy and migration.
 // ---------------------------------------------------------------------------
+
+function isMissingTableOrColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('code' in err)) return false;
+  const code = (err as { code: unknown }).code;
+  // 42P01 = undefined_table, 42703 = undefined_column
+  return code === '42P01' || code === '42703';
+}
+
+async function withMigrationFallback<T>(
+  fn: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isMissingTableOrColumnError(err)) return fallback;
+    throw err;
+  }
+}
 
 export async function sumManualActualForProject(
   companyId: string,
@@ -149,18 +178,20 @@ export async function sumManualActualForProject(
 ): Promise<number> {
   if (!isDatabaseConfigured()) return 0;
   const db = getDb()!;
-  const rows = await db
-    .select({ total: sum(jobCostEntries.amount).as('total') })
-    .from(jobCostEntries)
-    .where(
-      and(
-        eq(jobCostEntries.companyId, companyId),
-        eq(jobCostEntries.projectId, projectId),
-        isNull(jobCostEntries.deletedAt),
-      ),
-    );
-  const raw = rows[0]?.total;
-  return raw ? Number(raw) : 0;
+  return withMigrationFallback(async () => {
+    const rows = await db
+      .select({ total: sum(jobCostEntries.amount).as('total') })
+      .from(jobCostEntries)
+      .where(
+        and(
+          eq(jobCostEntries.companyId, companyId),
+          eq(jobCostEntries.projectId, projectId),
+          isNull(jobCostEntries.deletedAt),
+        ),
+      );
+    const raw = rows[0]?.total;
+    return raw ? Number(raw) : 0;
+  }, 0);
 }
 
 export type ActualByCostCode = { costCodeId: string; actual: number };
@@ -171,24 +202,26 @@ export async function sumActualByCostCodeForProject(
 ): Promise<ActualByCostCode[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
-  const rows = await db
-    .select({
-      costCodeId: jobCostEntries.costCodeId,
-      total: sum(jobCostEntries.amount).as('total'),
-    })
-    .from(jobCostEntries)
-    .where(
-      and(
-        eq(jobCostEntries.companyId, companyId),
-        eq(jobCostEntries.projectId, projectId),
-        isNull(jobCostEntries.deletedAt),
-      ),
-    )
-    .groupBy(jobCostEntries.costCodeId);
-  return rows.map((r) => ({
-    costCodeId: r.costCodeId,
-    actual: r.total ? Number(r.total) : 0,
-  }));
+  return withMigrationFallback(async () => {
+    const rows = await db
+      .select({
+        costCodeId: jobCostEntries.costCodeId,
+        total: sum(jobCostEntries.amount).as('total'),
+      })
+      .from(jobCostEntries)
+      .where(
+        and(
+          eq(jobCostEntries.companyId, companyId),
+          eq(jobCostEntries.projectId, projectId),
+          isNull(jobCostEntries.deletedAt),
+        ),
+      )
+      .groupBy(jobCostEntries.costCodeId);
+    return rows.map((r) => ({
+      costCodeId: r.costCodeId,
+      actual: r.total ? Number(r.total) : 0,
+    }));
+  }, []);
 }
 
 export type ActualByCostType = { costType: JobCostEntry['costType']; actual: number };
@@ -199,25 +232,27 @@ export async function sumActualByCostTypeForProject(
 ): Promise<ActualByCostType[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
-  const rows = await db
-    .select({
-      costType: jobCostEntries.costType,
-      total: sum(jobCostEntries.amount).as('total'),
-    })
-    .from(jobCostEntries)
-    .where(
-      and(
-        eq(jobCostEntries.companyId, companyId),
-        eq(jobCostEntries.projectId, projectId),
-        isNull(jobCostEntries.deletedAt),
-      ),
-    )
-    .groupBy(jobCostEntries.costType)
-    .orderBy(asc(jobCostEntries.costType));
-  return rows.map((r) => ({
-    costType: r.costType,
-    actual: r.total ? Number(r.total) : 0,
-  }));
+  return withMigrationFallback(async () => {
+    const rows = await db
+      .select({
+        costType: jobCostEntries.costType,
+        total: sum(jobCostEntries.amount).as('total'),
+      })
+      .from(jobCostEntries)
+      .where(
+        and(
+          eq(jobCostEntries.companyId, companyId),
+          eq(jobCostEntries.projectId, projectId),
+          isNull(jobCostEntries.deletedAt),
+        ),
+      )
+      .groupBy(jobCostEntries.costType)
+      .orderBy(asc(jobCostEntries.costType));
+    return rows.map((r) => ({
+      costType: r.costType,
+      actual: r.total ? Number(r.total) : 0,
+    }));
+  }, []);
 }
 
 export async function countJobCostEntriesForProject(

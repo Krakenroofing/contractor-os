@@ -40,17 +40,29 @@ export async function listJobCostForecastsForProject(
 ): Promise<JobCostForecast[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
-  return await db
-    .select()
-    .from(jobCostForecasts)
-    .where(
-      and(
-        eq(jobCostForecasts.companyId, companyId),
-        eq(jobCostForecasts.projectId, projectId),
-        isNull(jobCostForecasts.deletedAt),
-      ),
-    )
-    .orderBy(asc(jobCostForecasts.costCodeId));
+  try {
+    return await db
+      .select()
+      .from(jobCostForecasts)
+      .where(
+        and(
+          eq(jobCostForecasts.companyId, companyId),
+          eq(jobCostForecasts.projectId, projectId),
+          isNull(jobCostForecasts.deletedAt),
+        ),
+      )
+      .orderBy(asc(jobCostForecasts.costCodeId));
+  } catch (err) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code: unknown }).code === '42P01'
+    ) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function getJobCostForecast(
@@ -138,22 +150,40 @@ export async function softDeleteJobCostForecast(
   return rows[0];
 }
 
+// Migration-tolerant: returns 0 if the `job_cost_forecasts` table doesn't
+// exist yet (Postgres error code 42P01 = undefined_table). This protects
+// the dashboard / projects / reports pages from a 500 when code lands ahead
+// of the SQL migration. Once the migration runs, the catch never fires.
 export async function sumCostToCompleteForProject(
   companyId: string,
   projectId: string,
 ): Promise<number> {
   if (!isDatabaseConfigured()) return 0;
   const db = getDb()!;
-  const rows = await db
-    .select({ total: sum(jobCostForecasts.costToComplete).as('total') })
-    .from(jobCostForecasts)
-    .where(
-      and(
-        eq(jobCostForecasts.companyId, companyId),
-        eq(jobCostForecasts.projectId, projectId),
-        isNull(jobCostForecasts.deletedAt),
-      ),
-    );
-  const raw = rows[0]?.total;
-  return raw ? Number(raw) : 0;
+  try {
+    const rows = await db
+      .select({ total: sum(jobCostForecasts.costToComplete).as('total') })
+      .from(jobCostForecasts)
+      .where(
+        and(
+          eq(jobCostForecasts.companyId, companyId),
+          eq(jobCostForecasts.projectId, projectId),
+          isNull(jobCostForecasts.deletedAt),
+        ),
+      );
+    const raw = rows[0]?.total;
+    return raw ? Number(raw) : 0;
+  } catch (err) {
+    // PostgresError exposes `.code`; the postgres-js driver re-throws as
+    // a plain object with the same shape.
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code: unknown }).code === '42P01'
+    ) {
+      return 0;
+    }
+    throw err;
+  }
 }
