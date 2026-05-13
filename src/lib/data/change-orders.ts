@@ -6,7 +6,7 @@
 // status-transition dispatcher when an existing CO flips to `approved`.
 
 import 'server-only';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import {
   changeOrderLineItems,
   changeOrders,
@@ -52,16 +52,23 @@ export type CreateChangeOrderInput = {
   }>;
 };
 
-export async function listChangeOrders(companyId: string): Promise<ChangeOrder[]> {
+export async function listChangeOrders(
+  companyId: string,
+  options: { includeVoided?: boolean } = {},
+): Promise<ChangeOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
+    const where = options.includeVoided
+      ? eq(changeOrders.companyId, companyId)
+      : and(eq(changeOrders.companyId, companyId), ne(changeOrders.status, 'void'));
     return await db
       .select()
       .from(changeOrders)
-      .where(eq(changeOrders.companyId, companyId))
+      .where(where)
       .orderBy(desc(changeOrders.createdAt));
   }
-  return mockList(companyId);
+  const all = mockList(companyId);
+  return options.includeVoided ? all : all.filter((c) => c.status !== 'void');
 }
 
 export async function getChangeOrder(
@@ -96,16 +103,21 @@ export async function getChangeOrderLineItems(
 
 export async function listChangeOrdersForProject(
   projectId: string,
+  options: { includeVoided?: boolean } = {},
 ): Promise<ChangeOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
+    const where = options.includeVoided
+      ? eq(changeOrders.projectId, projectId)
+      : and(eq(changeOrders.projectId, projectId), ne(changeOrders.status, 'void'));
     return await db
       .select()
       .from(changeOrders)
-      .where(eq(changeOrders.projectId, projectId))
+      .where(where)
       .orderBy(desc(changeOrders.createdAt));
   }
-  return mockListForProject(projectId);
+  const all = mockListForProject(projectId);
+  return options.includeVoided ? all : all.filter((c) => c.status !== 'void');
 }
 
 export async function listApprovedChangeOrdersForProject(

@@ -287,15 +287,20 @@ const PROPOSAL_TRANSITIONS: TransitionMap = {
 // list / dashboard views by default. Destructive variant on the button so
 // the intent is clear.
 //
-// Note: we deliberately do NOT offer Void on `approved` for change orders.
-// Approving a CO bumps `project.contract_value` and
-// `project.total_change_orders`; voiding from approved would require
-// reversing those bumps, which is a separate piece of work. To "undo" an
-// approval today: first transition Approved → (would need a new transition)
-// or wait until that reversal logic lands.
+// Voiding an APPROVED change order is a real operation, not a soft delete
+// of an unimportant draft: the data layer reverses the contract-value and
+// total-change-orders bumps that the original approval applied to the
+// project. Label is more explicit to flag that side-effect to the user.
 const VOID_CO_TRANSITION = {
   action: 'mark_void',
   label: 'Void',
+  to: 'void',
+  variant: 'destructive' as const,
+};
+
+const VOID_APPROVED_CO_TRANSITION = {
+  action: 'mark_void',
+  label: 'Void (reverses approval)',
   to: 'void',
   variant: 'destructive' as const,
 };
@@ -311,7 +316,7 @@ const CO_TRANSITIONS: TransitionMap = {
     { action: 'revert_draft', label: 'Back to draft', to: 'draft', variant: 'ghost' },
     VOID_CO_TRANSITION,
   ],
-  approved: [],
+  approved: [VOID_APPROVED_CO_TRANSITION],
   rejected: [
     { action: 'revert_draft', label: 'Re-open as draft', to: 'draft', variant: 'outline' },
     VOID_CO_TRANSITION,

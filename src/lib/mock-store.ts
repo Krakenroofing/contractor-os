@@ -3381,13 +3381,17 @@ export async function updateEntityStatus(
       const prev = c.status;
       c.status = newStatus as ChangeOrder['status'];
       if (newStatus === 'submitted' && !c.submittedAt) c.submittedAt = today;
-      if (newStatus === 'approved') {
+      if (newStatus === 'approved' && prev !== 'approved') {
         c.approvedAt = today;
         if (!c.customerSignedAt) c.customerSignedAt = now;
         // Apply approved CO to project contract value (matches createMockChangeOrder).
         applyApprovedCOToProject(store, c.projectId, Number(c.total));
       }
       if (newStatus === 'rejected') c.rejectedAt = today;
+      // Voiding an approved CO must reverse the approval's contract bump.
+      if (newStatus === 'void' && prev === 'approved') {
+        applyApprovedCOToProject(store, c.projectId, -Number(c.total));
+      }
       c.updatedAt = now;
       return { previousStatus: prev };
     }
@@ -3580,6 +3584,20 @@ async function updateEntityStatusDb(
           .set({
             contractValue: sql`${projectsTable.contractValue} + ${amount}`,
             totalChangeOrders: sql`${projectsTable.totalChangeOrders} + ${amount}`,
+            updatedAt: now,
+          })
+          .where(eq(projectsTable.id, c.projectId));
+      }
+      // Voiding an APPROVED CO reverses the bump applied at approval.
+      // Any other transition into void (from draft/submitted/rejected) had
+      // no contract-value side effect, so nothing to reverse.
+      if (newStatus === 'void' && prev === 'approved') {
+        const amount = Number(c.total);
+        await db
+          .update(projectsTable)
+          .set({
+            contractValue: sql`${projectsTable.contractValue} - ${amount}`,
+            totalChangeOrders: sql`${projectsTable.totalChangeOrders} - ${amount}`,
             updatedAt: now,
           })
           .where(eq(projectsTable.id, c.projectId));
