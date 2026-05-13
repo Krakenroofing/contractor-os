@@ -130,6 +130,7 @@ export async function createInvoice(
         amountPaid: input.amountPaid,
         notes: input.notes,
         termsOverride: input.termsOverride,
+        percentOfContract: input.percentOfContract ?? null,
         sentAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
         paidAt: input.status === 'paid' ? now : null,
       })
@@ -208,6 +209,7 @@ export type UpdateInvoiceFullInput = {
   total: string;
   notes: string | null;
   termsOverride: string | null;
+  percentOfContract: string | null;
   lines: Array<{
     costCodeId: string | null;
     description: string;
@@ -265,6 +267,7 @@ export async function updateInvoiceFull(
         total: patch.total,
         notes: patch.notes,
         termsOverride: patch.termsOverride,
+        percentOfContract: patch.percentOfContract,
         updatedAt: new Date(),
       })
       .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)));

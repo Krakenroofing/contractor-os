@@ -71,6 +71,10 @@ export const invoices = pgTable(
     // Phase 1: optional per-invoice PO override. Falls back to nothing
     // when null. Rendered in the Project metadata block.
     purchaseOrderNumber: text('purchase_order_number'),
+    // Display-only "30% of contract" tagging for lump-sum / progress draws.
+    // Doesn't drive any math — the operator enters the actual amount on the
+    // line. Rendered in the project metadata block when set.
+    percentOfContract: numeric('percent_of_contract', { precision: 6, scale: 3 }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

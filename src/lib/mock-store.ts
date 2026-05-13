@@ -143,6 +143,7 @@ function makeCustomer(
     billingCity: null,
     billingState: null,
     billingPostalCode: null,
+    tinNumber: null,
     notes: null,
     deletedAt: null,
     createdAt: now,
@@ -876,6 +877,7 @@ function buildInvoice(input: SeedInvoice): {
     // Phase 1 additions — null in seed data; populated by users on edit.
     billingLabel: null,
     purchaseOrderNumber: null,
+    percentOfContract: null,
     sentAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
     paidAt: input.status === 'paid' ? now : null,
     createdAt: now,
@@ -2533,6 +2535,8 @@ export type CreateInvoiceInput = {
   amountPaid: string;
   notes: string | null;
   termsOverride: string | null;
+  // Display-only "30% of contract" tag for lump-sum / progress draws.
+  percentOfContract?: string | null;
   lines: Array<{
     costCodeId: string | null;
     description: string;
@@ -2580,6 +2584,7 @@ export function createMockInvoice(
     // Phase 1 additions — null on create; populated by user on edit.
     billingLabel: null,
     purchaseOrderNumber: null,
+    percentOfContract: input.percentOfContract ?? null,
     sentAt:
       input.status !== 'draft' && input.status !== 'void' ? now : null,
     paidAt: input.status === 'paid' ? now : null,
@@ -3945,6 +3950,7 @@ export function updateMockInvoiceFull(
     total: string;
     notes: string | null;
     termsOverride: string | null;
+    percentOfContract: string | null;
     lines: Array<{
       costCodeId: string | null;
       description: string;
@@ -3992,6 +3998,7 @@ export function updateMockInvoiceFull(
   inv.total = patch.total;
   inv.notes = patch.notes;
   inv.termsOverride = patch.termsOverride;
+  inv.percentOfContract = patch.percentOfContract;
   inv.updatedAt = new Date();
 
   // Re-derive amount_paid + status from existing payment rows against the

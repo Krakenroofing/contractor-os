@@ -2,7 +2,17 @@
 
 import { revalidatePath } from 'next/cache';
 import { getActiveCompanyId } from '@/lib/active-company';
-import { updateCompany } from '@/lib/data/companies';
+import { getCompany, updateCompany } from '@/lib/data/companies';
+import { requireAuth } from '@/lib/auth';
+import { getActiveRole } from '@/lib/active-role';
+import { canCreate } from '@/lib/permissions';
+import {
+  ALLOWED_LOGO_MIME,
+  CompanyLogoStorageNotConfiguredError,
+  MAX_LOGO_BYTES,
+  deleteCompanyLogoBlob,
+  uploadCompanyLogo,
+} from '@/lib/storage/company-logos';
 import { companySettingsFormSchema } from './schema';
 
 export type CompanySettingsState = {
@@ -87,6 +97,109 @@ export async function updateCompanySettingsAction(
     return { formError: 'Company not found' };
   }
 
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Logo upload (separate form — file inputs don't mix cleanly with the
+// main settings text fields). Replaces any existing logo: best-effort blob
+// cleanup, then upload, then set logoUrl to the new bucket key.
+// ---------------------------------------------------------------------------
+
+export type CompanyLogoActionState = {
+  formError?: string;
+  ok?: boolean;
+};
+
+export async function uploadCompanyLogoAction(
+  _prev: CompanyLogoActionState,
+  formData: FormData,
+): Promise<CompanyLogoActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { formError: 'You do not have permission to change company branding.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const company = await getCompany(companyId);
+  if (!company) return { formError: 'Active company not found.' };
+
+  const file = formData.get('logo');
+  if (!(file instanceof File) || file.size === 0) {
+    return { formError: 'Pick a logo image to upload.' };
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    return {
+      formError: `Logo is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is ${Math.round(
+        MAX_LOGO_BYTES / 1024 / 1024,
+      )} MB.`,
+    };
+  }
+  const mime = (file.type || '').toLowerCase();
+  if (!ALLOWED_LOGO_MIME.has(mime)) {
+    return {
+      formError: `Unsupported image type: ${file.type || 'unknown'}. Use PNG, JPG, WebP, GIF, or SVG.`,
+    };
+  }
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { storagePath } = await uploadCompanyLogo({
+      companyId,
+      bytes,
+      mimeType: mime,
+      originalFileName: file.name,
+    });
+
+    // Update company.logoUrl to the new bucket key.
+    const oldPath = company.logoUrl;
+    const updated = await updateCompany(companyId, { logoUrl: storagePath });
+    if (!updated) return { formError: 'Failed to update company.' };
+
+    // Best-effort delete of the previous blob — don't fail the upload if
+    // cleanup hiccups; an orphaned blob just costs storage.
+    if (oldPath && oldPath !== storagePath) {
+      try {
+        await deleteCompanyLogoBlob(oldPath);
+      } catch {
+        /* swallow */
+      }
+    }
+  } catch (err) {
+    if (err instanceof CompanyLogoStorageNotConfiguredError) {
+      return { formError: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Logo upload failed: ${message}` };
+  }
+
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
+export async function removeCompanyLogoAction(
+  _prev: CompanyLogoActionState,
+  _formData: FormData,
+): Promise<CompanyLogoActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { formError: 'You do not have permission to change company branding.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const company = await getCompany(companyId);
+  if (!company) return { formError: 'Active company not found.' };
+  const oldPath = company.logoUrl;
+
+  await updateCompany(companyId, { logoUrl: null });
+  if (oldPath) {
+    try {
+      await deleteCompanyLogoBlob(oldPath);
+    } catch {
+      /* swallow */
+    }
+  }
   revalidatePath('/', 'layout');
   return { ok: true };
 }

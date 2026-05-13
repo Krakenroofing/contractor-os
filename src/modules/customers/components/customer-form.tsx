@@ -25,6 +25,7 @@ export type CustomerFormInitialValues = {
   billingCity: string;
   billingState: string;
   billingPostalCode: string;
+  tinNumber: string;
   notes: string;
 };
 
@@ -38,6 +39,7 @@ const blankInitial: CustomerFormInitialValues = {
   billingCity: '',
   billingState: '',
   billingPostalCode: '',
+  tinNumber: '',
   notes: '',
 };
 
@@ -151,6 +153,13 @@ export function CustomerForm({
             />
           </Field>
         </div>
+        <Field label="Tax ID (TIN)" error={err('tinNumber')}>
+          <Input
+            name="tinNumber"
+            defaultValue={values.tinNumber}
+            placeholder="Customer&apos;s tax identification number"
+          />
+        </Field>
       </fieldset>
 
       <Field label="Notes" error={err('notes')}>

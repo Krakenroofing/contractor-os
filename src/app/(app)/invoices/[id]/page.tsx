@@ -243,10 +243,11 @@ export default async function InvoiceDetailPage({
         </Card>
       )}
 
-      {/* Phase 1: Bill-to block. Customer info already shown in header,
-          so only render the dedicated card if the template wants the TIN
-          line surfaced or a dedicated layout. */}
-      {customer && template?.showBillToTin && (
+      {/* Bill-to block. Renders address, contact, and TIN. When the
+          template has the bill-to TIN section disabled but the customer
+          has an address or TIN on file we still render the block — the
+          template flag now governs the TIN row only. */}
+      {customer && (template?.showBillToTin || customer.billingAddressLine1 || customer.tinNumber) && (
         <Card>
           <CardHeader>
             <CardTitle>Bill to</CardTitle>
@@ -255,20 +256,34 @@ export default async function InvoiceDetailPage({
             <Row label="Client" value={customer.name} />
             {customer.primaryContactName && (
               <Row
-                label={template.billToAttentionLabel}
+                label={template?.billToAttentionLabel ?? 'Attn'}
                 value={customer.primaryContactName}
+              />
+            )}
+            {(customer.billingAddressLine1 ||
+              customer.billingCity ||
+              customer.billingState ||
+              customer.billingPostalCode) && (
+              <Row
+                label="Address"
+                value={[
+                  customer.billingAddressLine1,
+                  customer.billingCity,
+                  customer.billingState,
+                  customer.billingPostalCode,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
               />
             )}
             {customer.email && <Row label="Email" value={customer.email} />}
             {customer.phone && <Row label="Phone" value={customer.phone} />}
-            {/* TIN intentionally rendered as TBD until customer.tinNumber
-                is added in a later phase — for now the row appears only
-                when the toggle is on, signalling to the user that the
-                template expects this data. */}
-            <Row
-              label={template.tinLabel}
-              value="—"
-            />
+            {(template?.showBillToTin || customer.tinNumber) && (
+              <Row
+                label={template?.tinLabel ?? 'TIN'}
+                value={customer.tinNumber ?? '—'}
+              />
+            )}
           </CardContent>
         </Card>
       )}

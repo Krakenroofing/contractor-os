@@ -4,6 +4,7 @@ import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { getActiveCompany } from '@/lib/active-company';
+import { buildCompanyInfo } from '@/lib/exports/data/company-info';
 import { parseMoney, subtract } from '@/lib/money';
 import type { DocumentPayload, DocumentMeta } from '@/lib/exports/types';
 
@@ -42,25 +43,18 @@ export async function buildEstimatePayload(
     title: 'Estimate',
     number: estimate.number,
     statusLabel: estimate.status,
-    company: {
-      name: company.name,
-      email: company.email,
-      phone: company.phone,
-      website: company.website,
-      licenseNumber: company.licenseNumber,
-      addressLine1: company.addressLine1,
-      city: company.city,
-      state: company.state,
-      postalCode: company.postalCode,
-      tinNumber: company.tinNumber,
-      defaultCurrency: company.defaultCurrency,
-    },
+    company: await buildCompanyInfo(company),
     customer: customer
       ? {
           name: customer.name,
           contact: customer.primaryContactName,
           email: customer.email,
           phone: customer.phone,
+          addressLine1: customer.billingAddressLine1,
+          city: customer.billingCity,
+          state: customer.billingState,
+          postalCode: customer.billingPostalCode,
+          tinNumber: customer.tinNumber,
         }
       : undefined,
     project: project

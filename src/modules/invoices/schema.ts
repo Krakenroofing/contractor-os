@@ -35,6 +35,7 @@ export const billingTypeValues = [
   'retainage',
   'change_order',
   'deposit',
+  'lump_sum',
 ] as const;
 export type BillingType = (typeof billingTypeValues)[number];
 
@@ -45,6 +46,7 @@ export const BILLING_TYPE_LABEL: Record<BillingType, string> = {
   retainage: 'Retainage',
   change_order: 'Change order',
   deposit: 'Deposit',
+  lump_sum: 'Lump sum',
 };
 
 const optionalString = z.string().optional().or(z.literal(''));
@@ -79,6 +81,14 @@ export const invoiceFormSchema = z.object({
   amountPaid: numericString,
   notes: z.string().max(2000).optional().or(z.literal('')),
   termsOverride: z.string().max(4000).optional().or(z.literal('')),
+  // Optional "30% of contract" tag for lump-sum / progress draws.
+  // Display-only; rendered on the invoice but doesn't drive math.
+  percentOfContract: z
+    .string()
+    .trim()
+    .regex(/^\d+(\.\d{1,3})?$/, 'Percent must be a number')
+    .optional()
+    .or(z.literal('')),
   lines: z.array(invoiceLineSchema).min(1, 'At least one line item is required'),
 });
 

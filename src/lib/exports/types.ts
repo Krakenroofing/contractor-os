@@ -20,6 +20,12 @@ export interface CompanyInfo {
   postalCode?: string | null;
   tinNumber?: string | null;
   defaultCurrency: string;
+  /**
+   * Base64 data URL of the company logo (e.g. `data:image/png;base64,...`).
+   * Built server-side by the payload builders from Supabase Storage. Renderers
+   * fall back to an initials chip when this is missing.
+   */
+  logoDataUrl?: string | null;
 }
 
 export interface CustomerInfo {
@@ -27,6 +33,11 @@ export interface CustomerInfo {
   contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  addressLine1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  tinNumber?: string | null;
 }
 
 export interface ProjectInfo {

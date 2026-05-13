@@ -7,6 +7,7 @@ import {
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { getActiveCompany } from '@/lib/active-company';
+import { buildCompanyInfo } from '@/lib/exports/data/company-info';
 import { getDailyReportPhotoDataUrl } from '@/lib/storage/daily-report-photos';
 import {
   STATUS_LABEL,
@@ -184,19 +185,7 @@ export async function buildDailyReportPayload(
     title: 'Daily Report',
     number: report.reportDate,
     statusLabel: STATUS_LABEL[report.status],
-    company: {
-      name: company.name,
-      email: company.email ?? null,
-      phone: company.phone ?? null,
-      website: company.website ?? null,
-      licenseNumber: company.licenseNumber ?? null,
-      addressLine1: company.addressLine1 ?? null,
-      city: company.city ?? null,
-      state: company.state ?? null,
-      postalCode: company.postalCode ?? null,
-      tinNumber: company.tinNumber ?? null,
-      defaultCurrency: company.defaultCurrency ?? 'USD',
-    },
+    company: await buildCompanyInfo(company),
     customer: customer
       ? {
           name: customer.name,

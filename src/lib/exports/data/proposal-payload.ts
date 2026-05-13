@@ -3,6 +3,7 @@ import { getProposal } from '@/lib/data/proposals';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { getActiveCompany } from '@/lib/active-company';
+import { buildCompanyInfo } from '@/lib/exports/data/company-info';
 import { parseMoney } from '@/lib/money';
 import type {
   DocumentPayload,
@@ -64,25 +65,18 @@ export async function buildProposalPayload(
     title: 'Proposal',
     number: proposal.number,
     statusLabel: proposal.status,
-    company: {
-      name: company.name,
-      email: company.email,
-      phone: company.phone,
-      website: company.website,
-      licenseNumber: company.licenseNumber,
-      addressLine1: company.addressLine1,
-      city: company.city,
-      state: company.state,
-      postalCode: company.postalCode,
-      tinNumber: company.tinNumber,
-      defaultCurrency: company.defaultCurrency,
-    },
+    company: await buildCompanyInfo(company),
     customer: customer
       ? {
           name: customer.name,
           contact: customer.primaryContactName,
           email: customer.email,
           phone: customer.phone,
+          addressLine1: customer.billingAddressLine1,
+          city: customer.billingCity,
+          state: customer.billingState,
+          postalCode: customer.billingPostalCode,
+          tinNumber: customer.tinNumber,
         }
       : undefined,
     project: project

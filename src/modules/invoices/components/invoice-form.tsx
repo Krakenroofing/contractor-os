@@ -64,12 +64,20 @@ export function InvoiceForm({
   const [state, formAction, pending] = useActionState(createInvoiceAction, initialState);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
   const [projectId, setProjectId] = useState('');
+  const [billingType, setBillingType] = useState<string>('progress');
+  // Lump-sum mode bypasses the qty × unit-cost editor and ships a single
+  // line with the entered amount as unitCost (qty=1). Detailed line items
+  // would be overkill for contract draws.
+  const [lumpDescription, setLumpDescription] = useState('');
+  const [lumpAmount, setLumpAmount] = useState('0');
+  const [percentOfContract, setPercentOfContract] = useState('');
   const [taxAmount, setTaxAmount] = useState('0');
   const [retainagePercent, setRetainagePercent] = useState('0');
   const [retainageAmount, setRetainageAmount] = useState('0');
   const [retainageAmountManual, setRetainageAmountManual] = useState(false);
   const [expectedRetainageReleaseDate, setExpectedRetainageReleaseDate] = useState('');
   const [amountPaid, setAmountPaid] = useState('0');
+  const isLumpSum = billingType === 'lump_sum';
 
   const filteredProposals = useMemo(
     () => (projectId ? proposals.filter((p) => p.projectId === projectId) : proposals),
@@ -82,11 +90,16 @@ export function InvoiceForm({
 
   const totals = useMemo(() => {
     let subtotal = 0;
-    for (const l of lines) {
-      subtotal = add(
-        subtotal,
-        multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0),
-      );
+    if (isLumpSum) {
+      // One line; amount → subtotal.
+      subtotal = Number(lumpAmount) || 0;
+    } else {
+      for (const l of lines) {
+        subtotal = add(
+          subtotal,
+          multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0),
+        );
+      }
     }
     const tax = Number(taxAmount) || 0;
     const pct = Number(retainagePercent) || 0;
@@ -100,7 +113,16 @@ export function InvoiceForm({
     const paid = Number(amountPaid) || 0;
     const balance = subtract(total, paid);
     return { subtotal, tax, retainage, total, paid, balance, pct };
-  }, [lines, taxAmount, retainagePercent, retainageAmount, retainageAmountManual, amountPaid]);
+  }, [
+    lines,
+    isLumpSum,
+    lumpAmount,
+    taxAmount,
+    retainagePercent,
+    retainageAmount,
+    retainageAmountManual,
+    amountPaid,
+  ]);
 
   // Keep the visible retainageAmount field synced with the derived value when
   // the user hasn't manually edited it.
@@ -108,12 +130,23 @@ export function InvoiceForm({
     ? retainageAmount
     : totals.retainage.toFixed(2);
 
-  const linesPayload = lines.map((l) => ({
-    description: l.description,
-    unit: l.unit,
-    quantity: l.quantity,
-    unitCost: l.unitCost,
-  }));
+  // In lump-sum mode, ship a single synthetic line so the existing data
+  // path (lines table, totals math, reporting) keeps working.
+  const linesPayload = isLumpSum
+    ? [
+        {
+          description: lumpDescription || 'Lump sum billing',
+          unit: '',
+          quantity: '1',
+          unitCost: lumpAmount || '0',
+        },
+      ]
+    : lines.map((l) => ({
+        description: l.description,
+        unit: l.unit,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+      }));
 
   const updateLine = (rowId: string, patch: Partial<LineDraft>) =>
     setLines((prev) => prev.map((l) => (l.rowId === rowId ? { ...l, ...patch } : l)));
@@ -129,6 +162,11 @@ export function InvoiceForm({
       )}
 
       <input type="hidden" name="lines" value={JSON.stringify(linesPayload)} />
+      <input
+        type="hidden"
+        name="percentOfContract"
+        value={isLumpSum ? percentOfContract : ''}
+      />
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
@@ -148,7 +186,11 @@ export function InvoiceForm({
             </Select>
           </Field>
           <Field label="Billing type" error={err('billingType')}>
-            <Select name="billingType" defaultValue="progress">
+            <Select
+              name="billingType"
+              value={billingType}
+              onChange={(e) => setBillingType(e.target.value)}
+            >
               {billingTypeValues.map((b) => (
                 <option key={b} value={b}>
                   {BILLING_TYPE_LABEL[b]}
@@ -217,7 +259,57 @@ export function InvoiceForm({
         </div>
       </fieldset>
 
-      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
+      {isLumpSum && (
+        <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
+          <legend className="px-2 text-sm font-medium text-slate-700">
+            Lump sum billing
+          </legend>
+          <p className="text-xs text-slate-500">
+            Single-line draw — enter what you&apos;re billing and the amount.
+            Use &quot;% of contract&quot; for context (e.g. &quot;30% of
+            contract&quot; on a progress draw); it&apos;s shown on the invoice
+            but doesn&apos;t auto-compute the total.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div className="md:col-span-6">
+              <Label className="text-xs">Description</Label>
+              <Input
+                value={lumpDescription}
+                onChange={(e) => setLumpDescription(e.target.value)}
+                placeholder="e.g. Foundation work — 30% draw"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <Label className="text-xs">Amount</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={lumpAmount}
+                onChange={(e) => setLumpAmount(e.target.value)}
+                className="tabular-nums"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <Label className="text-xs">% of contract (optional)</Label>
+              <Input
+                type="number"
+                step="0.001"
+                value={percentOfContract}
+                onChange={(e) => setPercentOfContract(e.target.value)}
+                placeholder="e.g. 30"
+                className="tabular-nums"
+              />
+            </div>
+          </div>
+        </fieldset>
+      )}
+
+      <fieldset
+        className={
+          'border border-slate-200 rounded-lg p-4 space-y-3 ' +
+          (isLumpSum ? 'hidden' : '')
+        }
+      >
         <legend className="px-2 text-sm font-medium text-slate-700">
           Billing breakdown
         </legend>

@@ -59,6 +59,7 @@ export default async function EditCustomerPage({
           billingCity: customer.billingCity ?? '',
           billingState: customer.billingState ?? '',
           billingPostalCode: customer.billingPostalCode ?? '',
+          tinNumber: customer.tinNumber ?? '',
           notes: customer.notes ?? '',
         }}
       />

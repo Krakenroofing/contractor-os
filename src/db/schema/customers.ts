@@ -19,6 +19,9 @@ export const customers = pgTable(
     billingCity: text('billing_city'),
     billingState: text('billing_state'),
     billingPostalCode: text('billing_postal_code'),
+    // Client TIN. Rendered on invoices when the active template enables
+    // the bill-to TIN section.
+    tinNumber: text('tin_number'),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

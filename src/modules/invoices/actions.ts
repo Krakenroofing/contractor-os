@@ -78,6 +78,7 @@ export async function createInvoiceAction(
     amountPaid: formData.get('amountPaid') ?? '0',
     notes: formData.get('notes') ?? '',
     termsOverride: formData.get('termsOverride') ?? '',
+    percentOfContract: formData.get('percentOfContract') ?? '',
     lines: parsedLines,
   });
 
@@ -149,6 +150,10 @@ export async function createInvoiceAction(
       amountPaid: toMoneyString(amountPaid),
       notes: emptyToNull(data.notes ?? null),
       termsOverride: emptyToNull(data.termsOverride ?? null),
+      percentOfContract:
+        data.percentOfContract && data.percentOfContract.trim() !== ''
+          ? Number(data.percentOfContract).toFixed(3)
+          : null,
       lines: persistLines,
     });
     createdId = inv.id;
@@ -288,6 +293,7 @@ export async function updateInvoiceFullAction(
     amountPaid: formData.get('amountPaid') ?? '0',
     notes: formData.get('notes') ?? '',
     termsOverride: formData.get('termsOverride') ?? '',
+    percentOfContract: formData.get('percentOfContract') ?? '',
     lines: parsedLines,
   });
 
@@ -367,6 +373,10 @@ export async function updateInvoiceFullAction(
       notes: data.notes && data.notes !== '' ? data.notes : null,
       termsOverride:
         data.termsOverride && data.termsOverride !== '' ? data.termsOverride : null,
+      percentOfContract:
+        data.percentOfContract && data.percentOfContract.trim() !== ''
+          ? Number(data.percentOfContract).toFixed(3)
+          : null,
       lines: persistLines,
     });
   } catch (err) {

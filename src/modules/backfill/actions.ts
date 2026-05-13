@@ -134,6 +134,7 @@ export async function backfillCustomerAction(
     billingCity: null,
     billingState: null,
     billingPostalCode: null,
+    tinNumber: null,
     notes: emptyToNull(data.notes ?? null),
   };
 

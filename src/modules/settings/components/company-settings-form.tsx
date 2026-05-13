@@ -52,24 +52,6 @@ export function CompanySettingsForm({ company }: { company: Company }) {
           </Field>
         </div>
 
-        <div className="space-y-4 pt-2 border-t border-slate-100">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Logo</p>
-          <div className="flex items-center gap-3">
-            <div className="h-14 w-14 rounded-md bg-slate-900 text-white flex items-center justify-center text-sm font-semibold">
-              {company.name
-                .split(/\s+/)
-                .map((w) => w[0])
-                .filter(Boolean)
-                .slice(0, 2)
-                .join('')
-                .toUpperCase()}
-            </div>
-            <p className="text-xs text-slate-500">
-              Logo upload not yet wired in demo mode — initials are used as a
-              placeholder on branded documents.
-            </p>
-          </div>
-        </div>
       </fieldset>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">

@@ -19,6 +19,7 @@ export const customerFormSchema = z.object({
   billingCity: optionalString,
   billingState: optionalString,
   billingPostalCode: optionalString,
+  tinNumber: optionalString,
   notes: z.string().max(2000).optional().or(z.literal('')),
 });
 

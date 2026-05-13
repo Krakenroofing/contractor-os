@@ -1,5 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
+import { createSignedLogoUrl } from '@/lib/storage/company-logos';
 
 export async function DocumentBranding() {
   const company = await getActiveCompany();
@@ -19,6 +20,13 @@ export async function DocumentBranding() {
     .join('')
     .toUpperCase();
 
+  // company.logoUrl stores a Supabase Storage bucket key (path within
+  // `company-logos`). We mint a fresh signed URL per render; falls back to
+  // an initials chip when no logo is set or storage isn't configured.
+  const logoSignedUrl = company.logoUrl
+    ? await createSignedLogoUrl(company.logoUrl)
+    : null;
+
   return (
     <Card>
       <CardContent className="p-4 flex items-center justify-between gap-4">
@@ -31,15 +39,25 @@ export async function DocumentBranding() {
             {company.phone && <span>{company.phone}</span>}
             {company.website && <span>{company.website}</span>}
           </div>
-          {company.licenseNumber && (
-            <p className="text-xs text-slate-500 pt-1">
-              License #: {company.licenseNumber}
-            </p>
-          )}
+          <div className="text-xs text-slate-500 pt-1 flex flex-wrap gap-x-3">
+            {company.licenseNumber && (
+              <span>License #: {company.licenseNumber}</span>
+            )}
+            {company.tinNumber && <span>TIN: {company.tinNumber}</span>}
+          </div>
         </div>
-        <div className="h-14 w-14 rounded-md bg-slate-900 text-white flex items-center justify-center text-sm font-semibold shrink-0">
-          {initials}
-        </div>
+        {logoSignedUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoSignedUrl}
+            alt={`${company.name} logo`}
+            className="h-14 max-w-[140px] object-contain shrink-0"
+          />
+        ) : (
+          <div className="h-14 w-14 rounded-md bg-slate-900 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+            {initials}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

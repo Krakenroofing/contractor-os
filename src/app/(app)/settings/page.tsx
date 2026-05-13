@@ -5,6 +5,8 @@ import { getActiveRole } from '@/lib/active-role';
 import { getCalcDebug } from '@/lib/calc-debug';
 import { canView, ROLE_LABELS } from '@/lib/permissions';
 import { CompanySettingsForm } from '@/modules/settings/components/company-settings-form';
+import { CompanyLogoUploader } from '@/modules/settings/components/company-logo-uploader';
+import { createSignedLogoUrl } from '@/lib/storage/company-logos';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +41,11 @@ export default async function SettingsPage() {
 
   const company = await getActiveCompany();
   const calcDebug = await getCalcDebug();
+  // Mint a signed URL for the current logo so the uploader card can render
+  // a preview alongside the upload form.
+  const logoSignedUrl = company.logoUrl
+    ? await createSignedLogoUrl(company.logoUrl)
+    : null;
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -50,6 +57,18 @@ export default async function SettingsPage() {
           flow into proposal, change-order, and PO branding immediately.
         </p>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Logo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CompanyLogoUploader
+            companyName={company.name}
+            currentLogoUrl={logoSignedUrl}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-6">

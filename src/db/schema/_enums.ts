@@ -130,6 +130,7 @@ export const invoiceBillingTypeEnum = pgEnum('invoice_billing_type', [
   'retainage',
   'change_order',
   'deposit',
+  'lump_sum',
 ]);
 
 export const paymentStatusEnum = pgEnum('payment_status', [

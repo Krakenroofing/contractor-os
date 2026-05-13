@@ -45,6 +45,7 @@ function readForm(formData: FormData) {
     billingCity: formData.get('billingCity') ?? '',
     billingState: formData.get('billingState') ?? '',
     billingPostalCode: formData.get('billingPostalCode') ?? '',
+    tinNumber: formData.get('tinNumber') ?? '',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -80,6 +81,7 @@ export async function createCustomerAction(
       billingCity: emptyToNull(data.billingCity ?? null),
       billingState: emptyToNull(data.billingState ?? null),
       billingPostalCode: emptyToNull(data.billingPostalCode ?? null),
+      tinNumber: emptyToNull(data.tinNumber ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = customer.id;
@@ -130,6 +132,7 @@ export async function updateCustomerAction(
       billingCity: emptyToNull(data.billingCity ?? null),
       billingState: emptyToNull(data.billingState ?? null),
       billingPostalCode: emptyToNull(data.billingPostalCode ?? null),
+      tinNumber: emptyToNull(data.tinNumber ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

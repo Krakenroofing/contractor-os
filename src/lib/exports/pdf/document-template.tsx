@@ -176,6 +176,13 @@ const styles = StyleSheet.create({
     fontSize: pdfTheme.fontSize.md,
     fontFamily: 'Helvetica-Bold',
   },
+  // Larger box than the initials chip so brand marks aren't crushed.
+  // objectFit:'contain' preserves aspect ratio for tall or wide logos.
+  logoImage: {
+    width: 90,
+    height: 42,
+    objectFit: 'contain',
+  },
   dataTableTitle: {
     fontSize: pdfTheme.fontSize.md,
     fontFamily: 'Helvetica-Bold',
@@ -216,6 +223,14 @@ function companyAddress(company: DocumentPayload['company']): string {
     .join(', ');
 }
 
+function customerAddress(
+  customer: NonNullable<DocumentPayload['customer']>,
+): string {
+  return [customer.addressLine1, customer.city, customer.state, customer.postalCode]
+    .filter(Boolean)
+    .join(', ');
+}
+
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -231,9 +246,15 @@ function HeaderBlock({ payload }: { payload: DocumentPayload }) {
   return (
     <View style={styles.headerRow}>
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={styles.logoBox}>
-          <Text style={styles.logoText}>{initials(c.name)}</Text>
-        </View>
+        {c.logoDataUrl ? (
+          // @react-pdf accepts data URLs directly for <Image src>; sized
+          // generously so a reasonable logo file doesn't get crushed.
+          <Image src={c.logoDataUrl} style={styles.logoImage} />
+        ) : (
+          <View style={styles.logoBox}>
+            <Text style={styles.logoText}>{initials(c.name)}</Text>
+          </View>
+        )}
         <View>
           <Text style={styles.companyName}>{c.name}</Text>
           {companyAddress(c) ? (
@@ -273,11 +294,17 @@ function PartiesBlock({ payload }: { payload: DocumentPayload }) {
           {payload.customer.contact ? (
             <Text style={styles.muted}>Attn: {payload.customer.contact}</Text>
           ) : null}
+          {customerAddress(payload.customer) ? (
+            <Text style={styles.muted}>{customerAddress(payload.customer)}</Text>
+          ) : null}
           {payload.customer.email ? (
             <Text style={styles.muted}>{payload.customer.email}</Text>
           ) : null}
           {payload.customer.phone ? (
             <Text style={styles.muted}>{payload.customer.phone}</Text>
+          ) : null}
+          {payload.customer.tinNumber ? (
+            <Text style={styles.subtle}>TIN: {payload.customer.tinNumber}</Text>
           ) : null}
         </View>
       ) : null}
