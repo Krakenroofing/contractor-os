@@ -52,6 +52,7 @@ export function InvoiceForm({
   defaultNumber,
   defaultInvoiceDate,
   defaultDueDate,
+  companyVatRatePercent = 0,
 }: {
   projects: InvoiceFormProjectOption[];
   proposals: InvoiceFormProposalOption[];
@@ -60,6 +61,13 @@ export function InvoiceForm({
   defaultNumber: string;
   defaultInvoiceDate: string;
   defaultDueDate: string;
+  /**
+   * The active company's VAT rate (numeric percent). When > 0, the Tax/VAT
+   * field auto-fills to subtotal × rate / 100 as the user edits line items.
+   * Manual override still works — once the user types in the field, we stop
+   * auto-syncing for the rest of the session.
+   */
+  companyVatRatePercent?: number;
 }) {
   const [state, formAction, pending] = useActionState(createInvoiceAction, initialState);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
@@ -72,6 +80,10 @@ export function InvoiceForm({
   const [lumpAmount, setLumpAmount] = useState('0');
   const [percentOfContract, setPercentOfContract] = useState('');
   const [taxAmount, setTaxAmount] = useState('0');
+  // Stops auto-VAT-sync once the user has typed in the Tax field — they
+  // get full manual control on edit but the field pre-fills for fresh
+  // invoices when the company has a VAT rate set.
+  const [taxAmountManual, setTaxAmountManual] = useState(false);
   const [retainagePercent, setRetainagePercent] = useState('0');
   const [retainageAmount, setRetainageAmount] = useState('0');
   const [retainageAmountManual, setRetainageAmountManual] = useState(false);
@@ -101,7 +113,14 @@ export function InvoiceForm({
         );
       }
     }
-    const tax = Number(taxAmount) || 0;
+    // Auto-VAT from company.vatRatePercent unless user typed in the Tax
+    // field. Keeps the displayed value in sync with subtotal as the user
+    // edits line items.
+    const autoTax =
+      companyVatRatePercent > 0
+        ? Math.round(((subtotal * companyVatRatePercent) / 100) * 100) / 100
+        : 0;
+    const tax = taxAmountManual ? Number(taxAmount) || 0 : autoTax;
     const pct = Number(retainagePercent) || 0;
     // Auto-derive retainage held from subtotal × pct unless the user has
     // manually overridden the held amount.
@@ -118,11 +137,17 @@ export function InvoiceForm({
     isLumpSum,
     lumpAmount,
     taxAmount,
+    taxAmountManual,
+    companyVatRatePercent,
     retainagePercent,
     retainageAmount,
     retainageAmountManual,
     amountPaid,
   ]);
+
+  // Display value for the Tax field: when in auto mode, show the derived
+  // amount so the user sees the math without having to compute it.
+  const taxDisplay = taxAmountManual ? taxAmount : totals.tax.toFixed(2);
 
   // Keep the visible retainageAmount field synced with the derived value when
   // the user hasn't manually edited it.
@@ -387,13 +412,35 @@ export function InvoiceForm({
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Totals</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Tax / VAT" error={err('taxAmount')}>
+          <Field
+            label={
+              companyVatRatePercent > 0
+                ? `Tax / VAT (${companyVatRatePercent.toFixed(2)}% auto)`
+                : 'Tax / VAT'
+            }
+            error={err('taxAmount')}
+          >
             <Input
               name="taxAmount"
               inputMode="decimal"
-              value={taxAmount}
-              onChange={(e) => setTaxAmount(e.target.value)}
+              value={taxDisplay}
+              onChange={(e) => {
+                setTaxAmount(e.target.value);
+                setTaxAmountManual(true);
+              }}
             />
+            {companyVatRatePercent > 0 && taxAmountManual && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTaxAmountManual(false);
+                  setTaxAmount('0');
+                }}
+                className="mt-1 text-[11px] text-slate-500 hover:text-slate-900 underline"
+              >
+                Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
+              </button>
+            )}
           </Field>
           <Field label="Retainage %" error={err('retainagePercent')}>
             <Input

@@ -18,6 +18,7 @@ export const REPORT_TYPES = [
   'payment-summary',
   'purchase-orders',
   'landed-cost',
+  'vat-quarterly',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
@@ -29,6 +30,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'payment-summary': 'Payment Summary Report',
   'purchase-orders': 'Purchase Order Summary',
   'landed-cost': 'Landed Cost Summary',
+  'vat-quarterly': 'VAT Quarterly Report',
 };
 
 export const REPORT_DESCRIPTION: Record<ReportType, string> = {
@@ -46,6 +48,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'PO commitments by status with vendor + project breakdown.',
   'landed-cost':
     'Landed-cost imports with CIF, duty, VAT, and per-unit cost.',
+  'vat-quarterly':
+    'Accrual-basis VAT liability by quarter — every sent invoice with VAT, grouped by quarter of sent date.',
 };
 
 /**
@@ -60,6 +64,7 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   'payment-summary': true,
   'purchase-orders': true,
   'landed-cost': true,
+  'vat-quarterly': false,
 };
 
 export function parseReportFilters(

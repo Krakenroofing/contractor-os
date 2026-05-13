@@ -35,6 +35,191 @@ import { normalizeStatus } from '@/lib/status-machine';
 import type { ReportFilters } from './filters';
 import { isInRange } from './filters';
 
+// ===== VAT Quarterly Report =====
+//
+// Accrual-basis VAT liability. Every non-void invoice that's been sent
+// contributes its VAT to the quarter it was sent in. VAT amount per invoice
+// is computed as `subtotal × company.vatRatePercent / 100`, so when a
+// company's VAT rate is zero (e.g., Kraken Roofing) the report comes back
+// empty and the page renders a clean "no VAT activity" state.
+
+export type VatQuarterlyInvoiceRow = {
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  projectNumber: string | null;
+  projectName: string | null;
+  status: string;
+  // ISO date of the event used to bucket the invoice into a quarter.
+  // Prefers sentAt → invoiceDate when sentAt is null (legacy rows).
+  effectiveDate: string;
+  quarterKey: string; // 'YYYY-Qn'
+  subtotal: number;
+  vatRatePct: number;
+  vatDue: number;
+  total: number;
+};
+
+export type VatQuarterlyQuarterRow = {
+  quarterKey: string;
+  label: string; // 'Q1 2026'
+  invoiceCount: number;
+  subtotal: number;
+  vatDue: number;
+  total: number;
+};
+
+export type VatQuarterlyReport = {
+  companyName: string;
+  companyVatRatePct: number;
+  /** When 0, the report has nothing to render — UI shows an empty state. */
+  isVatActive: boolean;
+  quarters: VatQuarterlyQuarterRow[];
+  invoices: VatQuarterlyInvoiceRow[];
+  totals: {
+    invoiceCount: number;
+    subtotal: number;
+    vatDue: number;
+    total: number;
+  };
+};
+
+function quarterKeyForDate(iso: string): { key: string; label: string } {
+  // iso is YYYY-MM-DD (date) or full ISO timestamp — slice safely.
+  const yyyy = iso.slice(0, 4);
+  const mm = Number(iso.slice(5, 7));
+  const q = Math.min(4, Math.max(1, Math.ceil(mm / 3)));
+  return { key: `${yyyy}-Q${q}`, label: `Q${q} ${yyyy}` };
+}
+
+export async function buildVatQuarterlyReport(
+  companyId: string,
+  filters: ReportFilters,
+): Promise<VatQuarterlyReport> {
+  // Pull the active company so we know the VAT rate. Done via a direct
+  // import to avoid a circular dependency through getActiveCompany.
+  const { getCompany } = await import('@/lib/data/companies');
+  const company = await getCompany(companyId);
+  const companyName = company?.name ?? 'Active company';
+  const companyVatRatePct = company ? Number(company.vatRatePercent) : 0;
+  const isVatActive = companyVatRatePct > 0;
+
+  if (!isVatActive) {
+    return {
+      companyName,
+      companyVatRatePct,
+      isVatActive,
+      quarters: [],
+      invoices: [],
+      totals: { invoiceCount: 0, subtotal: 0, vatDue: 0, total: 0 },
+    };
+  }
+
+  const [invoices, customers, projects] = await Promise.all([
+    listInvoices(companyId),
+    listCustomers(companyId),
+    listProjects(companyId),
+  ]);
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  // Filter to non-draft / non-void invoices. Accrual basis: the moment a
+  // customer is billed, VAT is owed for that quarter even if unpaid.
+  // sentAt is a nullable Date; fall back to invoiceDate when missing
+  // (e.g., legacy rows created before the status-transition stamp was wired).
+  const effectiveDate = (inv: (typeof invoices)[number]): string =>
+    inv.sentAt ? inv.sentAt.toISOString().slice(0, 10) : inv.invoiceDate;
+
+  const filtered = invoices.filter((inv) => {
+    if (inv.status === 'void') return false;
+    if (inv.status === 'draft') return false;
+    const effective = effectiveDate(inv);
+    return filters.from || filters.to ? isInRange(effective, filters) : true;
+  });
+
+  const invoiceRows: VatQuarterlyInvoiceRow[] = filtered
+    .map((inv) => {
+      const effective = effectiveDate(inv);
+      const project = inv.projectId ? projectById.get(inv.projectId) : null;
+      const customer = project ? customerById.get(project.customerId) : null;
+      const subtotal = parseMoney(inv.subtotal);
+      const vatDue = round2((subtotal * companyVatRatePct) / 100);
+      const total = parseMoney(inv.total);
+      const { key, label } = quarterKeyForDate(effective);
+      return {
+        invoiceId: inv.id,
+        invoiceNumber: inv.number,
+        customerName: customer?.name ?? '—',
+        projectNumber: project?.number ?? null,
+        projectName: project?.name ?? null,
+        status: inv.status,
+        effectiveDate: effective,
+        quarterKey: key,
+        // attach label here too so the per-quarter aggregate can reuse it
+        _label: label,
+        subtotal,
+        vatRatePct: companyVatRatePct,
+        vatDue,
+        total,
+      } as VatQuarterlyInvoiceRow & { _label: string };
+    })
+    .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+
+  // Quarter rollup. Sort quarters newest-first for display.
+  const byQuarter = new Map<string, VatQuarterlyQuarterRow>();
+  for (const row of invoiceRows as Array<
+    VatQuarterlyInvoiceRow & { _label: string }
+  >) {
+    const existing = byQuarter.get(row.quarterKey);
+    if (existing) {
+      existing.invoiceCount += 1;
+      existing.subtotal = add(existing.subtotal, row.subtotal);
+      existing.vatDue = add(existing.vatDue, row.vatDue);
+      existing.total = add(existing.total, row.total);
+    } else {
+      byQuarter.set(row.quarterKey, {
+        quarterKey: row.quarterKey,
+        label: row._label,
+        invoiceCount: 1,
+        subtotal: row.subtotal,
+        vatDue: row.vatDue,
+        total: row.total,
+      });
+    }
+  }
+  const quarters = Array.from(byQuarter.values()).sort((a, b) =>
+    b.quarterKey.localeCompare(a.quarterKey),
+  );
+
+  const totals = invoiceRows.reduce(
+    (acc, r) => ({
+      invoiceCount: acc.invoiceCount + 1,
+      subtotal: add(acc.subtotal, r.subtotal),
+      vatDue: add(acc.vatDue, r.vatDue),
+      total: add(acc.total, r.total),
+    }),
+    { invoiceCount: 0, subtotal: 0, vatDue: 0, total: 0 },
+  );
+
+  // Strip the internal `_label` helper before returning.
+  const cleanRows: VatQuarterlyInvoiceRow[] = invoiceRows.map((r) => {
+    const { _label, ...rest } = r as VatQuarterlyInvoiceRow & {
+      _label: string;
+    };
+    void _label;
+    return rest;
+  });
+
+  return {
+    companyName,
+    companyVatRatePct,
+    isVatActive,
+    quarters,
+    invoices: cleanRows,
+    totals,
+  };
+}
+
 // ===== Project Financial Report =====
 
 export type ProjectFinancialRow = {

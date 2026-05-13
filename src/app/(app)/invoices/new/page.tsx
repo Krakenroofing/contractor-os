@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listInvoiceTemplates } from '@/lib/data/invoice-templates';
@@ -31,6 +31,7 @@ export default async function NewInvoicePage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'invoices')) redirect('/invoices');
   const companyId = await getActiveCompanyId();
+  const activeCompany = await getActiveCompany();
 
   const projects = await Promise.all(
     (await listProjects(companyId)).map(async (p) => {
@@ -94,6 +95,7 @@ export default async function NewInvoicePage() {
         defaultNumber={await nextInvoiceNumber(companyId)}
         defaultInvoiceDate={today}
         defaultDueDate={due}
+        companyVatRatePercent={Number(activeCompany.vatRatePercent)}
       />
     </div>
   );
