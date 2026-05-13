@@ -5,14 +5,16 @@ import {
   timestamp,
   numeric,
   date,
+  boolean,
   index,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { companies } from './companies';
 import { projects } from './projects';
 import { costCodes } from './cost-codes';
 import { vendors } from './vendors';
 import { users } from './users';
-import { jobCostSourceEnum } from './_enums';
+import { jobCostSourceEnum, jobCostTypeEnum } from './_enums';
 
 export const jobCostEntries = pgTable(
   'job_cost_entries',
@@ -29,12 +31,21 @@ export const jobCostEntries = pgTable(
       .references(() => costCodes.id, { onDelete: 'restrict' }),
     source: jobCostSourceEnum('source').notNull().default('manual'),
     sourceRefId: uuid('source_ref_id'),
+    // Decoupled from cost_code.category — a single code can be used for an
+    // entry whose true type is 'vat'/'freight'/etc.
+    costType: jobCostTypeEnum('cost_type').notNull().default('other'),
     entryDate: date('entry_date').notNull(),
     vendorId: uuid('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
     description: text('description').notNull(),
     quantity: numeric('quantity', { precision: 14, scale: 4 }).notNull().default('1'),
     unitCost: numeric('unit_cost', { precision: 14, scale: 4 }).notNull().default('0'),
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    isBillable: boolean('is_billable').notNull().default(false),
+    markupPercent: numeric('markup_percent', { precision: 6, scale: 3 }),
+    // Phase 2 specialized metadata. Both nullable — used only by the labor
+    // and vendor-expense entry flows respectively.
+    burdenPercent: numeric('burden_percent', { precision: 6, scale: 3 }),
+    vendorInvoiceNumber: text('vendor_invoice_number'),
     attachmentUrl: text('attachment_url'),
     notes: text('notes'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
@@ -42,11 +53,16 @@ export const jobCostEntries = pgTable(
     }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => ({
     projectIdx: index('job_cost_entries_project_idx').on(t.projectId),
     projectCodeIdx: index('job_cost_entries_project_code_idx').on(t.projectId, t.costCodeId),
     dateIdx: index('job_cost_entries_date_idx').on(t.entryDate),
+    // Partial index excludes soft-deleted rows from cost-type rollups.
+    projectTypeIdx: index('job_cost_entries_project_type_idx')
+      .on(t.projectId, t.costType)
+      .where(sql`${t.deletedAt} IS NULL`),
   }),
 );
 

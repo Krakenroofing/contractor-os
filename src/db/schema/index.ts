@@ -19,3 +19,4 @@ export * from './activity-log';
 export * from './invitations';
 export * from './daily-reports';
 export * from './project-documents';
+export * from './job-cost-forecasts';

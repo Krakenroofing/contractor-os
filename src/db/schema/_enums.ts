@@ -94,6 +94,26 @@ export const jobCostSourceEnum = pgEnum('job_cost_source', [
   'qbo_sync',
 ]);
 
+export const jobCostTypeEnum = pgEnum('job_cost_type', [
+  'labor',
+  'labor_burden',
+  'materials',
+  'subcontractor',
+  'equipment_rental',
+  'owned_equipment',
+  'freight',
+  'customs_duty',
+  'vat',
+  'tools_consumables',
+  'fuel_travel',
+  'per_diem_housing',
+  'permits_fees',
+  'disposal',
+  'general_conditions',
+  'change_order_work',
+  'other',
+]);
+
 export const invoiceStatusEnum = pgEnum('invoice_status', [
   'draft',
   'sent',

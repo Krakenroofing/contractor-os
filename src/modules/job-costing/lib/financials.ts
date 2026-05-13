@@ -1,8 +1,17 @@
 import 'server-only';
 import {
-  listJobCostEntriesForProject,
+  listJobCostEntriesForProject as listMockJobCostEntriesForProject,
   listLaborEntriesForProject,
 } from '@/lib/mock-store';
+import {
+  sumActualByCostCodeForProject,
+  sumManualActualForProject,
+} from '@/lib/data/job-cost-entries';
+import {
+  listJobCostForecastsForProject,
+  sumCostToCompleteForProject,
+} from '@/lib/data/job-cost-forecasts';
+import { isDatabaseConfigured } from '@/db';
 import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { getEstimateLineItems, listEstimatesForProject } from '@/lib/data/estimates';
 import { getPurchaseOrderLines, listPurchaseOrdersForProject } from '@/lib/data/purchase-orders';
@@ -32,6 +41,10 @@ export type ProjectFinancials = {
   estimatedCost: number;
   committedCost: number;
   actualCost: number;
+  // Phase 2: forecast roll-up. When forecasts exist they replace the old
+  // estimate-anchored GP math with a forward-looking projection.
+  costToComplete: number;
+  projectedFinalCost: number;
   landedCostTotal: number;
   landedCostSurcharge: number;
   projectedGrossProfit: number;
@@ -107,8 +120,15 @@ export async function computeProjectFinancials(
   const labor = listLaborEntriesForProject(projectId);
   const actualLabor = labor.reduce((acc, l) => add(acc, parseMoney(l.amount)), 0);
 
-  const manual = listJobCostEntriesForProject(projectId);
-  const actualManual = manual.reduce((acc, e) => add(acc, parseMoney(e.amount)), 0);
+  // Manual job-cost entries. In real-DB mode we read from job_cost_entries
+  // (post-Phase-1 of the Job Costing rebuild). Demo mode still reads the
+  // in-memory mock-store (which is always empty today).
+  const actualManual = isDatabaseConfigured()
+    ? await sumManualActualForProject(companyId, projectId)
+    : listMockJobCostEntriesForProject(projectId).reduce(
+        (acc, e) => add(acc, parseMoney(e.amount)),
+        0,
+      );
 
   // Landed cost surcharge = total all-in landed cost minus the supplier
   // material we've already captured in PO line totals — avoids double-counting.
@@ -125,10 +145,19 @@ export async function computeProjectFinancials(
 
   const actualCost = add(actualFromPOs, actualLabor, actualManual, landedCostSurcharge);
 
-  const margin = calcMargin(
-    revisedContractValue,
-    add(estimatedCost, landedCostSurcharge),
-  );
+  // Phase 2: Projected Final Cost = Actual To Date + Cost to Complete.
+  // Cost to Complete is summed from job_cost_forecasts. When no forecasts
+  // exist the projection falls back to the legacy estimate-based math so
+  // the page doesn't suddenly show zeros after a deploy.
+  const costToComplete = isDatabaseConfigured()
+    ? await sumCostToCompleteForProject(companyId, projectId)
+    : 0;
+  const hasForecast = costToComplete > 0;
+  const projectedFinalCost = hasForecast
+    ? add(actualCost, costToComplete)
+    : add(estimatedCost, landedCostSurcharge);
+
+  const margin = calcMargin(revisedContractValue, projectedFinalCost);
   const projectedGrossProfit = margin.profit;
   const projectedGrossMarginPct = margin.marginPct;
 
@@ -144,6 +173,8 @@ export async function computeProjectFinancials(
     estimatedCost,
     committedCost,
     actualCost,
+    costToComplete,
+    projectedFinalCost,
     landedCostTotal,
     landedCostSurcharge,
     projectedGrossProfit,
@@ -207,9 +238,19 @@ export async function computeProjectCostCodeBreakdown(
     agg.actual = add(agg.actual, parseMoney(l.amount));
   }
 
-  for (const e of listJobCostEntriesForProject(projectId)) {
-    const agg = ensure(e.costCodeId);
-    agg.actual = add(agg.actual, parseMoney(e.amount));
+  // Manual job-cost actuals by cost code. DB-backed in real mode; in-memory
+  // mock entries are always empty so the loop is effectively skipped there.
+  if (isDatabaseConfigured()) {
+    const manualByCode = await sumActualByCostCodeForProject(companyId, projectId);
+    for (const m of manualByCode) {
+      const agg = ensure(m.costCodeId);
+      agg.actual = add(agg.actual, m.actual);
+    }
+  } else {
+    for (const e of listMockJobCostEntriesForProject(projectId)) {
+      const agg = ensure(e.costCodeId);
+      agg.actual = add(agg.actual, parseMoney(e.amount));
+    }
   }
 
   const codeMap = await loadCostCodeMap(companyId, Array.from(aggregates.keys()));
@@ -256,4 +297,58 @@ export function computeCategoryTotals(rows: CostCodeBreakdownRow[]): CategoryTot
 
 export async function listProjectPurchaseOrders(projectId: string): Promise<PurchaseOrder[]> {
   return listPurchaseOrdersForProject(projectId);
+}
+
+// Phase 2: shape forecast rows for the page — joins each forecast with
+// budgeted (from primary estimate) and actual-to-date (from job_cost_entries)
+// so the table can show projected-final + variance vs budget.
+export type ForecastRollupRow = {
+  id: string;
+  costCodeId: string;
+  costCode: string;
+  costCodeDescription: string;
+  actualToDate: number;
+  costToComplete: number;
+  projectedFinal: number;
+  budgeted: number;
+  notes: string | null;
+  riskFlag: boolean;
+};
+
+export async function buildForecastRollup(
+  companyId: string,
+  projectId: string,
+): Promise<ForecastRollupRow[]> {
+  const forecasts = await listJobCostForecastsForProject(companyId, projectId);
+  if (forecasts.length === 0) return [];
+
+  const breakdown = await computeProjectCostCodeBreakdown(companyId, projectId);
+  const byCode = new Map(breakdown.map((b) => [b.costCodeId, b]));
+
+  const codeMap = await loadCostCodeMap(
+    companyId,
+    forecasts.map((f) => f.costCodeId),
+  );
+
+  return forecasts
+    .map((f) => {
+      const breakdownRow = byCode.get(f.costCodeId);
+      const code = codeMap.get(f.costCodeId);
+      const ctc = Number(f.costToComplete);
+      const actual = breakdownRow?.actual ?? 0;
+      const budgeted = breakdownRow?.budgeted ?? 0;
+      return {
+        id: f.id,
+        costCodeId: f.costCodeId,
+        costCode: code?.code ?? '—',
+        costCodeDescription: code?.description ?? '',
+        actualToDate: actual,
+        costToComplete: ctc,
+        projectedFinal: actual + ctc,
+        budgeted,
+        notes: f.notes,
+        riskFlag: f.riskFlag,
+      };
+    })
+    .sort((a, b) => a.costCode.localeCompare(b.costCode));
 }
