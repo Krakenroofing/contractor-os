@@ -268,23 +268,38 @@ export default async function ProjectDetailPage({
         />
       </div>
 
-      {/* Estimate vs. cost summary */}
+      {/* Job Costing snapshot — links to the full per-project page */}
       <Card>
         <CardHeader>
-          <CardTitle>Estimate vs. cost</CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle>Job costing</CardTitle>
+            <Link href={`/job-costing/${project.id}`}>
+              <Button size="sm">Open Job Costing →</Button>
+            </Link>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
             <Stat label="Estimated cost" value={fin ? formatMoney(fin.estimatedCost) : '—'} />
             <Stat label="Committed (POs)" value={fin ? formatMoney(fin.committedCost) : '—'} />
             <Stat label="Actual to date" value={fin ? formatMoney(fin.actualCost) : '—'} />
             <Stat
-              label="Remaining vs. estimate"
-              value={fin ? formatMoney(fin.estimatedCost - fin.actualCost) : '—'}
+              label="Cost to complete"
+              value={fin ? formatMoney(fin.costToComplete) : '—'}
               valueClassName={
-                fin && fin.estimatedCost - fin.actualCost < 0
-                  ? 'text-red-600'
-                  : 'text-slate-900'
+                fin && fin.costToComplete > 0 ? 'text-slate-900' : 'text-slate-400'
+              }
+            />
+            <Stat
+              label="Projected final"
+              value={fin ? formatMoney(fin.projectedFinalCost) : '—'}
+              valueClassName="text-slate-900 font-semibold"
+            />
+            <Stat
+              label="Open commitments"
+              value={fin ? formatMoney(fin.openCommitments) : '—'}
+              valueClassName={
+                fin && fin.openCommitments > 0 ? 'text-amber-700' : 'text-slate-400'
               }
             />
           </div>

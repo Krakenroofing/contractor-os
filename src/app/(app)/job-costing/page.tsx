@@ -58,6 +58,8 @@ export default async function JobCostingPage() {
   const totalEstCost = rows.reduce((a, r) => a + r.estimatedCost, 0);
   const totalCommitted = rows.reduce((a, r) => a + r.committedCost, 0);
   const totalActual = rows.reduce((a, r) => a + r.actualCost, 0);
+  const totalCTC = rows.reduce((a, r) => a + r.costToComplete, 0);
+  const totalProjectedFinal = rows.reduce((a, r) => a + r.projectedFinalCost, 0);
   const totalLanded = rows.reduce((a, r) => a + r.landedCostTotal, 0);
   const totalGP = rows.reduce((a, r) => a + r.projectedGrossProfit, 0);
   const portfolioMargin =
@@ -79,16 +81,22 @@ export default async function JobCostingPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <KPI label="Revised contract" value={formatMoney(totalRevised)} />
         <KPI label="Estimated cost" value={formatMoney(totalEstCost)} />
         <KPI label="Committed" value={formatMoney(totalCommitted)} />
         <KPI label="Actual" value={formatMoney(totalActual)} />
+        <KPI
+          label="Cost to complete"
+          value={formatMoney(totalCTC)}
+          sub={totalCTC > 0 ? 'Across forecasted codes' : 'No forecasts yet'}
+          valueClassName={totalCTC > 0 ? 'text-slate-900' : 'text-slate-400'}
+        />
         <KPI label="Landed cost" value={formatMoney(totalLanded)} sub="all-in delivered" />
         <KPI
           label="Projected GP"
           value={formatMoney(totalGP)}
-          sub={`${portfolioMargin.toFixed(1)}% margin`}
+          sub={`${portfolioMargin.toFixed(1)}% margin · final ${formatMoney(totalProjectedFinal)}`}
           valueClassName={
             totalGP < 0 ? 'text-red-600' : totalGP > 0 ? 'text-emerald-700' : 'text-slate-900'
           }
@@ -154,6 +162,8 @@ export default async function JobCostingPage() {
                 <TableHead className="text-right">Est. cost</TableHead>
                 <TableHead className="text-right">Committed</TableHead>
                 <TableHead className="text-right">Actual</TableHead>
+                <TableHead className="text-right">CTC</TableHead>
+                <TableHead className="text-right">Proj. final</TableHead>
                 <TableHead className="text-right">Landed</TableHead>
                 <TableHead className="text-right">Proj. GP</TableHead>
                 <TableHead className="text-right">Margin %</TableHead>
@@ -190,6 +200,12 @@ export default async function JobCostingPage() {
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-slate-600">
                     {formatMoney(r.actualCost)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-slate-600">
+                    {r.costToComplete > 0 ? formatMoney(r.costToComplete) : '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(r.projectedFinalCost)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-slate-600">
                     {r.landedCostTotal > 0 ? formatMoney(r.landedCostTotal) : '—'}

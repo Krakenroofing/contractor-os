@@ -41,6 +41,9 @@ export type ProjectFinancials = {
   estimatedCost: number;
   committedCost: number;
   actualCost: number;
+  // Phase 3: PO money already ordered but not yet received. Helpful for PMs
+  // tracking what's still in flight.
+  openCommitments: number;
   // Phase 2: forecast roll-up. When forecasts exist they replace the old
   // estimate-anchored GP math with a forward-looking projection.
   costToComplete: number;
@@ -59,7 +62,11 @@ export type CostCodeBreakdownRow = {
   budgeted: number;
   committed: number;
   actual: number;
+  costToComplete: number;
+  projectedFinal: number;
+  // Positive = over budget. Zero when there's no budget to compare against.
   variance: number;
+  variancePct: number;
 };
 
 export type CategoryTotals = {
@@ -145,6 +152,11 @@ export async function computeProjectFinancials(
 
   const actualCost = add(actualFromPOs, actualLabor, actualManual, landedCostSurcharge);
 
+  // Phase 3: open commitments = PO money ordered but not yet received.
+  // Floored at 0 because over-receipts on a PO could otherwise make this
+  // negative (rare but possible).
+  const openCommitments = Math.max(0, subtract(committedCost, actualFromPOs));
+
   // Phase 2: Projected Final Cost = Actual To Date + Cost to Complete.
   // Cost to Complete is summed from job_cost_forecasts. When no forecasts
   // exist the projection falls back to the legacy estimate-based math so
@@ -173,6 +185,7 @@ export async function computeProjectFinancials(
     estimatedCost,
     committedCost,
     actualCost,
+    openCommitments,
     costToComplete,
     projectedFinalCost,
     landedCostTotal,
@@ -253,21 +266,43 @@ export async function computeProjectCostCodeBreakdown(
     }
   }
 
+  // Phase 3: fold forecasts in so each code shows cost-to-complete and a
+  // projected-final number. Codes without a forecast keep ctc=0 (projection
+  // = actual).
+  const forecasts = await listJobCostForecastsForProject(companyId, projectId);
+  for (const f of forecasts) {
+    const agg = ensure(f.costCodeId);
+    // store CTC on the aggregate using a side-channel — we extend the type
+    // locally below when we emit the rows.
+    (agg as typeof agg & { ctc: number }).ctc = Number(f.costToComplete);
+  }
+
   const codeMap = await loadCostCodeMap(companyId, Array.from(aggregates.keys()));
 
   const rows: CostCodeBreakdownRow[] = [];
   for (const [costCodeId, agg] of aggregates) {
     const code = codeMap.get(costCodeId);
     if (!code) continue;
+    const budgeted = round2(agg.budgeted);
+    const actual = round2(agg.actual);
+    const ctc = round2((agg as typeof agg & { ctc?: number }).ctc ?? 0);
+    const projectedFinal = round2(add(actual, ctc));
+    // Variance vs budget: projected final − budgeted. Positive = over.
+    const variance = budgeted > 0 ? subtract(projectedFinal, budgeted) : 0;
+    const variancePct =
+      budgeted > 0 ? (variance / budgeted) * 100 : 0;
     rows.push({
       costCodeId,
       code: code.code,
       description: code.description,
       category: code.category,
-      budgeted: round2(agg.budgeted),
+      budgeted,
       committed: round2(agg.committed),
-      actual: round2(agg.actual),
-      variance: subtract(agg.budgeted, agg.actual),
+      actual,
+      costToComplete: ctc,
+      projectedFinal,
+      variance,
+      variancePct,
     });
   }
 

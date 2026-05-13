@@ -3578,8 +3578,8 @@ async function updateEntityStatusDb(
         await db
           .update(projectsTable)
           .set({
-            contractValue: sql`(${projectsTable.contractValue}::numeric + ${amount})::text`,
-            totalChangeOrders: sql`(${projectsTable.totalChangeOrders}::numeric + ${amount})::text`,
+            contractValue: sql`${projectsTable.contractValue} + ${amount}`,
+            totalChangeOrders: sql`${projectsTable.totalChangeOrders} + ${amount}`,
             updatedAt: now,
           })
           .where(eq(projectsTable.id, c.projectId));

@@ -21,6 +21,7 @@ import { getDb, isDatabaseConfigured } from '@/db';
 import { users } from '@/db/schema';
 import { listLandedCostsForProject } from '@/lib/data/landed-costs';
 import { listCostCodes } from '@/lib/data/cost-codes';
+import { computeProjectInvoiceSummary } from '@/lib/data/invoices';
 import { getVendor, listVendors } from '@/lib/data/vendors';
 import {
   listJobCostEntriesForProject,
@@ -111,6 +112,8 @@ export default async function JobCostingProjectPage({
     })),
   );
   const projectLandedCosts = await listLandedCostsForProject(projectId);
+  // Phase 4: AR + retainage snapshot, same source the project page uses.
+  const invoiceSummary = await computeProjectInvoiceSummary(projectId);
 
   // Cost-entry data for the new Phase 1 section
   const allCostCodes = await listCostCodes(companyId);
@@ -235,6 +238,43 @@ export default async function JobCostingProjectPage({
         />
       </div>
 
+      {/* Phase 3 + 4: open commitments + AR + retainage at a glance */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KPI
+          label="Open commitments"
+          value={formatMoney(fin.openCommitments)}
+          sub="Ordered, not received"
+          valueClassName={
+            fin.openCommitments > 0 ? 'text-amber-700' : 'text-slate-400'
+          }
+        />
+        <KPI
+          label="Outstanding AR"
+          value={formatMoney(invoiceSummary.outstandingBalance)}
+          sub={`${invoiceSummary.invoiceCount} invoice${invoiceSummary.invoiceCount === 1 ? '' : 's'}`}
+          valueClassName={
+            invoiceSummary.outstandingBalance > 0
+              ? 'text-amber-700'
+              : 'text-emerald-700'
+          }
+        />
+        <KPI
+          label="Retainage held"
+          value={formatMoney(invoiceSummary.retainageHeld)}
+          sub={
+            invoiceSummary.retainageBalance > 0
+              ? `${formatMoney(invoiceSummary.retainageBalance)} unreleased`
+              : 'None held'
+          }
+        />
+        <KPI
+          label="Total paid"
+          value={formatMoney(invoiceSummary.totalPaid)}
+          sub={`of ${formatMoney(invoiceSummary.totalInvoiced)} billed`}
+          valueClassName="text-emerald-700"
+        />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Estimate vs. actual</CardTitle>
@@ -265,8 +305,21 @@ export default async function JobCostingProjectPage({
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle>Cost entries ({costEntryRows.length})</CardTitle>
-            <div className="text-xs text-slate-500 tabular-nums">
-              Manual actuals: {formatMoney(totalManualActual)}
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-500 tabular-nums">
+                Manual actuals: {formatMoney(totalManualActual)}
+              </div>
+              {costEntryRows.length > 0 && (
+                <a
+                  href={`/job-costing/${fin.projectId}/export-ledger.csv`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button size="sm" variant="outline">
+                    Export CSV
+                  </Button>
+                </a>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -440,7 +493,18 @@ export default async function JobCostingProjectPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Cost code breakdown ({breakdown.length})</CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle>Cost code breakdown ({breakdown.length})</CardTitle>
+            <a
+              href={`/job-costing/${fin.projectId}/export-breakdown.csv`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button size="sm" variant="outline">
+                Export CSV
+              </Button>
+            </a>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {breakdown.length === 0 ? (
@@ -458,44 +522,75 @@ export default async function JobCostingProjectPage({
                   <TableHead className="text-right">Budgeted</TableHead>
                   <TableHead className="text-right">Committed</TableHead>
                   <TableHead className="text-right">Actual</TableHead>
+                  <TableHead className="text-right">CTC</TableHead>
+                  <TableHead className="text-right">Projected final</TableHead>
                   <TableHead className="text-right">Variance</TableHead>
+                  <TableHead className="text-right">%</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {breakdown.map((row) => (
-                  <TableRow key={row.costCodeId}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      <Link
-                        href={`/cost-codes/${row.costCodeId}`}
-                        className="hover:underline"
+                {breakdown.map((row) => {
+                  // Positive variance = projected over budget (red).
+                  const overBudget = row.variance > 0;
+                  const underBudget = row.budgeted > 0 && row.variance < 0;
+                  return (
+                    <TableRow key={row.costCodeId}>
+                      <TableCell className="font-mono text-xs text-slate-700">
+                        <Link
+                          href={`/cost-codes/${row.costCodeId}`}
+                          className="hover:underline"
+                        >
+                          {row.code}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-slate-900">{row.description}</TableCell>
+                      <TableCell>
+                        <Badge tone={CATEGORY_TONE[row.category]}>
+                          {CATEGORY_LABEL[row.category]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {row.budgeted > 0 ? formatMoney(row.budgeted) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {formatMoney(row.committed)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatMoney(row.actual)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {row.costToComplete > 0 ? formatMoney(row.costToComplete) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(row.projectedFinal)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums font-medium ${
+                          overBudget
+                            ? 'text-red-600'
+                            : underBudget
+                              ? 'text-emerald-700'
+                              : 'text-slate-500'
+                        }`}
                       >
-                        {row.code}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-slate-900">{row.description}</TableCell>
-                    <TableCell>
-                      <Badge tone={CATEGORY_TONE[row.category]}>
-                        {CATEGORY_LABEL[row.category]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(row.budgeted)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-slate-600">
-                      {formatMoney(row.committed)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(row.actual)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums font-medium ${
-                        row.variance < 0 ? 'text-red-600' : 'text-emerald-700'
-                      }`}
-                    >
-                      {formatMoney(row.variance)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        {row.budgeted > 0 ? formatMoney(row.variance) : '—'}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums text-xs ${
+                          overBudget
+                            ? 'text-red-600'
+                            : underBudget
+                              ? 'text-emerald-700'
+                              : 'text-slate-500'
+                        }`}
+                      >
+                        {row.budgeted > 0
+                          ? `${row.variancePct > 0 ? '+' : ''}${row.variancePct.toFixed(1)}%`
+                          : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

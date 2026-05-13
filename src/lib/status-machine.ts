@@ -282,21 +282,58 @@ const PROPOSAL_TRANSITIONS: TransitionMap = {
   ],
 };
 
+// Void = soft-delete. The record stays in the DB so FKs (line items,
+// activity log) keep their references, but voided rows are filtered out of
+// list / dashboard views by default. Destructive variant on the button so
+// the intent is clear.
+//
+// Note: we deliberately do NOT offer Void on `approved` for change orders.
+// Approving a CO bumps `project.contract_value` and
+// `project.total_change_orders`; voiding from approved would require
+// reversing those bumps, which is a separate piece of work. To "undo" an
+// approval today: first transition Approved → (would need a new transition)
+// or wait until that reversal logic lands.
+const VOID_CO_TRANSITION = {
+  action: 'mark_void',
+  label: 'Void',
+  to: 'void',
+  variant: 'destructive' as const,
+};
+
 const CO_TRANSITIONS: TransitionMap = {
-  draft: [{ action: 'submit', label: 'Submit', to: 'submitted' }],
+  draft: [
+    { action: 'submit', label: 'Submit', to: 'submitted' },
+    VOID_CO_TRANSITION,
+  ],
   submitted: [
     { action: 'approve', label: 'Approve', to: 'approved' },
     { action: 'reject', label: 'Reject', to: 'rejected', variant: 'outline' },
     { action: 'revert_draft', label: 'Back to draft', to: 'draft', variant: 'ghost' },
+    VOID_CO_TRANSITION,
   ],
   approved: [],
   rejected: [
     { action: 'revert_draft', label: 'Re-open as draft', to: 'draft', variant: 'outline' },
+    VOID_CO_TRANSITION,
   ],
+  void: [],
+};
+
+// PO void only from `draft` — once a PO is issued it may have receipts /
+// inventory implications which require deliberate reversal. Draft POs are
+// safe to void since no commitment has actually been made yet.
+const VOID_PO_TRANSITION = {
+  action: 'mark_void',
+  label: 'Void',
+  to: 'void',
+  variant: 'destructive' as const,
 };
 
 const PO_TRANSITIONS: TransitionMap = {
-  draft: [{ action: 'issue', label: 'Issue PO', to: 'issued' }],
+  draft: [
+    { action: 'issue', label: 'Issue PO', to: 'issued' },
+    VOID_PO_TRANSITION,
+  ],
   issued: [
     {
       action: 'mark_partially_received',
@@ -308,6 +345,7 @@ const PO_TRANSITIONS: TransitionMap = {
   partially_received: [{ action: 'mark_received', label: 'Mark received', to: 'received' }],
   received: [{ action: 'close', label: 'Close PO', to: 'closed' }],
   closed: [],
+  void: [],
 };
 
 // Every non-void state can be voided — it's the soft-delete path. Voided

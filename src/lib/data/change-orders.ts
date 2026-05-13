@@ -141,9 +141,11 @@ export async function applyApprovedCOToProject(
       .update(projects)
       .set({
         // Postgres numeric arithmetic, kept inside the DB so concurrent
-        // approvals don't lose updates.
-        contractValue: sql`(${projects.contractValue}::numeric + ${amount})::text`,
-        totalChangeOrders: sql`(${projects.totalChangeOrders}::numeric + ${amount})::text`,
+        // approvals don't lose updates. Both columns are numeric(14,2) so
+        // the result is numeric — no cast needed (and casting to ::text
+        // would mismatch the column type and raise 42804).
+        contractValue: sql`${projects.contractValue} + ${amount}`,
+        totalChangeOrders: sql`${projects.totalChangeOrders} + ${amount}`,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, projectId));
