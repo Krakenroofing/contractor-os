@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +17,7 @@ import {
   DOCUMENT_CATEGORY_LABEL,
   type DocumentCategory,
 } from '../schema';
+import { canPreviewInline } from '../lib/preview';
 
 export type DocumentRowData = {
   id: string;
@@ -59,7 +61,7 @@ export function DocumentRow({
   );
 
   const [editing, setEditing] = useState(false);
-
+  const previewable = canPreviewInline(document.mimeType);
   const uploadedDate = new Date(document.uploadedAt).toLocaleString();
 
   return (
@@ -98,7 +100,7 @@ export function DocumentRow({
               <Label className="text-[10px]">Description</Label>
               <Input
                 name="description"
-                defaultValue={document.description ?? ''}
+                defaultValue={documentDescriptionDefault(document.description)}
                 placeholder="optional"
               />
             </div>
@@ -145,16 +147,12 @@ export function DocumentRow({
       <td className="px-4 py-3 text-xs text-slate-600 tabular-nums">
         {formatBytes(document.byteSize)}
       </td>
-      <td className="px-4 py-3 text-xs">
-        <span
-          className={
-            document.visibleToClient
-              ? 'text-emerald-700'
-              : 'text-slate-500'
-          }
-        >
-          {document.visibleToClient ? '✓ Client' : 'Internal'}
-        </span>
+      <td className="px-4 py-3">
+        {document.visibleToClient ? (
+          <Badge tone="green">✓ Client visible</Badge>
+        ) : (
+          <Badge tone="slate">Internal only</Badge>
+        )}
       </td>
       <td className="px-4 py-3 text-xs text-slate-600">
         <div>{uploadedDate}</div>
@@ -164,6 +162,17 @@ export function DocumentRow({
       </td>
       <td className="px-4 py-3 text-right whitespace-nowrap">
         <div className="inline-flex items-center gap-1">
+          {previewable && (
+            <a
+              href={`/projects/${projectId}/documents/${document.id}/view`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button size="sm" variant="outline">
+                Preview
+              </Button>
+            </a>
+          )}
           <a
             href={`/projects/${projectId}/documents/${document.id}/download`}
             target="_blank"
@@ -199,4 +208,10 @@ export function DocumentRow({
       </td>
     </tr>
   );
+}
+
+// Tiny helper to keep the JSX above readable. defaultValue can't be null on
+// an <input>, so we coerce to empty string.
+function documentDescriptionDefault(desc: string | null): string {
+  return desc ?? '';
 }

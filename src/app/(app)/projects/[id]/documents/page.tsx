@@ -4,13 +4,6 @@ import { inArray } from 'drizzle-orm';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -19,10 +12,8 @@ import { listProjectDocuments } from '@/lib/data/project-documents';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { users } from '@/db/schema';
 import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
-import {
-  DocumentRow,
-  type DocumentRowData,
-} from '@/modules/project-documents/components/document-row';
+import { DocumentsListClient } from '@/modules/project-documents/components/documents-list-client';
+import type { DocumentRowData } from '@/modules/project-documents/components/document-row';
 import type { DocumentCategory } from '@/modules/project-documents/schema';
 
 export const dynamic = 'force-dynamic';
@@ -110,37 +101,12 @@ export default async function ProjectDocumentsPage({
         <CardHeader>
           <CardTitle>All documents ({rowData.length})</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          {rowData.length === 0 ? (
-            <div className="p-6 text-sm text-slate-500">
-              No documents uploaded for this project yet.
-              {allowCreate &&
-                ' Use the upload area above to add proposals, contracts, drawings, permits, photos, and more.'}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[40%]">File</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Visibility</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead className="text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rowData.map((doc) => (
-                  <DocumentRow
-                    key={doc.id}
-                    projectId={project.id}
-                    document={doc}
-                    allowEdit={allowCreate}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          )}
+        <CardContent>
+          <DocumentsListClient
+            projectId={project.id}
+            documents={rowData}
+            allowEdit={allowCreate}
+          />
         </CardContent>
       </Card>
     </div>
