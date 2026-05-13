@@ -71,7 +71,7 @@ export default async function ProjectDocumentsPage({
   }));
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl">
+    <div className="p-4 sm:p-6 md:p-8 space-y-4 md:space-y-6 max-w-7xl">
       <Breadcrumbs
         items={[
           { href: '/projects', label: 'Projects' },
@@ -80,16 +80,18 @@ export default async function ProjectDocumentsPage({
         ]}
       />
 
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div className="min-w-0">
           <p className="font-mono text-xs text-slate-500">{project.number}</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Documents</h1>
-          <p className="text-sm text-slate-600">{project.name}</p>
+          <h1 className="text-xl md:text-2xl font-semibold text-slate-900">
+            Documents
+          </h1>
+          <p className="text-sm text-slate-600 break-words">{project.name}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Link href={`/projects/${project.id}`}>
             <Button variant="outline" size="sm">
-              ← Back to project
+              ← Back
             </Button>
           </Link>
         </div>
@@ -101,7 +103,7 @@ export default async function ProjectDocumentsPage({
         <CardHeader>
           <CardTitle>All documents ({rowData.length})</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 sm:px-6">
           <DocumentsListClient
             projectId={project.id}
             documents={rowData}

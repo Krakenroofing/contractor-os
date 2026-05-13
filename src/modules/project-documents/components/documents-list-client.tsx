@@ -20,12 +20,12 @@ import {
   DocumentRow,
   type DocumentRowData,
 } from './document-row';
+import { DocumentCard } from './document-card';
 import {
   documentCategoryValues,
   DOCUMENT_CATEGORY_LABEL,
 } from '../schema';
 
-// Visibility filter — three states: '' (all), 'client', 'internal'.
 const VISIBILITY_OPTIONS = [
   { value: 'client', label: 'Client visible' },
   { value: 'internal', label: 'Internal only' },
@@ -91,14 +91,14 @@ export function DocumentsListClient({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 text-xs text-slate-600">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
         <span>{documents.length} total</span>
-        <span className="text-slate-300">·</span>
+        <span className="text-slate-300 hidden sm:inline">·</span>
         <Badge tone="green">{clientCount} client visible</Badge>
         <Badge tone="slate">{internalCount} internal</Badge>
         {filtered.length !== documents.length && (
           <>
-            <span className="text-slate-300">·</span>
+            <span className="text-slate-300 hidden sm:inline">·</span>
             <span className="text-slate-500">
               {filtered.length} match current filter
             </span>
@@ -135,57 +135,72 @@ export function DocumentsListClient({
       />
 
       {filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center text-sm text-slate-600">
+        <div className="rounded-lg border border-dashed border-slate-300 p-8 sm:p-12 text-center text-sm text-slate-600">
           {documents.length === 0
             ? 'No documents uploaded for this project yet.'
             : 'No documents match those filters.'}
         </div>
       ) : (
-        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40%]">
-                  <SortableHeader
-                    label="File"
-                    sortKey="fileName"
-                    sort={sort}
-                    onSort={onSort}
+        <>
+          {/* Mobile: card list. Hides at md and up. */}
+          <div className="space-y-3 md:hidden">
+            {filtered.map((doc) => (
+              <DocumentCard
+                key={doc.id}
+                projectId={projectId}
+                document={doc}
+                allowEdit={allowEdit}
+              />
+            ))}
+          </div>
+
+          {/* Desktop: table. Hides below md. */}
+          <div className="hidden md:block rounded-lg border border-slate-200 bg-white overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40%]">
+                    <SortableHeader
+                      label="File"
+                      sortKey="fileName"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                  </TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Size"
+                      sortKey="size"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                  </TableHead>
+                  <TableHead>Visibility</TableHead>
+                  <TableHead>
+                    <SortableHeader
+                      label="Uploaded"
+                      sortKey="uploadedAt"
+                      sort={sort}
+                      onSort={onSort}
+                    />
+                  </TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((doc) => (
+                  <DocumentRow
+                    key={doc.id}
+                    projectId={projectId}
+                    document={doc}
+                    allowEdit={allowEdit}
                   />
-                </TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>
-                  <SortableHeader
-                    label="Size"
-                    sortKey="size"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                </TableHead>
-                <TableHead>Visibility</TableHead>
-                <TableHead>
-                  <SortableHeader
-                    label="Uploaded"
-                    sortKey="uploadedAt"
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                </TableHead>
-                <TableHead className="text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((doc) => (
-                <DocumentRow
-                  key={doc.id}
-                  projectId={projectId}
-                  document={doc}
-                  allowEdit={allowEdit}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );
