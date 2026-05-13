@@ -192,12 +192,91 @@ function ForecastRowView({
   forecast: ForecastRow;
   allowEdit: boolean;
 }) {
+  const updateBound = upsertForecastAction.bind(null, projectId);
   const deleteBound = deleteForecastAction.bind(null, projectId, forecast.id);
+  const [updateState, updateAction, updatePending] = useActionState<
+    ForecastActionState,
+    FormData
+  >(updateBound, {});
   const [, deleteAction] = useActionState<ForecastActionState, FormData>(
     deleteBound,
     {},
   );
+  const [editing, setEditing] = useState(false);
+
+  if (editing && updateState.ok && !updateState.formError) {
+    setEditing(false);
+  }
+
   const variance = forecast.budgeted > 0 ? forecast.projectedFinal - forecast.budgeted : 0;
+
+  if (editing && allowEdit) {
+    return (
+      <TableRow>
+        <TableCell colSpan={8} className="bg-slate-50 p-4">
+          <form action={updateAction} className="space-y-3">
+            {/* costCodeId pinned to the existing forecast — upsert collapses
+                onto the same (project, cost_code) row. */}
+            <input type="hidden" name="costCodeId" value={forecast.costCodeId} />
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              <div className="md:col-span-3">
+                <Label className="text-xs">Cost code</Label>
+                <div className="font-mono text-xs text-slate-700 mt-2">
+                  {forecast.costCode}
+                </div>
+              </div>
+              <div className="md:col-span-3">
+                <Label className="text-xs">Cost to complete</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  name="costToComplete"
+                  defaultValue={forecast.costToComplete.toFixed(2)}
+                  required
+                  className="bg-white tabular-nums"
+                />
+              </div>
+              <div className="md:col-span-2 flex items-end">
+                <label className="flex items-center gap-2 cursor-pointer text-sm">
+                  <input
+                    type="checkbox"
+                    name="riskFlag"
+                    defaultChecked={forecast.riskFlag}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>Risk flag</span>
+                </label>
+              </div>
+              <div className="md:col-span-4">
+                <Label className="text-xs">Notes</Label>
+                <Input
+                  name="notes"
+                  defaultValue={forecast.notes ?? ''}
+                  className="bg-white"
+                />
+              </div>
+            </div>
+            {updateState.formError && (
+              <p className="text-xs text-red-600">{updateState.formError}</p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="submit" size="sm" disabled={updatePending}>
+                {updatePending ? 'Saving…' : 'Save changes'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </TableCell>
+      </TableRow>
+    );
+  }
 
   return (
     <TableRow>
@@ -237,17 +316,27 @@ function ForecastRowView({
         {forecast.riskFlag ? <Badge tone="red">⚠ Risk</Badge> : null}
       </TableCell>
       {allowEdit && (
-        <TableCell className="text-right">
-          <form action={deleteAction}>
-            <ConfirmButton
+        <TableCell className="text-right whitespace-nowrap">
+          <div className="inline-flex items-center gap-1">
+            <Button
+              type="button"
               size="sm"
-              variant="destructive"
-              confirmLabel="Click again"
-              pendingLabel="Deleting…"
+              variant="outline"
+              onClick={() => setEditing(true)}
             >
-              Clear
-            </ConfirmButton>
-          </form>
+              Edit
+            </Button>
+            <form action={deleteAction}>
+              <ConfirmButton
+                size="sm"
+                variant="destructive"
+                confirmLabel="Click again"
+                pendingLabel="Deleting…"
+              >
+                Clear
+              </ConfirmButton>
+            </form>
+          </div>
         </TableCell>
       )}
     </TableRow>

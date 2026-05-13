@@ -153,9 +153,11 @@ export default async function JobCostingProjectPage({
     return {
       id: e.id,
       entryDate: e.entryDate,
+      costCodeId: e.costCodeId,
       costCode: code?.code ?? '—',
       costCodeDescription: code?.description ?? '',
       costType: e.costType as JobCostType,
+      vendorId: e.vendorId,
       vendorName: e.vendorId ? vendorLookup.get(e.vendorId) ?? null : null,
       description: e.description,
       quantity: e.quantity,
@@ -163,6 +165,7 @@ export default async function JobCostingProjectPage({
       amount: e.amount,
       isBillable: e.isBillable,
       markupPercent: e.markupPercent,
+      notes: e.notes,
       createdByName: e.createdByUserId
         ? userNameMap.get(e.createdByUserId) ?? null
         : null,
@@ -351,6 +354,8 @@ export default async function JobCostingProjectPage({
           <CostEntriesList
             projectId={fin.projectId}
             entries={costEntryRows}
+            costCodes={activeCostCodes}
+            vendors={allVendors}
             allowEdit={allowCreateCost}
           />
         </CardContent>

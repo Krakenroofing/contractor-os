@@ -235,3 +235,133 @@ export async function createChangeOrder(
   }
   return mockCreate(companyId, input);
 }
+
+export type UpdateChangeOrderInput = Omit<CreateChangeOrderInput, 'number'> & {
+  number: string;
+};
+
+// Updates a change order + replaces its line items + adjusts project totals
+// based on the status-and-total delta:
+//
+//   prev status     new status   delta to project.contractValue
+//   --------------- ------------ -------------------------------
+//   not approved    not approved 0
+//   not approved    approved     +new.total                  (apply)
+//   approved        not approved -prev.total                 (reverse)
+//   approved        approved     new.total - prev.total      (re-balance)
+//
+// Demo mode falls through to the mock store, which has equivalent semantics.
+export async function updateChangeOrder(
+  companyId: string,
+  id: string,
+  input: UpdateChangeOrderInput,
+): Promise<ChangeOrder | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const existingRow = await db
+      .select()
+      .from(changeOrders)
+      .where(and(eq(changeOrders.id, id), eq(changeOrders.companyId, companyId)))
+      .limit(1);
+    if (existingRow.length === 0) return undefined;
+    const prev = existingRow[0];
+
+    // Uniqueness check on number — exclude self.
+    if (prev.number !== input.number) {
+      const dupe = await db
+        .select({ id: changeOrders.id })
+        .from(changeOrders)
+        .where(
+          and(
+            eq(changeOrders.companyId, companyId),
+            eq(changeOrders.number, input.number),
+            ne(changeOrders.id, id),
+          ),
+        )
+        .limit(1);
+      if (dupe.length > 0) throw new DuplicateChangeOrderNumberError();
+    }
+
+    const now = new Date();
+    const wasApproved = prev.status === 'approved';
+    const willBeApproved = input.status === 'approved';
+
+    await db
+      .update(changeOrders)
+      .set({
+        projectId: input.projectId,
+        proposalId: input.proposalId,
+        number: input.number,
+        status: input.status,
+        reason: input.reason,
+        description: input.description,
+        subtotal: input.subtotal,
+        total: input.total,
+        scheduleImpactDays: input.scheduleImpactDays,
+        submittedAt: input.submittedAt,
+        approvedAt: input.approvedAt,
+        customerSignedName: input.customerSignedName,
+        rejectedAt:
+          input.status === 'rejected'
+            ? prev.rejectedAt ?? now.toISOString().slice(0, 10)
+            : null,
+        updatedAt: now,
+      })
+      .where(and(eq(changeOrders.id, id), eq(changeOrders.companyId, companyId)));
+
+    // Bulk-replace line items.
+    await db
+      .delete(changeOrderLineItems)
+      .where(eq(changeOrderLineItems.changeOrderId, id));
+    if (input.lines.length > 0) {
+      await db.insert(changeOrderLineItems).values(
+        input.lines.map((l, i) => ({
+          changeOrderId: id,
+          costCodeId: l.costCodeId,
+          description: l.description,
+          unit: l.unit,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          markupPercent: l.markupPercent,
+          lineTotal: l.lineTotal,
+          sortOrder: i,
+        })),
+      );
+    }
+
+    // Apply contract-value delta. Project may also have changed via edit —
+    // if so, reverse on the old project and apply on the new.
+    const prevTotal = Number(prev.total);
+    const newTotal = Number(input.total);
+    const projectChanged = prev.projectId !== input.projectId;
+
+    if (projectChanged) {
+      if (wasApproved) {
+        await applyApprovedCOToProject(prev.projectId, -prevTotal);
+      }
+      if (willBeApproved) {
+        await applyApprovedCOToProject(input.projectId, newTotal);
+      }
+    } else if (wasApproved && willBeApproved) {
+      const delta = newTotal - prevTotal;
+      if (delta !== 0) {
+        await applyApprovedCOToProject(input.projectId, delta);
+      }
+    } else if (!wasApproved && willBeApproved) {
+      await applyApprovedCOToProject(input.projectId, newTotal);
+    } else if (wasApproved && !willBeApproved) {
+      await applyApprovedCOToProject(input.projectId, -prevTotal);
+    }
+
+    const updated = await db
+      .select()
+      .from(changeOrders)
+      .where(and(eq(changeOrders.id, id), eq(changeOrders.companyId, companyId)))
+      .limit(1);
+    return updated[0];
+  }
+  // Demo mode: defer to the mock store (which doesn't currently expose a
+  // dedicated update — for now, return undefined so the demo path is
+  // explicitly unsupported. The action layer surfaces a friendly message.)
+  return undefined;
+}

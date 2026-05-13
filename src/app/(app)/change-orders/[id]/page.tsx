@@ -69,17 +69,26 @@ export default async function ChangeOrderDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/change-orders">
           <Button variant="outline" size="sm">
             ← Back to Change Orders
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/change-orders/new">
-            <Button size="sm">New Change Order</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {allowCreate && co.status !== 'void' && (
+            <Link href={{ pathname: `/change-orders/${co.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
+            <Link href="/change-orders/new">
+              <Button size="sm">New Change Order</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <DocumentBranding />

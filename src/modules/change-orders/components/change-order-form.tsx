@@ -8,7 +8,11 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/money';
 import { calcEstimateTotals, lineTotal } from '@/modules/estimates/lib/calc';
-import { createChangeOrderAction, type CreateChangeOrderState } from '../actions';
+import {
+  createChangeOrderAction,
+  updateChangeOrderAction,
+  type CreateChangeOrderState,
+} from '../actions';
 import {
   changeOrderReasonValues,
   changeOrderStatusValues,
@@ -44,24 +48,62 @@ function newEmptyLine(): LineDraft {
   };
 }
 
+export type ChangeOrderFormInitial = {
+  id: string;
+  number: string;
+  projectId: string;
+  proposalId: string | null;
+  status: string;
+  reason: string;
+  description: string;
+  scheduleImpactDays: number;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  customerSignedName: string | null;
+  lines: Array<{
+    costCodeId: string;
+    description: string;
+    unit: string | null;
+    quantity: string;
+    unitCost: string;
+    markupPercent: string;
+  }>;
+};
+
 export function ChangeOrderForm({
   projects,
   proposals,
   costCodes,
   defaultNumber,
+  initial,
 }: {
   projects: ProjectOption[];
   proposals: ProposalOption[];
   costCodes: CostCodeOption[];
   defaultNumber: string;
+  /** When provided, the form runs in edit mode against this CO id. */
+  initial?: ChangeOrderFormInitial;
 }) {
-  const [state, formAction, pending] = useActionState(
-    createChangeOrderAction,
-    initialState,
+  // Bind to update action when editing, create action otherwise.
+  const action = initial
+    ? updateChangeOrderAction.bind(null, initial.id)
+    : createChangeOrderAction;
+  const [state, formAction, pending] = useActionState(action, initialState);
+  const [lines, setLines] = useState<LineDraft[]>(
+    initial && initial.lines.length > 0
+      ? initial.lines.map((l) => ({
+          rowId: crypto.randomUUID(),
+          costCodeId: l.costCodeId,
+          description: l.description,
+          unit: l.unit ?? '',
+          quantity: Number(l.quantity).toString(),
+          unitCost: Number(l.unitCost).toString(),
+          markupPercent: Number(l.markupPercent).toString(),
+        }))
+      : [newEmptyLine()],
   );
-  const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
-  const [projectId, setProjectId] = useState<string>('');
-  const [status, setStatus] = useState<string>('draft');
+  const [projectId, setProjectId] = useState<string>(initial?.projectId ?? '');
+  const [status, setStatus] = useState<string>(initial?.status ?? 'draft');
 
   const filteredProposals = useMemo(
     () => (projectId ? proposals.filter((p) => p.projectId === projectId) : proposals),
@@ -126,7 +168,11 @@ export function ChangeOrderForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="CO number" error={err('number')} required>
-          <Input name="number" defaultValue={defaultNumber} required />
+          <Input
+            name="number"
+            defaultValue={initial?.number ?? defaultNumber}
+            required
+          />
         </Field>
 
         <Field label="Status" error={err('status')}>
@@ -164,7 +210,7 @@ export function ChangeOrderForm({
         </Field>
 
         <Field label="Linked proposal (optional)" error={err('proposalId')}>
-          <Select name="proposalId" defaultValue="">
+          <Select name="proposalId" defaultValue={initial?.proposalId ?? ''}>
             <option value="">— None —</option>
             {filteredProposals.map((p) => (
               <option key={p.id} value={p.id}>
@@ -175,7 +221,7 @@ export function ChangeOrderForm({
         </Field>
 
         <Field label="Reason" error={err('reason')}>
-          <Select name="reason" defaultValue="scope_change">
+          <Select name="reason" defaultValue={initial?.reason ?? 'scope_change'}>
             {changeOrderReasonValues.map((r) => (
               <option key={r} value={r}>
                 {REASON_LABEL[r]}
@@ -190,16 +236,25 @@ export function ChangeOrderForm({
             type="number"
             min="0"
             step="1"
-            defaultValue="0"
+            defaultValue={initial?.scheduleImpactDays ?? 0}
           />
         </Field>
 
         <Field label="Date submitted" error={err('submittedAt')}>
-          <Input name="submittedAt" type="date" defaultValue={today} />
+          <Input
+            name="submittedAt"
+            type="date"
+            defaultValue={initial?.submittedAt ?? today}
+          />
         </Field>
 
         <Field label="Date approved" error={err('approvedAt')}>
-          <Input name="approvedAt" type="date" disabled={!isApproved} />
+          <Input
+            name="approvedAt"
+            type="date"
+            defaultValue={initial?.approvedAt ?? ''}
+            disabled={!isApproved}
+          />
         </Field>
       </div>
 
@@ -213,6 +268,7 @@ export function ChangeOrderForm({
           name="description"
           rows={3}
           required
+          defaultValue={initial?.description ?? ''}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Describe what's changing and why."
         />
@@ -347,7 +403,9 @@ export function ChangeOrderForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create change order'}
+          {pending
+            ? initial ? 'Saving…' : 'Creating…'
+            : initial ? 'Save changes' : 'Create change order'}
         </Button>
         <Link href="/change-orders">
           <Button type="button" variant="ghost">
