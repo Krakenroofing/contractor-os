@@ -1,0 +1,148 @@
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { inArray } from 'drizzle-orm';
+import { Breadcrumbs } from '@/components/breadcrumbs';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { canCreate } from '@/lib/permissions';
+import { getProject } from '@/lib/data/projects';
+import { listProjectDocuments } from '@/lib/data/project-documents';
+import { getDb, isDatabaseConfigured } from '@/db';
+import { users } from '@/db/schema';
+import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
+import {
+  DocumentRow,
+  type DocumentRowData,
+} from '@/modules/project-documents/components/document-row';
+import type { DocumentCategory } from '@/modules/project-documents/schema';
+
+export const dynamic = 'force-dynamic';
+
+export default async function ProjectDocumentsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const companyId = await getActiveCompanyId();
+  const role = await getActiveRole();
+  const allowCreate = canCreate(role, 'documents');
+
+  const project = await getProject(companyId, id);
+  if (!project) notFound();
+
+  const documents = await listProjectDocuments(companyId, project.id);
+
+  // Resolve uploader display names in one query. If DB isn't configured the
+  // data layer returns an empty list, so we don't get here in demo mode.
+  const uploaderIds = Array.from(
+    new Set(
+      documents
+        .map((d) => d.uploadedBy)
+        .filter((v): v is string => typeof v === 'string'),
+    ),
+  );
+  const uploaderMap = new Map<string, string>();
+  if (uploaderIds.length > 0 && isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(inArray(users.id, uploaderIds));
+    for (const r of rows) {
+      uploaderMap.set(r.id, r.name || r.email);
+    }
+  }
+
+  const rowData: DocumentRowData[] = documents.map((d) => ({
+    id: d.id,
+    fileName: d.fileName,
+    originalFileName: d.originalFileName,
+    mimeType: d.mimeType,
+    byteSize: d.byteSize,
+    category: d.category as DocumentCategory,
+    description: d.description,
+    visibleToClient: d.visibleToClient,
+    uploadedAt:
+      d.uploadedAt instanceof Date
+        ? d.uploadedAt.toISOString()
+        : String(d.uploadedAt),
+    uploaderName: d.uploadedBy ? uploaderMap.get(d.uploadedBy) ?? null : null,
+  }));
+
+  return (
+    <div className="p-8 space-y-6 max-w-7xl">
+      <Breadcrumbs
+        items={[
+          { href: '/projects', label: 'Projects' },
+          { href: `/projects/${project.id}`, label: project.number },
+          { label: 'Documents' },
+        ]}
+      />
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <p className="font-mono text-xs text-slate-500">{project.number}</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Documents</h1>
+          <p className="text-sm text-slate-600">{project.name}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href={`/projects/${project.id}`}>
+            <Button variant="outline" size="sm">
+              ← Back to project
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {allowCreate && <DocumentUploader projectId={project.id} />}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All documents ({rowData.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {rowData.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">
+              No documents uploaded for this project yet.
+              {allowCreate &&
+                ' Use the upload area above to add proposals, contracts, drawings, permits, photos, and more.'}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40%]">File</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Visibility</TableHead>
+                  <TableHead>Uploaded</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rowData.map((doc) => (
+                  <DocumentRow
+                    key={doc.id}
+                    projectId={project.id}
+                    document={doc}
+                    allowEdit={allowCreate}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

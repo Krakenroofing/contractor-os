@@ -32,6 +32,8 @@ import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { listDailyReportsForProject } from '@/lib/data/daily-reports';
+import { listProjectDocuments } from '@/lib/data/project-documents';
+import { DOCUMENT_CATEGORY_LABEL } from '@/modules/project-documents/schema';
 import {
   STATUS_LABEL as DR_STATUS_LABEL,
   STATUS_TONE as DR_STATUS_TONE,
@@ -93,6 +95,7 @@ export default async function ProjectDetailPage({
   const allowCreatePO = canCreate(role, 'purchase_orders');
   const allowCreateInvoice = canCreate(role, 'invoices');
   const allowCreateDailyReport = canCreate(role, 'daily_reports');
+  const allowCreateDocument = canCreate(role, 'documents');
   const project = await getProject(companyId, id);
   if (!project) notFound();
   const customer = await getCustomer(companyId, project.customerId);
@@ -112,6 +115,8 @@ export default async function ProjectDetailPage({
   const landedCosts = await listLandedCostsForProject(project.id);
   const dailyReports = await listDailyReportsForProject(companyId, project.id);
   const recentDailyReports = dailyReports.slice(0, 5);
+  const projectDocuments = await listProjectDocuments(companyId, project.id);
+  const recentDocuments = projectDocuments.slice(0, 5);
   const invoices = await listInvoicesForProject(project.id);
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
   const projectPayments = (
@@ -219,6 +224,11 @@ export default async function ProjectDetailPage({
         <Link href={`/projects/${project.id}/daily-reports`}>
           <Button size="sm" variant="outline">
             Daily Reports →
+          </Button>
+        </Link>
+        <Link href={{ pathname: `/projects/${project.id}/documents` }}>
+          <Button size="sm" variant="outline">
+            Documents →
           </Button>
         </Link>
       </div>
@@ -947,6 +957,84 @@ export default async function ProjectDetailPage({
                           View
                         </Button>
                       </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Documents */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Documents ({projectDocuments.length})</CardTitle>
+            <div className="flex items-center gap-2">
+              <Link href={{ pathname: `/projects/${project.id}/documents` }}>
+                <Button size="sm" variant="outline">
+                  {allowCreateDocument ? 'View / upload →' : 'View all →'}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {recentDocuments.length === 0 ? (
+            <Empty>
+              No documents uploaded for this project yet.
+              {allowCreateDocument &&
+                ' Open the Documents page to add proposals, contracts, drawings, permits, photos, and more.'}
+            </Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Visibility</TableHead>
+                  <TableHead>Uploaded</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentDocuments.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium text-slate-900 break-all">
+                      {d.fileName}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs">
+                        {DOCUMENT_CATEGORY_LABEL[d.category]}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <span
+                        className={
+                          d.visibleToClient
+                            ? 'text-emerald-700'
+                            : 'text-slate-500'
+                        }
+                      >
+                        {d.visibleToClient ? '✓ Client' : 'Internal'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600">
+                      {d.uploadedAt instanceof Date
+                        ? d.uploadedAt.toLocaleDateString()
+                        : new Date(d.uploadedAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <a
+                        href={`/projects/${project.id}/documents/${d.id}/download`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="sm" variant="outline">
+                          Download
+                        </Button>
+                      </a>
                     </TableCell>
                   </TableRow>
                 ))}

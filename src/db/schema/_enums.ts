@@ -152,3 +152,19 @@ export const dailyReportPhotoCategoryEnum = pgEnum('daily_report_photo_category'
   'weather',
   'other',
 ]);
+
+export const documentCategoryEnum = pgEnum('document_category', [
+  'proposal',
+  'estimate',
+  'invoice',
+  'contract',
+  'permit',
+  'drawing',
+  'photo',
+  'daily_report',
+  'submittal',
+  'warranty',
+  'closeout',
+  'financial',
+  'other',
+]);
