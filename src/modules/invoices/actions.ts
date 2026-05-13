@@ -89,6 +89,18 @@ export async function createInvoiceAction(
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
 
+  // When the user leaves the template dropdown on "— Default —", auto-attach
+  // the company's default template so VAT / labels / branding apply without
+  // the user having to pick the template manually on every invoice.
+  let resolvedTemplateId = emptyToNull(data.templateId ?? null);
+  if (!resolvedTemplateId) {
+    const { getDefaultInvoiceTemplate } = await import(
+      '@/lib/data/invoice-templates'
+    );
+    const def = await getDefaultInvoiceTemplate(companyId);
+    if (def) resolvedTemplateId = def.id;
+  }
+
   // Compute totals server-authoritatively.
   let subtotal = 0;
   const persistLines = data.lines.map((l) => {
@@ -133,7 +145,7 @@ export async function createInvoiceAction(
       projectId: data.projectId,
       proposalId: emptyToNull(data.proposalId ?? null),
       changeOrderId: emptyToNull(data.changeOrderId ?? null),
-      templateId: emptyToNull(data.templateId ?? null),
+      templateId: resolvedTemplateId,
       status: data.status,
       billingType: data.billingType,
       invoiceDate: data.invoiceDate,

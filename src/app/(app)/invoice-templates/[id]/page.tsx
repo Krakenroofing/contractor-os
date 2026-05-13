@@ -5,12 +5,15 @@ import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { canCreate } from '@/lib/permissions';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
 import {
   HEADER_LAYOUT_LABEL,
   LINE_ITEM_LAYOUT_LABEL,
   SECTION_LABEL,
 } from '@/modules/invoice-templates/schema';
+import { SetDefaultTemplateButton } from '@/modules/invoice-templates/components/set-default-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +24,8 @@ export default async function InvoiceTemplateDetailPage({
 }) {
   const { id } = await params;
   const companyId = await getActiveCompanyId();
+  const role = await getActiveRole();
+  const allowEdit = canCreate(role, 'invoice_templates');
   const tpl = await getInvoiceTemplate(companyId, id);
   if (!tpl) notFound();
 
@@ -45,11 +50,26 @@ export default async function InvoiceTemplateDetailPage({
         ]}
       />
 
-      <Link href="/invoice-templates">
-        <Button variant="outline" size="sm">
-          ← Back to Templates
-        </Button>
-      </Link>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <Link href="/invoice-templates">
+          <Button variant="outline" size="sm">
+            ← Back to Templates
+          </Button>
+        </Link>
+        {allowEdit && (
+          <div className="flex items-center gap-2">
+            <SetDefaultTemplateButton
+              templateId={tpl.id}
+              isDefault={tpl.isDefault}
+            />
+            <Link href={{ pathname: `/invoice-templates/${tpl.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
 
       <div className="flex items-start justify-between gap-4">
         <div>

@@ -15,6 +15,7 @@ import {
 } from '../schema';
 import {
   createInvoiceTemplateAction,
+  updateInvoiceTemplateAction,
   type CreateInvoiceTemplateState,
 } from '../actions';
 import type { InvoiceTemplate } from '@/db/schema';
@@ -23,11 +24,18 @@ const initialState: CreateInvoiceTemplateState = {};
 
 type Defaults = Partial<InvoiceTemplate> & { name?: string };
 
-export function InvoiceTemplateForm({ defaults }: { defaults?: Defaults }) {
-  const [state, formAction, pending] = useActionState(
-    createInvoiceTemplateAction,
-    initialState,
-  );
+export function InvoiceTemplateForm({
+  defaults,
+  editId,
+}: {
+  defaults?: Defaults;
+  /** When provided, switches the form to update mode against this id. */
+  editId?: string;
+}) {
+  const action = editId
+    ? updateInvoiceTemplateAction.bind(null, editId)
+    : createInvoiceTemplateAction;
+  const [state, formAction, pending] = useActionState(action, initialState);
   const err = (key: string) => state.errors?.[key]?.[0];
 
   const d = {
@@ -355,7 +363,11 @@ export function InvoiceTemplateForm({ defaults }: { defaults?: Defaults }) {
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Save template'}
+          {pending
+            ? 'Saving…'
+            : editId
+              ? 'Save changes'
+              : 'Save template'}
         </Button>
         <Link href="/invoice-templates">
           <Button type="button" variant="ghost">

@@ -118,6 +118,14 @@ export async function createInvoiceTemplate(
   const filled: FullInput = { ...PHASE1_DEFAULTS, ...input };
   if (isDatabaseConfigured()) {
     const db = getDb()!;
+    // If this template is being created as the default, clear isDefault on
+    // any existing templates first so the company has exactly one default.
+    if (filled.isDefault) {
+      await db
+        .update(invoiceTemplates)
+        .set({ isDefault: false })
+        .where(eq(invoiceTemplates.companyId, companyId));
+    }
     const inserted = await db
       .insert(invoiceTemplates)
       .values({ ...filled, companyId })
@@ -125,4 +133,95 @@ export async function createInvoiceTemplate(
     return inserted[0];
   }
   return mockCreate(companyId, filled);
+}
+
+export type UpdateInvoiceTemplateInput = Partial<FullInput>;
+
+export async function updateInvoiceTemplate(
+  companyId: string,
+  id: string,
+  patch: UpdateInvoiceTemplateInput,
+): Promise<InvoiceTemplate | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    // If this update flips isDefault to true, clear the flag on every
+    // other template in the same company first — one default per company.
+    if (patch.isDefault) {
+      await db
+        .update(invoiceTemplates)
+        .set({ isDefault: false })
+        .where(eq(invoiceTemplates.companyId, companyId));
+    }
+    const updated = await db
+      .update(invoiceTemplates)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(invoiceTemplates.id, id),
+          eq(invoiceTemplates.companyId, companyId),
+        ),
+      )
+      .returning();
+    return updated[0];
+  }
+  // Demo mode: no in-memory update path (yet). Returning undefined lets the
+  // action layer surface a clean "not available in demo" message.
+  return undefined;
+}
+
+/**
+ * Flip the default-template flag to point at `templateId`. Clears the flag
+ * on every other template in the company. Atomic-ish (two UPDATEs).
+ */
+export async function setDefaultInvoiceTemplate(
+  companyId: string,
+  templateId: string,
+): Promise<InvoiceTemplate | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    // Clear default on all of the company's templates.
+    await db
+      .update(invoiceTemplates)
+      .set({ isDefault: false, updatedAt: new Date() })
+      .where(eq(invoiceTemplates.companyId, companyId));
+    // Set default on the target.
+    const updated = await db
+      .update(invoiceTemplates)
+      .set({ isDefault: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(invoiceTemplates.id, templateId),
+          eq(invoiceTemplates.companyId, companyId),
+        ),
+      )
+      .returning();
+    return updated[0];
+  }
+  return undefined;
+}
+
+/**
+ * Returns the company's default template, or undefined if none is marked
+ * default. Used by createInvoiceAction to auto-attach the default when the
+ * user leaves the dropdown on "— Default —".
+ */
+export async function getDefaultInvoiceTemplate(
+  companyId: string,
+): Promise<InvoiceTemplate | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .select()
+      .from(invoiceTemplates)
+      .where(
+        and(
+          eq(invoiceTemplates.companyId, companyId),
+          eq(invoiceTemplates.isDefault, true),
+        ),
+      )
+      .limit(1);
+    return rows[0];
+  }
+  const all = mockList(companyId);
+  return all.find((t) => t.isDefault);
 }

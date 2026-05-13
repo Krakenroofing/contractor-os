@@ -6,7 +6,11 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
-import { createInvoiceTemplate } from '@/lib/data/invoice-templates';
+import {
+  createInvoiceTemplate,
+  setDefaultInvoiceTemplate,
+  updateInvoiceTemplate,
+} from '@/lib/data/invoice-templates';
 import { invoiceTemplateFormSchema } from './schema';
 
 export type CreateInvoiceTemplateState = {
@@ -181,4 +185,123 @@ export async function createInvoiceTemplateAction(
 
   revalidatePath('/invoice-templates');
   redirect(`/invoice-templates/${createdId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Update — same schema as create. Id is bound via .bind() in the form.
+// ---------------------------------------------------------------------------
+
+export async function updateInvoiceTemplateAction(
+  templateId: string,
+  _prev: CreateInvoiceTemplateState,
+  formData: FormData,
+): Promise<CreateInvoiceTemplateState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoice_templates')) {
+    return { formError: 'Not allowed to edit invoice templates.' };
+  }
+
+  const parsed = invoiceTemplateFormSchema.safeParse(readForm(formData));
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const data = parsed.data;
+  const companyId = await getActiveCompanyId();
+
+  try {
+    const out = await updateInvoiceTemplate(companyId, templateId, {
+      name: data.name,
+      description: emptyToNull(data.description ?? null),
+      isDefault: data.isDefault,
+      showCompanyBranding: data.showCompanyBranding,
+      showHeader: data.showHeader,
+      showLineItems: data.showLineItems,
+      showPaymentTerms: data.showPaymentTerms,
+      showRetainage: data.showRetainage,
+      showTaxVat: data.showTaxVat,
+      showNotes: data.showNotes,
+      showSignature: data.showSignature,
+      showFooter: data.showFooter,
+      headerLayout: data.headerLayout,
+      lineItemLayout: data.lineItemLayout,
+      headerNote: emptyToNull(data.headerNote ?? null),
+      paymentTermsText: emptyToNull(data.paymentTermsText ?? null),
+      retainageText: emptyToNull(data.retainageText ?? null),
+      notesText: emptyToNull(data.notesText ?? null),
+      footerText: emptyToNull(data.footerText ?? null),
+      titleOverride: emptyToNull(data.titleOverride ?? null),
+      tinLabel: labelOrDefault(data.tinLabel, 'TIN'),
+      issuedByLabel: labelOrDefault(data.issuedByLabel, 'Issued by'),
+      showBillToTin: data.showBillToTin,
+      billToAttentionLabel: labelOrDefault(data.billToAttentionLabel, 'Attention'),
+      showProjectMetadata: data.showProjectMetadata,
+      poNumberLabel: labelOrDefault(data.poNumberLabel, 'Purchase Order'),
+      billingNumberLabel: labelOrDefault(data.billingNumberLabel, 'Billing #'),
+      projectDescriptionLabel: labelOrDefault(
+        data.projectDescriptionLabel,
+        'Project description',
+      ),
+      showWireInstructions: data.showWireInstructions,
+      wireInstructionsNote: emptyToNull(data.wireInstructionsNote ?? null),
+      showQualifications: data.showQualifications,
+      qualificationsText: emptyToNull(data.qualificationsText ?? null),
+      showAccountHistory: data.showAccountHistory,
+      accountHistoryLabel: labelOrDefault(data.accountHistoryLabel, 'Account history'),
+      showProgressBilling: data.showProgressBilling,
+      progressBillingLabel: labelOrDefault(data.progressBillingLabel, 'Progress billing'),
+      contractValueLabel: labelOrDefault(data.contractValueLabel, 'Total contract value'),
+      changeOrdersLabel: labelOrDefault(data.changeOrdersLabel, 'Approved change orders'),
+      priorBilledLabel: labelOrDefault(data.priorBilledLabel, 'Less previously billed'),
+      retainageHeldLabel: labelOrDefault(data.retainageHeldLabel, 'Less retainage'),
+      vatLabel: labelOrDefault(data.vatLabel, 'VAT'),
+      vatRatePercent: data.vatRatePercent,
+    });
+    if (!out) {
+      return { formError: 'Template not found, or editing is not available in demo mode.' };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save template: ${message}` };
+  }
+
+  revalidatePath('/invoice-templates');
+  revalidatePath(`/invoice-templates/${templateId}`);
+  redirect(`/invoice-templates/${templateId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Make-default action — single-button click to flip which template is the
+// company's default. Clears the flag on every other template.
+// ---------------------------------------------------------------------------
+
+export type SetDefaultTemplateState = { formError?: string; ok?: boolean };
+
+export async function setDefaultInvoiceTemplateAction(
+  templateId: string,
+  _prev: SetDefaultTemplateState,
+  _formData: FormData,
+): Promise<SetDefaultTemplateState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoice_templates')) {
+    return { formError: 'Not allowed to change the default template.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const out = await setDefaultInvoiceTemplate(companyId, templateId);
+    if (!out) {
+      return {
+        formError:
+          'Template not found, or default-template changes are not available in demo mode.',
+      };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to update default: ${message}` };
+  }
+  revalidatePath('/invoice-templates');
+  revalidatePath(`/invoice-templates/${templateId}`);
+  return { ok: true };
 }

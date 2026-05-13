@@ -18,6 +18,7 @@ import {
   HEADER_LAYOUT_LABEL,
   LINE_ITEM_LAYOUT_LABEL,
 } from '@/modules/invoice-templates/schema';
+import { SetDefaultTemplateButton } from '@/modules/invoice-templates/components/set-default-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,12 +93,20 @@ export default async function InvoiceTemplatesPage() {
                       <span className="text-slate-400 text-xs">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Link href={`/invoice-templates/${t.id}`}>
-                      <Button size="sm" variant="outline">
-                        View Template
-                      </Button>
-                    </Link>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1">
+                      {allowCreate && (
+                        <SetDefaultTemplateButton
+                          templateId={t.id}
+                          isDefault={t.isDefault}
+                        />
+                      )}
+                      <Link href={`/invoice-templates/${t.id}`}>
+                        <Button size="sm" variant="outline">
+                          View
+                        </Button>
+                      </Link>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
