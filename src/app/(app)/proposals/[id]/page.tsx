@@ -65,6 +65,13 @@ export default async function ProposalDetailPage({
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="proposal" id={proposal.id} />
           {allowCreate && (
+            <Link href={{ pathname: `/proposals/${proposal.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
             <Link href="/proposals/new">
               <Button size="sm">New Proposal</Button>
             </Link>

@@ -15,6 +15,7 @@ import {
 } from '@/modules/landed-cost/data';
 import {
   createLandedCostAction,
+  updateLandedCostAction,
   type CreateLandedCostState,
 } from '../actions';
 
@@ -34,49 +35,98 @@ export type PurchaseOrderOption = {
 };
 export type VendorOption = { id: string; label: string };
 
+export type LandedCostFormInitial = {
+  id: string;
+  name: string;
+  projectId: string;
+  vendorId: string | null;
+  purchaseOrderId: string | null;
+  carrier: string;
+  itemDescription: string | null;
+  tariffCode: string | null;
+  quantity: string;
+  unitCost: string;
+  flDelivery: string;
+  crating: string;
+  freightCost: string;
+  insurance: string;
+  dutyPercent: string;
+  vatPercent: string;
+  envLevyPercent: string;
+  excisePercent: string;
+  brokerage: string;
+  portFees: string;
+  localDelivery: string;
+  notes: string | null;
+};
+
 export function LandedCostForm({
   projects,
   vendors,
   purchaseOrders,
   tariffs,
   defaultName,
+  initial,
 }: {
   projects: ProjectOption[];
   vendors: VendorOption[];
   purchaseOrders: PurchaseOrderOption[];
   tariffs: TariffRecord[];
   defaultName: string;
+  /** When provided, the form runs in edit mode against this landed-cost id. */
+  initial?: LandedCostFormInitial;
 }) {
-  const [state, formAction, pending] = useActionState(
-    createLandedCostAction,
-    initialState,
-  );
+  const action = initial
+    ? updateLandedCostAction.bind(null, initial.id)
+    : createLandedCostAction;
+  const [state, formAction, pending] = useActionState(action, initialState);
+
+  // Helpers: numeric pre-fill — drizzle numerics come back as strings with
+  // trailing zeros; normalize to a friendly editable value.
+  const num0 = (v: string | null | undefined, fallback: string): string => {
+    if (v === null || v === undefined) return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toString() : fallback;
+  };
 
   // Tied entities
-  const [projectId, setProjectId] = useState<string>('');
-  const [vendorId, setVendorId] = useState<string>('');
-  const [purchaseOrderId, setPurchaseOrderId] = useState<string>('');
+  const [projectId, setProjectId] = useState<string>(initial?.projectId ?? '');
+  const [vendorId, setVendorId] = useState<string>(initial?.vendorId ?? '');
+  const [purchaseOrderId, setPurchaseOrderId] = useState<string>(
+    initial?.purchaseOrderId ?? '',
+  );
 
   // Item + costs
-  const [itemDescription, setItemDescription] = useState('');
-  const [carrier, setCarrier] = useState<string>('Tropical');
-  const [quantity, setQuantity] = useState('1');
-  const [unitCost, setUnitCost] = useState('0');
-  const [flDelivery, setFlDelivery] = useState('0');
-  const [crating, setCrating] = useState('0');
-  const [freightCost, setFreightCost] = useState('0');
-  const [insurance, setInsurance] = useState('0');
-  const [brokerage, setBrokerage] = useState('0');
-  const [portFees, setPortFees] = useState('0');
-  const [localDelivery, setLocalDelivery] = useState('0');
+  const [itemDescription, setItemDescription] = useState(
+    initial?.itemDescription ?? '',
+  );
+  const [carrier, setCarrier] = useState<string>(initial?.carrier ?? 'Tropical');
+  const [quantity, setQuantity] = useState(num0(initial?.quantity, '1'));
+  const [unitCost, setUnitCost] = useState(num0(initial?.unitCost, '0'));
+  const [flDelivery, setFlDelivery] = useState(num0(initial?.flDelivery, '0'));
+  const [crating, setCrating] = useState(num0(initial?.crating, '0'));
+  const [freightCost, setFreightCost] = useState(num0(initial?.freightCost, '0'));
+  const [insurance, setInsurance] = useState(num0(initial?.insurance, '0'));
+  const [brokerage, setBrokerage] = useState(num0(initial?.brokerage, '0'));
+  const [portFees, setPortFees] = useState(num0(initial?.portFees, '0'));
+  const [localDelivery, setLocalDelivery] = useState(
+    num0(initial?.localDelivery, '0'),
+  );
 
-  // Tariff
-  const [tariffId, setTariffId] = useState<string>('');
-  const [tariffCode, setTariffCode] = useState<string>('');
-  const [dutyPercent, setDutyPercent] = useState('0');
-  const [vatPercent, setVatPercent] = useState('10');
-  const [envLevyPercent, setEnvLevyPercent] = useState('0');
-  const [excisePercent, setExcisePercent] = useState('0');
+  // Tariff — match initial tariffCode to a record if possible.
+  const initialTariff = initial?.tariffCode
+    ? tariffs.find((t) => t.tariffCode === initial.tariffCode)
+    : undefined;
+  const [tariffId, setTariffId] = useState<string>(initialTariff?.id ?? '');
+  const [tariffCode, setTariffCode] = useState<string>(initial?.tariffCode ?? '');
+  const [dutyPercent, setDutyPercent] = useState(num0(initial?.dutyPercent, '0'));
+  const [vatPercent, setVatPercent] = useState(num0(initial?.vatPercent, '10'));
+  const [envLevyPercent, setEnvLevyPercent] = useState(
+    num0(initial?.envLevyPercent, '0'),
+  );
+  const [excisePercent, setExcisePercent] = useState(
+    num0(initial?.excisePercent, '0'),
+  );
   const [permitNotes, setPermitNotes] = useState('');
 
   const onTariffChange = (id: string) => {
@@ -155,7 +205,11 @@ export function LandedCostForm({
         <legend className="px-2 text-sm font-medium text-slate-700">Tied to</legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Estimate name" error={err('name')} required>
-            <Input name="name" defaultValue={defaultName} required />
+            <Input
+              name="name"
+              defaultValue={initial?.name ?? defaultName}
+              required
+            />
           </Field>
           <Field label="Project" error={err('projectId')} required>
             <Select
@@ -422,6 +476,7 @@ export function LandedCostForm({
         <textarea
           name="notes"
           rows={3}
+          defaultValue={initial?.notes ?? ''}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Internal notes, broker name, timing, etc."
         />
@@ -429,9 +484,13 @@ export function LandedCostForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Save landed cost estimate'}
+          {pending
+            ? 'Saving…'
+            : initial
+              ? 'Save changes'
+              : 'Save landed cost estimate'}
         </Button>
-        <Link href="/landed-cost">
+        <Link href={initial ? `/landed-cost/${initial.id}` : '/landed-cost'}>
           <Button type="button" variant="ghost">
             Cancel
           </Button>

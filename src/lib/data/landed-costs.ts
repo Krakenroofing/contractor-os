@@ -144,3 +144,74 @@ export async function createLandedCost(
   }
   return mockCreate(companyId, input);
 }
+
+export type UpdateLandedCostInput = CreateLandedCostInput;
+
+// Updates a landed-cost entry in place. If purchaseOrderId changes, we
+// rewrite the PO back-reference on the new PO (and don't bother clearing
+// the old — a PO only ever points to one landed-cost entry, and there's
+// already an implicit "the latest write wins" semantic in setPurchase…).
+export async function updateLandedCost(
+  companyId: string,
+  id: string,
+  input: UpdateLandedCostInput,
+): Promise<LandedCost | undefined> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const existingRow = await db
+      .select()
+      .from(landedCosts)
+      .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)))
+      .limit(1);
+    if (existingRow.length === 0) return undefined;
+
+    const now = new Date();
+    await db
+      .update(landedCosts)
+      .set({
+        projectId: input.projectId,
+        vendorId: input.vendorId,
+        name: input.name,
+        carrier: input.carrier,
+        itemDescription: input.itemDescription,
+        tariffCode: input.tariffCode,
+        unitCost: input.unitCost,
+        materialCost: input.materialCost,
+        flDelivery: input.flDelivery,
+        crating: input.crating,
+        freightCost: input.freightCost,
+        insurance: input.insurance,
+        dutyPercent: input.dutyPercent,
+        vatPercent: input.vatPercent,
+        envLevyPercent: input.envLevyPercent,
+        envLevyAmount: input.envLevyAmount,
+        excisePercent: input.excisePercent,
+        exciseAmount: input.exciseAmount,
+        brokerage: input.brokerage,
+        portFees: input.portFees,
+        localDelivery: input.localDelivery,
+        quantity: input.quantity,
+        fob: input.fob,
+        cif: input.cif,
+        dutyAmount: input.dutyAmount,
+        vatAmount: input.vatAmount,
+        totalLandedCost: input.totalLandedCost,
+        perUnitCost: input.perUnitCost,
+        notes: input.notes,
+        updatedAt: now,
+      })
+      .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)));
+
+    if (input.purchaseOrderId) {
+      await setPurchaseOrderLandedCostId(companyId, input.purchaseOrderId, id);
+    }
+
+    const updated = await db
+      .select()
+      .from(landedCosts)
+      .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)))
+      .limit(1);
+    return updated[0];
+  }
+  return undefined;
+}

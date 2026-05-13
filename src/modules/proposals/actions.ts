@@ -6,6 +6,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getEstimate } from '@/lib/data/estimates';
 import {
   createProposal,
+  updateProposal,
   DuplicateProposalNumberError,
 } from '@/lib/data/proposals';
 import { proposalFormSchema } from './schema';
@@ -78,4 +79,68 @@ export async function createProposalAction(
 
   revalidatePath('/proposals');
   redirect(`/proposals/${createdId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Update — same form schema as create, id bound by the page route.
+// ---------------------------------------------------------------------------
+
+export async function updateProposalAction(
+  id: string,
+  _prev: CreateProposalState,
+  formData: FormData,
+): Promise<CreateProposalState> {
+  const parsed = proposalFormSchema.safeParse({
+    number: formData.get('number'),
+    estimateId: formData.get('estimateId'),
+    status: formData.get('status') ?? 'draft',
+    proposalDate: formData.get('proposalDate') ?? '',
+    expiryDate: formData.get('expiryDate') ?? '',
+    scopeOfWork: formData.get('scopeOfWork') ?? '',
+    inclusions: formData.get('inclusions') ?? '',
+    exclusions: formData.get('exclusions') ?? '',
+    paymentSchedule: formData.get('paymentSchedule') ?? '',
+    warrantyNotes: formData.get('warrantyNotes') ?? '',
+    termsAndConditions: formData.get('termsAndConditions') ?? '',
+  });
+  if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+  const data = parsed.data;
+
+  const companyId = await getActiveCompanyId();
+  const estimate = await getEstimate(companyId, data.estimateId);
+  if (!estimate) return { errors: { estimateId: ['Estimate not found'] } };
+
+  try {
+    const out = await updateProposal(companyId, id, {
+      number: data.number,
+      projectId: estimate.projectId,
+      estimateId: estimate.id,
+      total: estimate.total,
+      status: data.status,
+      proposalDate: emptyToNull(data.proposalDate ?? null),
+      expiryDate: emptyToNull(data.expiryDate ?? null),
+      scopeOfWork: emptyToNull(data.scopeOfWork ?? null),
+      inclusions: emptyToNull(data.inclusions ?? null),
+      exclusions: emptyToNull(data.exclusions ?? null),
+      paymentSchedule: emptyToNull(data.paymentSchedule ?? null),
+      warrantyNotes: emptyToNull(data.warrantyNotes ?? null),
+      termsAndConditions: emptyToNull(data.termsAndConditions ?? null),
+    });
+    if (!out) {
+      return {
+        formError:
+          'Proposal not found, or editing is not available in demo mode.',
+      };
+    }
+  } catch (err) {
+    if (err instanceof DuplicateProposalNumberError) {
+      return { errors: { number: ['That proposal number is already used'] } };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save proposal: ${message}` };
+  }
+
+  revalidatePath('/proposals');
+  revalidatePath(`/proposals/${id}`);
+  redirect(`/proposals/${id}`);
 }

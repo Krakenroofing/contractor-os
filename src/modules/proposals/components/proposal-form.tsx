@@ -7,7 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/money';
-import { createProposalAction, type CreateProposalState } from '../actions';
+import {
+  createProposalAction,
+  updateProposalAction,
+  type CreateProposalState,
+} from '../actions';
 import { proposalStatusValues, STATUS_LABEL } from '../schema';
 
 const initialState: CreateProposalState = {};
@@ -20,15 +24,36 @@ export type EstimateOption = {
   total: string;
 };
 
+export type ProposalFormInitial = {
+  id: string;
+  number: string;
+  estimateId: string;
+  status: string;
+  proposalDate: string | null;
+  expiryDate: string | null;
+  scopeOfWork: string | null;
+  inclusions: string | null;
+  exclusions: string | null;
+  paymentSchedule: string | null;
+  warrantyNotes: string | null;
+  termsAndConditions: string | null;
+};
+
 export function ProposalForm({
   estimates,
   defaultNumber,
+  initial,
 }: {
   estimates: EstimateOption[];
   defaultNumber: string;
+  /** When provided, the form runs in edit mode against this proposal id. */
+  initial?: ProposalFormInitial;
 }) {
-  const [state, formAction, pending] = useActionState(createProposalAction, initialState);
-  const [estimateId, setEstimateId] = useState<string>('');
+  const action = initial
+    ? updateProposalAction.bind(null, initial.id)
+    : createProposalAction;
+  const [state, formAction, pending] = useActionState(action, initialState);
+  const [estimateId, setEstimateId] = useState<string>(initial?.estimateId ?? '');
   const selected = estimates.find((e) => e.id === estimateId);
 
   const err = (key: string) => state.errors?.[key]?.[0];
@@ -50,11 +75,15 @@ export function ProposalForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Proposal number" error={err('number')} required>
-          <Input name="number" defaultValue={defaultNumber} required />
+          <Input
+            name="number"
+            defaultValue={initial?.number ?? defaultNumber}
+            required
+          />
         </Field>
 
         <Field label="Status" error={err('status')}>
-          <Select name="status" defaultValue="draft">
+          <Select name="status" defaultValue={initial?.status ?? 'draft'}>
             {proposalStatusValues.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
@@ -89,11 +118,19 @@ export function ProposalForm({
         </Field>
 
         <Field label="Proposal date" error={err('proposalDate')}>
-          <Input name="proposalDate" type="date" defaultValue={today} />
+          <Input
+            name="proposalDate"
+            type="date"
+            defaultValue={initial?.proposalDate ?? today}
+          />
         </Field>
 
         <Field label="Valid until" error={err('expiryDate')}>
-          <Input name="expiryDate" type="date" defaultValue={defaultExpiry} />
+          <Input
+            name="expiryDate"
+            type="date"
+            defaultValue={initial?.expiryDate ?? defaultExpiry}
+          />
         </Field>
       </div>
 
@@ -123,6 +160,7 @@ export function ProposalForm({
         label="Scope of work"
         rows={5}
         error={err('scopeOfWork')}
+        defaultValue={initial?.scopeOfWork ?? ''}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <TextareaField
@@ -130,24 +168,28 @@ export function ProposalForm({
           label="Inclusions"
           rows={4}
           error={err('inclusions')}
+          defaultValue={initial?.inclusions ?? ''}
         />
         <TextareaField
           name="exclusions"
           label="Exclusions"
           rows={4}
           error={err('exclusions')}
+          defaultValue={initial?.exclusions ?? ''}
         />
         <TextareaField
           name="paymentSchedule"
           label="Payment schedule"
           rows={4}
           error={err('paymentSchedule')}
+          defaultValue={initial?.paymentSchedule ?? ''}
         />
         <TextareaField
           name="warrantyNotes"
           label="Warranty notes"
           rows={4}
           error={err('warrantyNotes')}
+          defaultValue={initial?.warrantyNotes ?? ''}
         />
       </div>
       <TextareaField
@@ -155,13 +197,16 @@ export function ProposalForm({
         label="Terms and conditions"
         rows={6}
         error={err('termsAndConditions')}
+        defaultValue={initial?.termsAndConditions ?? ''}
       />
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create proposal'}
+          {pending
+            ? initial ? 'Saving…' : 'Creating…'
+            : initial ? 'Save changes' : 'Create proposal'}
         </Button>
-        <Link href="/proposals">
+        <Link href={initial ? `/proposals/${initial.id}` : '/proposals'}>
           <Button type="button" variant="ghost">
             Cancel
           </Button>
@@ -201,11 +246,13 @@ function TextareaField({
   label,
   rows,
   error,
+  defaultValue,
 }: {
   name: string;
   label: string;
   rows: number;
   error?: string;
+  defaultValue?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -213,6 +260,7 @@ function TextareaField({
       <textarea
         name={name}
         rows={rows}
+        defaultValue={defaultValue}
         className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
       {error && <p className="text-xs text-red-600">{error}</p>}

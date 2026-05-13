@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { canCreate } from '@/lib/permissions';
 import { getLandedCost } from '@/lib/data/landed-costs';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { getProject } from '@/lib/data/projects';
@@ -33,6 +35,8 @@ export default async function LandedCostDetailPage({
 }) {
   const { id } = await params;
   const companyId = await getActiveCompanyId();
+  const role = await getActiveRole();
+  const allowEdit = canCreate(role, 'landed_cost');
   const lc = await getLandedCost(companyId, id);
   if (!lc) notFound();
 
@@ -57,12 +61,19 @@ export default async function LandedCostDetailPage({
         ]}
       />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <Link href="/landed-cost">
           <Button variant="outline" size="sm">
             ← Back to Landed Cost
           </Button>
         </Link>
+        {allowEdit && (
+          <Link href={{ pathname: `/landed-cost/${lc.id}/edit` }}>
+            <Button size="sm" variant="outline">
+              Edit
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="flex items-start justify-between gap-4">
