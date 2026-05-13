@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ArchiveProjectForm } from '@/modules/projects/components/archive-project-form';
+import { RecomputeTotalsButton } from '@/modules/projects/components/recompute-totals-button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -267,6 +268,14 @@ export default async function ProjectDetailPage({
           }
         />
       </div>
+
+      {/* Self-heal: recompute totalChangeOrders + contractValue from the
+          actual approved-CO sum. Use when the running balance drifted. */}
+      {allowCreate && (
+        <div className="flex items-start justify-end">
+          <RecomputeTotalsButton projectId={project.id} />
+        </div>
+      )}
 
       {/* Job Costing snapshot — links to the full per-project page */}
       <Card>

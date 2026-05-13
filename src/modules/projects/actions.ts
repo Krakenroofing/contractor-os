@@ -12,6 +12,7 @@ import {
   softDeleteProject,
   updateProject,
 } from '@/lib/data/projects';
+import { recomputeProjectContractTotalsFromCOs } from '@/lib/data/change-orders';
 import { DuplicateProjectNumberError } from '@/lib/mock-store';
 import { projectFormSchema } from './schema';
 
@@ -199,4 +200,48 @@ export async function archiveProjectAction(
 
   revalidatePath('/projects');
   redirect('/projects');
+}
+
+// ---------------------------------------------------------------------------
+// Self-heal: recompute project.totalChangeOrders + project.contractValue
+// from the authoritative list of approved COs. Useful when the running
+// balance has drifted from an earlier bug.
+// ---------------------------------------------------------------------------
+
+export type RecomputeTotalsState = {
+  formError?: string;
+  ok?: boolean;
+  result?: {
+    originalContractValue: number;
+    approvedCOTotal: number;
+    newContractValue: number;
+  };
+};
+
+export async function recomputeProjectTotalsAction(
+  projectId: string,
+  _prev: RecomputeTotalsState,
+  _formData: FormData,
+): Promise<RecomputeTotalsState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'projects')) {
+    return { formError: 'You do not have permission to recompute project totals.' };
+  }
+  const idCheck = z.string().uuid('Missing project id').safeParse(projectId);
+  if (!idCheck.success) return { formError: 'Invalid project id.' };
+
+  try {
+    const result = await recomputeProjectContractTotalsFromCOs(projectId);
+    if (!result) {
+      return { formError: 'Project not found, or recompute not available in demo mode.' };
+    }
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath('/projects');
+    revalidatePath('/dashboard');
+    return { ok: true, result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Recompute failed: ${message}` };
+  }
 }

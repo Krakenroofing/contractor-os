@@ -3582,13 +3582,16 @@ async function updateEntityStatusDb(
           and(eq(changeOrdersTable.id, id), eq(changeOrdersTable.companyId, companyId)),
         );
       // Roll the approved CO total into the project contract value.
+      // Embed amount as a numeric literal — see comment in
+      // applyApprovedCOToProject for why we don't bind it as a parameter.
       if (newStatus === 'approved' && prev !== 'approved') {
         const amount = Number(c.total);
+        const lit = sql.raw(`(${amount.toFixed(2)})::numeric`);
         await db
           .update(projectsTable)
           .set({
-            contractValue: sql`${projectsTable.contractValue} + ${amount}`,
-            totalChangeOrders: sql`${projectsTable.totalChangeOrders} + ${amount}`,
+            contractValue: sql`${projectsTable.contractValue} + ${lit}`,
+            totalChangeOrders: sql`${projectsTable.totalChangeOrders} + ${lit}`,
             updatedAt: now,
           })
           .where(eq(projectsTable.id, c.projectId));
@@ -3598,11 +3601,12 @@ async function updateEntityStatusDb(
       // no contract-value side effect, so nothing to reverse.
       if (newStatus === 'void' && prev === 'approved') {
         const amount = Number(c.total);
+        const lit = sql.raw(`(${amount.toFixed(2)})::numeric`);
         await db
           .update(projectsTable)
           .set({
-            contractValue: sql`${projectsTable.contractValue} - ${amount}`,
-            totalChangeOrders: sql`${projectsTable.totalChangeOrders} - ${amount}`,
+            contractValue: sql`${projectsTable.contractValue} - ${lit}`,
+            totalChangeOrders: sql`${projectsTable.totalChangeOrders} - ${lit}`,
             updatedAt: now,
           })
           .where(eq(projectsTable.id, c.projectId));

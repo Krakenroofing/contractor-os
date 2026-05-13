@@ -143,21 +143,74 @@ export async function listApprovedChangeOrdersForProject(
  * In demo mode mutates the in-memory project; in DB mode runs an UPDATE with
  * an arithmetic expression so the change is atomic.
  */
+// Self-heal: recompute project.totalChangeOrders and project.contractValue
+// from the authoritative sum of approved (non-void) COs. Useful as a
+// recovery action when the running balance drifted (e.g., from an earlier
+// bug or a manual DB edit).
+export async function recomputeProjectContractTotalsFromCOs(
+  projectId: string,
+): Promise<{
+  originalContractValue: number;
+  approvedCOTotal: number;
+  newContractValue: number;
+} | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+  const proj = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (proj.length === 0) return null;
+  const project = proj[0];
+
+  const approvedRows = await db
+    .select({ total: changeOrders.total })
+    .from(changeOrders)
+    .where(
+      and(
+        eq(changeOrders.projectId, projectId),
+        eq(changeOrders.status, 'approved'),
+      ),
+    );
+
+  const approvedCOTotal = approvedRows.reduce(
+    (acc, r) => acc + Number(r.total),
+    0,
+  );
+  const originalContractValue = Number(project.originalContractValue);
+  const newContractValue = originalContractValue + approvedCOTotal;
+
+  // Embed as numeric literals to avoid any parameter-type ambiguity.
+  const lit = (n: number) => sql.raw(`(${n.toFixed(2)})::numeric`);
+  await db
+    .update(projects)
+    .set({
+      totalChangeOrders: lit(approvedCOTotal),
+      contractValue: lit(newContractValue),
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+
+  return { originalContractValue, approvedCOTotal, newContractValue };
+}
+
 export async function applyApprovedCOToProject(
   projectId: string,
   amount: number,
 ): Promise<void> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
+    // Embed the amount as a numeric literal rather than a bound parameter
+    // so Postgres can't get confused about types. `amount.toFixed(2)` gives
+    // us a deterministic decimal string; we then explicitly cast it to
+    // numeric. Positive amount adds; caller passes negative for reversals.
+    const amountLiteral = sql.raw(`(${amount.toFixed(2)})::numeric`);
     await db
       .update(projects)
       .set({
-        // Postgres numeric arithmetic, kept inside the DB so concurrent
-        // approvals don't lose updates. Both columns are numeric(14,2) so
-        // the result is numeric — no cast needed (and casting to ::text
-        // would mismatch the column type and raise 42804).
-        contractValue: sql`${projects.contractValue} + ${amount}`,
-        totalChangeOrders: sql`${projects.totalChangeOrders} + ${amount}`,
+        contractValue: sql`${projects.contractValue} + ${amountLiteral}`,
+        totalChangeOrders: sql`${projects.totalChangeOrders} + ${amountLiteral}`,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, projectId));
