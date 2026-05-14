@@ -679,13 +679,22 @@ export function InvoiceForm({
         </div>
       </fieldset>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
         <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
         {showTaxVat && <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />}
+        {/* Intermediate "Gross invoiced" makes the retainage subtraction
+            visually obvious — when VAT% = retainage% the two cancel and
+            Net could look like nothing was withheld. */}
+        {showTaxVat && showRetainage && totals.retainage > 0 && (
+          <Stat
+            label="Gross invoiced"
+            value={formatMoney(add(totals.subtotal, totals.tax))}
+          />
+        )}
         {showRetainage && (
           <Stat
-            label={`Retainage held${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
-            value={formatMoney(totals.retainage)}
+            label={`Less retainage${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
+            value={`(${formatMoney(totals.retainage)})`}
           />
         )}
         <Stat label="Net amount due" value={formatMoney(totals.total)} highlight />

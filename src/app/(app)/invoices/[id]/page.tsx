@@ -355,10 +355,24 @@ export default async function InvoiceDetailPage({
                 value={formatMoney(vatAmount)}
               />
             )}
+            {/* "Gross invoiced" row appears between VAT and retainage so
+                the subtraction is visually obvious — without it, when
+                VAT% equals retainage% the two cancel and Net amount due
+                visually looks like nothing was subtracted. */}
+            {show('showTaxVat') &&
+              show('showRetainage') &&
+              Number(invoice.retainageAmount) > 0 && (
+                <Row
+                  label="Gross invoiced"
+                  value={formatMoney(
+                    Number(invoice.subtotal) + Number(vatAmount),
+                  )}
+                />
+              )}
             {show('showRetainage') && Number(invoice.retainageAmount) > 0 && (
               <>
                 <Row
-                  label={`${template?.retainageHeldLabel ?? 'Retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
+                  label={`Less ${template?.retainageHeldLabel?.toLowerCase() ?? 'retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
                   value={`(${formatMoney(invoice.retainageAmount)})`}
                 />
                 {Number(invoice.retainageReleased) > 0 && (

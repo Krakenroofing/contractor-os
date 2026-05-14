@@ -79,19 +79,31 @@ export async function buildInvoicePayload(
   const totals: DocumentTotalsRow[] = [
     { label: 'Subtotal', value: subtotal },
   ];
-  if (template ? template.showTaxVat : true) {
+  const showVatRow = template ? template.showTaxVat : true;
+  if (showVatRow) {
     const vatLabel =
       vatRatePct > 0
         ? `${template?.vatLabel ?? 'VAT'} (${vatRatePct.toFixed(2)}%)`
         : (template?.vatLabel ?? 'Tax / VAT');
     totals.push({ label: vatLabel, value: vatAmount });
   }
-  if (
+  const showRetainageRow =
     (template ? template.showRetainage : true) &&
-    Number(invoice.retainageAmount) > 0
-  ) {
+    Number(invoice.retainageAmount) > 0;
+  // Intermediate "Gross invoiced" row makes the retainage subtraction
+  // visually unambiguous. Without it, when VAT% equals retainage% the
+  // two cancel and Net amount due looks like nothing was withheld.
+  if (showVatRow && showRetainageRow) {
     totals.push({
-      label: `${template?.retainageHeldLabel ?? 'Retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
+      label: 'Gross invoiced',
+      value: add(subtotal, vatAmount),
+    });
+  }
+  if (showRetainageRow) {
+    const baseLabel =
+      template?.retainageHeldLabel ?? 'Retainage held';
+    totals.push({
+      label: `Less ${baseLabel.toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
       value: parseMoney(invoice.retainageAmount),
       negative: true,
     });
