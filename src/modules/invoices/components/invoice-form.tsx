@@ -42,7 +42,17 @@ export type InvoiceFormChangeOrderOption = {
   label: string;
   projectId: string;
 };
-export type InvoiceFormTemplateOption = { id: string; name: string };
+export type InvoiceFormTemplateOption = {
+  id: string;
+  name: string;
+  // When provided, the form hides sections the template has turned off so
+  // the operator only enters data that will actually render on the
+  // resulting invoice. Falls back to "show all sections" when missing.
+  showTaxVat?: boolean;
+  showRetainage?: boolean;
+  showPaymentTerms?: boolean;
+  showNotes?: boolean;
+};
 
 export function InvoiceForm({
   projects,
@@ -72,7 +82,25 @@ export function InvoiceForm({
   const [state, formAction, pending] = useActionState(createInvoiceAction, initialState);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
   const [projectId, setProjectId] = useState('');
+  const [templateId, setTemplateId] = useState('');
   const [billingType, setBillingType] = useState<string>('progress');
+
+  // Look up the currently selected template so we can hide/show sections
+  // based on its show* flags. When `templateId === ''` (i.e. user left the
+  // dropdown on "— Default —"), behave as if every section is enabled —
+  // the server will look up the company's default template and apply its
+  // flags at render time.
+  const activeTemplate = useMemo(
+    () => templates.find((t) => t.id === templateId),
+    [templates, templateId],
+  );
+  // `undefined` flag (when no template selected or template doesn't expose
+  // the flag) → treat as `true` so the form stays permissive.
+  const showSection = (flag: boolean | undefined): boolean => flag !== false;
+  const showTaxVat = showSection(activeTemplate?.showTaxVat);
+  const showRetainage = showSection(activeTemplate?.showRetainage);
+  const showPaymentTerms = showSection(activeTemplate?.showPaymentTerms);
+  const showNotes = showSection(activeTemplate?.showNotes);
   // Lump-sum mode bypasses the qty × unit-cost editor and ships a single
   // line with the entered amount as unitCost (qty=1). Detailed line items
   // would be overkill for contract draws.
@@ -261,7 +289,11 @@ export function InvoiceForm({
             </Select>
           </Field>
           <Field label="Template" error={err('templateId')}>
-            <Select name="templateId" defaultValue="">
+            <Select
+              name="templateId"
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+            >
               <option value="">— Default (no template) —</option>
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -411,78 +443,106 @@ export function InvoiceForm({
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Totals</legend>
+        {activeTemplate && (
+          <p className="text-xs text-slate-500">
+            Showing fields enabled on{' '}
+            <span className="font-medium text-slate-700">{activeTemplate.name}</span>
+            . Sections turned off in the template are hidden here too —
+            change the template above if you need different fields.
+          </p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field
-            label={
-              companyVatRatePercent > 0
-                ? `Tax / VAT (${companyVatRatePercent.toFixed(2)}% auto)`
-                : 'Tax / VAT'
-            }
-            error={err('taxAmount')}
-          >
-            <Input
-              name="taxAmount"
-              inputMode="decimal"
-              value={taxDisplay}
-              onChange={(e) => {
-                setTaxAmount(e.target.value);
-                setTaxAmountManual(true);
-              }}
-            />
-            {companyVatRatePercent > 0 && taxAmountManual && (
-              <button
-                type="button"
-                onClick={() => {
-                  setTaxAmountManual(false);
-                  setTaxAmount('0');
+          {showTaxVat && (
+            <Field
+              label={
+                companyVatRatePercent > 0
+                  ? `Tax / VAT (${companyVatRatePercent.toFixed(2)}% auto)`
+                  : 'Tax / VAT'
+              }
+              error={err('taxAmount')}
+            >
+              <Input
+                name="taxAmount"
+                inputMode="decimal"
+                value={taxDisplay}
+                onChange={(e) => {
+                  setTaxAmount(e.target.value);
+                  setTaxAmountManual(true);
                 }}
-                className="mt-1 text-[11px] text-slate-500 hover:text-slate-900 underline"
+              />
+              {companyVatRatePercent > 0 && taxAmountManual && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaxAmountManual(false);
+                    setTaxAmount('0');
+                  }}
+                  className="mt-1 text-[11px] text-slate-500 hover:text-slate-900 underline"
+                >
+                  Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
+                </button>
+              )}
+            </Field>
+          )}
+          {/* Tax field is hidden — still post a zero value so the server
+              schema doesn't reject the form. */}
+          {!showTaxVat && <input type="hidden" name="taxAmount" value="0" />}
+          {showRetainage && (
+            <>
+              <Field label="Retainage %" error={err('retainagePercent')}>
+                <Input
+                  name="retainagePercent"
+                  inputMode="decimal"
+                  value={retainagePercent}
+                  onChange={(e) => {
+                    setRetainagePercent(e.target.value);
+                    setRetainageAmountManual(false);
+                  }}
+                  placeholder="e.g. 10"
+                />
+              </Field>
+              <Field
+                label={
+                  retainageAmountManual
+                    ? 'Retainage held (manual)'
+                    : 'Retainage held (auto from %)'
+                }
+                error={err('retainageAmount')}
               >
-                Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
-              </button>
-            )}
-          </Field>
-          <Field label="Retainage %" error={err('retainagePercent')}>
-            <Input
-              name="retainagePercent"
-              inputMode="decimal"
-              value={retainagePercent}
-              onChange={(e) => {
-                setRetainagePercent(e.target.value);
-                setRetainageAmountManual(false);
-              }}
-              placeholder="e.g. 10"
-            />
-          </Field>
-          <Field
-            label={
-              retainageAmountManual
-                ? 'Retainage held (manual)'
-                : 'Retainage held (auto from %)'
-            }
-            error={err('retainageAmount')}
-          >
-            <Input
-              name="retainageAmount"
-              inputMode="decimal"
-              value={retainageDisplay}
-              onChange={(e) => {
-                setRetainageAmount(e.target.value);
-                setRetainageAmountManual(true);
-              }}
-            />
-          </Field>
-          <Field
-            label="Expected retainage release date"
-            error={err('expectedRetainageReleaseDate')}
-          >
-            <Input
-              name="expectedRetainageReleaseDate"
-              type="date"
-              value={expectedRetainageReleaseDate}
-              onChange={(e) => setExpectedRetainageReleaseDate(e.target.value)}
-            />
-          </Field>
+                <Input
+                  name="retainageAmount"
+                  inputMode="decimal"
+                  value={retainageDisplay}
+                  onChange={(e) => {
+                    setRetainageAmount(e.target.value);
+                    setRetainageAmountManual(true);
+                  }}
+                />
+              </Field>
+              <Field
+                label="Expected retainage release date"
+                error={err('expectedRetainageReleaseDate')}
+              >
+                <Input
+                  name="expectedRetainageReleaseDate"
+                  type="date"
+                  value={expectedRetainageReleaseDate}
+                  onChange={(e) => setExpectedRetainageReleaseDate(e.target.value)}
+                />
+              </Field>
+            </>
+          )}
+          {!showRetainage && (
+            <>
+              <input type="hidden" name="retainagePercent" value="0" />
+              <input type="hidden" name="retainageAmount" value="0" />
+              <input
+                type="hidden"
+                name="expectedRetainageReleaseDate"
+                value=""
+              />
+            </>
+          )}
           <Field label="Amount paid" error={err('amountPaid')}>
             <Input
               name="amountPaid"
@@ -496,11 +556,13 @@ export function InvoiceForm({
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
-        <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />
-        <Stat
-          label={`Retainage held${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
-          value={formatMoney(totals.retainage)}
-        />
+        {showTaxVat && <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />}
+        {showRetainage && (
+          <Stat
+            label={`Retainage held${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
+            value={formatMoney(totals.retainage)}
+          />
+        )}
         <Stat label="Net amount due" value={formatMoney(totals.total)} highlight />
         <Stat
           label="Balance due"
@@ -515,15 +577,25 @@ export function InvoiceForm({
         />
       </div>
 
-      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
-        <legend className="px-2 text-sm font-medium text-slate-700">Notes & terms</legend>
-        <TextareaField name="notes" label="Notes" rows={3} />
-        <TextareaField
-          name="termsOverride"
-          label="Payment terms (override template)"
-          rows={3}
-        />
-      </fieldset>
+      {(showNotes || showPaymentTerms) && (
+        <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+          <legend className="px-2 text-sm font-medium text-slate-700">
+            Notes &amp; terms
+          </legend>
+          {showNotes && (
+            <TextareaField name="notes" label="Notes" rows={3} />
+          )}
+          {showPaymentTerms && (
+            <TextareaField
+              name="termsOverride"
+              label="Payment terms (override template)"
+              rows={3}
+            />
+          )}
+        </fieldset>
+      )}
+      {!showNotes && <input type="hidden" name="notes" value="" />}
+      {!showPaymentTerms && <input type="hidden" name="termsOverride" value="" />}
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>

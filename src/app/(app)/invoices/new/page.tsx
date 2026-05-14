@@ -55,6 +55,12 @@ export default async function NewInvoicePage() {
   const templates = (await listInvoiceTemplates(companyId)).map((t) => ({
     id: t.id,
     name: t.name,
+    // Section-visibility flags drive the form's conditional rendering so
+    // the operator only fills in fields the template will actually show.
+    showTaxVat: t.showTaxVat,
+    showRetainage: t.showRetainage,
+    showPaymentTerms: t.showPaymentTerms,
+    showNotes: t.showNotes,
   }));
 
   const today = new Date().toISOString().slice(0, 10);
