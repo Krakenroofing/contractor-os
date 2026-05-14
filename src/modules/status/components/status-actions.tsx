@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   getTransitions,
   type EntityType,
@@ -82,12 +83,39 @@ function SingleActionForm({
   disabled: boolean;
   formAction: (formData: FormData) => void;
 }) {
+  // Mark-Paid on an invoice needs a real payment date so VAT/cash reports
+  // get the right quarter. Default to today, but let the user override.
+  const needsPaidDate =
+    entityType === 'invoice' && transition.action === 'mark_paid';
+  const [paidDate, setPaidDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+
   return (
-    <form action={formAction}>
+    <form
+      action={formAction}
+      className={
+        needsPaidDate
+          ? 'inline-flex items-end gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1'
+          : ''
+      }
+    >
       <input type="hidden" name="entityType" value={entityType} />
       <input type="hidden" name="entityId" value={entityId} />
       <input type="hidden" name="currentStatus" value={currentStatus} />
       <input type="hidden" name="action" value={transition.action} />
+      {needsPaidDate && (
+        <label className="flex flex-col text-[10px] uppercase tracking-wide text-slate-500">
+          Paid date
+          <Input
+            type="date"
+            name="paidDate"
+            value={paidDate}
+            onChange={(e) => setPaidDate(e.target.value)}
+            className="h-8 text-sm"
+          />
+        </label>
+      )}
       <Button
         type="submit"
         size="sm"

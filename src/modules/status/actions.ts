@@ -100,9 +100,26 @@ export async function transitionStatusAction(
 
   const companyId = await getActiveCompanyId();
 
+  // Mark-Paid on an invoice carries an optional paid-date so VAT / cash
+  // reports bucket the synthetic payment into the right quarter. Validate
+  // it lightly; fall through to "today" inside the data layer if missing.
+  let paidDate: string | undefined;
+  if (entityRaw === 'invoice' && action === 'mark_paid') {
+    const raw = formData.get('paidDate');
+    if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      paidDate = raw;
+    }
+  }
+
   let previousStatus: string;
   try {
-    const result = await updateEntityStatus(companyId, entityRaw, entityId, transition.to);
+    const result = await updateEntityStatus(
+      companyId,
+      entityRaw,
+      entityId,
+      transition.to,
+      paidDate ? { paidDate } : undefined,
+    );
     previousStatus = result.previousStatus;
   } catch (err) {
     if (err instanceof EntityNotFoundError) {

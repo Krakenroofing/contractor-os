@@ -3333,14 +3333,30 @@ export class EntityNotFoundError extends Error {
  * fallback. Returns the previous status string for use in the audit-log
  * summary.
  */
+export type UpdateEntityStatusOptions = {
+  /**
+   * For invoice mark_paid transitions only. ISO YYYY-MM-DD. When provided,
+   * the synthetic "balance payment" the system auto-records uses this date
+   * instead of today — important for accrual VAT / quarterly cash reports.
+   */
+  paidDate?: string;
+};
+
 export async function updateEntityStatus(
   companyId: string,
   entity: StatusEntityKey,
   id: string,
   newStatus: string,
+  options?: UpdateEntityStatusOptions,
 ): Promise<{ previousStatus: string }> {
   if (isDatabaseConfigured()) {
-    const dbResult = await updateEntityStatusDb(companyId, entity, id, newStatus);
+    const dbResult = await updateEntityStatusDb(
+      companyId,
+      entity,
+      id,
+      newStatus,
+      options,
+    );
     if (dbResult) return dbResult;
     // For invoice / payment we fall through to the in-memory branch below
     // because those modules haven't been migrated yet.
@@ -3438,7 +3454,9 @@ export async function updateEntityStatus(
             id: randomUUID(),
             invoiceId: inv.id,
             paymentNumber: '', // empty — real payments use sequence numbers
-            paidDate: today,
+            // Caller may supply the real payment date so VAT/cash reports
+            // bucket into the correct quarter. Falls back to today.
+            paidDate: options?.paidDate ?? today,
             amount: remaining.toFixed(2),
             method: 'manual_mark_paid',
             reference: null,
@@ -3488,6 +3506,7 @@ async function updateEntityStatusDb(
   entity: StatusEntityKey,
   id: string,
   newStatus: string,
+  options?: UpdateEntityStatusOptions,
 ): Promise<{ previousStatus: string } | null> {
   // Local imports to keep this function tree-shakeable in demo mode.
   const { eq, and, sql } = await import('drizzle-orm');
@@ -3680,7 +3699,10 @@ async function updateEntityStatusDb(
           await db.insert(invoicePaymentsTable).values({
             invoiceId: id,
             paymentNumber: '',
-            paidDate: today,
+            // Use the operator-supplied paid date when provided so VAT and
+            // cash-this-month reports bucket the synthetic payment into the
+            // right quarter; falls back to today if missing.
+            paidDate: options?.paidDate ?? today,
             amount: remaining.toFixed(2),
             method: 'manual_mark_paid',
             reference: null,
