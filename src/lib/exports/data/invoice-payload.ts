@@ -44,6 +44,51 @@ export async function buildInvoicePayload(
   const total = parseMoney(invoice.total);
   const balance = subtract(total, parseMoney(invoice.amountPaid));
 
+  // Progress-billing context: when this invoice has a `percentOfContract`
+  // and lives on a project with a contract value, derive the cumulative
+  // billing / previously-paid / cumulative-retention rollup so we can
+  // render the breakdown instead of standard line items.
+  const progressPct =
+    invoice.percentOfContract && Number(invoice.percentOfContract) > 0
+      ? Number(invoice.percentOfContract)
+      : null;
+  const progressContext =
+    progressPct !== null && project && parseMoney(project.contractValue) > 0
+      ? await (async () => {
+          const contract = parseMoney(project.contractValue);
+          const allProjectInvoices = await listInvoicesForProject(project.id);
+          const prior = allProjectInvoices
+            .filter((i) => i.id !== invoice.id)
+            .filter(
+              (i) =>
+                normalizeStatus('invoice', i.status) !== 'void' &&
+                i.invoiceDate <= invoice.invoiceDate,
+            );
+          const priorNet = prior.reduce(
+            (acc, i) =>
+              acc +
+              (parseMoney(i.subtotal) - parseMoney(i.retainageAmount)),
+            0,
+          );
+          const cumulative = (progressPct / 100) * contract;
+          const retentionPct =
+            Number(invoice.retainagePercent) > 0
+              ? Number(invoice.retainagePercent)
+              : 0;
+          const cumRetention = (retentionPct / 100) * cumulative;
+          return {
+            contract,
+            cumulative: Math.round(cumulative * 100) / 100,
+            priorNet: Math.round(priorNet * 100) / 100,
+            priorCount: prior.length,
+            cumRetention: Math.round(cumRetention * 100) / 100,
+            retentionPct,
+            billingNumber: prior.length + 1,
+            pct: progressPct,
+          };
+        })()
+      : null;
+
   // VAT pulled straight from the stored row — the form computes it on the
   // post-retainage base when an invoice is created, so the stored value is
   // authoritative. Recomputing on view would make the display math diverge
@@ -84,35 +129,79 @@ export async function buildInvoicePayload(
   // withheld -> what's actually being billed (net of retainage) -> VAT on
   // that base -> grand total. Makes the retainage subtraction obvious
   // and prevents VAT from being inflated by money that's held back.
-  const totals: DocumentTotalsRow[] = [
-    { label: 'Subtotal', value: subtotal },
-  ];
+  //
+  // In progress-billing mode (invoice has percentOfContract + project has
+  // contract value), the totals stack uses the cumulative framing instead:
+  // "Billing #N — X% Progress" / Less Previously Paid / Less Retention /
+  // Invoice Total / VAT / Final Total — matching the construction-industry
+  // AIA-style progress payment certificate format.
+  const totals: DocumentTotalsRow[] = [];
   const showVatRow = template ? template.showTaxVat : true;
   const showRetainageRow =
     (template ? template.showRetainage : true) && retainageAmount > 0;
-  if (showRetainageRow) {
-    const baseLabel = template?.retainageHeldLabel ?? 'Retainage held';
+
+  if (progressContext) {
+    const baseRetentionLabel =
+      template?.retainageHeldLabel ?? 'Retention held';
     totals.push({
-      label: `Less ${baseLabel.toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
-      value: retainageAmount,
-      negative: true,
+      label: `Billing #${progressContext.billingNumber} — ${progressContext.pct.toFixed(2)}% Progress`,
+      value: progressContext.cumulative,
     });
-    totals.push({ label: 'Net of retainage', value: netOfRetainage });
+    if (progressContext.priorNet > 0) {
+      totals.push({
+        label: `Less previously paid (${progressContext.priorCount} prior invoice${progressContext.priorCount === 1 ? '' : 's'})`,
+        value: progressContext.priorNet,
+        negative: true,
+      });
+    }
+    if (showRetainageRow && progressContext.cumRetention > 0) {
+      totals.push({
+        label: `Less ${baseRetentionLabel.toLowerCase()} (${progressContext.retentionPct.toFixed(2)}% of cumulative)`,
+        value: progressContext.cumRetention,
+        negative: true,
+      });
+    }
+    totals.push({ label: 'Invoice total', value: netOfRetainage, bold: true });
+    if (showVatRow) {
+      const baseVatLabel = template?.vatLabel ?? 'VAT';
+      const vatLabel =
+        vatRatePct > 0
+          ? `${baseVatLabel} (${vatRatePct.toFixed(2)}%)`
+          : baseVatLabel;
+      totals.push({ label: vatLabel, value: vatAmount });
+    }
+    totals.push({ label: 'Final total', value: total, bold: true });
+    totals.push({
+      label: 'Amount paid',
+      value: parseMoney(invoice.amountPaid),
+    });
+    totals.push({ label: 'Balance due', value: balance, bold: true });
+  } else {
+    totals.push({ label: 'Subtotal', value: subtotal });
+    if (showRetainageRow) {
+      const baseLabel = template?.retainageHeldLabel ?? 'Retainage held';
+      totals.push({
+        label: `Less ${baseLabel.toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
+        value: retainageAmount,
+        negative: true,
+      });
+      totals.push({ label: 'Net of retainage', value: netOfRetainage });
+    }
+    if (showVatRow) {
+      const baseVatLabel = template?.vatLabel ?? 'VAT';
+      const vatLabel = showRetainageRow
+        ? vatRatePct > 0
+          ? `${baseVatLabel} on net (${vatRatePct.toFixed(2)}%)`
+          : `${baseVatLabel} on net`
+        : vatRatePct > 0
+          ? `${baseVatLabel} (${vatRatePct.toFixed(2)}%)`
+          : (template?.vatLabel ?? 'Tax / VAT');
+      totals.push({ label: vatLabel, value: vatAmount });
+    }
+    totals.push({ label: 'Net amount due', value: total, bold: true });
+    totals.push({ label: 'Amount paid', value: parseMoney(invoice.amountPaid) });
+    totals.push({ label: 'Balance due', value: balance, bold: true });
   }
-  if (showVatRow) {
-    const baseVatLabel = template?.vatLabel ?? 'VAT';
-    const vatLabel = showRetainageRow
-      ? vatRatePct > 0
-        ? `${baseVatLabel} on net (${vatRatePct.toFixed(2)}%)`
-        : `${baseVatLabel} on net`
-      : vatRatePct > 0
-        ? `${baseVatLabel} (${vatRatePct.toFixed(2)}%)`
-        : (template?.vatLabel ?? 'Tax / VAT');
-    totals.push({ label: vatLabel, value: vatAmount });
-  }
-  totals.push({ label: 'Net amount due', value: total, bold: true });
-  totals.push({ label: 'Amount paid', value: parseMoney(invoice.amountPaid) });
-  totals.push({ label: 'Balance due', value: balance, bold: true });
 
   const sections: DocumentSection[] = [];
   if (
@@ -338,20 +427,42 @@ export async function buildInvoicePayload(
         }
       : undefined,
     meta,
-    lines: showLineItems
-      ? lines.map((l) => ({
+    // In progress-billing mode the totals stack tells the whole story
+    // (cumulative → previously paid → retention → invoice total → VAT →
+    // final total), so we suppress the line items table entirely. The line
+    // description gets promoted to headerNote so the recipient still sees
+    // what's being billed for.
+    lines: progressContext || !showLineItems
+      ? []
+      : lines.map((l) => ({
           description: l.description,
           unit: l.unit,
           quantity: Number(l.quantity),
           unitCost: Number(l.unitCost),
           lineTotal: Number(l.lineTotal),
-        }))
-      : [],
+        })),
     simpleLineItems,
     totals,
     sections,
     dataTables: dataTables.length > 0 ? dataTables : undefined,
-    headerNote: template?.headerNote ?? null,
+    // Combine template's headerNote with the (progress-mode-only) line
+    // description so the operator's "what am I billing for" context still
+    // shows up above the totals. Either piece alone is enough.
+    headerNote: (() => {
+      const parts: string[] = [];
+      if (template?.headerNote && template.headerNote.trim() !== '') {
+        parts.push(template.headerNote);
+      }
+      if (progressContext && lines[0]?.description) {
+        const desc = lines[0].description.trim();
+        const autoLabel = `Billing #${progressContext.billingNumber} — ${progressContext.pct.toFixed(2)}% Progress`;
+        // Skip the auto-generated default — it's already the first totals row.
+        if (desc !== '' && desc !== autoLabel && desc !== 'Lump sum billing') {
+          parts.push(desc);
+        }
+      }
+      return parts.length > 0 ? parts.join('\n\n') : null;
+    })(),
     signatureBlock,
     footerNote: showFooter ? (template?.footerText ?? null) : null,
   };

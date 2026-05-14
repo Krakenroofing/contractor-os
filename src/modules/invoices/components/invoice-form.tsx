@@ -35,7 +35,22 @@ function newEmptyLine(): LineDraft {
   };
 }
 
-export type InvoiceFormProjectOption = { id: string; label: string };
+export type InvoiceFormProjectOption = {
+  id: string;
+  label: string;
+  /** Contract value at the time the form was rendered. Powers the
+   *  progress-billing breakdown when the operator enters a % of contract. */
+  contractValue?: number;
+  /** Sum of subtotals on prior non-void invoices for this project. Used to
+   *  compute "this round's gross" = cumulative_billed - priorBilledGross. */
+  priorBilledGross?: number;
+  /** Sum of (subtotal − retainage) on prior non-void invoices. Shown on the
+   *  rendered invoice as "Less previously paid (net)". */
+  priorBilledNet?: number;
+  /** Number of prior non-void invoices on this project. Used to label this
+   *  invoice as "Billing #N" in the progress breakdown. */
+  priorInvoiceCount?: number;
+};
 export type InvoiceFormProposalOption = { id: string; label: string; projectId: string };
 export type InvoiceFormChangeOrderOption = {
   id: string;
@@ -208,6 +223,60 @@ export function InvoiceForm({
     [changeOrders, projectId],
   );
 
+  // Selected project's billing context — drives the progress-billing
+  // breakdown when the operator enters a % of contract.
+  const activeProject = useMemo(
+    () => projects.find((p) => p.id === projectId),
+    [projects, projectId],
+  );
+
+  // Progress mode kicks in when (a) we're in lump-sum, (b) a project with a
+  // non-zero contract value is selected, and (c) the operator entered a %
+  // of contract. In that mode the Amount field is auto-derived as
+  // `cumulative_billed - priorBilledGross` and a breakdown card replaces
+  // the manual entry.
+  const progressMode =
+    isLumpSum &&
+    percentOfContract.trim() !== '' &&
+    !!activeProject?.contractValue &&
+    activeProject.contractValue > 0;
+
+  const progressNumbers = useMemo(() => {
+    if (!progressMode || !activeProject?.contractValue) return null;
+    const contract = activeProject.contractValue;
+    const pct = Number(percentOfContract) || 0;
+    const priorGross = activeProject.priorBilledGross ?? 0;
+    const priorNet = activeProject.priorBilledNet ?? 0;
+    const priorCount = activeProject.priorInvoiceCount ?? 0;
+    const retentionPct = Number(retainagePercent) || 0;
+    const cumulativeBilled = (pct / 100) * contract;
+    const thisRoundGross = Math.max(0, cumulativeBilled - priorGross);
+    const cumulativeRetention = (retentionPct / 100) * cumulativeBilled;
+    return {
+      contract,
+      pct,
+      priorGross,
+      priorNet,
+      priorCount,
+      retentionPct,
+      cumulativeBilled: Math.round(cumulativeBilled * 100) / 100,
+      thisRoundGross: Math.round(thisRoundGross * 100) / 100,
+      cumulativeRetention: Math.round(cumulativeRetention * 100) / 100,
+      billingNumber: priorCount + 1,
+    };
+  }, [progressMode, activeProject, percentOfContract, retainagePercent]);
+
+  // Sync the lump-sum amount field whenever the progress math changes so
+  // the totals strip + persistence stay consistent. Manual edits to the
+  // Amount field are blocked while progressMode is on (Input becomes
+  // read-only below).
+  useEffect(() => {
+    if (progressNumbers) {
+      setLumpAmount(progressNumbers.thisRoundGross.toFixed(2));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progressNumbers?.thisRoundGross]);
+
   const totals = useMemo(() => {
     let subtotal = 0;
     if (isLumpSum) {
@@ -269,11 +338,20 @@ export function InvoiceForm({
     : totals.retainage.toFixed(2);
 
   // In lump-sum mode, ship a single synthetic line so the existing data
-  // path (lines table, totals math, reporting) keeps working.
+  // path (lines table, totals math, reporting) keeps working. Progress
+  // mode supplies a default description like "Billing #N — X% Progress"
+  // so the rendered invoice carries the context even if the operator
+  // leaves the Description field blank.
+  const progressDefaultDescription = progressNumbers
+    ? `Billing #${progressNumbers.billingNumber} — ${progressNumbers.pct.toFixed(2)}% Progress`
+    : '';
   const linesPayload = isLumpSum
     ? [
         {
-          description: lumpDescription || 'Lump sum billing',
+          description:
+            lumpDescription ||
+            progressDefaultDescription ||
+            'Lump sum billing',
           unit: '',
           quantity: '1',
           unitCost: lumpAmount || '0',
@@ -453,9 +531,9 @@ export function InvoiceForm({
           </legend>
           <p className="text-xs text-slate-500">
             Single-line draw — enter what you&apos;re billing and the amount.
-            Use &quot;% of contract&quot; for context (e.g. &quot;30% of
-            contract&quot; on a progress draw); it&apos;s shown on the invoice
-            but doesn&apos;t auto-compute the total.
+            To bill a percentage of the contract value (with auto prior-billed
+            tracking), fill in &quot;% of contract&quot; once a project is
+            selected.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <div className="md:col-span-6">
@@ -463,21 +541,29 @@ export function InvoiceForm({
               <Input
                 value={lumpDescription}
                 onChange={(e) => setLumpDescription(e.target.value)}
-                placeholder="e.g. Foundation work — 30% draw"
+                placeholder={
+                  progressMode
+                    ? `Billing #${progressNumbers?.billingNumber ?? 1} — ${(progressNumbers?.pct ?? 0).toFixed(0)}% progress`
+                    : 'e.g. Foundation work — 30% draw'
+                }
               />
             </div>
             <div className="md:col-span-3">
-              <Label className="text-xs">Amount</Label>
+              <Label className="text-xs">
+                {progressMode ? 'Amount (auto from %)' : 'Amount'}
+              </Label>
               <Input
                 type="number"
                 step="0.01"
                 value={lumpAmount}
                 onChange={(e) => setLumpAmount(e.target.value)}
+                readOnly={progressMode}
+                disabled={progressMode}
                 className="tabular-nums"
               />
             </div>
             <div className="md:col-span-3">
-              <Label className="text-xs">% of contract (optional)</Label>
+              <Label className="text-xs">% of contract</Label>
               <Input
                 type="number"
                 step="0.001"
@@ -488,6 +574,25 @@ export function InvoiceForm({
               />
             </div>
           </div>
+          {progressMode && progressNumbers && (
+            <ProgressBreakdown
+              data={progressNumbers}
+              taxRate={companyVatRatePercent}
+              showRetainage={showRetainage}
+              showTaxVat={showTaxVat}
+            />
+          )}
+          {!progressMode &&
+            isLumpSum &&
+            percentOfContract.trim() !== '' &&
+            (!activeProject ||
+              !activeProject.contractValue ||
+              activeProject.contractValue <= 0) && (
+              <p className="text-xs text-amber-700">
+                Pick a project with a non-zero contract value to enable
+                automatic progress-billing math.
+              </p>
+            )}
         </fieldset>
       )}
 
@@ -893,6 +998,98 @@ function TemplateSummary({
         </Link>{' '}
         to change them. The form below only shows fields that are enabled.
       </p>
+    </div>
+  );
+}
+
+function ProgressBreakdown({
+  data,
+  taxRate,
+  showRetainage,
+  showTaxVat,
+}: {
+  data: {
+    contract: number;
+    pct: number;
+    priorNet: number;
+    priorCount: number;
+    retentionPct: number;
+    cumulativeBilled: number;
+    thisRoundGross: number;
+    cumulativeRetention: number;
+    billingNumber: number;
+  };
+  taxRate: number;
+  showRetainage: boolean;
+  showTaxVat: boolean;
+}) {
+  // What the customer sees on the rendered invoice — same shape as the PDF
+  // breakdown so the operator can verify the math before clicking save.
+  // "Less retention" uses the cumulative figure (template-set retention% ×
+  // cumulative billed) to match the user's reference PDF format.
+  const cumRetentionShown = showRetainage ? data.cumulativeRetention : 0;
+  const invoiceTotal =
+    data.cumulativeBilled - data.priorNet - cumRetentionShown;
+  const vat = showTaxVat
+    ? Math.round(((invoiceTotal * taxRate) / 100) * 100) / 100
+    : 0;
+  const finalTotal = invoiceTotal + vat;
+  return (
+    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs">
+      <p className="font-medium text-emerald-900 mb-2">
+        Progress billing breakdown
+      </p>
+      <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
+        <span className="text-slate-700">Contract value</span>
+        <span className="text-slate-900 text-right">
+          {formatMoney(data.contract)}
+        </span>
+        <span className="text-slate-700">
+          Billing #{data.billingNumber} — {data.pct.toFixed(2)}% Progress
+        </span>
+        <span className="text-slate-900 text-right">
+          {formatMoney(data.cumulativeBilled)}
+        </span>
+        <span className="text-slate-700">
+          Less previously paid ({data.priorCount} prior invoice
+          {data.priorCount === 1 ? '' : 's'})
+        </span>
+        <span className="text-slate-900 text-right">
+          ({formatMoney(data.priorNet)})
+        </span>
+        {showRetainage && (
+          <>
+            <span className="text-slate-700">
+              Less retention ({data.retentionPct.toFixed(2)}% of cumulative)
+            </span>
+            <span className="text-slate-900 text-right">
+              ({formatMoney(data.cumulativeRetention)})
+            </span>
+          </>
+        )}
+        <span className="font-medium text-slate-900 border-t border-emerald-200 pt-1">
+          Invoice total
+        </span>
+        <span className="font-medium text-slate-900 text-right border-t border-emerald-200 pt-1">
+          {formatMoney(invoiceTotal)}
+        </span>
+        {showTaxVat && (
+          <>
+            <span className="text-slate-700">
+              VAT ({taxRate.toFixed(2)}%)
+            </span>
+            <span className="text-slate-900 text-right">
+              {formatMoney(vat)}
+            </span>
+          </>
+        )}
+        <span className="font-semibold text-emerald-900 border-t border-emerald-200 pt-1">
+          Final total
+        </span>
+        <span className="font-semibold text-emerald-900 text-right border-t border-emerald-200 pt-1">
+          {formatMoney(finalTotal)}
+        </span>
+      </div>
     </div>
   );
 }

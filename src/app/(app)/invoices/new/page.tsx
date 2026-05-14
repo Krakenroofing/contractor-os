@@ -6,11 +6,16 @@ import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listInvoiceTemplates } from '@/lib/data/invoice-templates';
-import { listInvoices } from '@/lib/data/invoices';
+import {
+  listInvoices,
+  listInvoicesForProject,
+} from '@/lib/data/invoices';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
+import { parseMoney } from '@/lib/money';
+import { normalizeStatus } from '@/lib/status-machine';
 import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
 
 export const dynamic = 'force-dynamic';
@@ -33,12 +38,33 @@ export default async function NewInvoicePage() {
   const companyId = await getActiveCompanyId();
   const activeCompany = await getActiveCompany();
 
+  // For each project, also bundle: contract value, sum of prior billed
+  // (gross + net), and prior invoice count. The form uses these to power
+  // the progress-billing breakdown when the operator enters a % of contract
+  // — auto-computing this invoice's subtotal as `cum - prior_billed_gross`,
+  // and showing the "Less previously paid" / "Less retention" rollups.
   const projects = await Promise.all(
     (await listProjects(companyId)).map(async (p) => {
       const customer = await getCustomer(companyId, p.customerId);
+      const prior = (await listInvoicesForProject(p.id)).filter(
+        (i) => normalizeStatus('invoice', i.status) !== 'void',
+      );
+      const priorBilledGross = prior.reduce(
+        (acc, i) => acc + parseMoney(i.subtotal),
+        0,
+      );
+      const priorBilledNet = prior.reduce(
+        (acc, i) =>
+          acc + (parseMoney(i.subtotal) - parseMoney(i.retainageAmount)),
+        0,
+      );
       return {
         id: p.id,
         label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+        contractValue: parseMoney(p.contractValue),
+        priorBilledGross: Math.round(priorBilledGross * 100) / 100,
+        priorBilledNet: Math.round(priorBilledNet * 100) / 100,
+        priorInvoiceCount: prior.length,
       };
     }),
   );
