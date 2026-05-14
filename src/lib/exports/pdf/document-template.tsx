@@ -323,7 +323,6 @@ function PartiesBlock({ payload }: { payload: DocumentPayload }) {
           {proj.name ? (
             <Text style={{ fontFamily: 'Helvetica-Bold' }}>{proj.name}</Text>
           ) : null}
-          {proj.number ? <Text style={styles.muted}>#{proj.number}</Text> : null}
           {proj.description ? (
             <Text style={styles.muted}>{proj.description}</Text>
           ) : null}
@@ -351,14 +350,45 @@ function LineItemsTable({
   lines,
   showCostCode,
   showMarkup,
+  simple,
   currency,
 }: {
   lines: DocumentLine[];
   showCostCode: boolean;
   showMarkup: boolean;
+  /** Lump-sum mode: only Description + Line total. Suppresses qty / unit /
+   *  unit-cost columns since lump-sum draws ship qty=1, unit='', cost=total. */
+  simple: boolean;
   currency: string;
 }) {
   if (lines.length === 0) return null;
+
+  // Simple mode — Description + Line total only. Used for lump-sum draws
+  // where the qty / unit / unit-cost columns are meaningless noise.
+  if (simple) {
+    return (
+      <View style={[styles.section, styles.table]}>
+        <View style={styles.th} fixed>
+          <Cell w={75}>Description</Cell>
+          <Cell w={25} align="right">
+            Line total
+          </Cell>
+        </View>
+        {lines.map((l, i) => (
+          <View
+            key={i}
+            style={[styles.tr, i % 2 === 1 ? styles.trAlt : {}]}
+            wrap={false}
+          >
+            <BodyCell w={75}>{l.description}</BodyCell>
+            <BodyCell w={25} align="right">
+              {formatMoneyForPdf(l.lineTotal, currency)}
+            </BodyCell>
+          </View>
+        ))}
+      </View>
+    );
+  }
 
   // Column widths (sum to 100). Tweak based on optional columns.
   const cols = (() => {
@@ -522,20 +552,22 @@ function HeaderNote({ note }: { note: string }) {
 }
 
 function SignatureBlock({ block }: { block: NonNullable<DocumentPayload['signatureBlock']> }) {
+  // `wrap={false}` keeps the signature unit together, but the top margin is
+  // intentionally small so it slots into the bottom of page 1 whenever
+  // there's room. The signature line itself is short (20px) for the same
+  // reason — large enough to write across, small enough not to push the
+  // block onto its own page on shorter invoices.
   return (
-    <View
-      style={{ marginTop: pdfTheme.spacing.section + 12 }}
-      wrap={false}
-    >
-      <Text style={styles.sectionTitle}>{block.label}</Text>
-      <View style={{ flexDirection: 'row', gap: 24, marginTop: 16 }}>
+    <View style={{ marginTop: 16 }} wrap={false}>
+      <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>{block.label}</Text>
+      <View style={{ flexDirection: 'row', gap: 24 }}>
         <View style={{ flex: 2 }}>
           <View
             style={{
               borderBottomWidth: 1,
               borderBottomColor: pdfTheme.colors.text,
-              height: 30,
-              marginBottom: 4,
+              height: 20,
+              marginBottom: 2,
             }}
           />
           <Text style={styles.subtle}>Signature</Text>
@@ -551,8 +583,8 @@ function SignatureBlock({ block }: { block: NonNullable<DocumentPayload['signatu
             style={{
               borderBottomWidth: 1,
               borderBottomColor: pdfTheme.colors.text,
-              height: 30,
-              marginBottom: 4,
+              height: 20,
+              marginBottom: 2,
             }}
           />
           <Text style={styles.subtle}>Date</Text>
@@ -658,6 +690,7 @@ export function DocumentPdf({ payload }: { payload: DocumentPayload }) {
           lines={payload.lines ?? []}
           showCostCode={Boolean(payload.showLineCostCode)}
           showMarkup={Boolean(payload.showLineMarkup)}
+          simple={Boolean(payload.simpleLineItems)}
           currency={currency}
         />
         <TotalsBlock totals={payload.totals} currency={currency} />

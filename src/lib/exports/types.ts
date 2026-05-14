@@ -139,6 +139,13 @@ export interface DocumentPayload {
   lines?: DocumentLine[];
   showLineCostCode?: boolean;
   showLineMarkup?: boolean;
+  /**
+   * When true, the line items table renders in a stripped-down "lump-sum"
+   * mode: just Description + Line total, no qty / unit / unit-cost columns.
+   * Set by the invoice payload when billing type is `lump_sum` (the qty/unit
+   * data is meaningless for contract draws). Defaults to false.
+   */
+  simpleLineItems?: boolean;
 
   // Totals stack at the bottom of the line items.
   totals: DocumentTotalsRow[];

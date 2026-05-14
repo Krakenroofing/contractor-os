@@ -105,6 +105,7 @@ export async function renderDocumentXlsx(
       payload.lines,
       Boolean(payload.showLineCostCode),
       Boolean(payload.showLineMarkup),
+      Boolean(payload.simpleLineItems),
     );
   }
 
@@ -260,11 +261,45 @@ function writeLineItems(
   lines: DocumentLine[],
   showCostCode: boolean,
   showMarkup: boolean,
+  simple: boolean,
 ): number {
   const heading = ws.getCell(`A${startRow}`);
   heading.value = 'Line items';
   heading.font = { bold: true, size: 12 };
   let row = startRow + 1;
+
+  // Lump-sum mode: only Description + Line total. No qty/unit/unit-cost
+  // columns or SUM formulas — the line total IS the entered amount.
+  if (simple) {
+    const headers = ['Description', 'Line total'];
+    headers.forEach((h, i) => {
+      const cell = ws.getCell(row, i + 1);
+      cell.value = h;
+      cell.font = { bold: true };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF1F5F9' },
+      };
+    });
+    row += 1;
+    const firstLineRow = row;
+    for (const l of lines) {
+      ws.getCell(row, 1).value = l.description;
+      const total = ws.getCell(row, 2);
+      total.value = l.lineTotal;
+      total.numFmt = CURRENCY_FORMAT;
+      row += 1;
+    }
+    const lastLineRow = row - 1;
+    ws.getCell(row, 1).value = 'Subtotal';
+    ws.getCell(row, 1).font = { bold: true };
+    const subCell = ws.getCell(row, 2);
+    subCell.value = { formula: `SUM(B${firstLineRow}:B${lastLineRow})` };
+    subCell.numFmt = CURRENCY_FORMAT;
+    subCell.font = { bold: true };
+    return row + 2;
+  }
 
   // Column layout (dynamic):
   //   [code?] | description | qty | unit | unit cost | [markup?] | line total

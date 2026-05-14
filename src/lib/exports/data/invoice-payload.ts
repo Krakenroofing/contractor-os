@@ -20,7 +20,6 @@ import type {
   DocumentDataTable,
   DocumentSignatureBlock,
 } from '@/lib/exports/types';
-import { BILLING_TYPE_LABEL } from '@/modules/invoices/schema';
 
 export async function buildInvoicePayload(
   companyId: string,
@@ -54,18 +53,15 @@ export async function buildInvoicePayload(
       ? template.titleOverride
       : 'Invoice';
 
-  // Invoice # / date / due date / billing type always render — they're
-  // identity, not metadata. The `showProjectMetadata` flag only gates the
-  // PO # / Billing # rows since those are owner-controlled fields.
+  // Invoice # / date / due date — identity, always render. Billing type
+  // is operator-facing only (drives form behavior), not something the
+  // recipient needs on the invoice, so it's omitted from the PDF/Excel.
+  // The `showProjectMetadata` flag gates the PO # / Billing # rows below.
   const meta: DocumentMeta[] = [
     { label: 'Invoice #', value: invoice.number },
     { label: 'Invoice date', value: invoice.invoiceDate },
   ];
   if (invoice.dueDate) meta.push({ label: 'Due date', value: invoice.dueDate });
-  meta.push({
-    label: 'Billing type',
-    value: BILLING_TYPE_LABEL[invoice.billingType],
-  });
   const showProjectMetadata = template ? template.showProjectMetadata : true;
   if (showProjectMetadata && invoice.purchaseOrderNumber) {
     meta.push({
@@ -129,14 +125,27 @@ export async function buildInvoicePayload(
       body: invoice.termsOverride || template?.paymentTermsText || '',
     });
   }
-  if (
-    (template ? template.showWireInstructions : false) &&
-    template?.wireInstructionsNote
-  ) {
-    sections.push({
-      title: 'Wire / payment instructions',
-      body: template.wireInstructionsNote,
-    });
+  if (template ? template.showWireInstructions : false) {
+    // Compose wire instructions from the company's bank fields (set in
+    // company settings) plus the template's free-text note. Either alone
+    // is enough to render the section; both together is the common case.
+    const bankLines: string[] = [];
+    if (company.bankName) bankLines.push(`Bank: ${company.bankName}`);
+    if (company.bankBranch) bankLines.push(`Branch: ${company.bankBranch}`);
+    if (company.bankAccountName)
+      bankLines.push(`Account name: ${company.bankAccountName}`);
+    if (company.bankAccountNumber)
+      bankLines.push(`Account number: ${company.bankAccountNumber}`);
+    if (company.bankAddress) bankLines.push(`Bank address: ${company.bankAddress}`);
+    if (company.paymentNotes) bankLines.push(company.paymentNotes);
+    const templateNote = template?.wireInstructionsNote?.trim() ?? '';
+    const body = [bankLines.join('\n'), templateNote].filter(Boolean).join('\n\n');
+    if (body.trim() !== '') {
+      sections.push({
+        title: 'Wire / payment instructions',
+        body,
+      });
+    }
   }
   if (
     (template ? template.showNotes : true) &&
@@ -273,11 +282,19 @@ export async function buildInvoicePayload(
       }
     : null;
 
+  // Lump-sum invoices ship qty=1, unit='', unitCost=lineTotal. Showing the
+  // qty/unit/unit-cost columns on a lump-sum draw is just noise, so the
+  // renderer drops them via `simpleLineItems`.
+  const simpleLineItems =
+    invoice.billingType === 'lump_sum' ||
+    template?.lineItemLayout === 'lumpsum';
+
   return {
     type: 'invoice',
     title,
     number: invoice.number,
-    statusLabel: invoice.status,
+    // statusLabel intentionally omitted — DRAFT / SENT / PAID is an
+    // operator-side state, not something the recipient needs on the PDF.
     showCompanyHeader,
     company: {
       ...(await buildCompanyInfo(company)),
@@ -316,6 +333,7 @@ export async function buildInvoicePayload(
           lineTotal: Number(l.lineTotal),
         }))
       : [],
+    simpleLineItems,
     totals,
     sections,
     dataTables: dataTables.length > 0 ? dataTables : undefined,
