@@ -50,6 +50,10 @@ export type InvoiceFormProjectOption = {
   /** Number of prior non-void invoices on this project. Used to label this
    *  invoice as "Billing #N" in the progress breakdown. */
   priorInvoiceCount?: number;
+  /** Retention % from the most-recent prior invoice on this project. The
+   *  form pre-fills the Retainage % field with this so progress draws stay
+   *  consistent across billings without re-typing. */
+  lastRetainagePercent?: number;
 };
 export type InvoiceFormProposalOption = { id: string; label: string; projectId: string };
 export type InvoiceFormChangeOrderOption = {
@@ -276,6 +280,23 @@ export function InvoiceForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progressNumbers?.thisRoundGross]);
+
+  // When the operator selects a project that has prior invoices on it,
+  // pre-fill Retainage % from the most recent one. Keeps progress draws
+  // consistent across billings without making the operator re-type 10
+  // every time. Only fires when retainage% is still at its default ("0"),
+  // so manual edits won't get clobbered.
+  useEffect(() => {
+    if (
+      activeProject?.lastRetainagePercent !== undefined &&
+      activeProject.lastRetainagePercent > 0 &&
+      (retainagePercent === '0' || retainagePercent === '')
+    ) {
+      setRetainagePercent(activeProject.lastRetainagePercent.toString());
+      setRetainageAmountManual(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const totals = useMemo(() => {
     let subtotal = 0;

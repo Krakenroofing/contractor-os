@@ -10,7 +10,7 @@ import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { getActiveCompany } from '@/lib/active-company';
 import { buildCompanyInfo } from '@/lib/exports/data/company-info';
-import { add, parseMoney, subtract } from '@/lib/money';
+import { add, formatMoney, parseMoney, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import type {
   DocumentPayload,
@@ -141,22 +141,27 @@ export async function buildInvoicePayload(
     (template ? template.showRetainage : true) && retainageAmount > 0;
 
   if (progressContext) {
-    const baseRetentionLabel =
+    // If the template label already starts with "Less" (operator's
+    // preference), don't prepend another one — avoids "Less less retainage".
+    const rawRetentionLabel =
       template?.retainageHeldLabel ?? 'Retention held';
+    const retentionLabel = rawRetentionLabel
+      .replace(/^less\s+/i, '')
+      .toLowerCase();
     totals.push({
       label: `Billing #${progressContext.billingNumber} — ${progressContext.pct.toFixed(2)}% Progress`,
       value: progressContext.cumulative,
     });
     if (progressContext.priorNet > 0) {
       totals.push({
-        label: `Less previously paid (${progressContext.priorCount} prior invoice${progressContext.priorCount === 1 ? '' : 's'})`,
+        label: 'Less previously paid',
         value: progressContext.priorNet,
         negative: true,
       });
     }
     if (showRetainageRow && progressContext.cumRetention > 0) {
       totals.push({
-        label: `Less ${baseRetentionLabel.toLowerCase()} (${progressContext.retentionPct.toFixed(2)}% of cumulative)`,
+        label: `Less ${retentionLabel} (${progressContext.retentionPct.toFixed(2)}% of cumulative)`,
         value: progressContext.cumRetention,
         negative: true,
       });
@@ -179,9 +184,10 @@ export async function buildInvoicePayload(
   } else {
     totals.push({ label: 'Subtotal', value: subtotal });
     if (showRetainageRow) {
-      const baseLabel = template?.retainageHeldLabel ?? 'Retainage held';
+      const rawLabel = template?.retainageHeldLabel ?? 'Retainage held';
+      const cleanLabel = rawLabel.replace(/^less\s+/i, '').toLowerCase();
       totals.push({
-        label: `Less ${baseLabel.toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
+        label: `Less ${cleanLabel} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
         value: retainageAmount,
         negative: true,
       });
@@ -281,6 +287,9 @@ export async function buildInvoicePayload(
   // Builds a small structured table (contract value, approved COs, prior
   // billed, this invoice, retainage) so the recipient sees the financial
   // arc of the project, not just this single invoice.
+  const currency = company.defaultCurrency ?? 'USD';
+  const fmtAmount = (n: number, negative = false): string =>
+    negative ? `(${formatMoney(n, currency)})` : formatMoney(n, currency);
   const dataTables: DocumentDataTable[] = [];
   if (template?.showProgressBilling && project) {
     const projectCOs = await listChangeOrders(companyId);
@@ -305,7 +314,7 @@ export async function buildInvoicePayload(
 
     const fmtRow = (label: string, amount: number, negative = false): string[] => [
       label,
-      `${negative ? '(' : ''}${amount.toFixed(2)}${negative ? ')' : ''}`,
+      fmtAmount(amount, negative),
     ];
 
     dataTables.push({
@@ -369,9 +378,9 @@ export async function buildInvoicePayload(
             i.number,
             i.invoiceDate,
             i.status,
-            sub.toFixed(2),
-            paid.toFixed(2),
-            bal.toFixed(2),
+            fmtAmount(sub),
+            fmtAmount(paid),
+            fmtAmount(bal),
           ];
         }),
       });

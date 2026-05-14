@@ -58,6 +58,16 @@ export default async function NewInvoicePage() {
           acc + (parseMoney(i.subtotal) - parseMoney(i.retainageAmount)),
         0,
       );
+      // Default retention % from the most-recent prior invoice — saves the
+      // operator from re-typing the same number for each draw. Falls back
+      // to undefined if no priors exist (the form leaves the field blank).
+      const sortedPrior = [...prior].sort((a, b) =>
+        b.invoiceDate.localeCompare(a.invoiceDate),
+      );
+      const lastRetainagePercent =
+        sortedPrior.length > 0
+          ? Number(sortedPrior[0].retainagePercent)
+          : undefined;
       return {
         id: p.id,
         label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
@@ -65,6 +75,7 @@ export default async function NewInvoicePage() {
         priorBilledGross: Math.round(priorBilledGross * 100) / 100,
         priorBilledNet: Math.round(priorBilledNet * 100) / 100,
         priorInvoiceCount: prior.length,
+        lastRetainagePercent,
       };
     }),
   );

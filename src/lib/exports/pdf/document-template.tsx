@@ -244,18 +244,18 @@ function initials(name: string): string {
 function HeaderBlock({ payload }: { payload: DocumentPayload }) {
   const c = payload.company;
   const tinLabel = c.tinLabel && c.tinLabel.trim() !== '' ? c.tinLabel : 'TIN';
+  // When the company hasn't uploaded a logo image, drop the initials chip
+  // entirely so the company text sits flush against the left page margin
+  // rather than indented by a placeholder block.
+  const hasLogo = !!c.logoDataUrl;
   return (
     <View style={styles.headerRow}>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        {c.logoDataUrl ? (
+      <View style={{ flexDirection: 'row', gap: hasLogo ? 10 : 0 }}>
+        {hasLogo ? (
           // @react-pdf accepts data URLs directly for <Image src>; sized
           // generously so a reasonable logo file doesn't get crushed.
-          <Image src={c.logoDataUrl} style={styles.logoImage} />
-        ) : (
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>{initials(c.name)}</Text>
-          </View>
-        )}
+          <Image src={c.logoDataUrl!} style={styles.logoImage} />
+        ) : null}
         <View>
           <Text style={styles.companyName}>{c.name}</Text>
           {companyAddress(c) ? (
