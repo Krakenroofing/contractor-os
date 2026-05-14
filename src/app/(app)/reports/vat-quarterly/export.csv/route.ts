@@ -27,12 +27,13 @@ export async function GET(req: NextRequest) {
     ['VAT rate', `${report.companyVatRatePct.toFixed(2)}%`, ''],
     [],
     ['Quarter rollup'],
-    ['Quarter', 'Invoices', 'Subtotal', 'VAT due', 'Total billed'],
+    ['Quarter', 'Invoices', 'Subtotal', 'VAT due', 'Retainage held', 'Total billed'],
     ...report.quarters.map((q) => [
       q.label,
       q.invoiceCount,
       q.subtotal,
       q.vatDue,
+      q.retainage,
       q.total,
     ]),
     [
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
       report.totals.invoiceCount,
       report.totals.subtotal,
       report.totals.vatDue,
+      report.totals.retainage,
       report.totals.total,
     ],
     [],
@@ -55,6 +57,7 @@ export async function GET(req: NextRequest) {
       'Subtotal',
       'VAT rate %',
       'VAT due',
+      'Retainage held',
       'Total',
     ],
     ...report.invoices.map((r) => [
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
       r.subtotal,
       r.vatRatePct,
       r.vatDue,
+      r.retainage,
       r.total,
     ]),
   ];

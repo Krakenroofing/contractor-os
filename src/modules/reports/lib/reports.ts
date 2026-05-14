@@ -57,6 +57,10 @@ export type VatQuarterlyInvoiceRow = {
   subtotal: number;
   vatRatePct: number;
   vatDue: number;
+  /** Retainage held back on this invoice — explains the Subtotal+VAT vs
+   *  Total discrepancy. Pulled straight from invoice.retainageAmount, so
+   *  existing invoices show their stored retainage with no backfill. */
+  retainage: number;
   total: number;
 };
 
@@ -66,6 +70,7 @@ export type VatQuarterlyQuarterRow = {
   invoiceCount: number;
   subtotal: number;
   vatDue: number;
+  retainage: number;
   total: number;
 };
 
@@ -80,6 +85,7 @@ export type VatQuarterlyReport = {
     invoiceCount: number;
     subtotal: number;
     vatDue: number;
+    retainage: number;
     total: number;
   };
 };
@@ -111,7 +117,7 @@ export async function buildVatQuarterlyReport(
       isVatActive,
       quarters: [],
       invoices: [],
-      totals: { invoiceCount: 0, subtotal: 0, vatDue: 0, total: 0 },
+      totals: { invoiceCount: 0, subtotal: 0, vatDue: 0, retainage: 0, total: 0 },
     };
   }
 
@@ -146,6 +152,7 @@ export async function buildVatQuarterlyReport(
       const customer = project ? customerById.get(project.customerId) : null;
       const subtotal = parseMoney(inv.subtotal);
       const vatDue = round2((subtotal * companyVatRatePct) / 100);
+      const retainage = parseMoney(inv.retainageAmount);
       const total = parseMoney(inv.total);
       const { key, label } = quarterKeyForDate(effective);
       return {
@@ -162,6 +169,7 @@ export async function buildVatQuarterlyReport(
         subtotal,
         vatRatePct: companyVatRatePct,
         vatDue,
+        retainage,
         total,
       } as VatQuarterlyInvoiceRow & { _label: string };
     })
@@ -177,6 +185,7 @@ export async function buildVatQuarterlyReport(
       existing.invoiceCount += 1;
       existing.subtotal = add(existing.subtotal, row.subtotal);
       existing.vatDue = add(existing.vatDue, row.vatDue);
+      existing.retainage = add(existing.retainage, row.retainage);
       existing.total = add(existing.total, row.total);
     } else {
       byQuarter.set(row.quarterKey, {
@@ -185,6 +194,7 @@ export async function buildVatQuarterlyReport(
         invoiceCount: 1,
         subtotal: row.subtotal,
         vatDue: row.vatDue,
+        retainage: row.retainage,
         total: row.total,
       });
     }
@@ -198,9 +208,10 @@ export async function buildVatQuarterlyReport(
       invoiceCount: acc.invoiceCount + 1,
       subtotal: add(acc.subtotal, r.subtotal),
       vatDue: add(acc.vatDue, r.vatDue),
+      retainage: add(acc.retainage, r.retainage),
       total: add(acc.total, r.total),
     }),
-    { invoiceCount: 0, subtotal: 0, vatDue: 0, total: 0 },
+    { invoiceCount: 0, subtotal: 0, vatDue: 0, retainage: 0, total: 0 },
   );
 
   // Strip the internal `_label` helper before returning.

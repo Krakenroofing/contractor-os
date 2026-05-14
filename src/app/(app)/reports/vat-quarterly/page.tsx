@@ -62,7 +62,7 @@ export default async function VatQuarterlyReportPage({
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KPI label="VAT rate" value={`${report.companyVatRatePct.toFixed(2)}%`} />
             <KPI label="Sent invoices" value={String(report.totals.invoiceCount)} />
             <KPI
@@ -74,6 +74,13 @@ export default async function VatQuarterlyReportPage({
               value={formatMoney(report.totals.vatDue)}
               valueClassName="text-amber-700"
               highlight
+            />
+            <KPI
+              label="Retainage held"
+              value={formatMoney(report.totals.retainage)}
+              valueClassName={
+                report.totals.retainage > 0 ? 'text-slate-700' : undefined
+              }
             />
           </div>
 
@@ -101,6 +108,7 @@ export default async function VatQuarterlyReportPage({
                       <TableHead className="text-right">Invoices</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                       <TableHead className="text-right">VAT due</TableHead>
+                      <TableHead className="text-right">Retainage</TableHead>
                       <TableHead className="text-right">Total billed</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -118,6 +126,9 @@ export default async function VatQuarterlyReportPage({
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium text-amber-700">
                           {formatMoney(q.vatDue)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {q.retainage > 0 ? `(${formatMoney(q.retainage)})` : '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-slate-600">
                           {formatMoney(q.total)}
@@ -149,6 +160,7 @@ export default async function VatQuarterlyReportPage({
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                       <TableHead className="text-right">VAT due</TableHead>
+                      <TableHead className="text-right">Retainage</TableHead>
                       <TableHead className="text-right">Total</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -185,6 +197,9 @@ export default async function VatQuarterlyReportPage({
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium text-amber-700">
                           {formatMoney(r.vatDue)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {r.retainage > 0 ? `(${formatMoney(r.retainage)})` : '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {formatMoney(r.total)}
