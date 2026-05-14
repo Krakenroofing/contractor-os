@@ -39,14 +39,18 @@ export async function buildInvoicePayload(
   const lines = await getInvoiceLineItems(invoice.id);
 
   const subtotal = parseMoney(invoice.subtotal);
+  const retainageAmount = parseMoney(invoice.retainageAmount);
+  const netOfRetainage = subtract(subtotal, retainageAmount);
   const total = parseMoney(invoice.total);
   const balance = subtract(total, parseMoney(invoice.amountPaid));
 
+  // VAT pulled straight from the stored row — the form computes it on the
+  // post-retainage base when an invoice is created, so the stored value is
+  // authoritative. Recomputing on view would make the display math diverge
+  // from invoice.total whenever an old invoice (pre-formula-change) is
+  // viewed.
   const vatRatePct = template ? Number(template.vatRatePercent) : 0;
-  const vatAmount =
-    vatRatePct > 0
-      ? (subtotal * vatRatePct) / 100
-      : parseMoney(invoice.taxAmount);
+  const vatAmount = parseMoney(invoice.taxAmount);
 
   const title =
     template?.titleOverride && template.titleOverride.trim() !== ''
@@ -76,37 +80,35 @@ export async function buildInvoicePayload(
     });
   }
 
+  // Totals stack reads top-to-bottom as: starting subtotal -> retainage
+  // withheld -> what's actually being billed (net of retainage) -> VAT on
+  // that base -> grand total. Makes the retainage subtraction obvious
+  // and prevents VAT from being inflated by money that's held back.
   const totals: DocumentTotalsRow[] = [
     { label: 'Subtotal', value: subtotal },
   ];
   const showVatRow = template ? template.showTaxVat : true;
-  if (showVatRow) {
-    const vatLabel =
-      vatRatePct > 0
-        ? `${template?.vatLabel ?? 'VAT'} (${vatRatePct.toFixed(2)}%)`
-        : (template?.vatLabel ?? 'Tax / VAT');
-    totals.push({ label: vatLabel, value: vatAmount });
-  }
   const showRetainageRow =
-    (template ? template.showRetainage : true) &&
-    Number(invoice.retainageAmount) > 0;
-  // Intermediate "Gross invoiced" row makes the retainage subtraction
-  // visually unambiguous. Without it, when VAT% equals retainage% the
-  // two cancel and Net amount due looks like nothing was withheld.
-  if (showVatRow && showRetainageRow) {
-    totals.push({
-      label: 'Gross invoiced',
-      value: add(subtotal, vatAmount),
-    });
-  }
+    (template ? template.showRetainage : true) && retainageAmount > 0;
   if (showRetainageRow) {
-    const baseLabel =
-      template?.retainageHeldLabel ?? 'Retainage held';
+    const baseLabel = template?.retainageHeldLabel ?? 'Retainage held';
     totals.push({
       label: `Less ${baseLabel.toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`,
-      value: parseMoney(invoice.retainageAmount),
+      value: retainageAmount,
       negative: true,
     });
+    totals.push({ label: 'Net of retainage', value: netOfRetainage });
+  }
+  if (showVatRow) {
+    const baseVatLabel = template?.vatLabel ?? 'VAT';
+    const vatLabel = showRetainageRow
+      ? vatRatePct > 0
+        ? `${baseVatLabel} on net (${vatRatePct.toFixed(2)}%)`
+        : `${baseVatLabel} on net`
+      : vatRatePct > 0
+        ? `${baseVatLabel} (${vatRatePct.toFixed(2)}%)`
+        : (template?.vatLabel ?? 'Tax / VAT');
+    totals.push({ label: vatLabel, value: vatAmount });
   }
   totals.push({ label: 'Net amount due', value: total, bold: true });
   totals.push({ label: 'Amount paid', value: parseMoney(invoice.amountPaid) });

@@ -84,13 +84,16 @@ export default async function InvoiceDetailPage({
 
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
 
-  // VAT row: derive from template.vatRatePercent if > 0, else use the
-  // invoice's stored taxAmount as a passthrough.
+  // VAT pulled straight from the stored row — the form computes it on
+  // the post-retainage base at create time, so the stored value is
+  // authoritative. Recomputing on view would diverge from invoice.total
+  // for pre-formula-change invoices.
   const vatRatePct = template ? Number(template.vatRatePercent) : 0;
-  const vatAmount =
-    vatRatePct > 0
-      ? (Number(invoice.subtotal) * vatRatePct) / 100
-      : Number(invoice.taxAmount);
+  const netOfRetainage = subtract(
+    parseMoney(invoice.subtotal),
+    parseMoney(invoice.retainageAmount),
+  );
+  const vatAmount = Number(invoice.taxAmount);
 
   // Title override (e.g. "VAT Invoice", "Progress Invoice", "Request for
   // Change Order"). Falls back to a sensible default when the template
@@ -344,37 +347,18 @@ export default async function InvoiceDetailPage({
         </CardHeader>
         <CardContent className="text-sm">
           <div className="space-y-1">
+            {/* Order: subtotal -> less retainage -> net of retainage ->
+                VAT on net -> net amount due. VAT is computed on the
+                post-retainage base so retainage held back isn't taxed
+                until it gets released. */}
             <Row label="Subtotal" value={formatMoney(invoice.subtotal)} />
-            {show('showTaxVat') && (
-              <Row
-                label={
-                  vatRatePct > 0
-                    ? `${template?.vatLabel ?? 'VAT'} (${vatRatePct.toFixed(2)}%)`
-                    : (template?.vatLabel ?? 'Tax / VAT')
-                }
-                value={formatMoney(vatAmount)}
-              />
-            )}
-            {/* "Gross invoiced" row appears between VAT and retainage so
-                the subtraction is visually obvious — without it, when
-                VAT% equals retainage% the two cancel and Net amount due
-                visually looks like nothing was subtracted. */}
-            {show('showTaxVat') &&
-              show('showRetainage') &&
-              Number(invoice.retainageAmount) > 0 && (
-                <Row
-                  label="Gross invoiced"
-                  value={formatMoney(
-                    Number(invoice.subtotal) + Number(vatAmount),
-                  )}
-                />
-              )}
             {show('showRetainage') && Number(invoice.retainageAmount) > 0 && (
               <>
                 <Row
                   label={`Less ${template?.retainageHeldLabel?.toLowerCase() ?? 'retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
                   value={`(${formatMoney(invoice.retainageAmount)})`}
                 />
+                <Row label="Net of retainage" value={formatMoney(netOfRetainage)} />
                 {Number(invoice.retainageReleased) > 0 && (
                   <Row
                     label="Retainage released"
@@ -383,6 +367,21 @@ export default async function InvoiceDetailPage({
                   />
                 )}
               </>
+            )}
+            {show('showTaxVat') && (
+              <Row
+                label={(() => {
+                  const base = template?.vatLabel ?? 'VAT';
+                  const ratePart =
+                    vatRatePct > 0 ? ` (${vatRatePct.toFixed(2)}%)` : '';
+                  const hasRetainage =
+                    show('showRetainage') && Number(invoice.retainageAmount) > 0;
+                  return hasRetainage
+                    ? `${base} on net${ratePart}`
+                    : `${base}${ratePart}` || 'Tax / VAT';
+                })()}
+                value={formatMoney(vatAmount)}
+              />
             )}
             <Row label="Net amount due" value={formatMoney(invoice.total)} bold />
             <Row label="Amount paid" value={formatMoney(invoice.amountPaid)} />

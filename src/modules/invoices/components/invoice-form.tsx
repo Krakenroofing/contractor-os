@@ -221,14 +221,6 @@ export function InvoiceForm({
         );
       }
     }
-    // Auto-VAT from company.vatRatePercent unless user typed in the Tax
-    // field. Keeps the displayed value in sync with subtotal as the user
-    // edits line items.
-    const autoTax =
-      companyVatRatePercent > 0
-        ? Math.round(((subtotal * companyVatRatePercent) / 100) * 100) / 100
-        : 0;
-    const tax = taxAmountManual ? Number(taxAmount) || 0 : autoTax;
     const pct = Number(retainagePercent) || 0;
     // Auto-derive retainage held from subtotal × pct unless the user has
     // manually overridden the held amount.
@@ -236,10 +228,23 @@ export function InvoiceForm({
     const retainage = retainageAmountManual
       ? Number(retainageAmount) || 0
       : Math.round(derivedHeld * 100) / 100;
-    const total = subtract(add(subtotal, tax), retainage);
+    // The amount we're actually billing on this invoice — subtotal less
+    // whatever's being held back. VAT applies to this, not the gross
+    // subtotal: retainage is deferred billing, so the VAT on it is
+    // deferred too (recognized when the retainage gets released).
+    const netOfRetainage = subtract(subtotal, retainage);
+    // Auto-VAT from company.vatRatePercent unless user typed in the Tax
+    // field. Computed on the post-retainage base so the recipient doesn't
+    // pay VAT on money you haven't actually invoiced yet.
+    const autoTax =
+      companyVatRatePercent > 0
+        ? Math.round(((netOfRetainage * companyVatRatePercent) / 100) * 100) / 100
+        : 0;
+    const tax = taxAmountManual ? Number(taxAmount) || 0 : autoTax;
+    const total = add(netOfRetainage, tax);
     const paid = Number(amountPaid) || 0;
     const balance = subtract(total, paid);
-    return { subtotal, tax, retainage, total, paid, balance, pct };
+    return { subtotal, tax, retainage, netOfRetainage, total, paid, balance, pct };
   }, [
     lines,
     isLumpSum,
@@ -680,21 +685,28 @@ export function InvoiceForm({
       </fieldset>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
+        {/* Order: subtotal -> less retainage -> net of retainage -> VAT
+            -> net amount due. VAT is computed on the post-retainage base
+            so retainage held back isn't taxed (it'll be VATed on release). */}
         <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
-        {showTaxVat && <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />}
-        {/* Intermediate "Gross invoiced" makes the retainage subtraction
-            visually obvious — when VAT% = retainage% the two cancel and
-            Net could look like nothing was withheld. */}
-        {showTaxVat && showRetainage && totals.retainage > 0 && (
-          <Stat
-            label="Gross invoiced"
-            value={formatMoney(add(totals.subtotal, totals.tax))}
-          />
-        )}
-        {showRetainage && (
+        {showRetainage && totals.retainage > 0 && (
           <Stat
             label={`Less retainage${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
             value={`(${formatMoney(totals.retainage)})`}
+          />
+        )}
+        {showRetainage && totals.retainage > 0 && (
+          <Stat
+            label="Net of retainage"
+            value={formatMoney(totals.netOfRetainage)}
+          />
+        )}
+        {showTaxVat && (
+          <Stat
+            label={
+              showRetainage && totals.retainage > 0 ? 'VAT on net' : 'Tax / VAT'
+            }
+            value={formatMoney(totals.tax)}
           />
         )}
         <Stat label="Net amount due" value={formatMoney(totals.total)} highlight />
