@@ -16,7 +16,7 @@ export default async function DashboardPage() {
   const company = await getActiveCompany();
   const role = await getActiveRole();
   const data = await buildDashboardData(company.id);
-  const { kpis, alerts } = data;
+  const { kpis, alerts, revenueByQuarter } = data;
 
   // Resource visibility flags — hide sections the active role can't see.
   const canSeeChangeOrders = canView(role, 'change_orders');
@@ -137,16 +137,41 @@ export default async function DashboardPage() {
 
       {canSeeInvoices && (
         <section className="space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
+              Revenue by quarter (ex-VAT)
+            </h2>
+            <p className="text-xs text-slate-400 tabular-nums">
+              Total: {formatMoney(kpis.totalInvoicedNet)}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {revenueByQuarter.map((q) => (
+              <KPI
+                key={q.quarterKey}
+                label={q.label}
+                value={formatMoney(q.revenueNet)}
+                hint={
+                  q.invoiceCount === 0
+                    ? 'No activity'
+                    : `${q.invoiceCount} invoice${q.invoiceCount === 1 ? '' : 's'} · VAT ${formatMoney(q.vat)}`
+                }
+                valueClassName={
+                  q.revenueNet > 0 ? 'text-slate-900' : 'text-slate-400'
+                }
+                href="/reports/vat-quarterly"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {canSeeInvoices && (
+        <section className="space-y-3">
           <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
             Cash &amp; AR
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <KPI
-              label="Revenue invoiced (ex-VAT)"
-              value={formatMoney(kpis.totalInvoicedNet)}
-              hint="Accrual basis — subtotal of sent invoices"
-              href="/invoices"
-            />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <KPI
               label="VAT invoiced"
               value={formatMoney(kpis.totalInvoicedVAT)}

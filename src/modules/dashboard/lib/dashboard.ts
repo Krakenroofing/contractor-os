@@ -84,13 +84,86 @@ export type DashboardAlerts = {
   proposalsExpiringSoon: { count: number; items: AlertItem[] };
 };
 
+export type QuarterRevenueRow = {
+  /** 'YYYY-Qn' — used as a stable React key + URL filter param later. */
+  quarterKey: string;
+  /** 'Q1 2025' — display label. */
+  label: string;
+  /** Sum of invoice subtotals (ex-VAT) for invoices dated in this quarter. */
+  revenueNet: number;
+  /** Sum of invoice taxAmount for invoices dated in this quarter. */
+  vat: number;
+  /** Sum of invoice.total (gross). */
+  gross: number;
+  invoiceCount: number;
+};
+
 export type DashboardData = {
   kpis: DashboardKPIs;
   alerts: DashboardAlerts;
+  /**
+   * Per-quarter revenue breakdown — every quarter from Q1 2025 through the
+   * current quarter (inclusive). Empty quarters are present with zeros so
+   * the UI renders the full timeline.
+   */
+  revenueByQuarter: QuarterRevenueRow[];
   asOf: Date;
 };
 
 // ===== Helpers =====
+
+/** Q1 2025 — fixed start of the revenue-by-quarter timeline shown on the
+ *  dashboard. Could later become configurable per-company. */
+const REVENUE_TIMELINE_START_YEAR = 2025;
+const REVENUE_TIMELINE_START_QUARTER = 1;
+
+function quarterOf(date: { year: number; month: number }): number {
+  return Math.min(4, Math.max(1, Math.ceil(date.month / 3)));
+}
+
+function quarterKey(year: number, q: number): string {
+  return `${year}-Q${q}`;
+}
+
+function quarterLabel(year: number, q: number): string {
+  return `Q${q} ${year}`;
+}
+
+/** Enumerate quarters from (startYear, startQ) up through (endDate)'s
+ *  quarter, inclusive. */
+function enumerateQuartersUpTo(
+  startYear: number,
+  startQ: number,
+  endDate: Date,
+): Array<{ key: string; label: string; year: number; q: number }> {
+  const endYear = endDate.getUTCFullYear();
+  const endQ = quarterOf({
+    year: endYear,
+    month: endDate.getUTCMonth() + 1,
+  });
+  const out: Array<{ key: string; label: string; year: number; q: number }> = [];
+  let y = startYear;
+  let q = startQ;
+  // Cap at 100 iterations as a safety net — 25 years of quarters.
+  for (let i = 0; i < 100; i++) {
+    if (y > endYear || (y === endYear && q > endQ)) break;
+    out.push({ key: quarterKey(y, q), label: quarterLabel(y, q), year: y, q });
+    q += 1;
+    if (q > 4) {
+      q = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
+function quarterKeyForInvoiceDate(iso: string): string {
+  // iso is YYYY-MM-DD; slice safely.
+  const year = Number(iso.slice(0, 4));
+  const month = Number(iso.slice(5, 7));
+  const q = quarterOf({ year, month });
+  return quarterKey(year, q);
+}
 
 function isActiveProject(status: string): boolean {
   return status === 'in_progress' || status === 'won';
@@ -165,6 +238,13 @@ export async function buildDashboardData(
   let totalPaidNet = 0;
   let totalPaidVAT = 0;
   let outstandingAR = 0;
+  // Accumulator for the per-quarter timeline. Keyed by `YYYY-Qn`; only
+  // populated from non-void invoices, dropped if the invoice predates the
+  // timeline start (Q1 2025 today).
+  const byQuarterAcc = new Map<
+    string,
+    { revenueNet: number; vat: number; gross: number; invoiceCount: number }
+  >();
   for (const inv of invoices) {
     const c = normalizeStatus('invoice', inv.status);
     if (c === 'void') continue;
@@ -185,7 +265,41 @@ export async function buildDashboardData(
     totalPaidNet = add(totalPaidNet, paidNet);
     totalPaidVAT = add(totalPaidVAT, paidVat);
     outstandingAR = add(outstandingAR, fin.balance);
+
+    // Quarterly rollup. Bucket by invoiceDate — same source of truth as
+    // the VAT report (accrual basis), so revenue lines up exactly.
+    const qKey = quarterKeyForInvoiceDate(inv.invoiceDate);
+    const acc = byQuarterAcc.get(qKey) ?? {
+      revenueNet: 0,
+      vat: 0,
+      gross: 0,
+      invoiceCount: 0,
+    };
+    acc.revenueNet = add(acc.revenueNet, subtotal);
+    acc.vat = add(acc.vat, tax);
+    acc.gross = add(acc.gross, fin.total);
+    acc.invoiceCount += 1;
+    byQuarterAcc.set(qKey, acc);
   }
+  // Stitch the timeline: Q1 2025 → current quarter, filling empties with 0s
+  // so the dashboard always renders the full sequence the user wants to
+  // see while backfilling.
+  const timelineQuarters = enumerateQuartersUpTo(
+    REVENUE_TIMELINE_START_YEAR,
+    REVENUE_TIMELINE_START_QUARTER,
+    asOf,
+  );
+  const revenueByQuarter: QuarterRevenueRow[] = timelineQuarters.map((q) => {
+    const acc = byQuarterAcc.get(q.key);
+    return {
+      quarterKey: q.key,
+      label: q.label,
+      revenueNet: round2(acc?.revenueNet ?? 0),
+      vat: round2(acc?.vat ?? 0),
+      gross: round2(acc?.gross ?? 0),
+      invoiceCount: acc?.invoiceCount ?? 0,
+    };
+  });
   // outstandingAR equals subtract(totalInvoicedGross, totalPaidGross) under
   // the invariant — kept as a separate sum so over-payments on one invoice
   // never silently offset under-payments on another.
@@ -289,6 +403,7 @@ export async function buildDashboardData(
 
   return {
     asOf,
+    revenueByQuarter,
     kpis: {
       activeProjects,
       totalContractValue: round2(totalContractValue),
