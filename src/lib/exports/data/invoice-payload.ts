@@ -4,17 +4,21 @@ import {
   getInvoiceLineItems,
   listInvoicesForProject,
 } from '@/lib/data/invoices';
+import { listChangeOrders } from '@/lib/data/change-orders';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { getActiveCompany } from '@/lib/active-company';
 import { buildCompanyInfo } from '@/lib/exports/data/company-info';
-import { parseMoney, subtract } from '@/lib/money';
+import { add, parseMoney, subtract } from '@/lib/money';
+import { normalizeStatus } from '@/lib/status-machine';
 import type {
   DocumentPayload,
   DocumentTotalsRow,
   DocumentSection,
   DocumentMeta,
+  DocumentDataTable,
+  DocumentSignatureBlock,
 } from '@/lib/exports/types';
 import { BILLING_TYPE_LABEL } from '@/modules/invoices/schema';
 
@@ -50,6 +54,9 @@ export async function buildInvoicePayload(
       ? template.titleOverride
       : 'Invoice';
 
+  // Invoice # / date / due date / billing type always render — they're
+  // identity, not metadata. The `showProjectMetadata` flag only gates the
+  // PO # / Billing # rows since those are owner-controlled fields.
   const meta: DocumentMeta[] = [
     { label: 'Invoice #', value: invoice.number },
     { label: 'Invoice date', value: invoice.invoiceDate },
@@ -59,13 +66,14 @@ export async function buildInvoicePayload(
     label: 'Billing type',
     value: BILLING_TYPE_LABEL[invoice.billingType],
   });
-  if (invoice.purchaseOrderNumber) {
+  const showProjectMetadata = template ? template.showProjectMetadata : true;
+  if (showProjectMetadata && invoice.purchaseOrderNumber) {
     meta.push({
       label: template?.poNumberLabel ?? 'PO #',
       value: invoice.purchaseOrderNumber,
     });
   }
-  if (invoice.billingLabel) {
+  if (showProjectMetadata && invoice.billingLabel) {
     meta.push({
       label: template?.billingNumberLabel ?? 'Billing #',
       value: invoice.billingLabel,
@@ -122,6 +130,15 @@ export async function buildInvoicePayload(
     });
   }
   if (
+    (template ? template.showWireInstructions : false) &&
+    template?.wireInstructionsNote
+  ) {
+    sections.push({
+      title: 'Wire / payment instructions',
+      body: template.wireInstructionsNote,
+    });
+  }
+  if (
     (template ? template.showNotes : true) &&
     (invoice.notes || template?.notesText)
   ) {
@@ -131,12 +148,141 @@ export async function buildInvoicePayload(
     });
   }
 
+  // showBillToTin gates whether the customer's TIN renders in the bill-to
+  // block. Other customer fields (name, address) always render — they're
+  // not a privacy/policy decision the template should own.
+  const showBillToTin = template ? template.showBillToTin : false;
+  // showLineItems hides the entire line items table — useful for templates
+  // that only show a totals summary (lump-sum draws, retainage releases).
+  const showLineItems = template ? template.showLineItems : true;
+  // showFooter gates the footer note. When off, no footer text appears
+  // even if the template has a body.
+  const showFooter = template ? template.showFooter : true;
+  // showCompanyHeader gates the whole top strip (logo + name + title row).
+  // True unless BOTH branding and header are explicitly off — letting a
+  // template suppress one but not the other was confusing in testing.
+  const showCompanyHeader = template
+    ? template.showCompanyBranding || template.showHeader
+    : true;
+
+  // ---- Progress billing summary table ----
+  // Builds a small structured table (contract value, approved COs, prior
+  // billed, this invoice, retainage) so the recipient sees the financial
+  // arc of the project, not just this single invoice.
+  const dataTables: DocumentDataTable[] = [];
+  if (template?.showProgressBilling && project) {
+    const projectCOs = await listChangeOrders(companyId);
+    const approvedCOTotal = projectCOs
+      .filter(
+        (co) =>
+          co.projectId === invoice.projectId &&
+          normalizeStatus('change_order', co.status) === 'approved',
+      )
+      .reduce((acc, co) => add(acc, parseMoney(co.total)), 0);
+    const originalContract = parseMoney(project.originalContractValue);
+    const revisedContract = add(originalContract, approvedCOTotal);
+
+    const priorInvoices = (await listInvoicesForProject(invoice.projectId))
+      .filter((i) => i.id !== invoice.id)
+      .filter((i) => normalizeStatus('invoice', i.status) !== 'void');
+    const priorBilled = priorInvoices.reduce(
+      (acc, i) => add(acc, parseMoney(i.subtotal)),
+      0,
+    );
+    const retainageHeldNow = parseMoney(invoice.retainageAmount);
+
+    const fmtRow = (label: string, amount: number, negative = false): string[] => [
+      label,
+      `${negative ? '(' : ''}${amount.toFixed(2)}${negative ? ')' : ''}`,
+    ];
+
+    dataTables.push({
+      title: template.progressBillingLabel || 'Progress billing summary',
+      columns: [
+        { label: 'Item', align: 'left', widthPct: 70 },
+        { label: 'Amount', align: 'right', widthPct: 30 },
+      ],
+      rows: [
+        fmtRow(
+          template.contractValueLabel || 'Total contract value',
+          originalContract,
+        ),
+        fmtRow(
+          template.changeOrdersLabel || 'Approved change orders',
+          approvedCOTotal,
+        ),
+        fmtRow('Revised contract', revisedContract),
+        fmtRow(
+          template.priorBilledLabel || 'Less previously billed',
+          priorBilled,
+          true,
+        ),
+        fmtRow('This invoice (subtotal)', subtotal),
+        ...(retainageHeldNow > 0
+          ? [
+              fmtRow(
+                template.retainageHeldLabel || 'Less retainage held',
+                retainageHeldNow,
+                true,
+              ),
+            ]
+          : []),
+        fmtRow('Balance to bill', subtract(revisedContract, add(priorBilled, subtotal))),
+      ],
+    });
+  }
+
+  // ---- Account history (prior invoices on this project) ----
+  if (template?.showAccountHistory && project) {
+    const priorInvoices = (await listInvoicesForProject(invoice.projectId))
+      .filter((i) => i.id !== invoice.id)
+      .filter((i) => normalizeStatus('invoice', i.status) !== 'void')
+      .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
+    if (priorInvoices.length > 0) {
+      dataTables.push({
+        title: template.accountHistoryLabel || 'Account history',
+        columns: [
+          { label: 'Invoice #', widthPct: 18 },
+          { label: 'Date', widthPct: 18 },
+          { label: 'Status', widthPct: 14 },
+          { label: 'Subtotal', align: 'right', widthPct: 17 },
+          { label: 'Paid', align: 'right', widthPct: 17 },
+          { label: 'Balance', align: 'right', widthPct: 16 },
+        ],
+        rows: priorInvoices.map((i) => {
+          const sub = parseMoney(i.subtotal);
+          const paid = parseMoney(i.amountPaid);
+          const bal = subtract(parseMoney(i.total), paid);
+          return [
+            i.number,
+            i.invoiceDate,
+            i.status,
+            sub.toFixed(2),
+            paid.toFixed(2),
+            bal.toFixed(2),
+          ];
+        }),
+      });
+    }
+  }
+
+  // ---- Signature block ----
+  const signatureBlock: DocumentSignatureBlock | null = template?.showSignature
+    ? {
+        label: 'Authorized signature',
+      }
+    : null;
+
   return {
     type: 'invoice',
     title,
     number: invoice.number,
     statusLabel: invoice.status,
-    company: await buildCompanyInfo(company),
+    showCompanyHeader,
+    company: {
+      ...(await buildCompanyInfo(company)),
+      tinLabel: template?.tinLabel ?? null,
+    },
     customer: customer
       ? {
           name: customer.name,
@@ -147,7 +293,9 @@ export async function buildInvoicePayload(
           city: customer.billingCity,
           state: customer.billingState,
           postalCode: customer.billingPostalCode,
-          tinNumber: customer.tinNumber,
+          tinNumber: showBillToTin ? customer.tinNumber : null,
+          attentionLabel: template?.billToAttentionLabel ?? null,
+          tinLabel: template?.tinLabel ?? null,
         }
       : undefined,
     project: project
@@ -155,19 +303,25 @@ export async function buildInvoicePayload(
           name: project.name,
           number: project.number,
           description: project.notes,
+          descriptionLabel: template?.projectDescriptionLabel ?? null,
         }
       : undefined,
     meta,
-    lines: lines.map((l) => ({
-      description: l.description,
-      unit: l.unit,
-      quantity: Number(l.quantity),
-      unitCost: Number(l.unitCost),
-      lineTotal: Number(l.lineTotal),
-    })),
+    lines: showLineItems
+      ? lines.map((l) => ({
+          description: l.description,
+          unit: l.unit,
+          quantity: Number(l.quantity),
+          unitCost: Number(l.unitCost),
+          lineTotal: Number(l.lineTotal),
+        }))
+      : [],
     totals,
     sections,
-    footerNote: template?.footerText ?? null,
+    dataTables: dataTables.length > 0 ? dataTables : undefined,
+    headerNote: template?.headerNote ?? null,
+    signatureBlock,
+    footerNote: showFooter ? (template?.footerText ?? null) : null,
   };
 }
 

@@ -19,6 +19,8 @@ export interface CompanyInfo {
   state?: string | null;
   postalCode?: string | null;
   tinNumber?: string | null;
+  /** Template override for the TIN label, e.g. "VAT #" / "GST #". */
+  tinLabel?: string | null;
   defaultCurrency: string;
   /**
    * Base64 data URL of the company logo (e.g. `data:image/png;base64,...`).
@@ -38,12 +40,18 @@ export interface CustomerInfo {
   state?: string | null;
   postalCode?: string | null;
   tinNumber?: string | null;
+  /** Template override for the bill-to attention label, e.g. "Attn:" / "ATTENTION". */
+  attentionLabel?: string | null;
+  /** Template override for the customer TIN label (separate from company). */
+  tinLabel?: string | null;
 }
 
 export interface ProjectInfo {
   name?: string | null;
   number?: string | null;
   description?: string | null;
+  /** Template override for the project block heading, e.g. "Project" / "Job". */
+  descriptionLabel?: string | null;
 }
 
 export interface DocumentLine {
@@ -97,6 +105,18 @@ export interface DocumentImage {
   src: string;
 }
 
+// Signature / approval block rendered after prose sections. Used by
+// templates with `showSignature` enabled — gives the recipient a clearly
+// demarcated place to sign + date the document.
+export interface DocumentSignatureBlock {
+  /** Headline label, e.g. "Authorized signature", "Client approval". */
+  label: string;
+  /** Optional pre-filled signer name (template-level default). */
+  signerName?: string | null;
+  /** Optional pre-filled signer title, e.g. "Project Manager". */
+  signerTitle?: string | null;
+}
+
 // One canonical shape for everything we render. The PDF and XLSX generators
 // only know about this — they never reach into DB types directly.
 export interface DocumentPayload {
@@ -135,6 +155,20 @@ export interface DocumentPayload {
   // daily reports for photos with captions.
   imageGallery?: DocumentImage[];
 
-  // Footer line shown at the bottom of every PDF page.
+  // When false, the top header strip (logo + company info + title) is
+  // suppressed entirely. Defaults to true. Used by templates that disable
+  // `showCompanyBranding` / `showHeader`.
+  showCompanyHeader?: boolean;
+
+  // Optional headline note rendered before any prose sections. Used by
+  // templates with a `headerNote` set — appears top-of-document under the
+  // meta grid.
+  headerNote?: string | null;
+
+  // Optional signature/approval block rendered after prose sections.
+  signatureBlock?: DocumentSignatureBlock | null;
+
+  // Footer line shown at the bottom of every PDF page. When null the page
+  // footer renders only the page-number row.
   footerNote?: string | null;
 }

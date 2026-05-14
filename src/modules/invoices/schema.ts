@@ -81,6 +81,12 @@ export const invoiceFormSchema = z.object({
   amountPaid: numericString,
   notes: z.string().max(2000).optional().or(z.literal('')),
   termsOverride: z.string().max(4000).optional().or(z.literal('')),
+  // Project-metadata block. Both render in the PDF's project meta strip when
+  // the active template has `showProjectMetadata` on. The form gates the
+  // inputs by the same flag — flipping the template off hides both fields
+  // and posts empty strings here.
+  purchaseOrderNumber: z.string().max(60).optional().or(z.literal('')),
+  billingLabel: z.string().max(120).optional().or(z.literal('')),
   // Optional "30% of contract" tag for lump-sum / progress draws.
   // Display-only; rendered on the invoice but doesn't drive math.
   percentOfContract: z

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,14 +45,64 @@ export type InvoiceFormChangeOrderOption = {
 export type InvoiceFormTemplateOption = {
   id: string;
   name: string;
-  // When provided, the form hides sections the template has turned off so
-  // the operator only enters data that will actually render on the
-  // resulting invoice. Falls back to "show all sections" when missing.
-  showTaxVat?: boolean;
-  showRetainage?: boolean;
+  // Every section the template can toggle. The form hides/shows fields and
+  // surfaces a summary card so the operator can see exactly which sections
+  // will render on the resulting invoice PDF. Missing flag = treat as
+  // enabled (back-compat for older callers).
+  showCompanyBranding?: boolean;
+  showHeader?: boolean;
+  showLineItems?: boolean;
   showPaymentTerms?: boolean;
+  showRetainage?: boolean;
+  showTaxVat?: boolean;
   showNotes?: boolean;
+  showSignature?: boolean;
+  showFooter?: boolean;
+  showBillToTin?: boolean;
+  showProjectMetadata?: boolean;
+  showWireInstructions?: boolean;
+  showQualifications?: boolean;
+  showAccountHistory?: boolean;
+  showProgressBilling?: boolean;
+  /** 'detailed' | 'summary' | 'lumpsum' — `lumpsum` auto-switches the
+   *  invoice's billing type to lump_sum when this template is picked. */
+  lineItemLayout?: string;
+  /** Free-text bodies rendered on the PDF when their show* flag is on.
+   *  The form previews them so the operator knows what will appear. */
+  qualificationsText?: string;
+  wireInstructionsNote?: string;
+  /** Label overrides for the project-metadata input fields. */
+  poNumberLabel?: string;
+  billingNumberLabel?: string;
 };
+
+/** Order of sections shown in the template summary card. Matches the
+ *  rendering order on the resulting PDF so the operator gets a logical
+ *  top-to-bottom preview of what's enabled. */
+const TEMPLATE_SUMMARY_ROWS: Array<{
+  key: keyof InvoiceFormTemplateOption;
+  label: string;
+  /** When `wired === false`, the section is gated in the template but the
+   *  invoice render doesn't yet emit it. Surfaced as "Coming soon" so the
+   *  operator doesn't think the toggle is broken. */
+  wired: boolean;
+}> = [
+  { key: 'showCompanyBranding', label: 'Company branding', wired: false },
+  { key: 'showHeader', label: 'Header layout', wired: false },
+  { key: 'showBillToTin', label: 'Bill-to TIN', wired: true },
+  { key: 'showProjectMetadata', label: 'Project metadata (PO #, Billing #)', wired: true },
+  { key: 'showLineItems', label: 'Line items', wired: true },
+  { key: 'showTaxVat', label: 'Tax / VAT', wired: true },
+  { key: 'showRetainage', label: 'Retainage', wired: true },
+  { key: 'showProgressBilling', label: 'Progress billing summary', wired: false },
+  { key: 'showQualifications', label: 'Qualifications & exclusions', wired: true },
+  { key: 'showPaymentTerms', label: 'Payment terms', wired: true },
+  { key: 'showWireInstructions', label: 'Wire instructions', wired: true },
+  { key: 'showNotes', label: 'Notes', wired: true },
+  { key: 'showAccountHistory', label: 'Account history', wired: false },
+  { key: 'showSignature', label: 'Signature block', wired: false },
+  { key: 'showFooter', label: 'Footer text', wired: true },
+];
 
 export function InvoiceForm({
   projects,
@@ -97,10 +147,27 @@ export function InvoiceForm({
   // `undefined` flag (when no template selected or template doesn't expose
   // the flag) → treat as `true` so the form stays permissive.
   const showSection = (flag: boolean | undefined): boolean => flag !== false;
+  // Opt-in sections (default OFF when no template): qualifications, wire
+  // instructions, bill-to TIN. These would be noisy if always visible, so
+  // they only appear when the template explicitly enables them.
+  const showOptIn = (flag: boolean | undefined): boolean => flag === true;
+  const showLineItems = showSection(activeTemplate?.showLineItems);
   const showTaxVat = showSection(activeTemplate?.showTaxVat);
   const showRetainage = showSection(activeTemplate?.showRetainage);
   const showPaymentTerms = showSection(activeTemplate?.showPaymentTerms);
   const showNotes = showSection(activeTemplate?.showNotes);
+  const showProjectMetadata = showSection(activeTemplate?.showProjectMetadata);
+  const showQualifications = showOptIn(activeTemplate?.showQualifications);
+  const showWireInstructions = showOptIn(activeTemplate?.showWireInstructions);
+  // `lineItemLayout === 'lumpsum'` is the template-driven equivalent of
+  // manually setting billingType to 'lump_sum'. Auto-flip whenever the
+  // active template lands on lumpsum so the operator doesn't have to
+  // remember to flip both controls. Same for `showLineItems === false`:
+  // there's nowhere to enter detailed lines, so lump-sum is the only
+  // viable mode.
+  const templateForcesLumpSum =
+    activeTemplate?.lineItemLayout === 'lumpsum' ||
+    activeTemplate?.showLineItems === false;
   // Lump-sum mode bypasses the qty × unit-cost editor and ships a single
   // line with the entered amount as unitCost (qty=1). Detailed line items
   // would be overkill for contract draws.
@@ -117,7 +184,20 @@ export function InvoiceForm({
   const [retainageAmountManual, setRetainageAmountManual] = useState(false);
   const [expectedRetainageReleaseDate, setExpectedRetainageReleaseDate] = useState('');
   const [amountPaid, setAmountPaid] = useState('0');
+  const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
+  const [billingLabel, setBillingLabel] = useState('');
   const isLumpSum = billingType === 'lump_sum';
+
+  // Honour the template's `lineItemLayout === 'lumpsum'` / `showLineItems
+  // === false` by auto-flipping billingType. Only fires when the user picks
+  // a template — manual changes via the Billing type dropdown still win
+  // once the user has committed to a template.
+  useEffect(() => {
+    if (templateForcesLumpSum && billingType !== 'lump_sum') {
+      setBillingType('lump_sum');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId]);
 
   const filteredProposals = useMemo(
     () => (projectId ? proposals.filter((p) => p.projectId === projectId) : proposals),
@@ -313,8 +393,53 @@ export function InvoiceForm({
           <Field label="Due date" error={err('dueDate')}>
             <Input name="dueDate" type="date" defaultValue={defaultDueDate} />
           </Field>
+          {showProjectMetadata && (
+            <>
+              <Field
+                label={
+                  activeTemplate?.poNumberLabel && activeTemplate.poNumberLabel.trim() !== ''
+                    ? activeTemplate.poNumberLabel
+                    : 'PO number'
+                }
+                error={err('purchaseOrderNumber')}
+              >
+                <Input
+                  name="purchaseOrderNumber"
+                  value={purchaseOrderNumber}
+                  onChange={(e) => setPurchaseOrderNumber(e.target.value)}
+                  placeholder="e.g. PO-2026-0042"
+                />
+              </Field>
+              <Field
+                label={
+                  activeTemplate?.billingNumberLabel &&
+                  activeTemplate.billingNumberLabel.trim() !== ''
+                    ? activeTemplate.billingNumberLabel
+                    : 'Billing #'
+                }
+                error={err('billingLabel')}
+              >
+                <Input
+                  name="billingLabel"
+                  value={billingLabel}
+                  onChange={(e) => setBillingLabel(e.target.value)}
+                  placeholder="e.g. Billing 3 of 12"
+                />
+              </Field>
+            </>
+          )}
+          {!showProjectMetadata && (
+            <>
+              <input type="hidden" name="purchaseOrderNumber" value="" />
+              <input type="hidden" name="billingLabel" value="" />
+            </>
+          )}
         </div>
       </fieldset>
+
+      {activeTemplate && (
+        <TemplateSummary template={activeTemplate} forcesLumpSum={templateForcesLumpSum} />
+      )}
 
       {isLumpSum && (
         <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
@@ -364,7 +489,7 @@ export function InvoiceForm({
       <fieldset
         className={
           'border border-slate-200 rounded-lg p-4 space-y-3 ' +
-          (isLumpSum ? 'hidden' : '')
+          (isLumpSum || !showLineItems ? 'hidden' : '')
         }
       >
         <legend className="px-2 text-sm font-medium text-slate-700">
@@ -597,6 +722,19 @@ export function InvoiceForm({
       {!showNotes && <input type="hidden" name="notes" value="" />}
       {!showPaymentTerms && <input type="hidden" name="termsOverride" value="" />}
 
+      {showQualifications && activeTemplate?.qualificationsText && (
+        <PreviewSection
+          title="Qualifications & exclusions (from template)"
+          body={activeTemplate.qualificationsText}
+        />
+      )}
+      {showWireInstructions && activeTemplate?.wireInstructionsNote && (
+        <PreviewSection
+          title="Wire / payment instructions (from template)"
+          body={activeTemplate.wireInstructionsNote}
+        />
+      )}
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Creating…' : 'Create invoice'}
@@ -652,6 +790,102 @@ function TextareaField({
         className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
     </div>
+  );
+}
+
+function TemplateSummary({
+  template,
+  forcesLumpSum,
+}: {
+  template: InvoiceFormTemplateOption;
+  forcesLumpSum: boolean;
+}) {
+  // Same flag semantics as the form itself: opt-in sections (qualifications,
+  // wire, bill-to TIN) treat undefined as off; everything else treats
+  // undefined as on.
+  const OPT_IN = new Set<keyof InvoiceFormTemplateOption>([
+    'showQualifications',
+    'showWireInstructions',
+    'showBillToTin',
+    'showProgressBilling',
+    'showAccountHistory',
+    'showRetainage',
+  ]);
+  const isOn = (key: keyof InvoiceFormTemplateOption): boolean => {
+    const v = template[key];
+    if (typeof v !== 'boolean') return !OPT_IN.has(key);
+    return v;
+  };
+  const enabled = TEMPLATE_SUMMARY_ROWS.filter((r) => isOn(r.key));
+  const disabled = TEMPLATE_SUMMARY_ROWS.filter((r) => !isOn(r.key));
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-medium text-slate-700">
+          Template:{' '}
+          <span className="font-semibold text-slate-900">{template.name}</span>
+        </p>
+        {forcesLumpSum && (
+          <span className="text-xs text-amber-700 font-medium">
+            Lump-sum mode enforced by template
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-emerald-700 font-medium mb-1">
+            Will render on invoice
+          </p>
+          <ul className="space-y-0.5 text-xs text-slate-700">
+            {enabled.length === 0 && (
+              <li className="text-slate-400 italic">Nothing enabled.</li>
+            )}
+            {enabled.map((r) => (
+              <li key={r.key}>
+                ✓ {r.label}
+                {!r.wired && (
+                  <span className="ml-1 text-amber-700">(rendering coming soon)</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-500 font-medium mb-1">
+            Hidden on invoice
+          </p>
+          <ul className="space-y-0.5 text-xs text-slate-500">
+            {disabled.length === 0 && (
+              <li className="italic">Nothing hidden.</li>
+            )}
+            {disabled.map((r) => (
+              <li key={r.key}>– {r.label}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-500 leading-snug">
+        Toggles on the template control which sections appear on the rendered
+        invoice. Edit the template under{' '}
+        <Link href="/invoices/templates" className="underline">
+          Invoices → Templates
+        </Link>{' '}
+        to change them. The form below only shows fields that are enabled.
+      </p>
+    </div>
+  );
+}
+
+function PreviewSection({ title, body }: { title: string; body: string }) {
+  return (
+    <fieldset className="border border-slate-200 rounded-lg p-4 space-y-2">
+      <legend className="px-2 text-sm font-medium text-slate-700">{title}</legend>
+      <p className="whitespace-pre-wrap text-sm text-slate-600">{body}</p>
+      <p className="text-[11px] text-slate-400">
+        Stored on the template — edit there to change for all invoices using
+        this template.
+      </p>
+    </fieldset>
   );
 }
 

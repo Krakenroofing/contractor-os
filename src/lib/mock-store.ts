@@ -2535,6 +2535,11 @@ export type CreateInvoiceInput = {
   amountPaid: string;
   notes: string | null;
   termsOverride: string | null;
+  // Project-metadata block — render only when the linked template has
+  // `showProjectMetadata` on. PO # is the customer's purchase order; billing
+  // label is a free-text "Billing #3 of 12" / "Final draw" tag.
+  purchaseOrderNumber?: string | null;
+  billingLabel?: string | null;
   // Display-only "30% of contract" tag for lump-sum / progress draws.
   percentOfContract?: string | null;
   lines: Array<{
@@ -2581,9 +2586,10 @@ export function createMockInvoice(
     amountPaid: input.amountPaid,
     notes: input.notes,
     termsOverride: input.termsOverride,
-    // Phase 1 additions — null on create; populated by user on edit.
-    billingLabel: null,
-    purchaseOrderNumber: null,
+    // Project-metadata fields — now accepted on create. The action layer
+    // forwards empty strings as null so the column stays clean.
+    billingLabel: input.billingLabel ?? null,
+    purchaseOrderNumber: input.purchaseOrderNumber ?? null,
     percentOfContract: input.percentOfContract ?? null,
     sentAt:
       input.status !== 'draft' && input.status !== 'void' ? now : null,
@@ -3976,6 +3982,8 @@ export function updateMockInvoiceFull(
     total: string;
     notes: string | null;
     termsOverride: string | null;
+    purchaseOrderNumber: string | null;
+    billingLabel: string | null;
     percentOfContract: string | null;
     lines: Array<{
       costCodeId: string | null;
@@ -4024,6 +4032,8 @@ export function updateMockInvoiceFull(
   inv.total = patch.total;
   inv.notes = patch.notes;
   inv.termsOverride = patch.termsOverride;
+  inv.purchaseOrderNumber = patch.purchaseOrderNumber;
+  inv.billingLabel = patch.billingLabel;
   inv.percentOfContract = patch.percentOfContract;
   inv.updatedAt = new Date();
 

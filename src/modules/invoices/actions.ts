@@ -78,6 +78,8 @@ export async function createInvoiceAction(
     amountPaid: formData.get('amountPaid') ?? '0',
     notes: formData.get('notes') ?? '',
     termsOverride: formData.get('termsOverride') ?? '',
+    purchaseOrderNumber: formData.get('purchaseOrderNumber') ?? '',
+    billingLabel: formData.get('billingLabel') ?? '',
     percentOfContract: formData.get('percentOfContract') ?? '',
     lines: parsedLines,
   });
@@ -162,6 +164,8 @@ export async function createInvoiceAction(
       amountPaid: toMoneyString(amountPaid),
       notes: emptyToNull(data.notes ?? null),
       termsOverride: emptyToNull(data.termsOverride ?? null),
+      purchaseOrderNumber: emptyToNull(data.purchaseOrderNumber ?? null),
+      billingLabel: emptyToNull(data.billingLabel ?? null),
       percentOfContract:
         data.percentOfContract && data.percentOfContract.trim() !== ''
           ? Number(data.percentOfContract).toFixed(3)
@@ -305,6 +309,8 @@ export async function updateInvoiceFullAction(
     amountPaid: formData.get('amountPaid') ?? '0',
     notes: formData.get('notes') ?? '',
     termsOverride: formData.get('termsOverride') ?? '',
+    purchaseOrderNumber: formData.get('purchaseOrderNumber') ?? '',
+    billingLabel: formData.get('billingLabel') ?? '',
     percentOfContract: formData.get('percentOfContract') ?? '',
     lines: parsedLines,
   });
@@ -385,6 +391,12 @@ export async function updateInvoiceFullAction(
       notes: data.notes && data.notes !== '' ? data.notes : null,
       termsOverride:
         data.termsOverride && data.termsOverride !== '' ? data.termsOverride : null,
+      purchaseOrderNumber:
+        data.purchaseOrderNumber && data.purchaseOrderNumber !== ''
+          ? data.purchaseOrderNumber
+          : null,
+      billingLabel:
+        data.billingLabel && data.billingLabel !== '' ? data.billingLabel : null,
       percentOfContract:
         data.percentOfContract && data.percentOfContract.trim() !== ''
           ? Number(data.percentOfContract).toFixed(3)

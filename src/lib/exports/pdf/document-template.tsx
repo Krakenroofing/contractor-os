@@ -243,6 +243,7 @@ function initials(name: string): string {
 
 function HeaderBlock({ payload }: { payload: DocumentPayload }) {
   const c = payload.company;
+  const tinLabel = c.tinLabel && c.tinLabel.trim() !== '' ? c.tinLabel : 'TIN';
   return (
     <View style={styles.headerRow}>
       <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -267,7 +268,7 @@ function HeaderBlock({ payload }: { payload: DocumentPayload }) {
             <Text style={styles.subtle}>License #: {c.licenseNumber}</Text>
           ) : null}
           {c.tinNumber ? (
-            <Text style={styles.subtle}>TIN: {c.tinNumber}</Text>
+            <Text style={styles.subtle}>{tinLabel}: {c.tinNumber}</Text>
           ) : null}
         </View>
       </View>
@@ -283,44 +284,48 @@ function HeaderBlock({ payload }: { payload: DocumentPayload }) {
 }
 
 function PartiesBlock({ payload }: { payload: DocumentPayload }) {
+  const cust = payload.customer;
+  const proj = payload.project;
+  const attentionLabel =
+    cust?.attentionLabel && cust.attentionLabel.trim() !== ''
+      ? cust.attentionLabel
+      : 'Attn';
+  const customerTinLabel =
+    cust?.tinLabel && cust.tinLabel.trim() !== '' ? cust.tinLabel : 'TIN';
+  const projectLabel =
+    proj?.descriptionLabel && proj.descriptionLabel.trim() !== ''
+      ? proj.descriptionLabel
+      : 'Project';
   return (
     <View style={[styles.section, styles.twoCol]}>
-      {payload.customer ? (
+      {cust ? (
         <View style={styles.col}>
           <Text style={styles.sectionLabel}>Bill to</Text>
-          <Text style={{ fontFamily: 'Helvetica-Bold' }}>
-            {payload.customer.name}
-          </Text>
-          {payload.customer.contact ? (
-            <Text style={styles.muted}>Attn: {payload.customer.contact}</Text>
+          <Text style={{ fontFamily: 'Helvetica-Bold' }}>{cust.name}</Text>
+          {cust.contact ? (
+            <Text style={styles.muted}>{attentionLabel}: {cust.contact}</Text>
           ) : null}
-          {customerAddress(payload.customer) ? (
-            <Text style={styles.muted}>{customerAddress(payload.customer)}</Text>
+          {customerAddress(cust) ? (
+            <Text style={styles.muted}>{customerAddress(cust)}</Text>
           ) : null}
-          {payload.customer.email ? (
-            <Text style={styles.muted}>{payload.customer.email}</Text>
-          ) : null}
-          {payload.customer.phone ? (
-            <Text style={styles.muted}>{payload.customer.phone}</Text>
-          ) : null}
-          {payload.customer.tinNumber ? (
-            <Text style={styles.subtle}>TIN: {payload.customer.tinNumber}</Text>
+          {cust.email ? <Text style={styles.muted}>{cust.email}</Text> : null}
+          {cust.phone ? <Text style={styles.muted}>{cust.phone}</Text> : null}
+          {cust.tinNumber ? (
+            <Text style={styles.subtle}>
+              {customerTinLabel}: {cust.tinNumber}
+            </Text>
           ) : null}
         </View>
       ) : null}
-      {payload.project ? (
+      {proj ? (
         <View style={styles.col}>
-          <Text style={styles.sectionLabel}>Project</Text>
-          {payload.project.name ? (
-            <Text style={{ fontFamily: 'Helvetica-Bold' }}>
-              {payload.project.name}
-            </Text>
+          <Text style={styles.sectionLabel}>{projectLabel}</Text>
+          {proj.name ? (
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>{proj.name}</Text>
           ) : null}
-          {payload.project.number ? (
-            <Text style={styles.muted}>#{payload.project.number}</Text>
-          ) : null}
-          {payload.project.description ? (
-            <Text style={styles.muted}>{payload.project.description}</Text>
+          {proj.number ? <Text style={styles.muted}>#{proj.number}</Text> : null}
+          {proj.description ? (
+            <Text style={styles.muted}>{proj.description}</Text>
           ) : null}
         </View>
       ) : null}
@@ -508,6 +513,55 @@ function ProseSections({ payload }: { payload: DocumentPayload }) {
   );
 }
 
+function HeaderNote({ note }: { note: string }) {
+  return (
+    <View style={{ marginBottom: pdfTheme.spacing.section }} wrap={false}>
+      <Text style={styles.proseBody}>{note}</Text>
+    </View>
+  );
+}
+
+function SignatureBlock({ block }: { block: NonNullable<DocumentPayload['signatureBlock']> }) {
+  return (
+    <View
+      style={{ marginTop: pdfTheme.spacing.section + 12 }}
+      wrap={false}
+    >
+      <Text style={styles.sectionTitle}>{block.label}</Text>
+      <View style={{ flexDirection: 'row', gap: 24, marginTop: 16 }}>
+        <View style={{ flex: 2 }}>
+          <View
+            style={{
+              borderBottomWidth: 1,
+              borderBottomColor: pdfTheme.colors.text,
+              height: 30,
+              marginBottom: 4,
+            }}
+          />
+          <Text style={styles.subtle}>Signature</Text>
+          {block.signerName ? (
+            <Text style={styles.muted}>{block.signerName}</Text>
+          ) : null}
+          {block.signerTitle ? (
+            <Text style={styles.subtle}>{block.signerTitle}</Text>
+          ) : null}
+        </View>
+        <View style={{ flex: 1 }}>
+          <View
+            style={{
+              borderBottomWidth: 1,
+              borderBottomColor: pdfTheme.colors.text,
+              height: 30,
+              marginBottom: 4,
+            }}
+          />
+          <Text style={styles.subtle}>Date</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function DataTables({ tables }: { tables: DocumentDataTable[] }) {
   if (tables.length === 0) return null;
   return (
@@ -590,12 +644,16 @@ function ImageGallery({ images }: { images: DocumentImage[] }) {
 
 export function DocumentPdf({ payload }: { payload: DocumentPayload }) {
   const currency = payload.company.defaultCurrency ?? 'USD';
+  const showHeader = payload.showCompanyHeader !== false;
   return (
     <Document>
       <Page size="LETTER" style={styles.page}>
-        <HeaderBlock payload={payload} />
+        {showHeader ? <HeaderBlock payload={payload} /> : null}
         <PartiesBlock payload={payload} />
         <MetaGrid payload={payload} />
+        {payload.headerNote && payload.headerNote.trim() !== '' ? (
+          <HeaderNote note={payload.headerNote} />
+        ) : null}
         <LineItemsTable
           lines={payload.lines ?? []}
           showCostCode={Boolean(payload.showLineCostCode)}
@@ -605,6 +663,9 @@ export function DocumentPdf({ payload }: { payload: DocumentPayload }) {
         <TotalsBlock totals={payload.totals} currency={currency} />
         <DataTables tables={payload.dataTables ?? []} />
         <ProseSections payload={payload} />
+        {payload.signatureBlock ? (
+          <SignatureBlock block={payload.signatureBlock} />
+        ) : null}
         <ImageGallery images={payload.imageGallery ?? []} />
 
         <View style={styles.footer} fixed>

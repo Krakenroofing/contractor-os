@@ -33,28 +33,53 @@ export async function renderDocumentXlsx(
   let row = 3;
 
   // Company / customer / project block
-  row = writeKeyValueBlock(ws, row, 'From', [
-    ['Company', payload.company.name],
-    ['Email', payload.company.email ?? ''],
-    ['Phone', payload.company.phone ?? ''],
-    ['Address', companyAddress(payload.company)],
-    payload.company.licenseNumber
-      ? ['License #', payload.company.licenseNumber]
-      : null,
-    payload.company.tinNumber ? ['TIN', payload.company.tinNumber] : null,
-  ]);
+  const companyTinLabel =
+    payload.company.tinLabel && payload.company.tinLabel.trim() !== ''
+      ? payload.company.tinLabel
+      : 'TIN';
+  if (payload.showCompanyHeader !== false) {
+    row = writeKeyValueBlock(ws, row, 'From', [
+      ['Company', payload.company.name],
+      ['Email', payload.company.email ?? ''],
+      ['Phone', payload.company.phone ?? ''],
+      ['Address', companyAddress(payload.company)],
+      payload.company.licenseNumber
+        ? ['License #', payload.company.licenseNumber]
+        : null,
+      payload.company.tinNumber
+        ? [companyTinLabel, payload.company.tinNumber]
+        : null,
+    ]);
+  }
 
   if (payload.customer) {
+    const attentionLabel =
+      payload.customer.attentionLabel &&
+      payload.customer.attentionLabel.trim() !== ''
+        ? payload.customer.attentionLabel
+        : 'Contact';
+    const customerTinLabel =
+      payload.customer.tinLabel && payload.customer.tinLabel.trim() !== ''
+        ? payload.customer.tinLabel
+        : 'TIN';
     row = writeKeyValueBlock(ws, row, 'Bill to', [
       ['Customer', payload.customer.name],
-      payload.customer.contact ? ['Contact', payload.customer.contact] : null,
+      payload.customer.contact ? [attentionLabel, payload.customer.contact] : null,
       payload.customer.email ? ['Email', payload.customer.email] : null,
       payload.customer.phone ? ['Phone', payload.customer.phone] : null,
+      payload.customer.tinNumber
+        ? [customerTinLabel, payload.customer.tinNumber]
+        : null,
     ]);
   }
 
   if (payload.project) {
-    row = writeKeyValueBlock(ws, row, 'Project', [
+    const projectLabel =
+      payload.project.descriptionLabel &&
+      payload.project.descriptionLabel.trim() !== ''
+        ? payload.project.descriptionLabel
+        : 'Project';
+    row = writeKeyValueBlock(ws, row, projectLabel, [
       payload.project.name ? ['Name', payload.project.name] : null,
       payload.project.number ? ['Number', payload.project.number] : null,
       payload.project.description
@@ -87,6 +112,51 @@ export async function renderDocumentXlsx(
     row = writeTotals(ws, row, payload.totals);
   }
 
+  // Header note — single prose block rendered before sections
+  if (payload.headerNote && payload.headerNote.trim() !== '') {
+    ws.mergeCells(`A${row}:F${row}`);
+    const note = ws.getCell(`A${row}`);
+    note.value = payload.headerNote;
+    note.alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(row).height = Math.min(120, 14 + payload.headerNote.length / 8);
+    row += 2;
+  }
+
+  // Structured data tables (progress billing, account history)
+  if (payload.dataTables && payload.dataTables.length > 0) {
+    for (const tbl of payload.dataTables) {
+      row += 1;
+      const heading = ws.getCell(`A${row}`);
+      heading.value = tbl.title;
+      heading.font = { bold: true, size: 12 };
+      row += 1;
+      // Column headers
+      tbl.columns.forEach((col, i) => {
+        const cell = ws.getCell(row, i + 1);
+        cell.value = col.label;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF1F5F9' },
+        };
+        cell.alignment = { horizontal: col.align ?? 'left' };
+      });
+      row += 1;
+      for (const r of tbl.rows) {
+        r.forEach((v, i) => {
+          const cell = ws.getCell(row, i + 1);
+          cell.value = v;
+          cell.alignment = {
+            horizontal: tbl.columns[i]?.align ?? 'left',
+          };
+        });
+        row += 1;
+      }
+      row += 1;
+    }
+  }
+
   // Prose sections (scope, notes, terms)
   if (payload.sections && payload.sections.length > 0) {
     row += 1;
@@ -103,6 +173,50 @@ export async function renderDocumentXlsx(
       ws.getRow(row).height = Math.min(120, 14 + section.body.length / 8);
       row += 2;
     }
+  }
+
+  // Signature block — label + signature/date lines
+  if (payload.signatureBlock) {
+    row += 2;
+    ws.mergeCells(`A${row}:F${row}`);
+    const head = ws.getCell(`A${row}`);
+    head.value = payload.signatureBlock.label;
+    head.font = { bold: true, size: 12 };
+    row += 2;
+    ws.getCell(`A${row}`).value = 'Signature:';
+    ws.getCell(`A${row}`).font = { color: { argb: 'FF64748B' } };
+    ws.mergeCells(`B${row}:D${row}`);
+    ws.getCell(`B${row}`).border = {
+      bottom: { style: 'thin', color: { argb: 'FF1F2937' } },
+    };
+    ws.getCell(`E${row}`).value = 'Date:';
+    ws.getCell(`E${row}`).font = { color: { argb: 'FF64748B' } };
+    ws.getCell(`F${row}`).border = {
+      bottom: { style: 'thin', color: { argb: 'FF1F2937' } },
+    };
+    row += 1;
+    if (payload.signatureBlock.signerName) {
+      ws.mergeCells(`B${row}:D${row}`);
+      ws.getCell(`B${row}`).value = payload.signatureBlock.signerName;
+      row += 1;
+    }
+    if (payload.signatureBlock.signerTitle) {
+      ws.mergeCells(`B${row}:D${row}`);
+      ws.getCell(`B${row}`).value = payload.signatureBlock.signerTitle;
+      ws.getCell(`B${row}`).font = { italic: true, color: { argb: 'FF64748B' } };
+      row += 1;
+    }
+    row += 1;
+  }
+
+  // Footer
+  if (payload.footerNote && payload.footerNote.trim() !== '') {
+    row += 1;
+    ws.mergeCells(`A${row}:F${row}`);
+    const f = ws.getCell(`A${row}`);
+    f.value = payload.footerNote;
+    f.font = { italic: true, color: { argb: 'FF64748B' } };
+    f.alignment = { horizontal: 'center', wrapText: true };
   }
 
   // Reasonable column widths

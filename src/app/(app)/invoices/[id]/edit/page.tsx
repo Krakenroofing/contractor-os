@@ -82,6 +82,8 @@ export default async function EditInvoicePage({
           amountPaid: invoice.amountPaid,
           notes: invoice.notes ?? '',
           termsOverride: invoice.termsOverride ?? '',
+          purchaseOrderNumber: invoice.purchaseOrderNumber ?? '',
+          billingLabel: invoice.billingLabel ?? '',
           lines: lines.map((l) => ({
             description: l.description,
             unit: l.unit ?? '',

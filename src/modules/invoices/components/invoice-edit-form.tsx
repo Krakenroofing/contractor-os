@@ -54,6 +54,8 @@ export type InvoiceEditFormInitial = {
   amountPaid: string;
   notes: string;
   termsOverride: string;
+  purchaseOrderNumber: string;
+  billingLabel: string;
   lines: Array<{
     description: string;
     unit: string;
@@ -89,6 +91,10 @@ export function InvoiceEditForm({ initial }: { initial: InvoiceEditFormInitial }
   );
   const [notes, setNotes] = useState(initial.notes);
   const [termsOverride, setTermsOverride] = useState(initial.termsOverride);
+  const [purchaseOrderNumber, setPurchaseOrderNumber] = useState(
+    initial.purchaseOrderNumber,
+  );
+  const [billingLabel, setBillingLabel] = useState(initial.billingLabel);
 
   const totals = useMemo(() => {
     let subtotal = 0;
@@ -206,6 +212,22 @@ export function InvoiceEditForm({ initial }: { initial: InvoiceEditFormInitial }
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
+            />
+          </Field>
+          <Field label="PO number" error={err('purchaseOrderNumber')}>
+            <Input
+              name="purchaseOrderNumber"
+              value={purchaseOrderNumber}
+              onChange={(e) => setPurchaseOrderNumber(e.target.value)}
+              placeholder="e.g. PO-2026-0042"
+            />
+          </Field>
+          <Field label="Billing #" error={err('billingLabel')}>
+            <Input
+              name="billingLabel"
+              value={billingLabel}
+              onChange={(e) => setBillingLabel(e.target.value)}
+              placeholder="e.g. Billing 3 of 12"
             />
           </Field>
         </div>

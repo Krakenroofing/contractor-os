@@ -55,12 +55,32 @@ export default async function NewInvoicePage() {
   const templates = (await listInvoiceTemplates(companyId)).map((t) => ({
     id: t.id,
     name: t.name,
-    // Section-visibility flags drive the form's conditional rendering so
-    // the operator only fills in fields the template will actually show.
-    showTaxVat: t.showTaxVat,
-    showRetainage: t.showRetainage,
+    // Every section flag the template owns. The form hides/shows fields,
+    // labels them with the template's overrides, and renders a summary card
+    // so the operator can see exactly which sections will appear on the
+    // resulting invoice PDF.
+    showCompanyBranding: t.showCompanyBranding,
+    showHeader: t.showHeader,
+    showLineItems: t.showLineItems,
     showPaymentTerms: t.showPaymentTerms,
+    showRetainage: t.showRetainage,
+    showTaxVat: t.showTaxVat,
     showNotes: t.showNotes,
+    showSignature: t.showSignature,
+    showFooter: t.showFooter,
+    showBillToTin: t.showBillToTin,
+    showProjectMetadata: t.showProjectMetadata,
+    showWireInstructions: t.showWireInstructions,
+    showQualifications: t.showQualifications,
+    showAccountHistory: t.showAccountHistory,
+    showProgressBilling: t.showProgressBilling,
+    lineItemLayout: t.lineItemLayout,
+    // Render previews (so the operator can see what will land on the PDF)
+    qualificationsText: t.qualificationsText ?? '',
+    wireInstructionsNote: t.wireInstructionsNote ?? '',
+    // Label overrides used by the project-metadata input fields.
+    poNumberLabel: t.poNumberLabel ?? '',
+    billingNumberLabel: t.billingNumberLabel ?? '',
   }));
 
   const today = new Date().toISOString().slice(0, 10);
