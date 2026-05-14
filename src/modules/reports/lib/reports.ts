@@ -123,12 +123,14 @@ export async function buildVatQuarterlyReport(
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
-  // Filter to non-draft / non-void invoices. Accrual basis: the moment a
-  // customer is billed, VAT is owed for that quarter even if unpaid.
-  // sentAt is a nullable Date; fall back to invoiceDate when missing
-  // (e.g., legacy rows created before the status-transition stamp was wired).
+  // Filter to non-draft / non-void invoices. Accrual VAT is owed for the
+  // quarter the invoice was ISSUED — that's the `invoiceDate` (the date
+  // on the document the customer received), not `sentAt` (when the user
+  // happened to click "Mark sent" in the system, which is "today" for any
+  // backfilled past invoice). Using invoiceDate makes backfill of past
+  // invoices land in the correct quarter without operator gymnastics.
   const effectiveDate = (inv: (typeof invoices)[number]): string =>
-    inv.sentAt ? inv.sentAt.toISOString().slice(0, 10) : inv.invoiceDate;
+    inv.invoiceDate;
 
   const filtered = invoices.filter((inv) => {
     if (inv.status === 'void') return false;

@@ -79,8 +79,9 @@ export default async function VatQuarterlyReportPage({
 
           <p className="text-xs text-slate-500">
             Accrual basis — every non-draft / non-void invoice contributes VAT
-            for the quarter it was sent in. Date used: <code>sentAt</code>{' '}
-            (falls back to <code>invoiceDate</code> for older rows).
+            for the quarter on its <strong>invoice date</strong> (the date on
+            the document the customer received), regardless of when it was
+            marked sent in the system.
           </p>
 
           <Card>
@@ -143,7 +144,7 @@ export default async function VatQuarterlyReportPage({
                       <TableHead>Invoice</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Project</TableHead>
-                      <TableHead>Sent / dated</TableHead>
+                      <TableHead>Invoice date</TableHead>
                       <TableHead>Quarter</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>

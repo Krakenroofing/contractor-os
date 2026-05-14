@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       'Customer',
       'Project number',
       'Project name',
-      'Sent / dated',
+      'Invoice date',
       'Quarter',
       'Status',
       'Subtotal',
