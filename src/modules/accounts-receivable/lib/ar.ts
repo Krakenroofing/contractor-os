@@ -109,23 +109,47 @@ export async function calcCashCollectedThisMonth(
   companyId: string,
   asOf: Date = new Date(),
 ): Promise<number> {
+  const split = await calcCashCollectedThisMonthSplit(companyId, asOf);
+  return split.gross;
+}
+
+/**
+ * Cash collected this month split into gross / net (ex-VAT) / VAT.
+ * For accrual-VAT companies the dashboard needs all three so revenue can
+ * be reported separately from the VAT collected on behalf of the
+ * government.
+ */
+export async function calcCashCollectedThisMonthSplit(
+  companyId: string,
+  asOf: Date = new Date(),
+): Promise<{ gross: number; net: number; vat: number }> {
   const payments: InvoicePayment[] = await listInvoicePaymentsForCompany(companyId);
-  // Pull invoice statuses so we can exclude payments tied to voided invoices.
-  // The user-visible contract is "voided invoices don't count toward any
-  // dashboard metric, including cash" — see the void/delete spec.
   const invoiceList = await listInvoices(companyId);
   const voidedInvoiceIds = new Set(
     invoiceList.filter((i) => i.status === 'void').map((i) => i.id),
   );
+  // Build a quick lookup of (subtotal, tax) per invoice so we can split each
+  // payment proportionally.
+  const taxShareByInvoice = new Map<string, number>();
+  for (const inv of invoiceList) {
+    const sub = parseMoney(inv.subtotal);
+    const tax = parseMoney(inv.taxAmount);
+    const denom = sub + tax;
+    taxShareByInvoice.set(inv.id, denom > 0 ? tax / denom : 0);
+  }
   const year = asOf.getUTCFullYear();
   const month = asOf.getUTCMonth();
-  let total = 0;
+  let gross = 0;
+  let vat = 0;
   for (const p of payments) {
     if (voidedInvoiceIds.has(p.invoiceId)) continue;
     if (p.status !== 'received' && p.status !== 'applied') continue;
-    if (isInMonth(p.paidDate, year, month)) {
-      total = add(total, parseMoney(p.amount));
-    }
+    if (!isInMonth(p.paidDate, year, month)) continue;
+    const amount = parseMoney(p.amount);
+    const share = taxShareByInvoice.get(p.invoiceId) ?? 0;
+    gross = add(gross, amount);
+    vat = add(vat, amount * share);
   }
-  return round2(total);
+  const net = round2(gross - vat);
+  return { gross: round2(gross), net, vat: round2(vat) };
 }

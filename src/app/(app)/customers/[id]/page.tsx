@@ -10,6 +10,11 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getCustomer } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
+import {
+  computeProjectInvoiceSummary,
+  listInvoicesForProject,
+} from '@/lib/data/invoices';
+import { formatMoney } from '@/lib/money';
 import type { Customer } from '@/db/schema';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +53,42 @@ export default async function CustomerDetailPage({
   const linkedProjects = (await listProjects(companyId)).filter(
     (p) => p.customerId === customer.id,
   );
+
+  // Roll up invoice activity across every project for this customer.
+  // computeProjectInvoiceSummary already sums payment rows (not the cached
+  // amountPaid) — so this stays correct even if a status cache drifted.
+  const invoiceSummaries = await Promise.all(
+    linkedProjects.map(async (p) => ({
+      project: p,
+      summary: await computeProjectInvoiceSummary(p.id),
+      invoices: await listInvoicesForProject(p.id),
+    })),
+  );
+  const rolledUp = invoiceSummaries.reduce(
+    (acc, row) => ({
+      invoiceCount: acc.invoiceCount + row.summary.invoiceCount,
+      totalInvoiced: acc.totalInvoiced + row.summary.totalInvoiced,
+      totalPaid: acc.totalPaid + row.summary.totalPaid,
+      outstandingBalance: acc.outstandingBalance + row.summary.outstandingBalance,
+      retainageHeld: acc.retainageHeld + row.summary.retainageHeld,
+    }),
+    {
+      invoiceCount: 0,
+      totalInvoiced: 0,
+      totalPaid: 0,
+      outstandingBalance: 0,
+      retainageHeld: 0,
+    },
+  );
+  const allInvoices = invoiceSummaries
+    .flatMap((row) =>
+      row.invoices.map((inv) => ({
+        ...inv,
+        projectName: row.project.name,
+        projectNumber: row.project.number,
+      })),
+    )
+    .sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -148,6 +189,111 @@ export default async function CustomerDetailPage({
             <CardTitle>Notes</CardTitle>
           </CardHeader>
           <CardContent className="text-sm whitespace-pre-wrap">{customer.notes}</CardContent>
+        </Card>
+      )}
+
+      {/* AR rollup across every project for this customer */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Total invoiced
+            </p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+              {formatMoney(rolledUp.totalInvoiced)}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {rolledUp.invoiceCount} invoice
+              {rolledUp.invoiceCount === 1 ? '' : 's'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Total paid
+            </p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
+              {formatMoney(rolledUp.totalPaid)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Outstanding AR
+            </p>
+            <p
+              className={`mt-1 text-xl font-semibold tabular-nums ${
+                rolledUp.outstandingBalance > 0
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }`}
+            >
+              {formatMoney(rolledUp.outstandingBalance)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Retainage held
+            </p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+              {formatMoney(rolledUp.retainageHeld)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {allInvoices.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Invoices ({allInvoices.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-slate-100">
+              {allInvoices.map((inv) => {
+                const balance =
+                  Number(inv.total) - Number(inv.amountPaid);
+                return (
+                  <li
+                    key={inv.id}
+                    className="flex items-center justify-between gap-4 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-slate-500">
+                        {inv.number} · {inv.invoiceDate}
+                      </div>
+                      <div className="text-slate-900 truncate">
+                        {inv.projectNumber} — {inv.projectName}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500 capitalize">
+                          {inv.status}
+                        </div>
+                        <div className="tabular-nums text-sm">
+                          {formatMoney(inv.total)}
+                        </div>
+                        {balance > 0 && (
+                          <div className="text-xs tabular-nums text-amber-700">
+                            {formatMoney(balance)} due
+                          </div>
+                        )}
+                      </div>
+                      <Link href={`/invoices/${inv.id}`}>
+                        <Button size="sm" variant="outline">
+                          View
+                        </Button>
+                      </Link>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
         </Card>
       )}
 

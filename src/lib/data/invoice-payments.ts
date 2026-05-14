@@ -158,10 +158,19 @@ export async function createPayment(
       throw new Error('Invoice not found in active company');
     }
     if (input.paymentNumber !== '') {
+      // Scope the duplicate check to this company by joining through invoices.
+      // Previously this was a global check, which blocked tenants from each
+      // other's payment-number sequences (PAY-2026-001 conflict, etc.).
       const dup = await db
         .select({ id: invoicePayments.id })
         .from(invoicePayments)
-        .where(eq(invoicePayments.paymentNumber, input.paymentNumber))
+        .innerJoin(invoices, eq(invoicePayments.invoiceId, invoices.id))
+        .where(
+          and(
+            eq(invoicePayments.paymentNumber, input.paymentNumber),
+            eq(invoices.companyId, companyId),
+          ),
+        )
         .limit(1);
       if (dup.length > 0) throw new DuplicatePaymentNumberError();
     }

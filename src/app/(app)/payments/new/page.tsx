@@ -36,12 +36,17 @@ export default async function NewPaymentPage({
   const sp = (await searchParams) ?? {};
   const defaultInvoiceId = typeof sp.invoiceId === 'string' ? sp.invoiceId : undefined;
 
-  // Show non-void invoices that aren't fully paid; sort by oldest first so the
-  // most overdue invoice surfaces near the top.
+  // Show every non-void, non-fully-paid invoice — including drafts and
+  // zero-total drafts. Previously this filtered out anything with
+  // `total - amountPaid <= 0`, which silently hid invoices the user had
+  // just created (e.g., a draft with no line items yet, or a saved invoice
+  // whose subtotal was zero). The form surfaces balance + status per row
+  // so the user can still tell what's selectable. Sort oldest first so
+  // the most overdue surfaces near the top.
   const invoices = (
     await Promise.all(
       (await listInvoices(companyId))
-        .filter((i) => i.status !== 'void')
+        .filter((i) => i.status !== 'void' && i.status !== 'paid')
         .map(async (i) => {
           const project = await getProject(companyId, i.projectId);
           const customer = project
@@ -50,6 +55,7 @@ export default async function NewPaymentPage({
           return {
             id: i.id,
             number: i.number,
+            status: i.status,
             projectName: project?.name ?? 'Unknown project',
             customerName: customer?.name ?? 'Unknown customer',
             total: i.total,
@@ -58,9 +64,7 @@ export default async function NewPaymentPage({
           };
         }),
     )
-  )
-    .filter((i) => Number(i.total) - Number(i.amountPaid) > 0)
-    .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
+  ).sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
 
   return (
     <div className="p-8 max-w-5xl space-y-6">

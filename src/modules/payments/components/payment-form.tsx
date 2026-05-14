@@ -21,6 +21,9 @@ const initialState: CreatePaymentState = {};
 export type PaymentInvoiceOption = {
   id: string;
   number: string;
+  /** Invoice status — surfaced in the dropdown so users can tell a draft
+   *  apart from a sent invoice when both have unpaid balances. */
+  status: string;
   projectName: string;
   customerName: string;
   total: string;
@@ -108,19 +111,30 @@ export function PaymentForm({
           >
             <option value="" disabled>
               {invoices.length === 0
-                ? 'No invoices in this company'
+                ? 'No open invoices — create one first'
                 : 'Select an invoice'}
             </option>
             {invoices.map((inv) => {
               const bal = subtract(parseMoney(inv.total), parseMoney(inv.amountPaid));
+              const statusLabel = inv.status.charAt(0).toUpperCase() + inv.status.slice(1);
               return (
                 <option key={inv.id} value={inv.id}>
                   {inv.number} — {inv.projectName} ({inv.customerName}) ·{' '}
-                  {formatMoney(bal)} due
+                  {statusLabel} · {formatMoney(bal)} due
                 </option>
               );
             })}
           </Select>
+          {invoices.length === 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Every non-void, non-fully-paid invoice (including drafts) appears
+              here.{' '}
+              <Link href="/invoices/new" className="underline hover:text-slate-900">
+                Create an invoice
+              </Link>{' '}
+              to record a payment against it.
+            </p>
+          )}
         </Field>
 
         {selectedInvoice && (

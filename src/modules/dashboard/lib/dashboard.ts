@@ -16,7 +16,7 @@ import { add, parseMoney, round2, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import {
   buildAgingRowsForCompany,
-  calcCashCollectedThisMonth,
+  calcCashCollectedThisMonthSplit,
   summarizeAging,
 } from '@/modules/accounts-receivable/lib/ar';
 import {
@@ -37,8 +37,27 @@ export type DashboardKPIs = {
   totalContractValue: number;
   approvedChangeOrders: number;
   approvedChangeOrderTotal: number;
+
+  // Invoiced totals — split so the dashboard can label revenue (ex-VAT)
+  // separately from gross billed and VAT-on-behalf-of-government.
+  //   totalInvoicedNet   = sum(invoice.subtotal) — accrual revenue
+  //   totalInvoicedVAT   = sum(invoice.taxAmount) — VAT liability we owe
+  //   totalInvoicedGross = sum(invoice.total) — gross billed (= net + VAT − retainage)
+  // `totalInvoiced` retained as an alias for `totalInvoicedGross` to avoid
+  // breaking call sites that read it.
   totalInvoiced: number;
+  totalInvoicedNet: number;
+  totalInvoicedVAT: number;
+  totalInvoicedGross: number;
+
+  // Paid totals — same shape. Paid amounts are split proportionally by each
+  // invoice's tax/total ratio: payment×(tax/total) is VAT collected,
+  // remainder is cash revenue.
   totalPaid: number;
+  totalPaidNet: number;
+  totalPaidVAT: number;
+  totalPaidGross: number;
+
   outstandingAR: number;
   retainageHeld: number;
   committedPurchaseOrders: number;
@@ -46,8 +65,10 @@ export type DashboardKPIs = {
   // Profitability
   projectedGrossProfit: number;
   projectedGrossMarginPct: number;
-  // Cash this month (bonus, free from AR module)
+  // Cash this month (gross). Split fields below for VAT transparency.
   cashCollectedThisMonth: number;
+  cashCollectedThisMonthNet: number;
+  cashCollectedThisMonthVAT: number;
 };
 
 export type AlertItem = {
@@ -137,19 +158,36 @@ export async function buildDashboardData(
   const invoices = await listInvoices(companyId);
   const allPayments = await listInvoicePaymentsForCompany(companyId);
   const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
-  let totalInvoiced = 0;
-  let totalPaid = 0;
+  let totalInvoicedGross = 0;
+  let totalInvoicedNet = 0;
+  let totalInvoicedVAT = 0;
+  let totalPaidGross = 0;
+  let totalPaidNet = 0;
+  let totalPaidVAT = 0;
   let outstandingAR = 0;
   for (const inv of invoices) {
     const c = normalizeStatus('invoice', inv.status);
     if (c === 'void') continue;
     const fin = computeInvoiceFinancials(inv, paymentsByInvoice.get(inv.id) ?? []);
-    totalInvoiced = add(totalInvoiced, fin.total);
-    totalPaid = add(totalPaid, fin.paid);
+    const subtotal = parseMoney(inv.subtotal);
+    const tax = parseMoney(inv.taxAmount);
+    // Proportional VAT split on payments — when an invoice is half-paid,
+    // half of its VAT has been received. Falls back to "all net" when the
+    // invoice has no VAT or zero total (avoids div-by-zero).
+    const totalWithTax = subtotal + tax;
+    const vatShare = totalWithTax > 0 ? tax / totalWithTax : 0;
+    const paidVat = fin.paid * vatShare;
+    const paidNet = fin.paid - paidVat;
+    totalInvoicedGross = add(totalInvoicedGross, fin.total);
+    totalInvoicedNet = add(totalInvoicedNet, subtotal);
+    totalInvoicedVAT = add(totalInvoicedVAT, tax);
+    totalPaidGross = add(totalPaidGross, fin.paid);
+    totalPaidNet = add(totalPaidNet, paidNet);
+    totalPaidVAT = add(totalPaidVAT, paidVat);
     outstandingAR = add(outstandingAR, fin.balance);
   }
-  // outstandingAR equals subtract(totalInvoiced, totalPaid) under the
-  // invariant — kept as a separate sum so over-payments on one invoice
+  // outstandingAR equals subtract(totalInvoicedGross, totalPaidGross) under
+  // the invariant — kept as a separate sum so over-payments on one invoice
   // never silently offset under-payments on another.
 
   const agingRows = await buildAgingRowsForCompany(companyId, asOf);
@@ -161,7 +199,7 @@ export async function buildDashboardData(
     label: `${r.invoiceNumber} — ${r.customerName} · ${r.daysOverdue}d late`,
   }));
 
-  const cashCollectedThisMonth = await calcCashCollectedThisMonth(companyId, asOf);
+  const cashSplit = await calcCashCollectedThisMonthSplit(companyId, asOf);
 
   // ---- Retainage ----
   const retainageRows = await buildRetainageRowsForCompany(companyId, asOf);
@@ -256,15 +294,23 @@ export async function buildDashboardData(
       totalContractValue: round2(totalContractValue),
       approvedChangeOrders: approvedCOCount,
       approvedChangeOrderTotal: round2(approvedCOTotal),
-      totalInvoiced: round2(totalInvoiced),
-      totalPaid: round2(totalPaid),
+      totalInvoiced: round2(totalInvoicedGross),
+      totalInvoicedNet: round2(totalInvoicedNet),
+      totalInvoicedVAT: round2(totalInvoicedVAT),
+      totalInvoicedGross: round2(totalInvoicedGross),
+      totalPaid: round2(totalPaidGross),
+      totalPaidNet: round2(totalPaidNet),
+      totalPaidVAT: round2(totalPaidVAT),
+      totalPaidGross: round2(totalPaidGross),
       outstandingAR: round2(outstandingAR),
       retainageHeld: round2(retainageSummary.outstanding),
       committedPurchaseOrders: committedCount,
       committedPurchaseOrderTotal: round2(committedTotal),
       projectedGrossProfit: round2(projectedGrossProfit),
       projectedGrossMarginPct,
-      cashCollectedThisMonth,
+      cashCollectedThisMonth: cashSplit.gross,
+      cashCollectedThisMonthNet: cashSplit.net,
+      cashCollectedThisMonthVAT: cashSplit.vat,
     },
     alerts: {
       overdueInvoices: {

@@ -140,16 +140,33 @@ export default async function DashboardPage() {
           <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
             Cash &amp; AR
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <KPI
-              label="Total invoiced"
-              value={formatMoney(kpis.totalInvoiced)}
+              label="Revenue invoiced (ex-VAT)"
+              value={formatMoney(kpis.totalInvoicedNet)}
+              hint="Accrual basis — subtotal of sent invoices"
               href="/invoices"
             />
             <KPI
-              label="Total paid"
+              label="VAT invoiced"
+              value={formatMoney(kpis.totalInvoicedVAT)}
+              hint="On-behalf-of-government — not income"
+              valueClassName={kpis.totalInvoicedVAT > 0 ? 'text-amber-700' : undefined}
+              href="/reports/vat-quarterly"
+            />
+            <KPI
+              label="Gross invoiced"
+              value={formatMoney(kpis.totalInvoicedGross)}
+              hint="Net + VAT − retainage"
+              href="/invoices"
+            />
+            <KPI
+              label="Total paid (gross)"
               value={formatMoney(kpis.totalPaid)}
               valueClassName="text-emerald-700"
+              hint={`${formatMoney(kpis.totalPaidNet)} net · ${formatMoney(
+                kpis.totalPaidVAT,
+              )} VAT`}
               href="/payments"
             />
             <KPI
@@ -164,7 +181,9 @@ export default async function DashboardPage() {
               label="Cash this month"
               value={formatMoney(kpis.cashCollectedThisMonth)}
               valueClassName="text-emerald-700"
-              hint="received & applied"
+              hint={`${formatMoney(kpis.cashCollectedThisMonthNet)} net · ${formatMoney(
+                kpis.cashCollectedThisMonthVAT,
+              )} VAT`}
             />
           </div>
         </section>
