@@ -68,7 +68,16 @@ export async function GET(
     body = await renderDocumentXlsx(payload);
   }
 
-  return new NextResponse(body, {
+  // Copy into a freshly-allocated ArrayBuffer-backed Uint8Array. Newer TS
+  // libs type renderer output as `Uint8Array<ArrayBufferLike>` (the buffer
+  // could in principle be SharedArrayBuffer), which doesn't satisfy
+  // BlobPart's stricter `ArrayBufferView<ArrayBuffer>` requirement. The
+  // explicit copy normalizes the type and is cheap relative to the PDF
+  // rendering cost.
+  const normalized = new Uint8Array(new ArrayBuffer(body.byteLength));
+  normalized.set(body);
+
+  return new NextResponse(normalized, {
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format],
