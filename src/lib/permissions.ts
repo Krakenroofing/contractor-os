@@ -56,6 +56,8 @@ export const RESOURCES = [
   'accounting_accounts',
   // Banking Rules — Phase 1.
   'banking_rules',
+  // Receipts — Phase 1.
+  'receipts',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -94,6 +96,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     statement_imports: RW,
     accounting_accounts: RW,
     banking_rules: RW,
+    receipts: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -129,6 +132,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // PM can view rules and apply suggestions on transactions (apply is
     // gated by statement_imports:create above), but cannot author rules.
     banking_rules: READ,
+    receipts: RW,
   },
   estimator: {
     dashboard: READ,
@@ -158,6 +162,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     statement_imports: NONE,
     accounting_accounts: NONE,
     banking_rules: NONE,
+    receipts: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -187,6 +192,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     statement_imports: RW,
     accounting_accounts: RW,
     banking_rules: RW,
+    receipts: RW,
   },
   field_user: {
     dashboard: READ,
@@ -216,6 +222,11 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     statement_imports: NONE,
     accounting_accounts: NONE,
     banking_rules: NONE,
+    // Field users can submit receipts (upload + photo). Post is refused at
+    // the action layer (can(role, 'receipts', 'create') gates post).
+    // For Phase 1 of receipts we keep create on. Post is enforced
+    // server-side via a separate role check.
+    receipts: RW,
   },
   view_only: {
     dashboard: READ,
@@ -245,6 +256,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     statement_imports: READ,
     accounting_accounts: READ,
     banking_rules: READ,
+    receipts: READ,
   },
 };
 

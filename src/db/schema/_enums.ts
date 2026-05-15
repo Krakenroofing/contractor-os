@@ -215,6 +215,26 @@ export const statementImportStatusEnum = pgEnum('statement_import_status', [
   'failed',
 ]);
 
+// Receipts — Phase 1.
+export const receiptStatusEnum = pgEnum('receipt_status', [
+  'draft',
+  'posted',
+  'void',
+]);
+
+export const paymentSourceTypeEnum = pgEnum('payment_source_type', [
+  'bank',
+  'credit_card',
+  'cash',
+  'other',
+]);
+
+export const receiptAttachmentKindEnum = pgEnum('receipt_attachment_kind', [
+  'receipt_image',
+  'supplier_invoice',
+  'other',
+]);
+
 export const documentCategoryEnum = pgEnum('document_category', [
   'proposal',
   'estimate',
