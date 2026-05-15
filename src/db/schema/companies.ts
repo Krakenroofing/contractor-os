@@ -1,4 +1,13 @@
-import { pgTable, uuid, text, timestamp, integer, numeric } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  integer,
+  numeric,
+  boolean,
+} from 'drizzle-orm/pg-core';
+import { accountingMethodEnum } from './_enums';
 
 export const companies = pgTable('companies', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -28,6 +37,16 @@ export const companies = pgTable('companies', {
   standardPaymentTerms: text('standard_payment_terms'),
   standardWarrantyLanguage: text('standard_warranty_language'),
   fiscalYearStartMonth: integer('fiscal_year_start_month').notNull().default(1),
+
+  // Banking & Receipts (Phase 1). Gate VAT-aware UI/logic on `isVatActive`
+  // instead of `vatRatePercent > 0` so a company can mark itself VAT-active
+  // ahead of choosing a rate, and so explicit opt-out is possible. Backfilled
+  // by the 2026-05-15_banking_phase1 migration.
+  isVatActive: boolean('is_vat_active').notNull().default(false),
+  vatJurisdiction: text('vat_jurisdiction'),
+  accountingMethod: accountingMethodEnum('accounting_method')
+    .notNull()
+    .default('accrual'),
 
   // Tax / banking — surfaced on invoices when the active template enables
   // wire-instruction or TIN sections. Nullable so existing companies keep

@@ -1,0 +1,111 @@
+// Lazy default Chart of Accounts seeder.
+//
+// Called the first time a company creates a bank account (or otherwise
+// touches /banking). Idempotent: every account is upserted by (company_id, code).
+//
+// VAT accounts are only seeded when companies.is_vat_active is true, so US
+// companies (Kraken) never see VAT Payable / VAT Input in their COA.
+
+import 'server-only';
+import { eq } from 'drizzle-orm';
+import { getDb, isDatabaseConfigured } from '@/db';
+import { accountingAccounts, type AccountingAccount } from '@/db/schema';
+import type { Company } from '@/db/schema';
+
+type SeedRow = {
+  code: string;
+  name: string;
+  type: AccountingAccount['type'];
+};
+
+function baseCoa(): SeedRow[] {
+  return [
+    { code: '4000', name: 'Sales / Income', type: 'income' },
+    { code: '4990', name: 'Uncategorized Income', type: 'uncategorized_income' },
+    { code: '5000', name: 'Cost of Goods Sold (Job Cost)', type: 'cogs_job_cost' },
+    { code: '6000', name: 'Operating Expense', type: 'expense' },
+    { code: '6990', name: 'Uncategorized Expense', type: 'uncategorized_expense' },
+    { code: '3000', name: "Owner's Equity", type: 'owner_equity' },
+  ];
+}
+
+function vatCoa(): SeedRow[] {
+  return [
+    { code: '2200', name: 'VAT Payable', type: 'vat_payable' },
+    { code: '1300', name: 'VAT Input (Recoverable)', type: 'vat_input' },
+  ];
+}
+
+/**
+ * Ensure the default COA exists for a company. Safe to call repeatedly; only
+ * missing codes are inserted. Returns the full set of accounting accounts for
+ * the company after seeding.
+ */
+export async function ensureDefaultCoaForCompany(
+  company: Pick<Company, 'id' | 'defaultCurrency' | 'isVatActive'>,
+): Promise<AccountingAccount[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const currency = company.defaultCurrency || 'USD';
+  const wanted: SeedRow[] = company.isVatActive
+    ? [...baseCoa(), ...vatCoa()]
+    : baseCoa();
+
+  // Read existing codes once, then insert any missing.
+  const existing = await db
+    .select()
+    .from(accountingAccounts)
+    .where(eq(accountingAccounts.companyId, company.id));
+  const existingByCode = new Map(
+    existing.filter((a) => a.code !== null).map((a) => [a.code!, a]),
+  );
+
+  const toInsert = wanted
+    .filter((s) => !existingByCode.has(s.code))
+    .map((s) => ({
+      companyId: company.id,
+      code: s.code,
+      name: s.name,
+      type: s.type,
+      currency,
+    }));
+  if (toInsert.length > 0) {
+    await db.insert(accountingAccounts).values(toInsert);
+  }
+
+  return await db
+    .select()
+    .from(accountingAccounts)
+    .where(eq(accountingAccounts.companyId, company.id));
+}
+
+/**
+ * Find-or-create the auto-paired accounting account for a new bank or credit
+ * card. Each bank_account row needs a 1:1 accounting_accounts row of the
+ * matching type — that pairing is the stable category target for future
+ * posting. We do not assign a `code` to these auto-rows; users can name them
+ * freely.
+ */
+export async function createPairedAccountingAccount(input: {
+  companyId: string;
+  name: string;
+  type: 'bank' | 'credit_card';
+  currency: string;
+}): Promise<AccountingAccount> {
+  if (!isDatabaseConfigured()) {
+    throw new Error('Database not configured');
+  }
+  const db = getDb()!;
+  const [row] = await db
+    .insert(accountingAccounts)
+    .values({
+      companyId: input.companyId,
+      code: null,
+      name: input.name,
+      type: input.type,
+      currency: input.currency,
+    })
+    .returning();
+  return row;
+}
+

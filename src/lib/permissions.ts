@@ -50,6 +50,10 @@ export const RESOURCES = [
   'documents',
   'invitations',
   'settings',
+  // Banking & Receipts — Phase 1.
+  'bank_accounts',
+  'statement_imports',
+  'accounting_accounts',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -84,6 +88,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: RW,
     invitations: RW,
     settings: RW,
+    bank_accounts: RW,
+    statement_imports: RW,
+    accounting_accounts: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -109,6 +116,13 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: RW,
     invitations: NONE,
     settings: NONE,
+    // PMs can VIEW the banking ledger and the COA but not create accounts
+    // or run imports — that stays with Accounting / Owner. Phase 3 will
+    // additionally gate per-row edits on `is_reviewed` so PMs cannot
+    // unilaterally re-categorize a reconciled txn.
+    bank_accounts: READ,
+    statement_imports: READ,
+    accounting_accounts: READ,
   },
   estimator: {
     dashboard: READ,
@@ -134,6 +148,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: READ,
     invitations: NONE,
     settings: NONE,
+    bank_accounts: NONE,
+    statement_imports: NONE,
+    accounting_accounts: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -159,6 +176,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: READ,
     invitations: NONE,
     settings: NONE,
+    bank_accounts: RW,
+    statement_imports: RW,
+    accounting_accounts: RW,
   },
   field_user: {
     dashboard: READ,
@@ -184,6 +204,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: RW,
     invitations: NONE,
     settings: NONE,
+    bank_accounts: NONE,
+    statement_imports: NONE,
+    accounting_accounts: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -209,6 +232,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     documents: READ,
     invitations: NONE,
     settings: NONE,
+    bank_accounts: READ,
+    statement_imports: READ,
+    accounting_accounts: READ,
   },
 };
 

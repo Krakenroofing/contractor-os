@@ -92,6 +92,10 @@ export const jobCostSourceEnum = pgEnum('job_cost_source', [
   'labor_entry',
   'bill_import',
   'qbo_sync',
+  // Phase 2: receipts post into job_cost_entries via this source. The enum
+  // value is added now in the banking-phase1 migration so future phases
+  // don't need a separate enum migration.
+  'receipt_import',
 ]);
 
 export const jobCostTypeEnum = pgEnum('job_cost_type', [
@@ -172,6 +176,43 @@ export const dailyReportPhotoCategoryEnum = pgEnum('daily_report_photo_category'
   'inspection',
   'weather',
   'other',
+]);
+
+// Banking & Receipts — Phase 1.
+//
+// accounting_method drives downstream VAT reporting and (later) cash-basis
+// P&L behavior. accrual is the default; TRB and most active operators run
+// accrual.
+export const accountingMethodEnum = pgEnum('accounting_method', [
+  'accrual',
+  'cash',
+]);
+
+// Lightweight COA — not a full GL yet. Categorizes accounting_accounts and
+// is the target of manual categorization on imported transactions.
+export const accountingAccountTypeEnum = pgEnum('accounting_account_type', [
+  'bank',
+  'credit_card',
+  'income',
+  'expense',
+  'cogs_job_cost',
+  'vat_payable',
+  'vat_input',
+  'owner_equity',
+  'uncategorized_income',
+  'uncategorized_expense',
+]);
+
+export const bankAccountTypeEnum = pgEnum('bank_account_type', [
+  'bank',
+  'credit_card',
+]);
+
+export const statementImportStatusEnum = pgEnum('statement_import_status', [
+  'pending',
+  'mapped',
+  'imported',
+  'failed',
 ]);
 
 export const documentCategoryEnum = pgEnum('document_category', [

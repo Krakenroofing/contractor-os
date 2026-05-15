@@ -120,6 +120,13 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     bankAccountNumber: null,
     bankAddress: null,
     paymentNotes: null,
+    // Banking & Receipts — Phase 1 mock defaults. Real companies pick
+    // `isVatActive`/`vatJurisdiction` via the SQL backfill in
+    // 2026-05-15_banking_phase1; the mock store mirrors that for parity
+    // with the typed Company shape.
+    isVatActive: false,
+    vatJurisdiction: null,
+    accountingMethod: 'accrual' as const,
     createdAt: now,
     updatedAt: now,
     ...over,
