@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +10,7 @@ import {
   upsertReceiptAction,
   type ReceiptActionState,
 } from '../actions';
+import { saveVendorDefaultsAction } from '@/modules/vendors/actions';
 import {
   COST_TYPE_LABEL,
   PAYMENT_SOURCE_LABEL,
@@ -18,6 +20,16 @@ import {
 import { computeVat } from '../lib/vat';
 
 type Option = { id: string; label: string };
+
+// Vendor option carries the three default fields so the form can prefill on
+// vendor change without an extra round-trip. Empty string == no default set.
+export type VendorOption = {
+  id: string;
+  label: string;
+  defaultCostCodeId: string;
+  defaultCostType: string;
+  defaultAccountingAccountId: string;
+};
 
 export type ReceiptFormProps = {
   initial?: {
@@ -45,7 +57,7 @@ export type ReceiptFormProps = {
   vatActive: boolean;
   defaultCurrency: string;
   defaultVatRate: number;
-  vendors: Option[];
+  vendors: VendorOption[];
   projects: Option[];
   costCodes: Option[];
   accountingAccounts: Option[];
@@ -102,6 +114,63 @@ export function ReceiptForm(props: ReceiptFormProps) {
     {},
   );
 
+  const router = useRouter();
+  const [savingDefaults, startSavingDefaults] = useTransition();
+  const [savedDefaultsAt, setSavedDefaultsAt] = useState<number | null>(null);
+
+  // Prefill blanks from a vendor's defaults. Never overwrites a value the
+  // operator already picked — that's the Phase-1 contract. Called when the
+  // vendor select changes.
+  function applyVendorDefaults(v: VendorOption) {
+    if (!costCodeId && v.defaultCostCodeId) setCostCodeId(v.defaultCostCodeId);
+    if (!costType && v.defaultCostType) setCostType(v.defaultCostType);
+    if (!accountingAccountId && v.defaultAccountingAccountId) {
+      setAccountingAccountId(v.defaultAccountingAccountId);
+    }
+  }
+
+  function onVendorChange(id: string) {
+    setVendorId(id);
+    const v = props.vendors.find((x) => x.id === id);
+    if (v) applyVendorDefaults(v);
+  }
+
+  // Compute whether the currently-picked vendor's defaults differ from what's
+  // in the form right now. Drives visibility of the inline "Save as default"
+  // affordance. If no vendor is selected → never show.
+  const selectedVendor = props.vendors.find((x) => x.id === vendorId) ?? null;
+  const defaultsDiffer = Boolean(
+    selectedVendor &&
+      (selectedVendor.defaultCostCodeId !== (costCodeId ?? '') ||
+        selectedVendor.defaultCostType !== (costType ?? '') ||
+        selectedVendor.defaultAccountingAccountId !==
+          (accountingAccountId ?? '')) &&
+      // Only offer to save when at least one of the three fields is set —
+      // otherwise the user is just clearing defaults, which they should do
+      // from the vendor edit page.
+      (costCodeId !== '' ||
+        costType !== '' ||
+        accountingAccountId !== ''),
+  );
+
+  function onSaveDefaults() {
+    if (!vendorId) return;
+    startSavingDefaults(async () => {
+      const res = await saveVendorDefaultsAction({
+        vendorId,
+        defaultCostCodeId: costCodeId || null,
+        defaultCostType: costType || null,
+        defaultAccountingAccountId: accountingAccountId || null,
+      });
+      if (res.ok) {
+        setSavedDefaultsAt(Date.now());
+        router.refresh();
+      } else if (res.error) {
+        alert(res.error);
+      }
+    });
+  }
+
   return (
     <form action={action} className="space-y-6">
       {i?.id && <input type="hidden" name="id" value={i.id} />}
@@ -124,7 +193,7 @@ export function ReceiptForm(props: ReceiptFormProps) {
             id="vendorId"
             name="vendorId"
             value={vendorId}
-            onChange={(e) => setVendorId(e.target.value)}
+            onChange={(e) => onVendorChange(e.target.value)}
           >
             <option value="">—</option>
             {props.vendors.map((v) => (
@@ -133,6 +202,23 @@ export function ReceiptForm(props: ReceiptFormProps) {
               </option>
             ))}
           </Select>
+          {defaultsDiffer && (
+            <button
+              type="button"
+              onClick={onSaveDefaults}
+              disabled={savingDefaults}
+              className="mt-1 text-[11px] text-slate-600 underline hover:text-slate-900 disabled:opacity-60"
+            >
+              {savingDefaults
+                ? 'Saving…'
+                : `Save current cost code / type / category as default for ${selectedVendor?.label}`}
+            </button>
+          )}
+          {savedDefaultsAt !== null && !defaultsDiffer && !savingDefaults && (
+            <p className="mt-1 text-[11px] text-emerald-700">
+              Saved as default.
+            </p>
+          )}
         </div>
         <div>
           <Label htmlFor="currency">Currency</Label>

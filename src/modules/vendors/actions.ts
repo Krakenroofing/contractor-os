@@ -47,6 +47,11 @@ function readForm(formData: FormData) {
     postalCode: formData.get('postalCode') ?? '',
     defaultTerms: formData.get('defaultTerms') ?? '',
     notes: formData.get('notes') ?? '',
+    // Vendor defaults
+    defaultCostCodeId: formData.get('defaultCostCodeId') ?? '',
+    defaultCostType: formData.get('defaultCostType') ?? '',
+    defaultAccountingAccountId:
+      formData.get('defaultAccountingAccountId') ?? '',
   };
 }
 
@@ -85,6 +90,9 @@ export async function createVendorAction(
       isSubcontractor: data.vendorType === 'subcontractor',
       w9OnFile: false,
       notes: emptyToNull(data.notes ?? null),
+      defaultCostCodeId: data.defaultCostCodeId,
+      defaultCostType: data.defaultCostType,
+      defaultAccountingAccountId: data.defaultAccountingAccountId,
     });
     createdId = vendor.id;
   } catch (err) {
@@ -136,6 +144,9 @@ export async function updateVendorAction(
       defaultTerms: emptyToNull(data.defaultTerms ?? null),
       isSubcontractor: data.vendorType === 'subcontractor',
       notes: emptyToNull(data.notes ?? null),
+      defaultCostCodeId: data.defaultCostCodeId,
+      defaultCostType: data.defaultCostType,
+      defaultAccountingAccountId: data.defaultAccountingAccountId,
     });
     if (!updated) {
       return { formError: 'Vendor not found in the active company.' };
@@ -148,6 +159,53 @@ export async function updateVendorAction(
   revalidatePath('/vendors');
   revalidatePath(`/vendors/${id}`);
   redirect(`/vendors/${id}`);
+}
+
+// Phase 1 vendor defaults — invoked by the inline "Save as default for
+// <vendor>" link on the Receipt form. Writes only the three defaults; leaves
+// every other vendor field alone.
+const saveDefaultsSchema = z.object({
+  vendorId: idSchema,
+  defaultCostCodeId: z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' || v === undefined ? null : v)),
+  defaultCostType: z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' || v === undefined ? null : v)),
+  defaultAccountingAccountId: z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' || v === undefined ? null : v)),
+});
+
+export async function saveVendorDefaultsAction(input: {
+  vendorId: string;
+  defaultCostCodeId: string | null;
+  defaultCostType: string | null;
+  defaultAccountingAccountId: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'vendors')) {
+    return { ok: false, error: 'No permission to edit vendors.' };
+  }
+  const parsed = saveDefaultsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input.' };
+  const companyId = await getActiveCompanyId();
+  const updated = await updateVendor(companyId, parsed.data.vendorId, {
+    defaultCostCodeId: parsed.data.defaultCostCodeId,
+    defaultCostType: parsed.data.defaultCostType,
+    defaultAccountingAccountId: parsed.data.defaultAccountingAccountId,
+  });
+  if (!updated) return { ok: false, error: 'Vendor not found.' };
+  revalidatePath(`/vendors/${parsed.data.vendorId}`);
+  revalidatePath('/banking/receipts');
+  return { ok: true };
 }
 
 export async function archiveVendorAction(

@@ -22,6 +22,14 @@ export const vendors = pgTable(
     isSubcontractor: boolean('is_subcontractor').notNull().default(false),
     w9OnFile: boolean('w9_on_file').notNull().default(false),
     notes: text('notes'),
+    // Vendor Defaults — Phase 1. Read by the Receipt form to prefill cost
+    // code / cost type / accounting category. All nullable. FK references
+    // declared at the SQL layer in 2026-05-15_vendor_defaults_phase1.sql;
+    // here we store the ids only (cost_codes and accounting_accounts can't
+    // be imported cleanly because of cycles).
+    defaultCostCodeId: uuid('default_cost_code_id'),
+    defaultCostType: text('default_cost_type'),
+    defaultAccountingAccountId: uuid('default_accounting_account_id'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

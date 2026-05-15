@@ -12,7 +12,34 @@ import {
   type CreateVendorState,
   type UpdateVendorState,
 } from '../actions';
-import { TYPE_LABEL, vendorTypeValues, type VendorType } from '../schema';
+import {
+  TYPE_LABEL,
+  vendorCostTypeValues,
+  vendorTypeValues,
+  type VendorType,
+} from '../schema';
+
+type Option = { id: string; label: string };
+
+const COST_TYPE_LABEL: Record<(typeof vendorCostTypeValues)[number], string> = {
+  labor: 'Labor',
+  labor_burden: 'Labor burden',
+  materials: 'Materials',
+  subcontractor: 'Subcontractor',
+  equipment_rental: 'Equipment rental',
+  owned_equipment: 'Owned equipment',
+  freight: 'Freight',
+  customs_duty: 'Customs duty',
+  vat: 'VAT',
+  tools_consumables: 'Tools / consumables',
+  fuel_travel: 'Fuel / travel',
+  per_diem_housing: 'Per diem / housing',
+  permits_fees: 'Permits / fees',
+  disposal: 'Disposal',
+  general_conditions: 'General conditions',
+  change_order_work: 'Change order work',
+  other: 'Other',
+};
 
 export type VendorFormInitialValues = {
   id?: string;
@@ -27,6 +54,9 @@ export type VendorFormInitialValues = {
   postalCode: string;
   defaultTerms: string;
   notes: string;
+  defaultCostCodeId: string;
+  defaultCostType: string;
+  defaultAccountingAccountId: string;
 };
 
 const blankInitial: VendorFormInitialValues = {
@@ -41,6 +71,9 @@ const blankInitial: VendorFormInitialValues = {
   postalCode: '',
   defaultTerms: '',
   notes: '',
+  defaultCostCodeId: '',
+  defaultCostType: '',
+  defaultAccountingAccountId: '',
 };
 
 type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
@@ -48,9 +81,13 @@ type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
 export function VendorForm({
   mode = { kind: 'create' },
   initial,
+  costCodes = [],
+  accountingAccounts = [],
 }: {
   mode?: Mode;
   initial?: VendorFormInitialValues;
+  costCodes?: Option[];
+  accountingAccounts?: Option[];
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -158,6 +195,60 @@ export function VendorForm({
           defaultValue={values.notes}
         />
       </Field>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Defaults for receipts
+        </legend>
+        <p className="text-xs text-slate-500">
+          When this vendor is selected on a Receipt, blank fields auto-fill from
+          these defaults. Existing operator picks are never overwritten.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Default cost code" error={err('defaultCostCodeId')}>
+            <Select
+              name="defaultCostCodeId"
+              defaultValue={values.defaultCostCodeId}
+            >
+              <option value="">— none —</option>
+              {costCodes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Default cost type" error={err('defaultCostType')}>
+            <Select
+              name="defaultCostType"
+              defaultValue={values.defaultCostType}
+            >
+              <option value="">— none —</option>
+              {vendorCostTypeValues.map((c) => (
+                <option key={c} value={c}>
+                  {COST_TYPE_LABEL[c]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Default accounting category"
+            error={err('defaultAccountingAccountId')}
+          >
+            <Select
+              name="defaultAccountingAccountId"
+              defaultValue={values.defaultAccountingAccountId}
+            >
+              <option value="">— none —</option>
+              {accountingAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </fieldset>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>

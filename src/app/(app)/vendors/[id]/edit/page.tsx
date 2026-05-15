@@ -7,6 +7,8 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getVendor } from '@/lib/data/vendors';
+import { listCostCodes } from '@/lib/data/cost-codes';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +22,11 @@ export default async function EditVendorPage({
   if (!canCreate(role, 'vendors')) redirect('/vendors');
 
   const companyId = await getActiveCompanyId();
-  const vendor = await getVendor(companyId, id);
+  const [vendor, costCodes, accountingAccounts] = await Promise.all([
+    getVendor(companyId, id),
+    listCostCodes(companyId),
+    listAccountingAccounts(companyId),
+  ]);
   if (!vendor) notFound();
 
   return (
@@ -61,7 +67,20 @@ export default async function EditVendorPage({
           postalCode: vendor.postalCode ?? '',
           defaultTerms: vendor.defaultTerms ?? '',
           notes: vendor.notes ?? '',
+          defaultCostCodeId: vendor.defaultCostCodeId ?? '',
+          defaultCostType: vendor.defaultCostType ?? '',
+          defaultAccountingAccountId: vendor.defaultAccountingAccountId ?? '',
         }}
+        costCodes={costCodes.map((c) => ({
+          id: c.id,
+          label: `${c.code} — ${c.description}`,
+        }))}
+        accountingAccounts={accountingAccounts
+          .filter((a) => !a.isArchived)
+          .map((a) => ({
+            id: a.id,
+            label: a.code ? `${a.code} — ${a.name}` : a.name,
+          }))}
       />
     </div>
   );

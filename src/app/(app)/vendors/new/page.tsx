@@ -2,14 +2,22 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { VendorForm } from '@/modules/vendors/components/vendor-form';
+import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
+import { listCostCodes } from '@/lib/data/cost-codes';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewVendorPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'vendors')) redirect('/vendors');
+  const companyId = await getActiveCompanyId();
+  const [costCodes, accountingAccounts] = await Promise.all([
+    listCostCodes(companyId),
+    listAccountingAccounts(companyId),
+  ]);
   return (
     <div className="p-8 max-w-3xl space-y-6">
       <Link href="/vendors">
@@ -25,7 +33,18 @@ export default async function NewVendorPage() {
         </p>
       </header>
 
-      <VendorForm />
+      <VendorForm
+        costCodes={costCodes.map((c) => ({
+          id: c.id,
+          label: `${c.code} — ${c.description}`,
+        }))}
+        accountingAccounts={accountingAccounts
+          .filter((a) => !a.isArchived)
+          .map((a) => ({
+            id: a.id,
+            label: a.code ? `${a.code} — ${a.name}` : a.name,
+          }))}
+      />
     </div>
   );
 }

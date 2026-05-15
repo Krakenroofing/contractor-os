@@ -185,7 +185,13 @@ export default async function ReceiptDetailPage({
                 vatActive={company.isVatActive}
                 defaultCurrency={company.defaultCurrency}
                 defaultVatRate={Number(company.vatRatePercent) || 0}
-                vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+                vendors={vendors.map((v) => ({
+                  id: v.id,
+                  label: v.name,
+                  defaultCostCodeId: v.defaultCostCodeId ?? '',
+                  defaultCostType: v.defaultCostType ?? '',
+                  defaultAccountingAccountId: v.defaultAccountingAccountId ?? '',
+                }))}
                 projects={projects.map((p) => ({
                   id: p.id,
                   label: `${p.number} — ${p.name}`,

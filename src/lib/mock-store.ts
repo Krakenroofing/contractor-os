@@ -236,6 +236,10 @@ function makeVendor(
     isSubcontractor: false,
     w9OnFile: false,
     notes: null,
+    // Vendor Defaults — Phase 1 mock defaults. Null in demo data.
+    defaultCostCodeId: null,
+    defaultCostType: null,
+    defaultAccountingAccountId: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
