@@ -8,6 +8,7 @@ import { isDevDemoMode } from '@/lib/auth';
 import { canCreate, canView, ROLE_LABELS } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dashboard';
+import { buildAccountingSummary } from '@/modules/dashboard/lib/accounting-summary';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
 
 export const dynamic = 'force-dynamic';
@@ -15,8 +16,13 @@ export const dynamic = 'force-dynamic';
 export default async function DashboardPage() {
   const company = await getActiveCompany();
   const role = await getActiveRole();
-  const data = await buildDashboardData(company.id);
+  const [data, accounting] = await Promise.all([
+    buildDashboardData(company.id),
+    buildAccountingSummary(company.id),
+  ]);
   const { kpis, alerts, revenueByQuarter } = data;
+  const canSeeBanking = canView(role, 'bank_accounts');
+  const canSeeReceipts = canView(role, 'receipts');
 
   // Resource visibility flags — hide sections the active role can't see.
   const canSeeChangeOrders = canView(role, 'change_orders');
@@ -278,6 +284,65 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      {/* ===== Accounting (Banking & Receipts triage) ===== */}
+      {(canSeeBanking || canSeeReceipts) && (
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
+            Accounting
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {canSeeBanking && (
+              <AccountingTile
+                label="Uncategorized transactions"
+                value={String(accounting.uncategorizedCount)}
+                hint={
+                  accounting.uncategorizedCount > 0
+                    ? `${formatMoney(accounting.uncategorizedTotal)} total (abs)`
+                    : 'Nothing waiting — nice.'
+                }
+                tone={accounting.uncategorizedCount > 0 ? 'amber' : 'slate'}
+                href="/banking"
+              />
+            )}
+            {canSeeReceipts && (
+              <AccountingTile
+                label="Draft receipts"
+                value={String(accounting.unpostedReceiptsCount)}
+                hint={
+                  accounting.unpostedReceiptsCount > 0
+                    ? `${formatMoney(accounting.unpostedReceiptsTotal)} total`
+                    : 'No drafts pending Post.'
+                }
+                tone={accounting.unpostedReceiptsCount > 0 ? 'amber' : 'slate'}
+                href="/banking/receipts"
+              />
+            )}
+            {accounting.isVatActive && canView(role, 'reports') && (
+              <AccountingTile
+                label={`Net VAT due ${accounting.currentQuarterKey.replace(
+                  /^(\d{4})-(Q\d)$/,
+                  '$2 $1',
+                )}`}
+                value={formatMoney(accounting.netVatDueThisQuarter)}
+                hint={`${formatMoney(
+                  accounting.outputVatThisQuarter,
+                )} output · ${formatMoney(
+                  accounting.inputVatThisQuarter,
+                )} input`}
+                tone={
+                  accounting.netVatDueThisQuarter > 0
+                    ? 'amber'
+                    : accounting.netVatDueThisQuarter < 0
+                      ? 'emerald'
+                      : 'slate'
+                }
+                href="/reports/vat-quarterly"
+              />
+            )}
+          </div>
+        </section>
+      )}
+
       {/* ===== Quick reports ===== */}
       {canView(role, 'reports') && (
         <section className="space-y-3">
@@ -347,6 +412,38 @@ function KPI({
     </Card>
   );
   return href ? <Link href={{ pathname: href }}>{body}</Link> : body;
+}
+
+function AccountingTile({
+  label,
+  value,
+  hint,
+  tone,
+  href,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone: 'slate' | 'amber' | 'emerald';
+  href: string;
+}) {
+  const toneClasses: Record<typeof tone, string> = {
+    slate: 'text-slate-900',
+    amber: 'text-amber-700',
+    emerald: 'text-emerald-700',
+  };
+  const body = (
+    <Card className="hover:border-slate-400 transition-colors">
+      <CardContent className="p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+        <p className={`mt-1 text-2xl font-semibold tabular-nums ${toneClasses[tone]}`}>
+          {value}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-500">{hint}</p>
+      </CardContent>
+    </Card>
+  );
+  return <Link href={{ pathname: href }}>{body}</Link>;
 }
 
 function AlertCard({

@@ -62,33 +62,47 @@ export default async function VatQuarterlyReportPage({
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <KPI label="VAT rate" value={`${report.companyVatRatePct.toFixed(2)}%`} />
-            <KPI label="Sent invoices" value={String(report.totals.invoiceCount)} />
             <KPI
-              label="Subtotal (ex-VAT)"
-              value={formatMoney(report.totals.subtotal)}
-            />
-            <KPI
-              label="Total VAT due"
+              label="Output VAT (sales)"
               value={formatMoney(report.totals.vatDue)}
               valueClassName="text-amber-700"
+              hint={`${report.totals.invoiceCount} sent invoice(s)`}
+            />
+            <KPI
+              label="Input VAT (expenses)"
+              value={formatMoney(report.totals.inputVat)}
+              valueClassName="text-emerald-700"
+              hint={`${report.totals.receiptCount} posted receipt(s)`}
+            />
+            <KPI
+              label="Net VAT due"
+              value={formatMoney(report.totals.netVatDue)}
+              valueClassName={
+                report.totals.netVatDue > 0
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }
               highlight
             />
             <KPI
-              label="Retainage held"
-              value={formatMoney(report.totals.retainage)}
-              valueClassName={
-                report.totals.retainage > 0 ? 'text-slate-700' : undefined
-              }
+              label="Subtotal billed (ex-VAT)"
+              value={formatMoney(report.totals.subtotal)}
+            />
+            <KPI
+              label="Subtotal expenses (ex-VAT)"
+              value={formatMoney(report.totals.expenseNet)}
             />
           </div>
 
           <p className="text-xs text-slate-500">
-            Accrual basis — every non-draft / non-void invoice contributes VAT
-            for the quarter on its <strong>invoice date</strong> (the date on
-            the document the customer received), regardless of when it was
-            marked sent in the system.
+            Accrual basis. Output VAT = VAT on every non-draft / non-void
+            invoice, bucketed by <strong>invoice date</strong>. Input VAT = VAT
+            on every <strong>posted receipt</strong> marked recoverable.
+            <strong> Net VAT due = output − input</strong> — positive means you
+            pay the government for the quarter; negative means a reclaim
+            balance.
           </p>
 
           <Card>
@@ -106,10 +120,12 @@ export default async function VatQuarterlyReportPage({
                     <TableRow>
                       <TableHead>Quarter</TableHead>
                       <TableHead className="text-right">Invoices</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                      <TableHead className="text-right">VAT due</TableHead>
+                      <TableHead className="text-right">Output VAT</TableHead>
+                      <TableHead className="text-right">Receipts</TableHead>
+                      <TableHead className="text-right">Input VAT</TableHead>
+                      <TableHead className="text-right">Net VAT due</TableHead>
+                      <TableHead className="text-right">Subtotal billed</TableHead>
                       <TableHead className="text-right">Retainage</TableHead>
-                      <TableHead className="text-right">Total billed</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -121,17 +137,31 @@ export default async function VatQuarterlyReportPage({
                         <TableCell className="text-right tabular-nums">
                           {q.invoiceCount}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatMoney(q.subtotal)}
-                        </TableCell>
                         <TableCell className="text-right tabular-nums font-medium text-amber-700">
                           {formatMoney(q.vatDue)}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums text-slate-600">
-                          {q.retainage > 0 ? `(${formatMoney(q.retainage)})` : '—'}
+                        <TableCell className="text-right tabular-nums">
+                          {q.receiptCount}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-medium text-emerald-700">
+                          {formatMoney(q.inputVat)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums font-semibold ${
+                            q.netVatDue > 0
+                              ? 'text-amber-700'
+                              : q.netVatDue < 0
+                                ? 'text-emerald-700'
+                                : ''
+                          }`}
+                        >
+                          {formatMoney(q.netVatDue)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(q.subtotal)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-slate-600">
-                          {formatMoney(q.total)}
+                          {q.retainage > 0 ? `(${formatMoney(q.retainage)})` : '—'}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -211,6 +241,83 @@ export default async function VatQuarterlyReportPage({
               )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Expense detail (input VAT)</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 overflow-x-auto">
+              {report.expenses.length === 0 ? (
+                <p className="p-6 text-sm text-slate-500">
+                  No posted receipts in the selected date range.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Receipt date</TableHead>
+                      <TableHead>Vendor</TableHead>
+                      <TableHead>Project</TableHead>
+                      <TableHead>Quarter</TableHead>
+                      <TableHead>Recoverable</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                      <TableHead className="text-right">Input VAT</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {report.expenses.map((r) => (
+                      <TableRow key={r.receiptId}>
+                        <TableCell className="text-xs font-mono">
+                          <Link
+                            href={{ pathname: `/banking/receipts/${r.receiptId}` }}
+                            className="hover:underline"
+                          >
+                            {r.receiptDate}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {r.vendorName}
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {r.projectNumber
+                            ? `${r.projectNumber} — ${r.projectName ?? ''}`
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {r.quarterKey.replace(/^(\d{4})-(Q\d)$/, '$2 $1')}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {r.recoverable ? (
+                            <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5">
+                              recoverable
+                            </span>
+                          ) : (
+                            <span className="inline-block rounded bg-slate-200 text-slate-700 px-1.5 py-0.5">
+                              non-recoverable
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(r.subtotal)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums font-medium ${
+                            r.recoverable ? 'text-emerald-700' : 'text-slate-400'
+                          }`}
+                        >
+                          {formatMoney(r.inputVat)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(r.total)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </ReportShell>
@@ -222,11 +329,13 @@ function KPI({
   value,
   highlight,
   valueClassName,
+  hint,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
   valueClassName?: string;
+  hint?: string;
 }) {
   return (
     <Card className={highlight ? 'border-slate-300' : undefined}>
@@ -239,6 +348,7 @@ function KPI({
         >
           {value}
         </p>
+        {hint && <p className="mt-0.5 text-[11px] text-slate-500">{hint}</p>}
       </CardContent>
     </Card>
   );

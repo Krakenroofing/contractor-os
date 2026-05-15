@@ -8,13 +8,15 @@ import { listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import { listInvoices, getInvoiceLineItems } from '@/lib/data/invoices';
 import { listPayments } from '@/lib/data/invoice-payments';
+import { listReceipts } from '@/lib/data/receipts';
 import {
   listPurchaseOrders,
   getPurchaseOrderLines,
 } from '@/lib/data/purchase-orders';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import { listChangeOrders } from '@/lib/data/change-orders';
-import { getVendor } from '@/lib/data/vendors';
+import { getVendor, listVendors } from '@/lib/data/vendors';
+// listVendors is consumed by the VAT-quarterly expenses pane (Phase B).
 import {
   computeProjectFinancials,
   computeProjectCostCodeBreakdown,
@@ -37,11 +39,21 @@ import { isInRange } from './filters';
 
 // ===== VAT Quarterly Report =====
 //
-// Accrual-basis VAT liability. Every non-void invoice that's been sent
-// contributes its VAT to the quarter it was sent in. VAT amount per invoice
-// is computed as `subtotal × company.vatRatePercent / 100`, so when a
-// company's VAT rate is zero (e.g., Kraken Roofing) the report comes back
-// empty and the page renders a clean "no VAT activity" state.
+// Accrual-basis VAT liability with two sides:
+//
+//   OUTPUT VAT — what we owe the government. Every non-void / non-draft
+//   invoice contributes vat = subtotal × company.vatRatePercent / 100 to the
+//   quarter of its invoiceDate.
+//
+//   INPUT VAT — what we can reclaim from the government. Every posted
+//   receipt with `vat_recoverable=true` contributes its receipt.vatAmount
+//   to the quarter the receipt was dated.
+//
+//   NET VAT DUE = output − input. Positive means we pay the government.
+//
+// When the company's VAT rate is zero AND the company is not marked
+// `is_vat_active` (the Phase 1 banking column), the report comes back empty
+// and the page renders a clean "no VAT activity" state.
 
 export type VatQuarterlyInvoiceRow = {
   invoiceId: string;
@@ -72,6 +84,26 @@ export type VatQuarterlyQuarterRow = {
   vatDue: number;
   retainage: number;
   total: number;
+  // Input VAT (Phase B): aggregated from posted, recoverable receipts.
+  receiptCount: number;
+  expenseNet: number;
+  inputVat: number;
+  expenseGross: number;
+  netVatDue: number; // vatDue − inputVat
+};
+
+export type VatQuarterlyExpenseRow = {
+  receiptId: string;
+  receiptDate: string;
+  quarterKey: string;
+  vendorName: string;
+  projectNumber: string | null;
+  projectName: string | null;
+  subtotal: number;
+  vatRatePct: number;
+  inputVat: number;
+  total: number;
+  recoverable: boolean;
 };
 
 export type VatQuarterlyReport = {
@@ -81,12 +113,19 @@ export type VatQuarterlyReport = {
   isVatActive: boolean;
   quarters: VatQuarterlyQuarterRow[];
   invoices: VatQuarterlyInvoiceRow[];
+  expenses: VatQuarterlyExpenseRow[];
   totals: {
     invoiceCount: number;
     subtotal: number;
     vatDue: number;
     retainage: number;
     total: number;
+    // Input VAT totals
+    receiptCount: number;
+    expenseNet: number;
+    inputVat: number;
+    expenseGross: number;
+    netVatDue: number;
   };
 };
 
@@ -117,17 +156,32 @@ export async function buildVatQuarterlyReport(
       isVatActive,
       quarters: [],
       invoices: [],
-      totals: { invoiceCount: 0, subtotal: 0, vatDue: 0, retainage: 0, total: 0 },
+      expenses: [],
+      totals: {
+        invoiceCount: 0,
+        subtotal: 0,
+        vatDue: 0,
+        retainage: 0,
+        total: 0,
+        receiptCount: 0,
+        expenseNet: 0,
+        inputVat: 0,
+        expenseGross: 0,
+        netVatDue: 0,
+      },
     };
   }
 
-  const [invoices, customers, projects] = await Promise.all([
+  const [invoices, customers, projects, receipts, vendors] = await Promise.all([
     listInvoices(companyId),
     listCustomers(companyId),
     listProjects(companyId),
+    listReceipts(companyId, { status: 'posted', limit: 1000 }),
+    listVendors(companyId),
   ]);
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const projectById = new Map(projects.map((p) => [p.id, p]));
+  const vendorById = new Map(vendors.map((v) => [v.id, v]));
 
   // Filter to non-draft / non-void invoices. Accrual VAT is owed for the
   // quarter the invoice was ISSUED — that's the `invoiceDate` (the date
@@ -177,28 +231,89 @@ export async function buildVatQuarterlyReport(
 
   // Quarter rollup. Sort quarters newest-first for display.
   const byQuarter = new Map<string, VatQuarterlyQuarterRow>();
+  function ensureQuarter(
+    quarterKey: string,
+    label: string,
+  ): VatQuarterlyQuarterRow {
+    const existing = byQuarter.get(quarterKey);
+    if (existing) return existing;
+    const fresh: VatQuarterlyQuarterRow = {
+      quarterKey,
+      label,
+      invoiceCount: 0,
+      subtotal: 0,
+      vatDue: 0,
+      retainage: 0,
+      total: 0,
+      receiptCount: 0,
+      expenseNet: 0,
+      inputVat: 0,
+      expenseGross: 0,
+      netVatDue: 0,
+    };
+    byQuarter.set(quarterKey, fresh);
+    return fresh;
+  }
+
   for (const row of invoiceRows as Array<
     VatQuarterlyInvoiceRow & { _label: string }
   >) {
-    const existing = byQuarter.get(row.quarterKey);
-    if (existing) {
-      existing.invoiceCount += 1;
-      existing.subtotal = add(existing.subtotal, row.subtotal);
-      existing.vatDue = add(existing.vatDue, row.vatDue);
-      existing.retainage = add(existing.retainage, row.retainage);
-      existing.total = add(existing.total, row.total);
-    } else {
-      byQuarter.set(row.quarterKey, {
-        quarterKey: row.quarterKey,
-        label: row._label,
-        invoiceCount: 1,
-        subtotal: row.subtotal,
-        vatDue: row.vatDue,
-        retainage: row.retainage,
-        total: row.total,
-      });
+    const q = ensureQuarter(row.quarterKey, row._label);
+    q.invoiceCount += 1;
+    q.subtotal = add(q.subtotal, row.subtotal);
+    q.vatDue = add(q.vatDue, row.vatDue);
+    q.retainage = add(q.retainage, row.retainage);
+    q.total = add(q.total, row.total);
+  }
+
+  // ===== Input VAT: posted, recoverable receipts =====
+  //
+  // We aggregate every posted receipt regardless of its `vat_recoverable`
+  // flag for the per-row detail, but only `recoverable=true` rows contribute
+  // to the quarter-level `inputVat` / `netVatDue`. Non-recoverable VAT shows
+  // in the per-row list with a flag — it's part of the receipt's true cost
+  // (posted gross to job costs) and not reclaimable.
+  const expenseRows: VatQuarterlyExpenseRow[] = [];
+  for (const r of receipts) {
+    const effective = r.receiptDate;
+    if (filters.from || filters.to) {
+      if (!isInRange(effective, filters)) continue;
+    }
+    const { key, label } = quarterKeyForDate(effective);
+    const project = r.projectId ? projectById.get(r.projectId) : null;
+    const vendor = r.vendorId ? vendorById.get(r.vendorId) : null;
+    const subtotal = parseMoney(r.subtotal);
+    const inputVat = parseMoney(r.vatAmount);
+    const total = parseMoney(r.total);
+    const ratePct = r.vatRatePercent ? Number(r.vatRatePercent) : 0;
+    expenseRows.push({
+      receiptId: r.id,
+      receiptDate: effective,
+      quarterKey: key,
+      vendorName: vendor?.name ?? '—',
+      projectNumber: project?.number ?? null,
+      projectName: project?.name ?? null,
+      subtotal,
+      vatRatePct: ratePct,
+      inputVat,
+      total,
+      recoverable: r.vatRecoverable,
+    });
+    const q = ensureQuarter(key, label);
+    q.receiptCount += 1;
+    q.expenseNet = add(q.expenseNet, subtotal);
+    q.expenseGross = add(q.expenseGross, total);
+    if (r.vatRecoverable) {
+      q.inputVat = add(q.inputVat, inputVat);
     }
   }
+  expenseRows.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate));
+
+  // Net VAT due = output − input, per quarter.
+  for (const q of byQuarter.values()) {
+    q.netVatDue = round2(subtract(q.vatDue, q.inputVat));
+  }
+
   const quarters = Array.from(byQuarter.values()).sort((a, b) =>
     b.quarterKey.localeCompare(a.quarterKey),
   );
@@ -210,9 +325,35 @@ export async function buildVatQuarterlyReport(
       vatDue: add(acc.vatDue, r.vatDue),
       retainage: add(acc.retainage, r.retainage),
       total: add(acc.total, r.total),
+      receiptCount: acc.receiptCount,
+      expenseNet: acc.expenseNet,
+      inputVat: acc.inputVat,
+      expenseGross: acc.expenseGross,
+      netVatDue: acc.netVatDue,
     }),
-    { invoiceCount: 0, subtotal: 0, vatDue: 0, retainage: 0, total: 0 },
+    {
+      invoiceCount: 0,
+      subtotal: 0,
+      vatDue: 0,
+      retainage: 0,
+      total: 0,
+      receiptCount: 0,
+      expenseNet: 0,
+      inputVat: 0,
+      expenseGross: 0,
+      netVatDue: 0,
+    },
   );
+  // Fold in the expense totals.
+  for (const e of expenseRows) {
+    totals.receiptCount += 1;
+    totals.expenseNet = add(totals.expenseNet, e.subtotal);
+    totals.expenseGross = add(totals.expenseGross, e.total);
+    if (e.recoverable) {
+      totals.inputVat = add(totals.inputVat, e.inputVat);
+    }
+  }
+  totals.netVatDue = round2(subtract(totals.vatDue, totals.inputVat));
 
   // Strip the internal `_label` helper before returning.
   const cleanRows: VatQuarterlyInvoiceRow[] = invoiceRows.map((r) => {
@@ -229,6 +370,7 @@ export async function buildVatQuarterlyReport(
     isVatActive,
     quarters,
     invoices: cleanRows,
+    expenses: expenseRows,
     totals,
   };
 }
