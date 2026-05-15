@@ -71,6 +71,10 @@ export type TxnForMatching = {
   isIgnored: boolean;
   accountingAccountId: string | null;
   appliedRuleId: string | null;
+  /** True when an active transaction_matches row exists for this txn.
+   *  Optional — callers that don't care about reconciliation (rule-test
+   *  panel, applyRuleAction's stale-match recheck) can omit it. */
+  reconciled?: boolean;
 };
 
 export type MatchReason = {
@@ -190,9 +194,13 @@ export function firstMatchingRule(
   return null;
 }
 
-/** Triage state computed from row + match status. Drives badge selection. */
+/** Triage state computed from row + match status. Drives badge selection.
+ *  Order roughly reflects priority — `reconciled` outranks `reviewed` because
+ *  a reconciled txn is definitively settled, while reviewed-without-match
+ *  just means a human looked at it. */
 export type TxnTriageState =
   | 'ignored'
+  | 'reconciled'
   | 'reviewed'
   | 'auto_filled' // rule wrote category, awaiting human review
   | 'manually_categorized'
@@ -204,6 +212,7 @@ export function triageState(
   matched: MatchResult | null,
 ): TxnTriageState {
   if (txn.isIgnored) return 'ignored';
+  if (txn.reconciled === true) return 'reconciled';
   if (txn.isReviewed) return 'reviewed';
   if (txn.appliedRuleId) return 'auto_filled';
   if (txn.accountingAccountId) return 'manually_categorized';
@@ -283,6 +292,7 @@ export function toTxnForMatching(row: {
   isIgnored: boolean;
   accountingAccountId: string | null;
   appliedRuleId: string | null;
+  reconciledAt?: Date | null;
 }): TxnForMatching {
   const amount = Number(row.amount);
   return {
@@ -296,6 +306,7 @@ export function toTxnForMatching(row: {
     isIgnored: row.isIgnored,
     accountingAccountId: row.accountingAccountId,
     appliedRuleId: row.appliedRuleId,
+    reconciled: Boolean(row.reconciledAt),
   };
 }
 

@@ -26,8 +26,21 @@ import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listBankingRules } from '@/lib/data/banking-rules';
+import { listPayments } from '@/lib/data/invoice-payments';
+import { listInvoices } from '@/lib/data/invoices';
+import { listReceipts } from '@/lib/data/receipts';
+import { listVendors } from '@/lib/data/vendors';
+import { listCustomers } from '@/lib/data/customers';
+import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
+import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
+import { MatchPanel } from '@/modules/banking/components/match-panel';
+import type { ActiveMatchInfo } from '@/modules/banking/components/match-panel';
+import { BulkAutoMatchButton } from '@/modules/banking/components/bulk-auto-match-button';
+
+type ActiveMatchType = ActiveMatchInfo['matchType'];
 import { BANK_ACCOUNT_TYPE_LABEL } from '@/modules/banking/schema';
 import {
   firstMatchingRule,
@@ -35,6 +48,13 @@ import {
   toTxnForMatching,
   triageState,
 } from '@/modules/banking/lib/rules';
+import {
+  findCandidates,
+  toAmount,
+  type InvoicePaymentCandidate,
+  type JobCostEntryCandidate,
+  type ReceiptCandidate,
+} from '@/modules/banking/lib/match-candidates';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,31 +86,176 @@ export default async function BankAccountDetailPage({
   const onlyUnreviewed = parseStr(sp.unreviewed) === '1';
   const onlyUncategorized = parseStr(sp.uncategorized) === '1';
 
-  const [transactions, total, accounts, projects, costCodes, rules] =
-    await Promise.all([
-      listImportedTransactions(company.id, {
-        bankAccountId: account.id,
-        search: search || undefined,
-        fromDate: fromDate || undefined,
-        toDate: toDate || undefined,
-        includeIgnored,
-        onlyUnreviewed,
-        onlyUncategorized,
-        limit: 200,
-      }),
-      countImportedTransactions(company.id, {
-        bankAccountId: account.id,
-        includeIgnored: true,
-      }),
-      listAccountingAccounts(company.id),
-      listProjects(company.id),
-      listCostCodes(company.id),
-      listBankingRules(company.id), // enabled-only — disabled rules don't suggest
-    ]);
+  const [
+    transactions,
+    total,
+    accounts,
+    projects,
+    costCodes,
+    rules,
+    payments,
+    invoices,
+    receipts,
+    vendors,
+    customers,
+    jobCostEntries,
+    activeMatches,
+    bankAccountList,
+    transferCandidatesRaw,
+  ] = await Promise.all([
+    listImportedTransactions(company.id, {
+      bankAccountId: account.id,
+      search: search || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      includeIgnored,
+      onlyUnreviewed,
+      onlyUncategorized,
+      limit: 200,
+    }),
+    countImportedTransactions(company.id, {
+      bankAccountId: account.id,
+      includeIgnored: true,
+    }),
+    listAccountingAccounts(company.id),
+    listProjects(company.id),
+    listCostCodes(company.id),
+    listBankingRules(company.id), // enabled-only — disabled rules don't suggest
+    // Reconciliation candidates ─ load company-wide (capped) so the matcher
+    // doesn't miss e.g. an AR payment booked against a project in another
+    // bank account.
+    listPayments(company.id),
+    listInvoices(company.id),
+    listReceipts(company.id, { status: 'posted', limit: 1000 }),
+    listVendors(company.id),
+    listCustomers(company.id),
+    listAllJobCostEntriesForCompany(company.id, { limit: 2000 }),
+    listActiveMatchesForCompany(company.id),
+    listBankAccounts(company.id),
+    // Cross-account transfer candidates: unreconciled bank transactions in
+    // OTHER accounts that could plausibly pair with anything here.
+    (async () => {
+      const all = await listImportedTransactions(company.id, {
+        includeIgnored: false,
+        limit: 1000,
+      });
+      return all.filter(
+        (t) => t.bankAccountId !== account.id && t.reconciledAt === null,
+      );
+    })(),
+  ]);
 
   // Rules pre-sorted by priority ASC, then created_at ASC (data layer does this).
   const matcherRules = rules.map(toRuleForMatching);
   const ruleNameById = new Map(rules.map((r) => [r.id, r.name]));
+
+  // Build lookup maps used by the match panel labels.
+  const invoiceById = new Map(invoices.map((i) => [i.id, i]));
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+  const projectByIdMap = new Map(projects.map((p) => [p.id, p]));
+  const vendorById = new Map(vendors.map((v) => [v.id, v]));
+  const accountByIdMap = new Map(bankAccountList.map((b) => [b.id, b]));
+
+  // Indices of records already claimed by an active match — passed to the
+  // matcher to filter them out of candidate lists.
+  const takenInvoicePaymentIds = new Set(
+    activeMatches
+      .filter((m) => m.invoicePaymentId !== null)
+      .map((m) => m.invoicePaymentId!),
+  );
+  const takenReceiptIds = new Set(
+    activeMatches.filter((m) => m.receiptId !== null).map((m) => m.receiptId!),
+  );
+  const takenJobCostEntryIds = new Set(
+    activeMatches
+      .filter((m) => m.jobCostEntryId !== null)
+      .map((m) => m.jobCostEntryId!),
+  );
+
+  // Pre-shape candidates once.
+  const invoicePaymentCandidates: InvoicePaymentCandidate[] = payments.map(
+    (p) => {
+      const inv = invoiceById.get(p.invoiceId);
+      const proj = inv?.projectId ? projectByIdMap.get(inv.projectId) : null;
+      const cust = proj ? customerById.get(proj.customerId) : null;
+      return {
+        id: p.id,
+        invoiceId: p.invoiceId,
+        paidDate: p.paidDate,
+        amount: Number(p.amount),
+        invoiceNumber: inv?.number ?? '—',
+        customerName: cust?.name ?? '—',
+      };
+    },
+  );
+  const receiptCandidates: ReceiptCandidate[] = receipts.map((r) => {
+    const v = r.vendorId ? vendorById.get(r.vendorId) : null;
+    return {
+      id: r.id,
+      receiptDate: r.receiptDate,
+      amount: Number(r.total),
+      vendorName: v?.name ?? 'Receipt',
+      description: r.notes ?? '',
+    };
+  });
+  const jobCostEntryCandidates: JobCostEntryCandidate[] = jobCostEntries
+    // Skip entries already sourced from a receipt — those go through
+    // receiptCandidates already and would otherwise double-suggest.
+    .filter((j) => j.source !== 'receipt_import' && j.source !== 'po_receipt')
+    .map((j) => {
+      const v = j.vendorId ? vendorById.get(j.vendorId) : null;
+      const p = projectByIdMap.get(j.projectId);
+      return {
+        id: j.id,
+        entryDate: j.entryDate,
+        amount: Number(j.amount),
+        description: j.description,
+        projectNumber: p?.number ?? null,
+        vendorName: v?.name ?? null,
+      };
+    });
+
+  // Active matches keyed by bank-txn id for fast per-row lookup.
+  const matchByTxnId = new Map(
+    activeMatches.map((m) => [m.importedTransactionId, m]),
+  );
+
+  // Pre-shape transfer candidates (cross-account, unreconciled).
+  const transferCandidates = transferCandidatesRaw.map((t) => ({
+    id: t.id,
+    accountName:
+      accountByIdMap.get(t.bankAccountId)?.name ?? 'Other account',
+    transactionDate: t.transactionDate,
+    description: t.description,
+    amount: Number(t.amount),
+    currency: t.currency,
+  }));
+
+  // Count exact pairs so the bulk-match button can label itself.
+  let exactPairCount = 0;
+  for (const t of transactions) {
+    if (t.reconciledAt) continue;
+    if (t.isIgnored) continue;
+    const amt = Number(t.amount);
+    const absCents = Math.round(Math.abs(amt) * 100);
+    if (amt > 0) {
+      const has = payments.some(
+        (p) =>
+          !takenInvoicePaymentIds.has(p.id) &&
+          p.paidDate === t.transactionDate &&
+          Math.round(Math.abs(Number(p.amount)) * 100) === absCents,
+      );
+      if (has) exactPairCount += 1;
+    } else if (amt < 0) {
+      const has = receipts.some(
+        (r) =>
+          !takenReceiptIds.has(r.id) &&
+          r.receiptDate === t.transactionDate &&
+          Math.round(Math.abs(Number(r.total)) * 100) === absCents,
+      );
+      if (has) exactPairCount += 1;
+    }
+  }
 
   const categories = accounts
     .filter((a) => !a.isArchived)
@@ -141,11 +306,19 @@ export default async function BankAccountDetailPage({
             {formatMoney(account.openingBalance, account.currency)}
           </p>
         </div>
-        {canEdit && (
-          <Link href={{ pathname: '/banking/import' }}>
-            <Button>Import statement</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <BulkAutoMatchButton
+              bankAccountId={account.id}
+              exactCount={exactPairCount}
+            />
+          )}
+          {canEdit && (
+            <Link href={{ pathname: '/banking/import' }}>
+              <Button>Import statement</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -238,8 +411,8 @@ export default async function BankAccountDetailPage({
               </TableHeader>
               <TableBody>
                 {transactions.map((t) => {
-                  // Per-row rule lookup. Runs in TS over the pre-loaded rules
-                  // — no extra DB query per transaction.
+                  // Per-row rule + match lookup. All inputs are pre-loaded
+                  // above so this stays O(n) without extra DB queries.
                   const txnLike = toTxnForMatching({
                     bankAccountId: t.bankAccountId,
                     description: t.description,
@@ -251,6 +424,7 @@ export default async function BankAccountDetailPage({
                     isIgnored: t.isIgnored,
                     accountingAccountId: t.accountingAccountId,
                     appliedRuleId: t.appliedRuleId,
+                    reconciledAt: t.reconciledAt,
                   });
                   const matched = firstMatchingRule(txnLike, matcherRules);
                   const triage = triageState(txnLike, matched);
@@ -259,6 +433,84 @@ export default async function BankAccountDetailPage({
                     triage === 'auto_filled' ||
                     triage === 'manually_categorized' ||
                     triage === 'reviewed';
+                  const showMatchPanel =
+                    !t.isIgnored &&
+                    (triage === 'reconciled' || canEdit);
+                  // Find suggestions only for unreconciled rows.
+                  const candidates =
+                    triage === 'reconciled'
+                      ? {
+                          invoicePayments: [],
+                          receipts: [],
+                          jobCostEntries: [],
+                        }
+                      : findCandidates({
+                          txn: {
+                            id: t.id,
+                            transactionDate: t.transactionDate,
+                            amount: toAmount(t.amount),
+                          },
+                          invoicePayments: invoicePaymentCandidates,
+                          receipts: receiptCandidates,
+                          jobCostEntries: jobCostEntryCandidates,
+                          takenInvoicePaymentIds,
+                          takenReceiptIds,
+                          takenJobCostEntryIds,
+                        });
+                  const activeMatch = matchByTxnId.get(t.id);
+                  let activeLabel = '';
+                  if (activeMatch) {
+                    if (
+                      activeMatch.matchType === 'invoice_payment' &&
+                      activeMatch.invoicePaymentId
+                    ) {
+                      const p = payments.find(
+                        (x) => x.id === activeMatch.invoicePaymentId,
+                      );
+                      const inv = p ? invoiceById.get(p.invoiceId) : null;
+                      activeLabel = inv
+                        ? `Invoice payment ${inv.number}`
+                        : 'Invoice payment';
+                    } else if (
+                      activeMatch.matchType === 'receipt' &&
+                      activeMatch.receiptId
+                    ) {
+                      const r = receipts.find(
+                        (x) => x.id === activeMatch.receiptId,
+                      );
+                      const v = r?.vendorId ? vendorById.get(r.vendorId) : null;
+                      activeLabel = r
+                        ? `Receipt ${r.receiptDate}${v ? ` — ${v.name}` : ''}`
+                        : 'Receipt';
+                    } else if (
+                      activeMatch.matchType === 'job_cost_entry' &&
+                      activeMatch.jobCostEntryId
+                    ) {
+                      const j = jobCostEntries.find(
+                        (x) => x.id === activeMatch.jobCostEntryId,
+                      );
+                      activeLabel = j
+                        ? `Job cost: ${j.description.slice(0, 60)}`
+                        : 'Job cost entry';
+                    } else if (
+                      activeMatch.matchType === 'transfer' &&
+                      activeMatch.transferPairedTxnId
+                    ) {
+                      const pairedAccount = transferCandidatesRaw.find(
+                        (x) => x.id === activeMatch.transferPairedTxnId,
+                      );
+                      activeLabel = pairedAccount
+                        ? `Transfer ↔ ${
+                            accountByIdMap.get(pairedAccount.bankAccountId)
+                              ?.name ?? 'other account'
+                          }`
+                        : 'Transfer';
+                    } else if (activeMatch.matchType === 'owner_contribution') {
+                      activeLabel = 'Owner contribution';
+                    } else if (activeMatch.matchType === 'owner_draw') {
+                      activeLabel = 'Owner draw';
+                    }
+                  }
                   return (
                     <Fragment key={t.id}>
                       <TableRow
@@ -292,6 +544,11 @@ export default async function BankAccountDetailPage({
                           {t.reference ?? '—'}
                         </TableCell>
                         <TableCell className="text-xs">
+                          {triage === 'reconciled' && (
+                            <span className="inline-block rounded bg-emerald-100 text-emerald-900 px-1.5 py-0.5 mr-1 font-medium">
+                              reconciled
+                            </span>
+                          )}
                           {triage === 'reviewed' && (
                             <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 mr-1">
                               reviewed
@@ -324,6 +581,33 @@ export default async function BankAccountDetailPage({
                           )}
                         </TableCell>
                       </TableRow>
+                      {showMatchPanel && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className="bg-white px-3 pt-2 pb-0"
+                          >
+                            <MatchPanel
+                              transactionId={t.id}
+                              bankAccountId={t.bankAccountId}
+                              amount={Number(t.amount)}
+                              candidates={candidates}
+                              transferCandidates={transferCandidates}
+                              active={
+                                activeMatch
+                                  ? {
+                                      matchId: activeMatch.id,
+                                      matchType:
+                                        activeMatch.matchType as ActiveMatchType,
+                                      targetLabel: activeLabel || 'Reconciled',
+                                    }
+                                  : null
+                              }
+                              canEdit={canEdit}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
                       {showRulePanel && (
                         <TableRow>
                           <TableCell

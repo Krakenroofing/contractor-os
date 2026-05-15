@@ -290,7 +290,7 @@ export default async function DashboardPage() {
           <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
             Accounting
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {canSeeBanking && (
               <AccountingTile
                 label="Uncategorized transactions"
@@ -301,6 +301,21 @@ export default async function DashboardPage() {
                     : 'Nothing waiting — nice.'
                 }
                 tone={accounting.uncategorizedCount > 0 ? 'amber' : 'slate'}
+                href="/banking"
+              />
+            )}
+            {canSeeBanking && (
+              <AccountingTile
+                label="Unreconciled deposits"
+                value={String(accounting.unreconciledDepositsCount)}
+                hint={
+                  accounting.unreconciledDepositsCount > 0
+                    ? `${formatMoney(accounting.unreconciledDepositsTotal)} total`
+                    : 'All deposits matched.'
+                }
+                tone={
+                  accounting.unreconciledDepositsCount > 0 ? 'amber' : 'emerald'
+                }
                 href="/banking"
               />
             )}

@@ -175,6 +175,11 @@ export const importedTransactions = pgTable(
     appliedRuleId: uuid('applied_rule_id'),
     appliedRuleAt: timestamp('applied_rule_at', { withTimezone: true }),
 
+    // Reconciliation — Phase 1 (spec Phase 3). Denormalized "is reconciled?"
+    // flag. Set when an active transaction_matches row exists; cleared on
+    // Unmatch. The actual link lives in transaction_matches.
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

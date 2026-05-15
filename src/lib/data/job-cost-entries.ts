@@ -74,6 +74,30 @@ export async function listJobCostEntriesForProject(
   );
 }
 
+/** Company-wide list for the reconciliation matcher. Capped for safety. */
+export async function listAllJobCostEntriesForCompany(
+  companyId: string,
+  options: { limit?: number } = {},
+): Promise<JobCostEntry[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return withMigrationFallback(
+    () =>
+      db
+        .select()
+        .from(jobCostEntries)
+        .where(
+          and(
+            eq(jobCostEntries.companyId, companyId),
+            isNull(jobCostEntries.deletedAt),
+          ),
+        )
+        .orderBy(desc(jobCostEntries.entryDate), desc(jobCostEntries.createdAt))
+        .limit(options.limit ?? 2000),
+    [] as JobCostEntry[],
+  );
+}
+
 export async function getJobCostEntry(
   companyId: string,
   id: string,

@@ -17,6 +17,12 @@ export type AccountingSummary = {
   /** Draft receipts awaiting Post. */
   unpostedReceiptsCount: number;
   unpostedReceiptsTotal: number;
+  /** Unreconciled money-in transactions (deposits not yet matched to an
+   *  invoice payment, transfer, or owner contribution). Money-out is
+   *  excluded — the actionable signal for owners is "did I deposit this and
+   *  not yet record what it was?". */
+  unreconciledDepositsCount: number;
+  unreconciledDepositsTotal: number;
   /** True for companies where the VAT pane is meaningful. */
   isVatActive: boolean;
   /** Current calendar quarter, e.g. '2026-Q2'. */
@@ -58,6 +64,8 @@ export async function buildAccountingSummary(
     uncategorizedTotal: 0,
     unpostedReceiptsCount: 0,
     unpostedReceiptsTotal: 0,
+    unreconciledDepositsCount: 0,
+    unreconciledDepositsTotal: 0,
     isVatActive: false,
     currentQuarterKey: currentQuarter(asOf).key,
     outputVatThisQuarter: 0,
@@ -71,18 +79,25 @@ export async function buildAccountingSummary(
     const ratePct = company ? Number(company.vatRatePercent) || 0 : 0;
     const quarter = currentQuarter(asOf);
 
-    const [imports, draftReceipts, invoices, postedReceipts] = await Promise.all([
-      listImportedTransactions(companyId, {
-        onlyUncategorized: true,
-        includeIgnored: false,
-        limit: 1000,
-      }),
-      listReceipts(companyId, { status: 'draft', limit: 500 }),
-      listInvoices(companyId),
-      isVatActive
-        ? listReceipts(companyId, { status: 'posted', limit: 1000 })
-        : Promise.resolve([]),
-    ]);
+    const [imports, draftReceipts, invoices, postedReceipts, allTxns] =
+      await Promise.all([
+        listImportedTransactions(companyId, {
+          onlyUncategorized: true,
+          includeIgnored: false,
+          limit: 1000,
+        }),
+        listReceipts(companyId, { status: 'draft', limit: 500 }),
+        listInvoices(companyId),
+        isVatActive
+          ? listReceipts(companyId, { status: 'posted', limit: 1000 })
+          : Promise.resolve([]),
+        // Unreconciled deposits — separate query because the uncategorized
+        // filter would exclude txns that are categorized but still unmatched.
+        listImportedTransactions(companyId, {
+          includeIgnored: false,
+          limit: 1000,
+        }),
+      ]);
 
     // Uncategorized imported transactions — absolute value summed so debits
     // and credits don't cancel out. Filter to non-reviewed for the operator's
@@ -102,6 +117,19 @@ export async function buildAccountingSummary(
       (acc, r) => add(acc, parseMoney(r.total)),
       0,
     );
+
+    // Unreconciled deposits: money-in (positive amount), reconciled_at is
+    // null, not ignored. This is the "did I deposit this and forget what
+    // it was for?" pile.
+    let unreconciledDepositsCount = 0;
+    let unreconciledDepositsTotal = 0;
+    for (const t of allTxns) {
+      if (t.reconciledAt) continue;
+      const amt = parseMoney(t.amount);
+      if (amt <= 0) continue;
+      unreconciledDepositsCount += 1;
+      unreconciledDepositsTotal = add(unreconciledDepositsTotal, amt);
+    }
 
     // VAT — current quarter only.
     let outputVat = 0;
@@ -124,6 +152,8 @@ export async function buildAccountingSummary(
       uncategorizedTotal: round2(uncategorizedTotal),
       unpostedReceiptsCount,
       unpostedReceiptsTotal: round2(unpostedReceiptsTotal),
+      unreconciledDepositsCount,
+      unreconciledDepositsTotal: round2(unreconciledDepositsTotal),
       isVatActive,
       currentQuarterKey: quarter.key,
       outputVatThisQuarter: round2(outputVat),

@@ -41,6 +41,17 @@ import {
   updateBankingRule,
 } from '@/lib/data/banking-rules';
 import {
+  createMatchAtomic,
+  createTransferPairAtomic,
+  getActiveMatchForTxn,
+  listActiveMatchesForCompany,
+  reverseMatchAtomic,
+} from '@/lib/data/transaction-matches';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { getPayment, listPayments } from '@/lib/data/invoice-payments';
+import { listInvoices } from '@/lib/data/invoices';
+import { getReceipt, listReceipts } from '@/lib/data/receipts';
+import {
   ensureDefaultCoaForCompany,
   createPairedAccountingAccount,
 } from './lib/coa';
@@ -786,3 +797,400 @@ export async function bulkApplyRuleAction(input: {
 // Keep the import referenced so future-phase code paths don't have to
 // re-import. (listBankingRules is consumed by the rules page directly.)
 void listBankingRules;
+
+// =====================================================================
+// Reconciliation Matching — Phase 1
+// =====================================================================
+//
+// Safety rules:
+//   - One ACTIVE match per imported_transaction. Enforced by partial unique
+//     index on transaction_matches; the action layer pre-checks for a
+//     friendlier error.
+//   - One ACTIVE match per target record (invoice_payment, receipt,
+//     job_cost_entry). Same enforcement.
+//   - Match is non-mutating on the target — the linked invoice payment /
+//     receipt / job_cost_entry is read-only here.
+//   - Unmatch sets reversed_at, never deletes.
+//   - Transfers create two match rows atomically; unmatch reverses both.
+
+const matchTxnIdSchema = z.string().uuid();
+
+type CommonMatchInput = {
+  transactionId: string;
+};
+
+async function loadTxnAndUser(input: CommonMatchInput) {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { error: 'No permission.' as const };
+  }
+  const companyId = await getActiveCompanyId();
+  const txnId = matchTxnIdSchema.safeParse(input.transactionId);
+  if (!txnId.success) return { error: 'Invalid transaction id.' as const };
+  const txn = await getImportedTransaction(companyId, txnId.data);
+  if (!txn) return { error: 'Transaction not found.' as const };
+  if (txn.isIgnored) {
+    return { error: 'Transaction is ignored — un-ignore before matching.' as const };
+  }
+  if (txn.reconciledAt) {
+    return { error: 'Transaction is already reconciled. Unmatch first.' as const };
+  }
+  return { user, companyId, txn };
+}
+
+export async function matchInvoicePaymentAction(input: {
+  transactionId: string;
+  invoicePaymentId: string;
+  confidence?: 'exact' | 'high' | 'low' | 'manual';
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  const payment = await getPayment(companyId, input.invoicePaymentId);
+  if (!payment) return { ok: false, error: 'Invoice payment not found.' };
+  // Sanity: bank txn must be money-in (positive) to match an invoice payment.
+  if (Number(txn.amount) <= 0) {
+    return {
+      ok: false,
+      error: 'Invoice payments only match money-in (positive) bank transactions.',
+    };
+  }
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'invoice_payment',
+      invoicePaymentId: input.invoicePaymentId,
+      confidence: input.confidence ?? 'manual',
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error && err.message.includes('duplicate')
+          ? 'This invoice payment is already matched to a different transaction.'
+          : err instanceof Error
+            ? err.message
+            : 'Match failed.',
+    };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+export async function matchReceiptAction(input: {
+  transactionId: string;
+  receiptId: string;
+  confidence?: 'exact' | 'high' | 'low' | 'manual';
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  const receipt = await getReceipt(companyId, input.receiptId);
+  if (!receipt) return { ok: false, error: 'Receipt not found.' };
+  if (receipt.status !== 'posted') {
+    return { ok: false, error: 'Only posted receipts can be matched.' };
+  }
+  if (Number(txn.amount) >= 0) {
+    return {
+      ok: false,
+      error: 'Receipts only match money-out (negative) bank transactions.',
+    };
+  }
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'receipt',
+      receiptId: input.receiptId,
+      confidence: input.confidence ?? 'manual',
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error && err.message.includes('duplicate')
+          ? 'This receipt is already matched to a different transaction.'
+          : err instanceof Error
+            ? err.message
+            : 'Match failed.',
+    };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+export async function matchJobCostEntryAction(input: {
+  transactionId: string;
+  jobCostEntryId: string;
+  confidence?: 'exact' | 'high' | 'low' | 'manual';
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'job_cost_entry',
+      jobCostEntryId: input.jobCostEntryId,
+      confidence: input.confidence ?? 'manual',
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error && err.message.includes('duplicate')
+          ? 'This job cost entry is already matched to a different transaction.'
+          : err instanceof Error
+            ? err.message
+            : 'Match failed.',
+    };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+export async function matchTransferAction(input: {
+  transactionId: string;
+  pairedTransactionId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  const pairedId = matchTxnIdSchema.safeParse(input.pairedTransactionId);
+  if (!pairedId.success) return { ok: false, error: 'Invalid paired txn id.' };
+  if (pairedId.data === txn.id) {
+    return { ok: false, error: 'Pair must be a different transaction.' };
+  }
+  const paired = await getImportedTransaction(companyId, pairedId.data);
+  if (!paired) return { ok: false, error: 'Paired transaction not found.' };
+  if (paired.reconciledAt) {
+    return { ok: false, error: 'Paired transaction is already reconciled.' };
+  }
+  if (paired.bankAccountId === txn.bankAccountId) {
+    return { ok: false, error: 'Transfer must be between different accounts.' };
+  }
+  // Sanity: opposite signs, same absolute amount.
+  const a = Number(txn.amount);
+  const b = Number(paired.amount);
+  if (a * b >= 0) {
+    return {
+      ok: false,
+      error: 'Transfer requires one debit and one credit (opposite signs).',
+    };
+  }
+  if (Math.round(Math.abs(a) * 100) !== Math.round(Math.abs(b) * 100)) {
+    return { ok: false, error: 'Transfer amounts must match.' };
+  }
+  try {
+    await createTransferPairAtomic({
+      companyId,
+      txnAId: txn.id,
+      txnBId: paired.id,
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Transfer match failed.',
+    };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  revalidatePath(`/banking/accounts/${paired.bankAccountId}`);
+  return { ok: true };
+}
+
+/** Owner contribution (money in) or owner draw (money out). No FK target —
+ *  these are categorization-only matches. Also pre-fills the bank txn's
+ *  category to owner_equity if a COA row exists for it. */
+export async function matchOwnerEquityAction(input: {
+  transactionId: string;
+  kind: 'owner_contribution' | 'owner_draw';
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  const a = Number(txn.amount);
+  if (input.kind === 'owner_contribution' && a <= 0) {
+    return { ok: false, error: 'Owner contributions must be money-in.' };
+  }
+  if (input.kind === 'owner_draw' && a >= 0) {
+    return { ok: false, error: 'Owner draws must be money-out.' };
+  }
+
+  // Look up the seeded Owner's Equity account so we can also populate the
+  // bank txn's accountingAccountId. If it doesn't exist (shouldn't happen
+  // after Phase 1 COA seed), proceed without categorization.
+  const accounts = await listAccountingAccounts(companyId);
+  const equity = accounts.find((x) => x.type === 'owner_equity');
+
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: input.kind,
+      confidence: 'manual',
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Match failed.',
+    };
+  }
+
+  // Best-effort: tag the bank txn's accounting category. If a category was
+  // already set we leave it — same Phase-1 "don't overwrite human work" rule.
+  if (equity && !txn.accountingAccountId) {
+    await updateImportedTransaction(companyId, txn.id, {
+      accountingAccountId: equity.id,
+    });
+  }
+
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+export async function unmatchTransactionAction(input: {
+  transactionId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const match = await getActiveMatchForTxn(companyId, input.transactionId);
+  if (!match) return { ok: false, error: 'No active match to reverse.' };
+  await reverseMatchAtomic({
+    companyId,
+    matchId: match.id,
+    reversedByUserId: user.id,
+  });
+  revalidatePath(`/banking/accounts/`);
+  return { ok: true };
+}
+
+export type BulkAutoMatchResult =
+  | {
+      ok: true;
+      matched: number;
+      scanned: number;
+    }
+  | { ok: false; error: string };
+
+/** Apply every EXACT match (amount+date both equal) for unreconciled,
+ *  non-ignored txns in this bank account. Honors the same unique-constraint
+ *  contracts as single-row Match — concurrent matches on the same target
+ *  are skipped silently. */
+export async function bulkAutoMatchExactAction(input: {
+  bankAccountId: string;
+}): Promise<BulkAutoMatchResult> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  // Load the candidate sets once.
+  const [txns, payments, postedReceipts, activeMatches, invoices, allReceipts] =
+    await Promise.all([
+      // Reuse listImportedTransactions filtered to this account.
+      // We import it locally to avoid cycles.
+      (await import('@/lib/data/statement-imports')).listImportedTransactions(
+        companyId,
+        {
+          bankAccountId: input.bankAccountId,
+          includeIgnored: false,
+          limit: 1000,
+        },
+      ),
+      listPayments(companyId),
+      listReceipts(companyId, { status: 'posted', limit: 1000 }),
+      listActiveMatchesForCompany(companyId),
+      listInvoices(companyId),
+      listReceipts(companyId, { limit: 1000 }),
+    ]);
+
+  const invoiceById = new Map(invoices.map((i) => [i.id, i]));
+  const receiptById = new Map(allReceipts.map((r) => [r.id, r]));
+  void receiptById;
+  void invoiceById;
+
+  const takenInvoicePayment = new Set(
+    activeMatches
+      .filter((m) => m.invoicePaymentId !== null)
+      .map((m) => m.invoicePaymentId!),
+  );
+  const takenReceipt = new Set(
+    activeMatches.filter((m) => m.receiptId !== null).map((m) => m.receiptId!),
+  );
+
+  let matched = 0;
+  for (const txn of txns) {
+    if (txn.reconciledAt) continue;
+    if (txn.isIgnored) continue;
+    const amt = Number(txn.amount);
+    const absAmt = Math.round(Math.abs(amt) * 100);
+
+    // Exact match = same date AND same absolute amount.
+    if (amt > 0) {
+      const cand = payments.find(
+        (p) =>
+          !takenInvoicePayment.has(p.id) &&
+          p.paidDate === txn.transactionDate &&
+          Math.round(Math.abs(Number(p.amount)) * 100) === absAmt,
+      );
+      if (cand) {
+        try {
+          await createMatchAtomic({
+            companyId,
+            importedTransactionId: txn.id,
+            matchType: 'invoice_payment',
+            invoicePaymentId: cand.id,
+            confidence: 'exact',
+            matchedByUserId: user.id,
+          });
+          takenInvoicePayment.add(cand.id);
+          matched += 1;
+        } catch {
+          // Race: another match landed first. Skip silently.
+        }
+        continue;
+      }
+    } else if (amt < 0) {
+      const cand = postedReceipts.find(
+        (r) =>
+          !takenReceipt.has(r.id) &&
+          r.receiptDate === txn.transactionDate &&
+          Math.round(Math.abs(Number(r.total)) * 100) === absAmt,
+      );
+      if (cand) {
+        try {
+          await createMatchAtomic({
+            companyId,
+            importedTransactionId: txn.id,
+            matchType: 'receipt',
+            receiptId: cand.id,
+            confidence: 'exact',
+            matchedByUserId: user.id,
+          });
+          takenReceipt.add(cand.id);
+          matched += 1;
+        } catch {
+          /* skip */
+        }
+        continue;
+      }
+    }
+  }
+
+  revalidatePath(`/banking/accounts/${input.bankAccountId}`);
+  return { ok: true, matched, scanned: txns.length };
+}
