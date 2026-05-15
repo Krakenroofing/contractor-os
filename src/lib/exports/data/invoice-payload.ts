@@ -44,25 +44,67 @@ export async function buildInvoicePayload(
   const total = parseMoney(invoice.total);
   const balance = subtract(total, parseMoney(invoice.amountPaid));
 
+  // Track classification: every invoice on a project sits on either the
+  // BASE CONTRACT track or the CHANGE ORDER track. This drives:
+  //   - which contract value the % progress is computed against
+  //   - which prior invoices count toward "previously billed" on this track
+  //   - how Progress Billing Summary + Account History split the numbers
+  //     so historical paper invoices stop drifting after a CO lands
+  //
+  // We load all approved COs upfront so the table builders below can reuse
+  // them without re-fetching.
+  const allCompanyChangeOrders = project ? await listChangeOrders(companyId) : [];
+  const projectChangeOrders = allCompanyChangeOrders.filter(
+    (co) => co.projectId === invoice.projectId,
+  );
+  const approvedProjectCOs = projectChangeOrders.filter(
+    (co) => normalizeStatus('change_order', co.status) === 'approved',
+  );
+  const coById = new Map(projectChangeOrders.map((co) => [co.id, co]));
+  const isInvoiceOnCoTrack = (i: {
+    changeOrderId: string | null;
+    billingType: string;
+  }): boolean =>
+    i.changeOrderId !== null || i.billingType === 'change_order';
+  const thisInvoiceOnCoTrack = isInvoiceOnCoTrack(invoice);
+  const thisInvoiceCoTotal =
+    invoice.changeOrderId !== null
+      ? parseMoney(coById.get(invoice.changeOrderId)?.total ?? '0')
+      : 0;
+
   // Progress-billing context: when this invoice has a `percentOfContract`
-  // and lives on a project with a contract value, derive the cumulative
+  // and lives on a project with a contract base, derive the cumulative
   // billing / previously-paid / cumulative-retention rollup so we can
   // render the breakdown instead of standard line items.
+  //
+  // Denominator (the "contract" used for cumulative math):
+  //   - If invoice is CO-linked → that CO's total
+  //   - Else → project.originalContractValue (NOT project.contractValue —
+  //     using the revised value silently reshapes old % numbers after a CO
+  //     lands, which breaks historical paper-trail fidelity)
   const progressPct =
     invoice.percentOfContract && Number(invoice.percentOfContract) > 0
       ? Number(invoice.percentOfContract)
       : null;
+  const originalContractValue = project
+    ? parseMoney(project.originalContractValue)
+    : 0;
+  const progressDenominator = thisInvoiceOnCoTrack
+    ? thisInvoiceCoTotal
+    : originalContractValue;
   const progressContext =
-    progressPct !== null && project && parseMoney(project.contractValue) > 0
+    progressPct !== null && project && progressDenominator > 0
       ? await (async () => {
-          const contract = parseMoney(project.contractValue);
+          const contract = progressDenominator;
           const allProjectInvoices = await listInvoicesForProject(project.id);
+          // Only same-track prior invoices contribute to "previously billed".
           const prior = allProjectInvoices
             .filter((i) => i.id !== invoice.id)
             .filter(
               (i) =>
                 normalizeStatus('invoice', i.status) !== 'void' &&
-                i.invoiceDate <= invoice.invoiceDate,
+                i.invoiceDate <= invoice.invoiceDate &&
+                isInvoiceOnCoTrack(i) === thisInvoiceOnCoTrack,
             );
           const priorNet = prior.reduce(
             (acc, i) =>
@@ -284,38 +326,123 @@ export async function buildInvoicePayload(
     : true;
 
   // ---- Progress billing summary table ----
-  // Builds a small structured table (contract value, approved COs, prior
-  // billed, this invoice, retainage) so the recipient sees the financial
-  // arc of the project, not just this single invoice.
+  // Two parallel tracks — BASE CONTRACT and CHANGE ORDERS — each with its
+  // own contract value, previously billed, this-invoice contribution, and
+  // remaining balance. Then a small revised-contract summary at the bottom.
+  //
+  // Why split: when historical change orders are entered later, the
+  // single-line "Revised contract — Less previously billed" view drifts
+  // from the operator's paper trail. Splitting locks each track to its own
+  // denominator so the % and dollar numbers match what the customer
+  // originally received.
   const currency = company.defaultCurrency ?? 'USD';
   const fmtAmount = (n: number, negative = false): string =>
     negative ? `(${formatMoney(n, currency)})` : formatMoney(n, currency);
   const dataTables: DocumentDataTable[] = [];
   if (template?.showProgressBilling && project) {
-    const projectCOs = await listChangeOrders(companyId);
-    const approvedCOTotal = projectCOs
-      .filter(
-        (co) =>
-          co.projectId === invoice.projectId &&
-          normalizeStatus('change_order', co.status) === 'approved',
-      )
-      .reduce((acc, co) => add(acc, parseMoney(co.total)), 0);
+    const approvedCOTotal = approvedProjectCOs.reduce(
+      (acc, co) => add(acc, parseMoney(co.total)),
+      0,
+    );
     const originalContract = parseMoney(project.originalContractValue);
     const revisedContract = add(originalContract, approvedCOTotal);
 
-    const priorInvoices = (await listInvoicesForProject(invoice.projectId))
+    // Split prior invoices by track. Same-track = same denominator.
+    const allPriorInvoices = (
+      await listInvoicesForProject(invoice.projectId)
+    )
       .filter((i) => i.id !== invoice.id)
       .filter((i) => normalizeStatus('invoice', i.status) !== 'void');
-    const priorBilled = priorInvoices.reduce(
+    const priorBase = allPriorInvoices.filter(
+      (i) => !isInvoiceOnCoTrack(i),
+    );
+    const priorCo = allPriorInvoices.filter((i) => isInvoiceOnCoTrack(i));
+    const priorBaseBilled = priorBase.reduce(
       (acc, i) => add(acc, parseMoney(i.subtotal)),
       0,
     );
-    const retainageHeldNow = parseMoney(invoice.retainageAmount);
+    const priorCoBilled = priorCo.reduce(
+      (acc, i) => add(acc, parseMoney(i.subtotal)),
+      0,
+    );
+
+    // This-invoice contribution lands on exactly one track.
+    const thisBase = thisInvoiceOnCoTrack ? 0 : subtotal;
+    const thisCo = thisInvoiceOnCoTrack ? subtotal : 0;
+    const baseBalance = subtract(
+      originalContract,
+      add(priorBaseBilled, thisBase),
+    );
+    const coBalance = subtract(approvedCOTotal, add(priorCoBilled, thisCo));
+    const totalBilled = add(priorBaseBilled, priorCoBilled, thisBase, thisCo);
+    const totalBalance = subtract(revisedContract, totalBilled);
 
     const fmtRow = (label: string, amount: number, negative = false): string[] => [
       label,
       fmtAmount(amount, negative),
     ];
+
+    const rows: string[][] = [];
+
+    // ----- Base contract track -----
+    rows.push([template.contractValueLabel || 'Base contract value', '']);
+    rows.push(fmtRow('  Original contract', originalContract));
+    if (priorBaseBilled > 0 || priorBase.length > 0) {
+      rows.push(
+        fmtRow(
+          `  ${template.priorBilledLabel || 'Less previously billed'}`,
+          priorBaseBilled,
+          true,
+        ),
+      );
+    }
+    if (thisBase > 0) {
+      rows.push(fmtRow('  This invoice', thisBase));
+    }
+    rows.push(fmtRow('  Balance (base contract)', baseBalance));
+
+    // ----- Change orders track -----
+    if (approvedProjectCOs.length > 0 || priorCo.length > 0 || thisCo > 0) {
+      rows.push([template.changeOrdersLabel || 'Change orders', '']);
+      // Itemise each approved CO so the customer can see the breakdown.
+      for (const co of approvedProjectCOs) {
+        const coTotal = parseMoney(co.total);
+        const isThisInvoiceForThisCo = invoice.changeOrderId === co.id;
+        const label = `  CO #${co.number}${
+          co.description ? ` — ${co.description.slice(0, 50)}` : ''
+        }${isThisInvoiceForThisCo ? ' (this invoice)' : ''}`;
+        rows.push(fmtRow(label, coTotal));
+      }
+      rows.push(fmtRow('  Total approved change orders', approvedCOTotal));
+      if (priorCoBilled > 0 || priorCo.length > 0) {
+        rows.push(
+          fmtRow(
+            `  ${template.priorBilledLabel || 'Less previously billed (CO)'}`,
+            priorCoBilled,
+            true,
+          ),
+        );
+      }
+      if (thisCo > 0) {
+        rows.push(fmtRow('  This invoice (CO)', thisCo));
+      }
+      rows.push(fmtRow('  Balance (change orders)', coBalance));
+    }
+
+    // ----- Combined summary -----
+    rows.push(fmtRow('Revised contract', revisedContract));
+    rows.push(fmtRow('Total billed to date', totalBilled));
+    const retainageHeldNow = parseMoney(invoice.retainageAmount);
+    if (retainageHeldNow > 0) {
+      rows.push(
+        fmtRow(
+          template.retainageHeldLabel || 'Less retainage held',
+          retainageHeldNow,
+          true,
+        ),
+      );
+    }
+    rows.push(fmtRow('Total balance to bill', totalBalance));
 
     dataTables.push({
       title: template.progressBillingLabel || 'Progress billing summary',
@@ -323,67 +450,82 @@ export async function buildInvoicePayload(
         { label: 'Item', align: 'left', widthPct: 70 },
         { label: 'Amount', align: 'right', widthPct: 30 },
       ],
-      rows: [
-        fmtRow(
-          template.contractValueLabel || 'Total contract value',
-          originalContract,
-        ),
-        fmtRow(
-          template.changeOrdersLabel || 'Approved change orders',
-          approvedCOTotal,
-        ),
-        fmtRow('Revised contract', revisedContract),
-        fmtRow(
-          template.priorBilledLabel || 'Less previously billed',
-          priorBilled,
-          true,
-        ),
-        fmtRow('This invoice (subtotal)', subtotal),
-        ...(retainageHeldNow > 0
-          ? [
-              fmtRow(
-                template.retainageHeldLabel || 'Less retainage held',
-                retainageHeldNow,
-                true,
-              ),
-            ]
-          : []),
-        fmtRow('Balance to bill', subtract(revisedContract, add(priorBilled, subtotal))),
-      ],
+      rows,
     });
   }
 
   // ---- Account history (prior invoices on this project) ----
+  // Split into two tables (base contract vs change orders) for the same
+  // reason as the progress summary — historical paper invoices need to
+  // line up with their original contract base, not the post-CO revised
+  // value.
   if (template?.showAccountHistory && project) {
     const priorInvoices = (await listInvoicesForProject(invoice.projectId))
       .filter((i) => i.id !== invoice.id)
       .filter((i) => normalizeStatus('invoice', i.status) !== 'void')
       .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
-    if (priorInvoices.length > 0) {
+
+    const baseHistory = priorInvoices.filter((i) => !isInvoiceOnCoTrack(i));
+    const coHistory = priorInvoices.filter((i) => isInvoiceOnCoTrack(i));
+
+    const historyRow = (i: (typeof priorInvoices)[number]): string[] => {
+      const sub = parseMoney(i.subtotal);
+      const paid = parseMoney(i.amountPaid);
+      const bal = subtract(parseMoney(i.total), paid);
+      return [
+        i.number,
+        i.invoiceDate,
+        i.status,
+        fmtAmount(sub),
+        fmtAmount(paid),
+        fmtAmount(bal),
+      ];
+    };
+
+    const historyColumns = [
+      { label: 'Invoice #', widthPct: 18 },
+      { label: 'Date', widthPct: 18 },
+      { label: 'Status', widthPct: 14 },
+      { label: 'Subtotal', align: 'right' as const, widthPct: 17 },
+      { label: 'Paid', align: 'right' as const, widthPct: 17 },
+      { label: 'Balance', align: 'right' as const, widthPct: 16 },
+    ];
+
+    const baseLabel = template.accountHistoryLabel || 'Account history';
+
+    if (baseHistory.length > 0) {
       dataTables.push({
-        title: template.accountHistoryLabel || 'Account history',
-        columns: [
-          { label: 'Invoice #', widthPct: 18 },
-          { label: 'Date', widthPct: 18 },
-          { label: 'Status', widthPct: 14 },
-          { label: 'Subtotal', align: 'right', widthPct: 17 },
-          { label: 'Paid', align: 'right', widthPct: 17 },
-          { label: 'Balance', align: 'right', widthPct: 16 },
-        ],
-        rows: priorInvoices.map((i) => {
-          const sub = parseMoney(i.subtotal);
-          const paid = parseMoney(i.amountPaid);
-          const bal = subtract(parseMoney(i.total), paid);
-          return [
-            i.number,
-            i.invoiceDate,
-            i.status,
-            fmtAmount(sub),
-            fmtAmount(paid),
-            fmtAmount(bal),
-          ];
-        }),
+        title: `${baseLabel} — base contract`,
+        columns: historyColumns,
+        rows: baseHistory.map(historyRow),
       });
+    }
+
+    if (coHistory.length > 0) {
+      // Group change-order history by CO so the customer can see "for CO #N"
+      // when an invoice was specifically tied to a CO. Invoices on the CO
+      // track but not linked to a specific CO (billingType=change_order)
+      // appear under a generic CO heading.
+      const coGroups = new Map<string, typeof priorInvoices>();
+      for (const i of coHistory) {
+        const key = i.changeOrderId ?? '__unlinked__';
+        const existing = coGroups.get(key);
+        if (existing) existing.push(i);
+        else coGroups.set(key, [i]);
+      }
+      for (const [coId, group] of coGroups) {
+        const co = coId === '__unlinked__' ? null : coById.get(coId);
+        const titleSuffix = co
+          ? ` — CO #${co.number}${
+              co.description ? ` (${co.description.slice(0, 50)})` : ''
+            }`
+          : ' — change orders';
+        dataTables.push({
+          title: `${baseLabel}${titleSuffix}`,
+          columns: historyColumns,
+          rows: group.map(historyRow),
+        });
+      }
     }
   }
 
