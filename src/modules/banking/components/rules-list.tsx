@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { deleteRuleAction, toggleRuleEnabledAction } from '../actions';
+import {
+  deleteRuleAction,
+  reorderRulesAction,
+  toggleRuleEnabledAction,
+} from '../actions';
 
 export type RuleRow = {
   id: string;
@@ -25,12 +29,27 @@ export type RuleRow = {
   matchCount: number;
 };
 
-export function RulesList({ rules }: { rules: RuleRow[] }) {
+export function RulesList({
+  rules: incoming,
+  canReorder,
+}: {
+  rules: RuleRow[];
+  canReorder: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  if (rules.length === 0) {
+  // Local order so drag-and-drop renders instantly without waiting for a
+  // round trip. Re-sync from server props after any router.refresh().
+  const [order, setOrder] = useState<RuleRow[]>(incoming);
+  useEffect(() => {
+    setOrder(incoming);
+  }, [incoming]);
+
+  const dragId = useRef<string | null>(null);
+
+  if (order.length === 0) {
     return (
       <div className="p-8 text-center space-y-3">
         <p className="text-sm text-slate-600">
@@ -64,10 +83,31 @@ export function RulesList({ rules }: { rules: RuleRow[] }) {
     });
   }
 
+  function reorder(droppedOnId: string) {
+    const fromId = dragId.current;
+    dragId.current = null;
+    if (!fromId || fromId === droppedOnId) return;
+    const fromIdx = order.findIndex((r) => r.id === fromId);
+    const toIdx = order.findIndex((r) => r.id === droppedOnId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const next = order.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setOrder(next);
+    startTransition(async () => {
+      const res = await reorderRulesAction({
+        orderedIds: next.map((r) => r.id),
+      });
+      if (!res.ok && res.error) alert(res.error);
+      router.refresh();
+    });
+  }
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          {canReorder && <TableHead className="w-6"></TableHead>}
           <TableHead className="w-16 text-right">Priority</TableHead>
           <TableHead>Rule</TableHead>
           <TableHead>Scope</TableHead>
@@ -79,8 +119,27 @@ export function RulesList({ rules }: { rules: RuleRow[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rules.map((r) => (
-          <TableRow key={r.id} className={r.enabled ? '' : 'opacity-60'}>
+        {order.map((r) => (
+          <TableRow
+            key={r.id}
+            className={r.enabled ? '' : 'opacity-60'}
+            draggable={canReorder}
+            onDragStart={() => {
+              dragId.current = r.id;
+            }}
+            onDragOver={(e) => {
+              if (canReorder) e.preventDefault();
+            }}
+            onDrop={() => reorder(r.id)}
+          >
+            {canReorder && (
+              <TableCell
+                className="cursor-grab select-none text-center text-slate-400"
+                title="Drag to reorder"
+              >
+                ⋮⋮
+              </TableCell>
+            )}
             <TableCell className="text-right tabular-nums font-mono text-xs">
               {r.priority}
             </TableCell>

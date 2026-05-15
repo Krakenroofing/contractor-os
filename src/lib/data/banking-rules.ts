@@ -115,16 +115,42 @@ export async function softDeleteBankingRule(
 export async function bumpMatchCount(
   companyId: string,
   id: string,
+  delta = 1,
 ): Promise<void> {
   const db = requireDb();
   await db
     .update(bankingRules)
     .set({
-      matchCount: sql`${bankingRules.matchCount} + 1`,
+      matchCount: sql`${bankingRules.matchCount} + ${delta}`,
       lastMatchedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(
       and(eq(bankingRules.id, id), eq(bankingRules.companyId, companyId)),
     );
+}
+
+/** Bulk priority update. Caller passes ordered [{id, priority}] pairs derived
+ *  from the drag-and-drop result. Each row is updated independently inside a
+ *  single transaction so a failure rolls back the whole reorder. */
+export async function setRulePriorities(
+  companyId: string,
+  pairs: { id: string; priority: number }[],
+): Promise<void> {
+  if (pairs.length === 0) return;
+  const db = requireDb();
+  await db.transaction(async (tx) => {
+    for (const p of pairs) {
+      await tx
+        .update(bankingRules)
+        .set({ priority: p.priority, updatedAt: new Date() })
+        .where(
+          and(
+            eq(bankingRules.id, p.id),
+            eq(bankingRules.companyId, companyId),
+            isNull(bankingRules.deletedAt),
+          ),
+        );
+    }
+  });
 }

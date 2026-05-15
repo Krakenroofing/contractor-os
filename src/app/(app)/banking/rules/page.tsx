@@ -127,7 +127,7 @@ export default async function BankingRulesPage() {
           <CardTitle>Rules</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <RulesList rules={rows} />
+          <RulesList rules={rows} canReorder={canCreateRule} />
         </CardContent>
       </Card>
     </div>

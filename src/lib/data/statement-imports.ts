@@ -292,6 +292,36 @@ export async function getImportedTransaction(
   return rows[0];
 }
 
+/** Pull the most recent N transactions for a company. Used by Rules Phase 2
+ *  preview + bulk apply — both run the matcher in TS against this list rather
+ *  than building SQL for every rule shape.
+ *
+ *  `onlyTriagable=true` filters to rows that Apply would actually touch:
+ *  not reviewed, not ignored, no category yet. Keeps the bulk-apply preview
+ *  honest. */
+export async function listRecentTransactionsForRules(
+  companyId: string,
+  options: { limit?: number; onlyTriagable?: boolean } = {},
+): Promise<ImportedTransaction[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const conds: SQL[] = [eq(importedTransactions.companyId, companyId)];
+  if (options.onlyTriagable) {
+    conds.push(eq(importedTransactions.isReviewed, false));
+    conds.push(eq(importedTransactions.isIgnored, false));
+    conds.push(isNull(importedTransactions.accountingAccountId));
+  }
+  return await db
+    .select()
+    .from(importedTransactions)
+    .where(and(...conds))
+    .orderBy(
+      desc(importedTransactions.transactionDate),
+      desc(importedTransactions.createdAt),
+    )
+    .limit(options.limit ?? 500);
+}
+
 export type UpdateImportedTransactionPatch = Partial<
   Pick<
     ImportedTransaction,
@@ -325,6 +355,45 @@ export async function updateImportedTransaction(
     )
     .returning();
   return row;
+}
+
+/** Bulk-apply a rule's actions to a set of transactions inside one
+ *  transaction. Returns the count of rows actually updated. Caller is
+ *  responsible for pre-filtering to triagable rows (the SQL guards are a
+ *  safety net, not the primary filter). */
+export async function bulkApplyRuleToTransactions(
+  companyId: string,
+  ruleId: string,
+  ids: string[],
+  patch: UpdateImportedTransactionPatch,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    let touched = 0;
+    for (const id of ids) {
+      const [row] = await tx
+        .update(importedTransactions)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(importedTransactions.id, id),
+            eq(importedTransactions.companyId, companyId),
+            // Defence-in-depth: SQL refuses to touch a row that turned
+            // reviewed/categorized between snapshot and apply.
+            eq(importedTransactions.isReviewed, false),
+            eq(importedTransactions.isIgnored, false),
+            isNull(importedTransactions.accountingAccountId),
+          ),
+        )
+        .returning({ id: importedTransactions.id });
+      if (row) touched++;
+    }
+    // void parameter use — keeps ruleId in the function signature for future
+    // audit-table writes (Phase 3 transaction_rule_matches).
+    void ruleId;
+    return touched;
+  });
 }
 
 void asc;

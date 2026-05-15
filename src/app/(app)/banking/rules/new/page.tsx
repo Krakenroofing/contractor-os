@@ -19,16 +19,55 @@ import type {
 export const dynamic = 'force-dynamic';
 
 // "Create rule from this transaction" suggests a sensible default match value
-// by trimming numeric tails, store IDs, and ZIP suffixes from a description.
-// We keep it conservative — the user will refine in the form.
+// by trimming the volatile bits banks tend to append to merchant names. The
+// goal is "HOME DEPOT" out of "HOME DEPOT #2143 ATL GA 04/12 POS"; "ABC SUPPLY"
+// out of "POS PURCHASE ABC SUPPLY CO 5551234567".
+//
+// Conservative on purpose — the user always reviews in the form. Better to
+// suggest a too-broad stem (e.g. "HOME DEPOT") than a too-narrow one.
+const TRANSACTION_NOISE_PREFIXES = [
+  'POS PURCHASE',
+  'POS DEBIT',
+  'POS CREDIT',
+  'DEBIT CARD PURCHASE',
+  'CHECKCARD',
+  'CARD PURCHASE',
+  'ACH DEBIT',
+  'ACH CREDIT',
+  'ONLINE PAYMENT',
+  'EFT',
+  'WIRE',
+  'POS',
+];
+
 function suggestMatchValue(raw: string): string {
-  const cleaned = raw
+  let s = raw.trim();
+  if (s === '') return '';
+  // Strip common leading "channel" noise like "POS PURCHASE ".
+  const upper = s.toUpperCase();
+  for (const noise of TRANSACTION_NOISE_PREFIXES) {
+    if (upper.startsWith(noise + ' ')) {
+      s = s.slice(noise.length + 1);
+      break;
+    }
+  }
+  const cleaned = s
+    // store / location ids like "#2143" or "STORE 1234"
     .replace(/#\s*\d+/g, ' ')
-    .replace(/\b\d{1,5}\b/g, ' ')
+    .replace(/\bSTORE\s+\d+/gi, ' ')
+    // long digit runs (phone numbers, account fragments)
+    .replace(/\b\d{4,}\b/g, ' ')
+    // short digit runs (zone, terminal id) when not adjacent to letters
+    .replace(/(^|\s)\d{1,3}(?=\s|$)/g, ' ')
+    // dates in M/D, MM/DD, MM-DD-YY formats
+    .replace(/\b\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?\b/g, ' ')
+    // trailing 2-letter state-ish tokens at end of line ("ATL GA")
+    .replace(/\s[A-Z]{2}\s*$/i, '')
+    // collapse
     .replace(/\s+/g, ' ')
     .trim();
-  // Cap to first ~3 words to avoid over-fitting to one specific transaction.
-  const words = cleaned.split(' ').filter(Boolean).slice(0, 3);
+  // Take the first ~3 meaningful words.
+  const words = cleaned.split(' ').filter((w) => w.length > 1).slice(0, 3);
   return words.join(' ').toUpperCase();
 }
 

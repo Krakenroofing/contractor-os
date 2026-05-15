@@ -3,13 +3,14 @@ import { notFound, redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { can, canCreate } from '@/lib/permissions';
 import { getBankingRule } from '@/lib/data/banking-rules';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { RuleForm } from '@/modules/banking/components/rule-form';
+import { RulePreviewPanel } from '@/modules/banking/components/rule-preview-panel';
 import { toRuleForMatching } from '@/modules/banking/lib/rules';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,23 @@ export default async function EditBankingRulePage({
           )}
         </p>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Preview &amp; bulk apply</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-slate-500 mb-3">
+            Runs this saved rule against the most recent 500 transactions in
+            this company. Bulk apply only writes to transactions that are not
+            yet reviewed and not yet categorized.
+          </p>
+          <RulePreviewPanel
+            ruleId={rule.id}
+            canApply={can(role, 'statement_imports', 'create')}
+          />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Rule details</CardTitle>

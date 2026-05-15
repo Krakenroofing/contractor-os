@@ -26,13 +26,17 @@ import {
   upsertMapping,
 } from '@/lib/data/statement-imports';
 import {
+  bulkApplyRuleToTransactions,
   getImportedTransaction,
+  listRecentTransactionsForRules,
   updateImportedTransaction,
 } from '@/lib/data/statement-imports';
 import {
   bumpMatchCount,
   createBankingRule,
   getBankingRule,
+  listBankingRules,
+  setRulePriorities,
   softDeleteBankingRule,
   updateBankingRule,
 } from '@/lib/data/banking-rules';
@@ -49,9 +53,11 @@ import {
   upsertRuleSchema,
 } from './schema';
 import {
+  type MatchReason,
   type RuleForMatching,
   matchRule,
   toRuleForMatching,
+  toTxnForMatching,
 } from './lib/rules';
 
 export type BankingActionState = {
@@ -589,3 +595,194 @@ export async function markTransactionReviewedAction(input: {
   revalidatePath(`/banking/accounts/${updated.bankAccountId}`);
   return { ok: true };
 }
+
+// =====================================================================
+// Banking Rules — Phase 2
+// =====================================================================
+
+const reorderInputSchema = z.object({
+  orderedIds: z.array(z.string().uuid()).min(1),
+});
+
+/** Persist a new priority order. Index → priority × 10 so the operator can
+ *  later slot a new rule in between without re-saving the whole list. */
+export async function reorderRulesAction(input: {
+  orderedIds: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'banking_rules')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const parsed = reorderInputSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input.' };
+  const companyId = await getActiveCompanyId();
+  const pairs = parsed.data.orderedIds.map((id, i) => ({
+    id,
+    priority: (i + 1) * 10,
+  }));
+  await setRulePriorities(companyId, pairs);
+  revalidatePath('/banking/rules');
+  return { ok: true };
+}
+
+export type PreviewMatch = {
+  transactionId: string;
+  transactionDate: string;
+  description: string;
+  amount: string;
+  reasons: MatchReason[];
+};
+
+export type PreviewMatchesResult = {
+  ok: true;
+  matches: PreviewMatch[];
+  totalHits: number;
+  scanned: number;
+  truncated: boolean;
+};
+
+/** Preview which transactions a SAVED rule would match. Scans the most recent
+ *  500 txns, returns up to 25 sample rows + total hit count. */
+export async function previewRuleMatchesAction(input: {
+  ruleId: string;
+}): Promise<PreviewMatchesResult | { ok: false; error: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canView(role, 'banking_rules')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const rule = await getBankingRule(companyId, input.ruleId);
+  if (!rule) return { ok: false, error: 'Rule not found.' };
+
+  const ruleForMatch = toRuleForMatching(rule);
+  const txns = await listRecentTransactionsForRules(companyId, {
+    limit: 500,
+    onlyTriagable: false,
+  });
+
+  const matches: PreviewMatch[] = [];
+  let totalHits = 0;
+  for (const t of txns) {
+    const txnLike = toTxnForMatching({
+      bankAccountId: t.bankAccountId,
+      description: t.description,
+      payee: t.payee,
+      memo: t.memo,
+      reference: t.reference,
+      amount: t.amount,
+      isReviewed: t.isReviewed,
+      isIgnored: t.isIgnored,
+      accountingAccountId: t.accountingAccountId,
+      appliedRuleId: t.appliedRuleId,
+    });
+    const res = matchRule(txnLike, ruleForMatch);
+    if (!res.matched) continue;
+    totalHits++;
+    if (matches.length < 25) {
+      matches.push({
+        transactionId: t.id,
+        transactionDate: t.transactionDate,
+        description: t.description,
+        amount: t.amount,
+        reasons: res.reasons,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    matches,
+    totalHits,
+    scanned: txns.length,
+    truncated: totalHits > matches.length,
+  };
+}
+
+export type BulkApplyResult =
+  | {
+      ok: true;
+      applied: number;
+      scanned: number;
+      skipped: number;
+    }
+  | { ok: false; error: string };
+
+/** Bulk-apply a rule to every triagable transaction it matches.
+ *  Triagable = !isReviewed && !isIgnored && accountingAccountId IS NULL.
+ *  Never overwrites human work. Never posts. */
+export async function bulkApplyRuleAction(input: {
+  ruleId: string;
+}): Promise<BulkApplyResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission to apply rules.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const rule = await getBankingRule(companyId, input.ruleId);
+  if (!rule) return { ok: false, error: 'Rule not found.' };
+
+  const ruleForMatch = toRuleForMatching(rule);
+  const txns = await listRecentTransactionsForRules(companyId, {
+    limit: 500,
+    onlyTriagable: true,
+  });
+
+  const targetIds: string[] = [];
+  for (const t of txns) {
+    const txnLike = toTxnForMatching({
+      bankAccountId: t.bankAccountId,
+      description: t.description,
+      payee: t.payee,
+      memo: t.memo,
+      reference: t.reference,
+      amount: t.amount,
+      isReviewed: t.isReviewed,
+      isIgnored: t.isIgnored,
+      accountingAccountId: t.accountingAccountId,
+      appliedRuleId: t.appliedRuleId,
+    });
+    const res = matchRule(txnLike, ruleForMatch);
+    if (res.matched) targetIds.push(t.id);
+  }
+
+  if (targetIds.length === 0) {
+    return { ok: true, applied: 0, scanned: txns.length, skipped: 0 };
+  }
+
+  const a = ruleForMatch.actions;
+  const noteSuffix = `\n— rule: ${rule.name}`;
+  const newNotes = ((a.notes ?? '') + noteSuffix).trim();
+
+  const applied = await bulkApplyRuleToTransactions(
+    companyId,
+    rule.id,
+    targetIds,
+    {
+      accountingAccountId: a.accountingAccountId ?? null,
+      projectId: a.projectId ?? null,
+      costCodeId: a.costCodeId ?? null,
+      notes: newNotes,
+      appliedRuleId: rule.id,
+      appliedRuleAt: new Date(),
+    },
+  );
+
+  if (applied > 0) await bumpMatchCount(companyId, rule.id, applied);
+
+  revalidatePath('/banking');
+  revalidatePath('/banking/rules');
+
+  return {
+    ok: true,
+    applied,
+    scanned: txns.length,
+    skipped: targetIds.length - applied,
+  };
+}
+
+// Keep the import referenced so future-phase code paths don't have to
+// re-import. (listBankingRules is consumed by the rules page directly.)
+void listBankingRules;
