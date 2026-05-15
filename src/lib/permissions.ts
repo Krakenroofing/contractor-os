@@ -58,6 +58,8 @@ export const RESOURCES = [
   'banking_rules',
   // Receipts — Phase 1.
   'receipts',
+  // Accountant exports — Phase 1.
+  'exports',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -97,6 +99,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     accounting_accounts: RW,
     banking_rules: RW,
     receipts: RW,
+    exports: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -133,6 +136,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // gated by statement_imports:create above), but cannot author rules.
     banking_rules: READ,
     receipts: RW,
+    exports: READ,
   },
   estimator: {
     dashboard: READ,
@@ -163,6 +167,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     accounting_accounts: NONE,
     banking_rules: NONE,
     receipts: NONE,
+    exports: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -193,6 +198,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     accounting_accounts: RW,
     banking_rules: RW,
     receipts: RW,
+    exports: RW,
   },
   field_user: {
     dashboard: READ,
@@ -227,6 +233,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // For Phase 1 of receipts we keep create on. Post is enforced
     // server-side via a separate role check.
     receipts: RW,
+    exports: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -257,6 +264,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     accounting_accounts: READ,
     banking_rules: READ,
     receipts: READ,
+    exports: READ,
   },
 };
 

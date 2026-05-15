@@ -34,6 +34,7 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/banking', label: 'Banking & Receipts', resource: 'bank_accounts' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },
+  { href: '/exports', label: 'Exports (CSV)', resource: 'exports' },
   { href: '/invite', label: 'Invite Users', resource: 'invitations' },
   { href: '/backfill', label: 'Backfill (Historical)', resource: 'backfill' },
 ];
