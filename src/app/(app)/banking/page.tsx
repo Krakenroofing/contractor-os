@@ -46,6 +46,9 @@ export default async function BankingHome() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href={{ pathname: '/banking/rules' }}>
+            <Button variant="outline">Rules</Button>
+          </Link>
           {canCreateBank && (
             <Link href={{ pathname: '/banking/accounts/new' }}>
               <Button variant="outline">Add account</Button>

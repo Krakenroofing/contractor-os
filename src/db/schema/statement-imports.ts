@@ -166,6 +166,15 @@ export const importedTransactions = pgTable(
     notes: text('notes'),
     rawRow: jsonb('raw_row').notNull(),
 
+    // Banking Rules — Phase 1 audit columns. Set by the Apply action so the
+    // UI can render "auto-filled by rule X — awaiting review" and so the
+    // rule's match_count stays accurate. NULL until a rule applies. The FK
+    // is declared as `text` here to avoid a circular import — Drizzle's
+    // type inference is happy because banking_rules.id is uuid; the actual
+    // FK constraint is created by the SQL migration.
+    appliedRuleId: uuid('applied_rule_id'),
+    appliedRuleAt: timestamp('applied_rule_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

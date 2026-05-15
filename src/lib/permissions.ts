@@ -54,6 +54,8 @@ export const RESOURCES = [
   'bank_accounts',
   'statement_imports',
   'accounting_accounts',
+  // Banking Rules — Phase 1.
+  'banking_rules',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -91,6 +93,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: RW,
     statement_imports: RW,
     accounting_accounts: RW,
+    banking_rules: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -123,6 +126,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: READ,
     statement_imports: READ,
     accounting_accounts: READ,
+    // PM can view rules and apply suggestions on transactions (apply is
+    // gated by statement_imports:create above), but cannot author rules.
+    banking_rules: READ,
   },
   estimator: {
     dashboard: READ,
@@ -151,6 +157,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: NONE,
     statement_imports: NONE,
     accounting_accounts: NONE,
+    banking_rules: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -179,6 +186,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: RW,
     statement_imports: RW,
     accounting_accounts: RW,
+    banking_rules: RW,
   },
   field_user: {
     dashboard: READ,
@@ -207,6 +215,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: NONE,
     statement_imports: NONE,
     accounting_accounts: NONE,
+    banking_rules: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -235,6 +244,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     bank_accounts: READ,
     statement_imports: READ,
     accounting_accounts: READ,
+    banking_rules: READ,
   },
 };
 

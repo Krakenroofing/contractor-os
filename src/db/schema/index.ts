@@ -23,3 +23,4 @@ export * from './job-cost-forecasts';
 export * from './accounting-accounts';
 export * from './bank-accounts';
 export * from './statement-imports';
+export * from './banking-rules';

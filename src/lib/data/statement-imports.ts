@@ -273,6 +273,25 @@ export async function countImportedTransactions(
   return rows[0]?.n ?? 0;
 }
 
+export async function getImportedTransaction(
+  companyId: string,
+  id: string,
+): Promise<ImportedTransaction | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(importedTransactions)
+    .where(
+      and(
+        eq(importedTransactions.id, id),
+        eq(importedTransactions.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
 export type UpdateImportedTransactionPatch = Partial<
   Pick<
     ImportedTransaction,
@@ -284,6 +303,8 @@ export type UpdateImportedTransactionPatch = Partial<
     | 'notes'
     | 'payee'
     | 'memo'
+    | 'appliedRuleId'
+    | 'appliedRuleAt'
   >
 >;
 

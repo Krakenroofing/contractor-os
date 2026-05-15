@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { canCreate, canView } from '@/lib/permissions';
+import { can, canCreate, canView } from '@/lib/permissions';
 import { toMoneyString } from '@/lib/money';
 import {
   ALLOWED_STATEMENT_MIME,
@@ -25,7 +25,17 @@ import {
   updateImportBatch,
   upsertMapping,
 } from '@/lib/data/statement-imports';
-import { updateImportedTransaction } from '@/lib/data/statement-imports';
+import {
+  getImportedTransaction,
+  updateImportedTransaction,
+} from '@/lib/data/statement-imports';
+import {
+  bumpMatchCount,
+  createBankingRule,
+  getBankingRule,
+  softDeleteBankingRule,
+  updateBankingRule,
+} from '@/lib/data/banking-rules';
 import {
   ensureDefaultCoaForCompany,
   createPairedAccountingAccount,
@@ -36,7 +46,13 @@ import {
   createBankAccountSchema,
   mappingSettingsSchema,
   updateImportedTransactionSchema,
+  upsertRuleSchema,
 } from './schema';
+import {
+  type RuleForMatching,
+  matchRule,
+  toRuleForMatching,
+} from './lib/rules';
 
 export type BankingActionState = {
   formError?: string;
@@ -339,6 +355,236 @@ export async function toggleImportedTransactionFlag(input: {
       ? { isReviewed: input.value }
       : { isIgnored: input.value };
   const updated = await updateImportedTransaction(companyId, input.id, patch);
+  if (!updated) return { ok: false, error: 'Transaction not found.' };
+  revalidatePath(`/banking/accounts/${updated.bankAccountId}`);
+  return { ok: true };
+}
+
+// =====================================================================
+// Banking Rules — Phase 1
+// =====================================================================
+
+function parseRuleForm(formData: FormData) {
+  // The form serializes matchers as parallel arrays: matchers[].field,
+  // matchers[].op, matchers[].value, matchers[].case_sensitive. We zip them
+  // back here so Zod sees an array of objects.
+  const fields = formData.getAll('matcher_field').map(String);
+  const ops = formData.getAll('matcher_op').map(String);
+  const values = formData.getAll('matcher_value').map(String);
+  const caseSens = formData.getAll('matcher_case').map(String);
+  const matchers = fields.map((field, i) => ({
+    field,
+    op: ops[i] ?? 'contains',
+    value: values[i] ?? '',
+    case_sensitive: caseSens[i] === 'on' || caseSens[i] === 'true',
+  }));
+
+  return upsertRuleSchema.safeParse({
+    id: (formData.get('id') as string) || undefined,
+    name: formData.get('name') ?? '',
+    enabled:
+      formData.get('enabled') === 'on' || formData.get('enabled') === 'true',
+    priority: formData.get('priority') ?? '100',
+    appliesTo: formData.get('appliesTo') ?? 'all',
+    bankAccountId: formData.get('bankAccountId') ?? '',
+    amountMin: formData.get('amountMin') ?? '',
+    amountMax: formData.get('amountMax') ?? '',
+    matchers,
+    actions: {
+      accountingAccountId: formData.get('action_accountingAccountId') ?? '',
+      projectId: formData.get('action_projectId') ?? '',
+      costCodeId: formData.get('action_costCodeId') ?? '',
+      notes: formData.get('action_notes') ?? '',
+    },
+  });
+}
+
+export async function upsertRuleAction(
+  _prev: BankingActionState,
+  formData: FormData,
+): Promise<BankingActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'banking_rules')) {
+    return { formError: 'You do not have permission to manage rules.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const parsed = parseRuleForm(formData);
+  if (!parsed.success) {
+    return {
+      formError: 'Fix the highlighted fields.',
+      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+
+  const values = {
+    companyId,
+    name: d.name,
+    enabled: d.enabled ?? true,
+    priority: d.priority,
+    appliesTo: d.appliesTo,
+    bankAccountId: d.bankAccountId,
+    amountMin: d.amountMin === null ? null : toMoneyString(d.amountMin),
+    amountMax: d.amountMax === null ? null : toMoneyString(d.amountMax),
+    matchers: d.matchers,
+    actions: d.actions,
+    createdByUserId: user.id,
+  } as const;
+
+  if (d.id) {
+    const existing = await getBankingRule(companyId, d.id);
+    if (!existing) return { formError: 'Rule not found.' };
+    await updateBankingRule(companyId, d.id, values);
+  } else {
+    await createBankingRule(values);
+  }
+
+  revalidatePath('/banking');
+  revalidatePath('/banking/rules');
+  redirect('/banking/rules' as never);
+}
+
+export async function toggleRuleEnabledAction(input: {
+  id: string;
+  enabled: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'banking_rules')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const updated = await updateBankingRule(companyId, input.id, {
+    enabled: input.enabled,
+  });
+  if (!updated) return { ok: false, error: 'Rule not found.' };
+  revalidatePath('/banking/rules');
+  return { ok: true };
+}
+
+export async function deleteRuleAction(input: {
+  id: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'banking_rules')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const updated = await softDeleteBankingRule(companyId, input.id);
+  if (!updated) return { ok: false, error: 'Rule not found.' };
+  revalidatePath('/banking/rules');
+  return { ok: true };
+}
+
+/**
+ * Apply a banking rule to a single imported_transactions row.
+ *
+ * Phase 1 safety:
+ *   - Re-runs the matcher server-side before writing. A stale "Apply" click
+ *     can't push a rule that no longer matches.
+ *   - **Skip silently** if the transaction is already reviewed or already
+ *     has an accounting category set. Per Phase 1 contract — we never
+ *     overwrite human work.
+ *   - Writes only the fields the table supports today: accountingAccountId,
+ *     projectId, costCodeId, notes (prepended with "— rule: <name>" suffix).
+ *   - Sets applied_rule_id + applied_rule_at so the UI shows the
+ *     "auto-filled — awaiting review" state.
+ *   - Does NOT set isReviewed — the operator must explicitly mark reviewed.
+ *   - Increments the rule's match_count.
+ */
+export async function applyRuleAction(input: {
+  transactionId: string;
+  ruleId: string;
+}): Promise<{ ok: boolean; skipped?: boolean; reason?: string; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canView(role, 'statement_imports')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const [txn, rule] = await Promise.all([
+    getImportedTransaction(companyId, input.transactionId),
+    getBankingRule(companyId, input.ruleId),
+  ]);
+  if (!txn) return { ok: false, error: 'Transaction not found.' };
+  if (!rule) return { ok: false, error: 'Rule not found.' };
+
+  // Skip silently — do not overwrite human work.
+  if (txn.isReviewed) {
+    return { ok: true, skipped: true, reason: 'Transaction is already reviewed.' };
+  }
+  if (txn.accountingAccountId) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'Transaction is already categorized.',
+    };
+  }
+
+  // Re-run the matcher so a stale Apply click can't push a rule that no
+  // longer matches (the user may have edited the rule or the row).
+  const ruleForMatch: RuleForMatching = toRuleForMatching(rule);
+  const result = matchRule(
+    {
+      bankAccountId: txn.bankAccountId,
+      description: txn.description,
+      payee: txn.payee,
+      memo: txn.memo,
+      reference: txn.reference,
+      amount: Number(txn.amount),
+      isReviewed: txn.isReviewed,
+      isIgnored: txn.isIgnored,
+      accountingAccountId: txn.accountingAccountId,
+      appliedRuleId: txn.appliedRuleId,
+    },
+    ruleForMatch,
+  );
+  if (!result.matched) {
+    return {
+      ok: false,
+      error: 'Rule no longer matches this transaction.',
+    };
+  }
+
+  const a = ruleForMatch.actions;
+  const ruleNoteSuffix = `\n— rule: ${rule.name}`;
+  const newNotes = a.notes
+    ? `${a.notes}${ruleNoteSuffix}`
+    : (txn.notes ?? '') + ruleNoteSuffix;
+
+  await updateImportedTransaction(companyId, txn.id, {
+    accountingAccountId: a.accountingAccountId ?? null,
+    projectId: a.projectId ?? null,
+    costCodeId: a.costCodeId ?? null,
+    notes: newNotes.trim(),
+    appliedRuleId: rule.id,
+    appliedRuleAt: new Date(),
+  });
+  await bumpMatchCount(companyId, rule.id);
+
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+/**
+ * Mark a transaction reviewed in one click. Used on auto-filled rows and on
+ * manually-categorized rows. View-only roles cannot review.
+ */
+export async function markTransactionReviewedAction(input: {
+  id: string;
+  reviewed: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const updated = await updateImportedTransaction(companyId, input.id, {
+    isReviewed: input.reviewed,
+  });
   if (!updated) return { ok: false, error: 'Transaction not found.' };
   revalidatePath(`/banking/accounts/${updated.bankAccountId}`);
   return { ok: true };

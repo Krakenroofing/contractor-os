@@ -3,6 +3,11 @@ import {
   AMOUNT_STRATEGIES,
   DATE_FORMATS,
 } from './lib/mapping';
+import {
+  APPLIES_TO_VALUES,
+  MATCHER_FIELDS,
+  MATCHER_OPS,
+} from './lib/rules';
 
 export const bankAccountTypeValues = ['bank', 'credit_card'] as const;
 export const BANK_ACCOUNT_TYPE_LABEL: Record<
@@ -92,3 +97,64 @@ export const updateImportedTransactionSchema = z.object({
 export type UpdateImportedTransactionInput = z.infer<
   typeof updateImportedTransactionSchema
 >;
+
+// ===== Banking Rules — Phase 1 =====
+
+export const matcherSchema = z.object({
+  field: z.enum(MATCHER_FIELDS),
+  op: z.enum(MATCHER_OPS),
+  value: z.string().trim().min(1, 'Match value is required').max(500),
+  case_sensitive: z.coerce.boolean().optional().default(false),
+});
+export type MatcherInput = z.infer<typeof matcherSchema>;
+
+const nullableUuid = z
+  .string()
+  .optional()
+  .or(z.literal(''))
+  .transform((v) => (v === '' || v === undefined ? null : v))
+  .refine(
+    (v) =>
+      v === null ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
+    { message: 'Invalid id' },
+  );
+
+const nullableAmount = z
+  .string()
+  .optional()
+  .or(z.literal(''))
+  .transform((v) => {
+    if (v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  });
+
+export const ruleActionPayloadSchema = z.object({
+  accountingAccountId: nullableUuid,
+  projectId: nullableUuid,
+  costCodeId: nullableUuid,
+  notes: z
+    .string()
+    .trim()
+    .max(2000)
+    .optional()
+    .default('')
+    .transform((v) => (v === '' ? null : v)),
+});
+export type RuleActionPayloadInput = z.infer<typeof ruleActionPayloadSchema>;
+
+export const upsertRuleSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1, 'Name is required').max(160),
+  enabled: z.coerce.boolean().optional().default(true),
+  priority: z.coerce.number().int().min(0).max(10_000).default(100),
+  appliesTo: z.enum(APPLIES_TO_VALUES).default('all'),
+  bankAccountId: nullableUuid,
+  amountMin: nullableAmount,
+  amountMax: nullableAmount,
+  matchers: z.array(matcherSchema).min(1, 'Add at least one condition').max(10),
+  actions: ruleActionPayloadSchema,
+});
+export type UpsertRuleInput = z.infer<typeof upsertRuleSchema>;
+
