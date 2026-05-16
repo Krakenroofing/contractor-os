@@ -128,7 +128,6 @@ export const receipts = pgTable(
     projectIdx: index('receipts_project_idx').on(t.projectId),
     statusIdx: index('receipts_status_idx').on(t.companyId, t.status),
     postedJceIdx: index('receipts_posted_jce_idx').on(t.postedJobCostEntryId),
-    submittedIdx: index('receipts_submitted_idx').on(t.companyId, t.submittedAt),
   }),
 );
 

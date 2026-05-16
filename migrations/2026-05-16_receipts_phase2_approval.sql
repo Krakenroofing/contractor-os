@@ -28,6 +28,13 @@
 -- ===========================================================================
 -- IF NOT EXISTS is supported on Postgres 12+ (Supabase is on 15). The whole
 -- statement is a single ALTER, no DO-block needed.
+--
+-- NOTE on transactions: Postgres refuses to USE a freshly-added enum value
+-- (as a literal in an index WHERE, CHECK, etc.) within the same transaction
+-- that ADDed it ("unsafe use of new value"). We work around this by NOT
+-- referencing 'submitted' as a literal in any DDL below — the existing
+-- receipts_status_idx (company_id, status) already covers the approver
+-- queue lookups, so no new partial index is needed.
 ALTER TYPE receipt_status ADD VALUE IF NOT EXISTS 'submitted';
 
 -- ===========================================================================
@@ -39,12 +46,6 @@ ALTER TABLE public.receipts
   ADD COLUMN IF NOT EXISTS approved_at timestamptz,
   ADD COLUMN IF NOT EXISTS approved_by_user_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS rejection_reason text;
-
--- Index to power the "submitted" approver queue. Partial — only rows in
--- the submitted state count, so the index stays tiny.
-CREATE INDEX IF NOT EXISTS receipts_submitted_idx
-  ON public.receipts(company_id, submitted_at)
-  WHERE status = 'submitted' AND deleted_at IS NULL;
 
 -- ===========================================================================
 -- Verification
