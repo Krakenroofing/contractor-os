@@ -30,6 +30,8 @@ import {
   type AttachmentRow,
 } from '@/modules/receipts/components/attachments-list';
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
+import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
+import { isOcrConfigured } from '@/lib/ocr/document-ai';
 import { createSignedReceiptUrl } from '@/lib/storage/receipt-files';
 import { toMoneyString } from '@/lib/money';
 
@@ -258,6 +260,20 @@ export default async function ReceiptDetailPage({
               {canEdit && receipt.status === 'draft' && (
                 <ReceiptAttachmentUploader receiptId={receipt.id} />
               )}
+              {canEdit &&
+                receipt.status === 'draft' &&
+                attachmentRows.length > 0 && (
+                  <OcrPanel
+                    receiptId={receipt.id}
+                    attachments={attachmentRows.map((a) => ({
+                      id: a.id,
+                      originalFilename: a.originalFilename,
+                      mimeType: a.mimeType,
+                    }))}
+                    vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+                    enabled={isOcrConfigured()}
+                  />
+                )}
               <AttachmentsList
                 receiptId={receipt.id}
                 attachments={attachmentRows}

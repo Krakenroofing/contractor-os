@@ -126,3 +126,21 @@ export async function deleteReceiptBlob(storagePath: string): Promise<void> {
   if (!client) return;
   await client.storage.from(RECEIPT_FILES_BUCKET).remove([storagePath]);
 }
+
+/** Download a receipt blob from Supabase Storage. Used by the OCR action
+ *  to read bytes server-side and forward to the OCR provider. */
+export async function downloadReceiptBlob(
+  storagePath: string,
+): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) throw new ReceiptStorageNotConfiguredError();
+  const { data, error } = await client.storage
+    .from(RECEIPT_FILES_BUCKET)
+    .download(storagePath);
+  if (error || !data) return null;
+  const arrayBuffer = await data.arrayBuffer();
+  return {
+    bytes: new Uint8Array(arrayBuffer),
+    mimeType: data.type || 'application/octet-stream',
+  };
+}
