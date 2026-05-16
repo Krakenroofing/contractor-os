@@ -205,7 +205,15 @@ export async function upsertReceiptAction(
 }
 
 /** Reconcile in-memory line input against the persisted lines: update existing,
- *  insert new, soft-delete any persisted line whose id is no longer present. */
+ *  insert new, soft-delete any persisted line whose id is no longer present.
+ *
+ *  Reimbursement guard: if a persisted line already has a payout linked
+ *  (reimbursementPayoutId is set), we preserve its money + reimbursable
+ *  flag + paid-by ref so the operator can't accidentally unwind a real
+ *  cash-out by editing the draft. The action layer also blocks edits on
+ *  posted/submitted receipts, so this only matters for the rare case of
+ *  an unposted-then-re-edited line.
+ */
 async function replaceReceiptLines(
   companyId: string,
   receiptId: string,
@@ -214,12 +222,17 @@ async function replaceReceiptLines(
     computed: { subtotal: number; vatAmount: number; total: number; vatRatePercent: number };
     sortOrder: number;
   }>,
-) {
+): Promise<{ reimbursementLocked: boolean }> {
   const existing = await listReceiptLines(companyId, receiptId);
   const existingById = new Map(existing.map((l) => [l.id, l]));
   const seenIds = new Set<string>();
+  let reimbursementLocked = false;
 
   for (const { line, computed, sortOrder } of inputs) {
+    const persisted = line.id ? existingById.get(line.id) : undefined;
+    const alreadyPaidOut = Boolean(persisted?.reimbursementPayoutId);
+    if (alreadyPaidOut) reimbursementLocked = true;
+
     const values = {
       sortOrder,
       projectId: line.projectId,
@@ -227,15 +240,17 @@ async function replaceReceiptLines(
       accountingAccountId: line.accountingAccountId,
       costType: line.costType,
       description: line.description,
-      subtotal: toMoneyString(computed.subtotal),
-      vatAmount: toMoneyString(computed.vatAmount),
-      total: toMoneyString(computed.total),
-      vatRatePercent:
-        line.vatRatePercent === null
+      subtotal: alreadyPaidOut ? persisted!.subtotal : toMoneyString(computed.subtotal),
+      vatAmount: alreadyPaidOut ? persisted!.vatAmount : toMoneyString(computed.vatAmount),
+      total: alreadyPaidOut ? persisted!.total : toMoneyString(computed.total),
+      vatRatePercent: alreadyPaidOut
+        ? persisted!.vatRatePercent
+        : line.vatRatePercent === null
           ? null
           : toPercentString(line.vatRatePercent),
       isBillable: line.isBillable ?? false,
-      isReimbursable: line.isReimbursable ?? false,
+      isReimbursable: alreadyPaidOut ? true : line.isReimbursable ?? false,
+      paidByUserId: alreadyPaidOut ? persisted!.paidByUserId : line.paidByUserId,
     } as const;
 
     if (line.id && existingById.has(line.id)) {
@@ -250,12 +265,20 @@ async function replaceReceiptLines(
     }
   }
 
-  // Soft-delete any persisted line that the form removed.
+  // Soft-delete any persisted line that the form removed — unless it's
+  // already been paid out, in which case we keep it (the audit trail must
+  // outlive the form). Operator who really wants it gone has to reverse
+  // the payout first.
   for (const e of existing) {
     if (!seenIds.has(e.id)) {
+      if (e.reimbursementPayoutId) {
+        reimbursementLocked = true;
+        continue;
+      }
       await softDeleteReceiptLine(companyId, e.id);
     }
   }
+  return { reimbursementLocked };
 }
 
 // ===== File attachments =====
@@ -378,13 +401,23 @@ export async function submitReceiptAction(input: {
     return { ok: false, error: 'Add at least one line before submitting.' };
   }
   const missing: number[] = [];
+  const reimbursableMissingPayee: number[] = [];
   lines.forEach((l, idx) => {
     if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+    if (l.isReimbursable && !l.paidByUserId) {
+      reimbursableMissingPayee.push(idx + 1);
+    }
   });
   if (missing.length > 0) {
     return {
       ok: false,
       error: `Line ${missing.join(', ')}: project and cost code are required before submitting.`,
+    };
+  }
+  if (reimbursableMissingPayee.length > 0) {
+    return {
+      ok: false,
+      error: `Line ${reimbursableMissingPayee.join(', ')}: pick who paid out of pocket before submitting (reimbursable line).`,
     };
   }
 
@@ -474,13 +507,23 @@ export async function postReceiptAction(input: {
   }
 
   const missing: number[] = [];
+  const reimbursableMissingPayee: number[] = [];
   lines.forEach((l, idx) => {
     if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+    if (l.isReimbursable && !l.paidByUserId) {
+      reimbursableMissingPayee.push(idx + 1);
+    }
   });
   if (missing.length > 0) {
     return {
       ok: false,
       error: `Line ${missing.join(', ')}: project and cost code are required before posting.`,
+    };
+  }
+  if (reimbursableMissingPayee.length > 0) {
+    return {
+      ok: false,
+      error: `Line ${reimbursableMissingPayee.join(', ')}: pick who paid out of pocket before posting (reimbursable line).`,
     };
   }
 

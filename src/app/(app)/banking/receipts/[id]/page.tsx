@@ -18,6 +18,8 @@ import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
+import { listMembersForCompany } from '@/lib/data/memberships';
+import { requireAuth } from '@/lib/auth';
 import {
   ReceiptForm,
   type LineInitial,
@@ -89,6 +91,7 @@ export default async function ReceiptDetailPage({
   const receipt = await getReceipt(company.id, id);
   if (!receipt) notFound();
 
+  const currentUser = await requireAuth();
   const [
     lines,
     attachments,
@@ -97,6 +100,7 @@ export default async function ReceiptDetailPage({
     costCodes,
     accountingAccounts,
     bankAccounts,
+    members,
     dupWarning,
   ] = await Promise.all([
     listReceiptLines(company.id, receipt.id),
@@ -106,6 +110,7 @@ export default async function ReceiptDetailPage({
     listCostCodes(company.id),
     listAccountingAccounts(company.id),
     listBankAccounts(company.id),
+    listMembersForCompany(company.id),
     checkDuplicatePoReceipt(company.id, {
       vendorId: receipt.vendorId,
       total: receipt.total,
@@ -155,6 +160,8 @@ export default async function ReceiptDetailPage({
       l.vatRatePercent === null ? null : Number(l.vatRatePercent),
     isBillable: l.isBillable,
     isReimbursable: l.isReimbursable,
+    paidByUserId: l.paidByUserId,
+    reimbursementPayoutId: l.reimbursementPayoutId,
   }));
 
   return (
@@ -237,6 +244,8 @@ export default async function ReceiptDetailPage({
                   id: b.id,
                   label: `${b.name} (${b.type === 'credit_card' ? 'CC' : 'Bank'})`,
                 }))}
+                members={members.map((m) => ({ id: m.userId, label: m.name }))}
+                currentUserId={currentUser.id}
               />
             </CardContent>
           </Card>

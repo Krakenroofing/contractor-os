@@ -9,6 +9,8 @@ import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
+import { listMembersForCompany } from '@/lib/data/memberships';
+import { requireAuth } from '@/lib/auth';
 import { ReceiptForm } from '@/modules/receipts/components/receipt-form';
 
 export const dynamic = 'force-dynamic';
@@ -19,13 +21,15 @@ export default async function NewReceiptPage() {
     redirect('/banking/receipts' as never);
   }
   const company = await getActiveCompany();
-  const [vendors, projects, costCodes, accountingAccounts, bankAccounts] =
+  const currentUser = await requireAuth();
+  const [vendors, projects, costCodes, accountingAccounts, bankAccounts, members] =
     await Promise.all([
       listVendors(company.id),
       listProjects(company.id),
       listCostCodes(company.id),
       listAccountingAccounts(company.id),
       listBankAccounts(company.id),
+      listMembersForCompany(company.id),
     ]);
 
   return (
@@ -81,6 +85,8 @@ export default async function NewReceiptPage() {
               id: b.id,
               label: `${b.name} (${b.type === 'credit_card' ? 'CC' : 'Bank'})`,
             }))}
+            members={members.map((m) => ({ id: m.userId, label: m.name }))}
+            currentUserId={currentUser.id}
           />
         </CardContent>
       </Card>

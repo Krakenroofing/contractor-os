@@ -277,6 +277,8 @@ export type UpdateReceiptLinePatch = Partial<
     | 'vatRatePercent'
     | 'isBillable'
     | 'isReimbursable'
+    | 'paidByUserId'
+    | 'reimbursementPayoutId'
     | 'postedJobCostEntryId'
   >
 >;

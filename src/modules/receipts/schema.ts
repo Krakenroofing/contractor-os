@@ -133,6 +133,10 @@ export const upsertReceiptLineSchema = z.object({
   vatRatePercent: percentString,
   isBillable: z.coerce.boolean().optional().default(false),
   isReimbursable: z.coerce.boolean().optional().default(false),
+  // Phase 2.4: who paid out of pocket. Required by submit/post when
+  // is_reimbursable=true; the action validates that separately so drafts
+  // can be saved with this still null.
+  paidByUserId: nullableUuid,
 });
 export type UpsertReceiptLineInput = z.infer<typeof upsertReceiptLineSchema>;
 

@@ -8,6 +8,7 @@ import {
   integer,
   boolean,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
@@ -179,6 +180,18 @@ export const receiptLines = pgTable(
     isBillable: boolean('is_billable').notNull().default(false),
     isReimbursable: boolean('is_reimbursable').notNull().default(false),
 
+    // Phase 2.4 reimbursable flow. paid_by_user_id captures who's owed money
+    // when is_reimbursable=true. reimbursementPayoutId is the FK to the
+    // payout that settled this line (null = unpaid). The pair lets the
+    // /banking/reimbursements page list pending lines and group by payee.
+    paidByUserId: uuid('paid_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reimbursementPayoutId: uuid('reimbursement_payout_id').references(
+      (): AnyPgColumn => receiptReimbursementPayouts.id,
+      { onDelete: 'set null' },
+    ),
+
     postedJobCostEntryId: uuid('posted_job_cost_entry_id').references(
       () => jobCostEntries.id,
       { onDelete: 'set null' },
@@ -198,6 +211,57 @@ export const receiptLines = pgTable(
     projectIdx: index('receipt_lines_project_idx').on(t.projectId),
     postedJceIdx: index('receipt_lines_posted_jce_idx').on(
       t.postedJobCostEntryId,
+    ),
+    pendingReimbursementIdx: index('receipt_lines_pending_reimbursement_idx').on(
+      t.companyId,
+      t.paidByUserId,
+    ),
+  }),
+);
+
+// Phase 2.4 reimbursable flow. One row = one cash-out to a person (check,
+// ACH, cash, etc.) covering one or more reimbursable receipt_lines.
+// Line→payout link is on receipt_lines.reimbursementPayoutId; this table
+// just records what / when / how the payout happened.
+export const receiptReimbursementPayouts = pgTable(
+  'receipt_reimbursement_payouts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+
+    paidToUserId: uuid('paid_to_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+
+    paidAt: date('paid_at').notNull(),
+    paidVia: text('paid_via').notNull(),
+    reference: text('reference'),
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    currency: text('currency').notNull().default('USD'),
+    bankAccountId: uuid('bank_account_id').references(() => bankAccounts.id, {
+      onDelete: 'set null',
+    }),
+    notes: text('notes'),
+
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => ({
+    companyIdx: index('receipt_reimbursement_payouts_company_idx').on(t.companyId),
+    userIdx: index('receipt_reimbursement_payouts_user_idx').on(
+      t.companyId,
+      t.paidToUserId,
+      t.paidAt,
     ),
   }),
 );
@@ -239,3 +303,7 @@ export type ReceiptLine = typeof receiptLines.$inferSelect;
 export type NewReceiptLine = typeof receiptLines.$inferInsert;
 export type ReceiptAttachment = typeof receiptAttachments.$inferSelect;
 export type NewReceiptAttachment = typeof receiptAttachments.$inferInsert;
+export type ReceiptReimbursementPayout =
+  typeof receiptReimbursementPayouts.$inferSelect;
+export type NewReceiptReimbursementPayout =
+  typeof receiptReimbursementPayouts.$inferInsert;

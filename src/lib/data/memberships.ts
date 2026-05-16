@@ -6,8 +6,8 @@
 
 import 'server-only';
 import { cache } from 'react';
-import { and, eq } from 'drizzle-orm';
-import { memberships, type Membership } from '@/db/schema';
+import { and, asc, eq } from 'drizzle-orm';
+import { memberships, users, type Membership } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import type { Role } from '@/lib/permissions';
 
@@ -48,6 +48,29 @@ export const getMembership = cache(async function getMembership(
     return rows[0];
   }
   return undefined;
+});
+
+/** Active members of a company (user id + display name + role). Used by
+ *  flows that need to pick a person — e.g. the receipts reimbursement
+ *  payer dropdown. Demo mode returns []. */
+export const listMembersForCompany = cache(async function listMembersForCompany(
+  companyId: string,
+): Promise<Array<{ userId: string; name: string; role: Role }>> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      userId: users.id,
+      name: users.name,
+      role: memberships.role,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(eq(memberships.companyId, companyId), eq(memberships.status, 'active')),
+    )
+    .orderBy(asc(users.name));
+  return rows;
 });
 
 /**

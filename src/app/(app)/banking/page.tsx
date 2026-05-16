@@ -46,6 +46,9 @@ export default async function BankingHome() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href={{ pathname: '/banking/reimbursements' }}>
+            <Button variant="outline">Reimbursements</Button>
+          </Link>
           <Link href={{ pathname: '/banking/receipts' }}>
             <Button variant="outline">Receipts</Button>
           </Link>

@@ -44,6 +44,8 @@ export type LineInitial = {
   vatRatePercent: number | null;
   isBillable: boolean;
   isReimbursable: boolean;
+  paidByUserId: string | null;
+  reimbursementPayoutId: string | null;
 };
 
 export type ReceiptFormProps = {
@@ -64,11 +66,15 @@ export type ReceiptFormProps = {
   vatActive: boolean;
   defaultCurrency: string;
   defaultVatRate: number;
+  /** Logged-in user — default payer when a new line is marked reimbursable. */
+  currentUserId?: string;
   vendors: VendorOption[];
   projects: Option[];
   costCodes: Option[];
   accountingAccounts: Option[];
   bankAccounts: Option[];
+  /** Members of the active company, for the "Paid by" dropdown. */
+  members: Array<{ id: string; label: string }>;
 };
 
 type LineState = {
@@ -87,6 +93,10 @@ type LineState = {
   vatRatePercent: string;
   isBillable: boolean;
   isReimbursable: boolean;
+  paidByUserId: string;
+  /** Non-empty = this line was already settled by a payout; UI locks money +
+   *  reimbursable flag + paid-by. */
+  reimbursementPayoutId: string;
 };
 
 let synthCounter = 0;
@@ -109,6 +119,8 @@ function emptyLine(): LineState {
     vatRatePercent: '',
     isBillable: false,
     isReimbursable: false,
+    paidByUserId: '',
+    reimbursementPayoutId: '',
   };
 }
 
@@ -128,6 +140,8 @@ function initialToState(line: LineInitial): LineState {
       line.vatRatePercent === null ? '' : line.vatRatePercent.toString(),
     isBillable: line.isBillable,
     isReimbursable: line.isReimbursable,
+    paidByUserId: line.paidByUserId ?? '',
+    reimbursementPayoutId: line.reimbursementPayoutId ?? '',
   };
 }
 
@@ -294,6 +308,7 @@ export function ReceiptForm(props: ReceiptFormProps) {
           vatRatePercent: l.vatRatePercent === '' ? null : l.vatRatePercent,
           isBillable: l.isBillable,
           isReimbursable: l.isReimbursable,
+          paidByUserId: l.paidByUserId || null,
         })),
       ),
     [lines],
@@ -481,11 +496,13 @@ export function ReceiptForm(props: ReceiptFormProps) {
             key={l.key}
             line={l}
             index={idx}
-            canRemove={lines.length > 1}
+            canRemove={lines.length > 1 && !l.reimbursementPayoutId}
             vatActive={props.vatActive}
             projects={props.projects}
             costCodes={props.costCodes}
             accountingAccounts={props.accountingAccounts}
+            members={props.members}
+            currentUserId={props.currentUserId}
             onChange={(patch) => updateLine(l.key, patch)}
             onRemove={() => removeLine(l.key)}
             onRecompute={(driver) => recomputeLine(l.key, driver)}
@@ -546,16 +563,34 @@ function LineEditor(props: {
   projects: Option[];
   costCodes: Option[];
   accountingAccounts: Option[];
+  members: Array<{ id: string; label: string }>;
+  currentUserId?: string;
   onChange: (patch: Partial<LineState>) => void;
   onRemove: () => void;
   onRecompute: (driver: 'subtotal' | 'vatAmount' | 'total' | 'rate') => void;
 }) {
   const { line: l } = props;
+  const locked = Boolean(l.reimbursementPayoutId);
+  function onReimbursableToggle(checked: boolean) {
+    // Auto-default the payer to the current user the first time the operator
+    // checks the box, to save a click in the common "I bought this" case.
+    const patch: Partial<LineState> = { isReimbursable: checked };
+    if (checked && !l.paidByUserId && props.currentUserId) {
+      patch.paidByUserId = props.currentUserId;
+    }
+    if (!checked) patch.paidByUserId = '';
+    props.onChange(patch);
+  }
   return (
     <div className="rounded-md border border-slate-200 p-3 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500">
           Line {props.index + 1}
+          {locked && (
+            <span className="ml-2 inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
+              Reimbursed (locked)
+            </span>
+          )}
         </span>
         {props.canRemove && (
           <button
@@ -708,14 +743,35 @@ function LineEditor(props: {
           <input
             type="checkbox"
             checked={l.isReimbursable}
-            onChange={(e) =>
-              props.onChange({ isReimbursable: e.target.checked })
-            }
+            disabled={locked}
+            onChange={(e) => onReimbursableToggle(e.target.checked)}
             className="h-4 w-4"
           />
           Reimbursable to staff
         </label>
       </div>
+      {l.isReimbursable && (
+        <div>
+          <Label>Paid by (out of pocket)</Label>
+          <Select
+            value={l.paidByUserId}
+            disabled={locked}
+            onChange={(e) => props.onChange({ paidByUserId: e.target.value })}
+          >
+            <option value="">— pick a person —</option>
+            {props.members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Reimbursement is owed for the gross (
+            <span className="font-mono">{l.total}</span>) — the worker was out
+            of pocket the full amount.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
