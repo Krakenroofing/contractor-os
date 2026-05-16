@@ -99,21 +99,48 @@ const percentString = z
     return Number.isFinite(n) ? n : null;
   });
 
+// Per-line input (Phase 2.1 multi-line). Lines are submitted as a JSON-encoded
+// array in the `lines` field of the form post — see receipt-form.tsx.
+export const upsertReceiptLineSchema = z.object({
+  // Existing line id; absent for newly-added lines.
+  id: z.string().uuid().optional(),
+  sortOrder: z.coerce.number().int().min(0).default(0),
+  projectId: nullableUuid,
+  costCodeId: nullableUuid,
+  accountingAccountId: nullableUuid,
+  costType: z
+    .enum(costTypeValues)
+    .optional()
+    .or(z.literal(''))
+    .or(z.null())
+    .transform((v) => (v === '' || v === undefined || v === null ? null : v)),
+  description: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .or(z.null())
+    .transform((v) => (v === '' || v === undefined || v === null ? null : v)),
+  subtotal: moneyString,
+  vatAmount: moneyString,
+  total: moneyString,
+  vatRatePercent: percentString,
+  isBillable: z.coerce.boolean().optional().default(false),
+  isReimbursable: z.coerce.boolean().optional().default(false),
+});
+export type UpsertReceiptLineInput = z.infer<typeof upsertReceiptLineSchema>;
+
 export const upsertReceiptSchema = z.object({
   id: z.string().uuid().optional(),
   receiptDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
   vendorId: nullableUuid,
-  projectId: nullableUuid,
-  costCodeId: nullableUuid,
-  accountingAccountId: nullableUuid,
   bankAccountId: nullableUuid,
   paymentSourceType: z.enum(paymentSourceValues).default('cash'),
   currency: z.string().trim().min(3).max(3).toUpperCase(),
-  subtotal: moneyString,
-  vatAmount: moneyString,
-  total: moneyString,
+  // Header VAT settings — apply as defaults to lines and drive VAT-included
+  // semantics across the receipt.
   vatRatePercent: percentString,
   vatIncluded: z.coerce.boolean().optional().default(true),
   vatRecoverable: z.coerce.boolean().optional().default(true),
@@ -124,13 +151,6 @@ export const upsertReceiptSchema = z.object({
     .optional()
     .default('')
     .transform((v) => (v === '' ? null : v)),
-  costType: z
-    .enum(costTypeValues)
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => (v === '' || v === undefined ? null : v)),
-  isBillable: z.coerce.boolean().optional().default(false),
-  isReimbursable: z.coerce.boolean().optional().default(false),
   notes: z
     .string()
     .trim()
@@ -138,5 +158,8 @@ export const upsertReceiptSchema = z.object({
     .optional()
     .default('')
     .transform((v) => (v === '' ? null : v)),
+  // 1..N lines. Empty array is allowed only for brand-new drafts; Post will
+  // refuse a receipt with zero lines.
+  lines: z.array(upsertReceiptLineSchema).max(50),
 });
 export type UpsertReceiptInput = z.infer<typeof upsertReceiptSchema>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,29 +31,36 @@ export type VendorOption = {
   defaultAccountingAccountId: string;
 };
 
+export type LineInitial = {
+  id?: string;
+  projectId: string | null;
+  costCodeId: string | null;
+  accountingAccountId: string | null;
+  costType: string | null;
+  description: string | null;
+  subtotal: number;
+  vatAmount: number;
+  total: number;
+  vatRatePercent: number | null;
+  isBillable: boolean;
+  isReimbursable: boolean;
+};
+
 export type ReceiptFormProps = {
   initial?: {
     id?: string;
     receiptDate: string;
     vendorId: string | null;
-    projectId: string | null;
-    costCodeId: string | null;
-    accountingAccountId: string | null;
     bankAccountId: string | null;
     paymentSourceType: 'bank' | 'credit_card' | 'cash' | 'other';
     currency: string;
-    subtotal: number;
-    vatAmount: number;
-    total: number;
     vatRatePercent: number | null;
     vatIncluded: boolean;
     vatRecoverable: boolean;
     vendorTin: string | null;
-    costType: string | null;
-    isBillable: boolean;
-    isReimbursable: boolean;
     notes: string | null;
   };
+  initialLines?: LineInitial[];
   vatActive: boolean;
   defaultCurrency: string;
   defaultVatRate: number;
@@ -64,50 +71,144 @@ export type ReceiptFormProps = {
   bankAccounts: Option[];
 };
 
+type LineState = {
+  // Stable client-side key for React. Either the persisted line id or a
+  // synthetic uuid-ish string for not-yet-saved lines.
+  key: string;
+  id?: string;
+  projectId: string;
+  costCodeId: string;
+  accountingAccountId: string;
+  costType: string;
+  description: string;
+  subtotal: string;
+  vatAmount: string;
+  total: string;
+  vatRatePercent: string;
+  isBillable: boolean;
+  isReimbursable: boolean;
+};
+
+let synthCounter = 0;
+function synthKey(): string {
+  synthCounter += 1;
+  return `new-${Date.now().toString(36)}-${synthCounter}`;
+}
+
+function emptyLine(): LineState {
+  return {
+    key: synthKey(),
+    projectId: '',
+    costCodeId: '',
+    accountingAccountId: '',
+    costType: '',
+    description: '',
+    subtotal: '0.00',
+    vatAmount: '0.00',
+    total: '0.00',
+    vatRatePercent: '',
+    isBillable: false,
+    isReimbursable: false,
+  };
+}
+
+function initialToState(line: LineInitial): LineState {
+  return {
+    key: line.id ?? synthKey(),
+    id: line.id,
+    projectId: line.projectId ?? '',
+    costCodeId: line.costCodeId ?? '',
+    accountingAccountId: line.accountingAccountId ?? '',
+    costType: line.costType ?? '',
+    description: line.description ?? '',
+    subtotal: line.subtotal.toFixed(2),
+    vatAmount: line.vatAmount.toFixed(2),
+    total: line.total.toFixed(2),
+    vatRatePercent:
+      line.vatRatePercent === null ? '' : line.vatRatePercent.toString(),
+    isBillable: line.isBillable,
+    isReimbursable: line.isReimbursable,
+  };
+}
+
 export function ReceiptForm(props: ReceiptFormProps) {
   const i = props.initial;
   const [receiptDate, setReceiptDate] = useState(
     i?.receiptDate ?? new Date().toISOString().slice(0, 10),
   );
   const [vendorId, setVendorId] = useState(i?.vendorId ?? '');
-  const [projectId, setProjectId] = useState(i?.projectId ?? '');
-  const [costCodeId, setCostCodeId] = useState(i?.costCodeId ?? '');
-  const [accountingAccountId, setAccountingAccountId] = useState(
-    i?.accountingAccountId ?? '',
-  );
   const [bankAccountId, setBankAccountId] = useState(i?.bankAccountId ?? '');
   const [paymentSourceType, setPaymentSourceType] = useState(
     i?.paymentSourceType ?? 'cash',
   );
   const [currency, setCurrency] = useState(i?.currency ?? props.defaultCurrency);
-  const [subtotal, setSubtotal] = useState(i?.subtotal?.toFixed(2) ?? '0.00');
-  const [vatAmount, setVatAmount] = useState(i?.vatAmount?.toFixed(2) ?? '0.00');
-  const [total, setTotal] = useState(i?.total?.toFixed(2) ?? '0.00');
   const [vatRatePercent, setVatRatePercent] = useState(
     (i?.vatRatePercent ?? props.defaultVatRate).toString(),
   );
   const [vatIncluded, setVatIncluded] = useState(i?.vatIncluded ?? true);
   const [vatRecoverable, setVatRecoverable] = useState(i?.vatRecoverable ?? true);
   const [vendorTin, setVendorTin] = useState(i?.vendorTin ?? '');
-  const [costType, setCostType] = useState(i?.costType ?? '');
-  const [isBillable, setIsBillable] = useState(i?.isBillable ?? false);
-  const [isReimbursable, setIsReimbursable] = useState(i?.isReimbursable ?? false);
   const [notes, setNotes] = useState(i?.notes ?? '');
 
-  function recompute(driver: 'subtotal' | 'vatAmount' | 'total' | 'rate') {
-    if (!props.vatActive) return;
-    const out = computeVat({
-      subtotal: Number(subtotal) || 0,
-      vatAmount: Number(vatAmount) || 0,
-      total: Number(total) || 0,
-      vatRatePercent: Number(vatRatePercent) || 0,
-      vatIncluded,
-      driver,
-    });
-    setSubtotal(out.subtotal.toFixed(2));
-    setVatAmount(out.vatAmount.toFixed(2));
-    setTotal(out.total.toFixed(2));
+  const [lines, setLines] = useState<LineState[]>(() =>
+    props.initialLines && props.initialLines.length > 0
+      ? props.initialLines.map(initialToState)
+      : [emptyLine()],
+  );
+
+  function updateLine(key: string, patch: Partial<LineState>) {
+    setLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, ...patch } : l)),
+    );
   }
+
+  function recomputeLine(
+    key: string,
+    driver: 'subtotal' | 'vatAmount' | 'total' | 'rate',
+  ) {
+    if (!props.vatActive) return;
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+        const effectiveRate =
+          Number(l.vatRatePercent) || Number(vatRatePercent) || 0;
+        const out = computeVat({
+          subtotal: Number(l.subtotal) || 0,
+          vatAmount: Number(l.vatAmount) || 0,
+          total: Number(l.total) || 0,
+          vatRatePercent: effectiveRate,
+          vatIncluded,
+          driver,
+        });
+        return {
+          ...l,
+          subtotal: out.subtotal.toFixed(2),
+          vatAmount: out.vatAmount.toFixed(2),
+          total: out.total.toFixed(2),
+        };
+      }),
+    );
+  }
+
+  function addLine() {
+    setLines((prev) => [...prev, emptyLine()]);
+  }
+  function removeLine(key: string) {
+    setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.key !== key)));
+  }
+
+  // Live header totals — what the operator sees while editing. Server
+  // recomputes from line money on submit; these are display-only.
+  const headerTotals = useMemo(() => {
+    let s = 0, v = 0, t = 0;
+    for (const l of lines) {
+      s += Number(l.subtotal) || 0;
+      v += Number(l.vatAmount) || 0;
+      t += Number(l.total) || 0;
+    }
+    const r = (n: number) => Math.round(n * 100) / 100;
+    return { subtotal: r(s), vat: r(v), total: r(t) };
+  }, [lines]);
 
   const [state, action, pending] = useActionState<ReceiptActionState, FormData>(
     upsertReceiptAction,
@@ -118,15 +219,19 @@ export function ReceiptForm(props: ReceiptFormProps) {
   const [savingDefaults, startSavingDefaults] = useTransition();
   const [savedDefaultsAt, setSavedDefaultsAt] = useState<number | null>(null);
 
-  // Prefill blanks from a vendor's defaults. Never overwrites a value the
-  // operator already picked — that's the Phase-1 contract. Called when the
-  // vendor select changes.
+  // Prefill blanks on FIRST line from a vendor's defaults. Never overwrites
+  // values the operator already picked (Phase-1 contract).
   function applyVendorDefaults(v: VendorOption) {
-    if (!costCodeId && v.defaultCostCodeId) setCostCodeId(v.defaultCostCodeId);
-    if (!costType && v.defaultCostType) setCostType(v.defaultCostType);
-    if (!accountingAccountId && v.defaultAccountingAccountId) {
-      setAccountingAccountId(v.defaultAccountingAccountId);
-    }
+    const first = lines[0];
+    if (!first) return;
+    const patch: Partial<LineState> = {};
+    if (!first.costCodeId && v.defaultCostCodeId)
+      patch.costCodeId = v.defaultCostCodeId;
+    if (!first.costType && v.defaultCostType)
+      patch.costType = v.defaultCostType;
+    if (!first.accountingAccountId && v.defaultAccountingAccountId)
+      patch.accountingAccountId = v.defaultAccountingAccountId;
+    if (Object.keys(patch).length > 0) updateLine(first.key, patch);
   }
 
   function onVendorChange(id: string) {
@@ -135,32 +240,30 @@ export function ReceiptForm(props: ReceiptFormProps) {
     if (v) applyVendorDefaults(v);
   }
 
-  // Compute whether the currently-picked vendor's defaults differ from what's
-  // in the form right now. Drives visibility of the inline "Save as default"
-  // affordance. If no vendor is selected → never show.
+  // "Save as default" — uses the FIRST line's values (the common Home Depot
+  // / Sherwin-Williams pattern: one vendor, one line).
+  const firstLine = lines[0];
   const selectedVendor = props.vendors.find((x) => x.id === vendorId) ?? null;
   const defaultsDiffer = Boolean(
     selectedVendor &&
-      (selectedVendor.defaultCostCodeId !== (costCodeId ?? '') ||
-        selectedVendor.defaultCostType !== (costType ?? '') ||
+      firstLine &&
+      (selectedVendor.defaultCostCodeId !== firstLine.costCodeId ||
+        selectedVendor.defaultCostType !== firstLine.costType ||
         selectedVendor.defaultAccountingAccountId !==
-          (accountingAccountId ?? '')) &&
-      // Only offer to save when at least one of the three fields is set —
-      // otherwise the user is just clearing defaults, which they should do
-      // from the vendor edit page.
-      (costCodeId !== '' ||
-        costType !== '' ||
-        accountingAccountId !== ''),
+          firstLine.accountingAccountId) &&
+      (firstLine.costCodeId !== '' ||
+        firstLine.costType !== '' ||
+        firstLine.accountingAccountId !== ''),
   );
 
   function onSaveDefaults() {
-    if (!vendorId) return;
+    if (!vendorId || !firstLine) return;
     startSavingDefaults(async () => {
       const res = await saveVendorDefaultsAction({
         vendorId,
-        defaultCostCodeId: costCodeId || null,
-        defaultCostType: costType || null,
-        defaultAccountingAccountId: accountingAccountId || null,
+        defaultCostCodeId: firstLine.costCodeId || null,
+        defaultCostType: firstLine.costType || null,
+        defaultAccountingAccountId: firstLine.accountingAccountId || null,
       });
       if (res.ok) {
         setSavedDefaultsAt(Date.now());
@@ -171,9 +274,35 @@ export function ReceiptForm(props: ReceiptFormProps) {
     });
   }
 
+  // Serialize the lines array into a hidden JSON field on submit. We could
+  // use indexed form fields, but a single JSON blob keeps the action's
+  // parsing trivial.
+  const linesJson = useMemo(
+    () =>
+      JSON.stringify(
+        lines.map((l, idx) => ({
+          id: l.id,
+          sortOrder: idx,
+          projectId: l.projectId || null,
+          costCodeId: l.costCodeId || null,
+          accountingAccountId: l.accountingAccountId || null,
+          costType: l.costType || null,
+          description: l.description || null,
+          subtotal: l.subtotal || '0',
+          vatAmount: l.vatAmount || '0',
+          total: l.total || '0',
+          vatRatePercent: l.vatRatePercent === '' ? null : l.vatRatePercent,
+          isBillable: l.isBillable,
+          isReimbursable: l.isReimbursable,
+        })),
+      ),
+    [lines],
+  );
+
   return (
     <form action={action} className="space-y-6">
       {i?.id && <input type="hidden" name="id" value={i.id} />}
+      <input type="hidden" name="lines" value={linesJson} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
@@ -211,7 +340,7 @@ export function ReceiptForm(props: ReceiptFormProps) {
             >
               {savingDefaults
                 ? 'Saving…'
-                : `Save current cost code / type / category as default for ${selectedVendor?.label}`}
+                : `Save line 1's cost code / type / category as default for ${selectedVendor?.label}`}
             </button>
           )}
           {savedDefaultsAt !== null && !defaultsDiffer && !savingDefaults && (
@@ -234,72 +363,8 @@ export function ReceiptForm(props: ReceiptFormProps) {
       </div>
 
       <div className="rounded-md border border-slate-200 p-4 space-y-3">
-        <h3 className="text-sm font-medium text-slate-900">Assign</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <Label htmlFor="projectId">Project (required to post)</Label>
-            <Select
-              id="projectId"
-              name="projectId"
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {props.projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="costCodeId">Cost code (required to post)</Label>
-            <Select
-              id="costCodeId"
-              name="costCodeId"
-              value={costCodeId}
-              onChange={(e) => setCostCodeId(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {props.costCodes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="accountingAccountId">Accounting category</Label>
-            <Select
-              id="accountingAccountId"
-              name="accountingAccountId"
-              value={accountingAccountId}
-              onChange={(e) => setAccountingAccountId(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {props.accountingAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="costType">Cost type (job costing)</Label>
-            <Select
-              id="costType"
-              name="costType"
-              value={costType}
-              onChange={(e) => setCostType(e.target.value)}
-            >
-              <option value="">— derive from cost code —</option>
-              {costTypeValues.map((c) => (
-                <option key={c} value={c}>
-                  {COST_TYPE_LABEL[c]}
-                </option>
-              ))}
-            </Select>
-          </div>
+        <h3 className="text-sm font-medium text-slate-900">Payment</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label htmlFor="paymentSourceType">Paid via</Label>
             <Select
@@ -340,145 +405,114 @@ export function ReceiptForm(props: ReceiptFormProps) {
         </div>
       </div>
 
-      <div className="rounded-md border border-slate-200 p-4 space-y-3">
-        <h3 className="text-sm font-medium text-slate-900">Amounts</h3>
-        {props.vatActive ? (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
-                <Label htmlFor="vatRatePercent">VAT rate %</Label>
-                <Input
-                  id="vatRatePercent"
-                  name="vatRatePercent"
-                  inputMode="decimal"
-                  value={vatRatePercent}
-                  onChange={(e) => setVatRatePercent(e.target.value)}
-                  onBlur={() => recompute('rate')}
-                />
-              </div>
-              <div className="flex items-end">
-                <label className="inline-flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    name="vatIncluded"
-                    checked={vatIncluded}
-                    onChange={(e) => setVatIncluded(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  Total includes VAT
-                </label>
-              </div>
-              <div className="flex items-end">
-                <label className="inline-flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    name="vatRecoverable"
-                    checked={vatRecoverable}
-                    onChange={(e) => setVatRecoverable(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  VAT recoverable
-                </label>
-              </div>
-              <div>
-                <Label htmlFor="vendorTin">Vendor TIN (optional)</Label>
-                <Input
-                  id="vendorTin"
-                  name="vendorTin"
-                  value={vendorTin}
-                  onChange={(e) => setVendorTin(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="subtotal">Subtotal (net)</Label>
-                <Input
-                  id="subtotal"
-                  name="subtotal"
-                  inputMode="decimal"
-                  value={subtotal}
-                  onChange={(e) => setSubtotal(e.target.value)}
-                  onBlur={() => recompute('subtotal')}
-                />
-              </div>
-              <div>
-                <Label htmlFor="vatAmount">VAT amount</Label>
-                <Input
-                  id="vatAmount"
-                  name="vatAmount"
-                  inputMode="decimal"
-                  value={vatAmount}
-                  onChange={(e) => setVatAmount(e.target.value)}
-                  onBlur={() => recompute('vatAmount')}
-                />
-              </div>
-              <div>
-                <Label htmlFor="total">Total (gross)</Label>
-                <Input
-                  id="total"
-                  name="total"
-                  inputMode="decimal"
-                  value={total}
-                  onChange={(e) => setTotal(e.target.value)}
-                  onBlur={() => recompute('total')}
-                />
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Edit any one of net / VAT / gross — the other two recompute on
-              blur using {vatIncluded ? 'gross ÷ (1 + rate%)' : 'net × (1 + rate%)'}.
-            </p>
-          </>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {props.vatActive && (
+        <div className="rounded-md border border-slate-200 p-4 space-y-3">
+          <h3 className="text-sm font-medium text-slate-900">VAT (header defaults)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <Label htmlFor="total">Total</Label>
+              <Label htmlFor="vatRatePercent">Default VAT rate %</Label>
               <Input
-                id="total"
-                name="total"
+                id="vatRatePercent"
+                name="vatRatePercent"
                 inputMode="decimal"
-                value={total}
-                onChange={(e) => {
-                  setTotal(e.target.value);
-                  setSubtotal(e.target.value);
-                }}
+                value={vatRatePercent}
+                onChange={(e) => setVatRatePercent(e.target.value)}
               />
             </div>
-            <p className="text-xs text-slate-500 self-end pb-2">
-              VAT is off for this company. Subtotal equals total.
-            </p>
-            {/* Hidden fields so server schema is happy. */}
-            <input type="hidden" name="subtotal" value={total} />
-            <input type="hidden" name="vatAmount" value="0" />
-            <input type="hidden" name="vatRatePercent" value="0" />
-            <input type="hidden" name="vatIncluded" value="false" />
-            <input type="hidden" name="vatRecoverable" value="false" />
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  name="vatIncluded"
+                  checked={vatIncluded}
+                  onChange={(e) => setVatIncluded(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                Totals include VAT
+              </label>
+            </div>
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  name="vatRecoverable"
+                  checked={vatRecoverable}
+                  onChange={(e) => setVatRecoverable(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                VAT recoverable
+              </label>
+            </div>
+            <div>
+              <Label htmlFor="vendorTin">Vendor TIN (optional)</Label>
+              <Input
+                id="vendorTin"
+                name="vendorTin"
+                value={vendorTin}
+                onChange={(e) => setVendorTin(e.target.value)}
+              />
+            </div>
           </div>
-        )}
-      </div>
+          <p className="text-[11px] text-slate-500">
+            Each line inherits this rate unless overridden. Edit net / VAT /
+            gross per line below — the other two recompute on blur.
+          </p>
+        </div>
+      )}
+      {!props.vatActive && (
+        <>
+          <input type="hidden" name="vatRatePercent" value="0" />
+          <input type="hidden" name="vatIncluded" value="false" />
+          <input type="hidden" name="vatRecoverable" value="false" />
+        </>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="isBillable"
-            checked={isBillable}
-            onChange={(e) => setIsBillable(e.target.checked)}
-            className="h-4 w-4"
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-slate-900">
+            Lines ({lines.length})
+          </h3>
+          <Button type="button" onClick={addLine} variant="outline" size="sm">
+            + Add line
+          </Button>
+        </div>
+        {lines.map((l, idx) => (
+          <LineEditor
+            key={l.key}
+            line={l}
+            index={idx}
+            canRemove={lines.length > 1}
+            vatActive={props.vatActive}
+            projects={props.projects}
+            costCodes={props.costCodes}
+            accountingAccounts={props.accountingAccounts}
+            onChange={(patch) => updateLine(l.key, patch)}
+            onRemove={() => removeLine(l.key)}
+            onRecompute={(driver) => recomputeLine(l.key, driver)}
           />
-          Billable to customer
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="isReimbursable"
-            checked={isReimbursable}
-            onChange={(e) => setIsReimbursable(e.target.checked)}
-            className="h-4 w-4"
-          />
-          Reimbursable to staff
-        </label>
+        ))}
+        <div className="flex justify-end gap-6 text-xs text-slate-600 pr-2">
+          <div>
+            Subtotal:{' '}
+            <span className="font-mono tabular-nums">
+              {headerTotals.subtotal.toFixed(2)}
+            </span>
+          </div>
+          {props.vatActive && (
+            <div>
+              VAT:{' '}
+              <span className="font-mono tabular-nums">
+                {headerTotals.vat.toFixed(2)}
+              </span>
+            </div>
+          )}
+          <div className="font-medium text-slate-900">
+            Total:{' '}
+            <span className="font-mono tabular-nums">
+              {headerTotals.total.toFixed(2)}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -501,5 +535,187 @@ export function ReceiptForm(props: ReceiptFormProps) {
         )}
       </div>
     </form>
+  );
+}
+
+function LineEditor(props: {
+  line: LineState;
+  index: number;
+  canRemove: boolean;
+  vatActive: boolean;
+  projects: Option[];
+  costCodes: Option[];
+  accountingAccounts: Option[];
+  onChange: (patch: Partial<LineState>) => void;
+  onRemove: () => void;
+  onRecompute: (driver: 'subtotal' | 'vatAmount' | 'total' | 'rate') => void;
+}) {
+  const { line: l } = props;
+  return (
+    <div className="rounded-md border border-slate-200 p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-500">
+          Line {props.index + 1}
+        </span>
+        {props.canRemove && (
+          <button
+            type="button"
+            onClick={props.onRemove}
+            className="text-[11px] text-red-600 hover:text-red-800"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <Label>Project</Label>
+          <Select
+            value={l.projectId}
+            onChange={(e) => props.onChange({ projectId: e.target.value })}
+          >
+            <option value="">— none —</option>
+            {props.projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Cost code</Label>
+          <Select
+            value={l.costCodeId}
+            onChange={(e) => props.onChange({ costCodeId: e.target.value })}
+          >
+            <option value="">— none —</option>
+            {props.costCodes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Accounting category</Label>
+          <Select
+            value={l.accountingAccountId}
+            onChange={(e) =>
+              props.onChange({ accountingAccountId: e.target.value })
+            }
+          >
+            <option value="">— none —</option>
+            {props.accountingAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Cost type</Label>
+          <Select
+            value={l.costType}
+            onChange={(e) => props.onChange({ costType: e.target.value })}
+          >
+            <option value="">— derive from cost code —</option>
+            {costTypeValues.map((c) => (
+              <option key={c} value={c}>
+                {COST_TYPE_LABEL[c]}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="md:col-span-2">
+          <Label>Description (optional)</Label>
+          <Input
+            value={l.description}
+            onChange={(e) => props.onChange({ description: e.target.value })}
+            placeholder="What this line is for"
+          />
+        </div>
+      </div>
+
+      {props.vatActive ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <Label>Net</Label>
+            <Input
+              inputMode="decimal"
+              value={l.subtotal}
+              onChange={(e) => props.onChange({ subtotal: e.target.value })}
+              onBlur={() => props.onRecompute('subtotal')}
+            />
+          </div>
+          <div>
+            <Label>VAT</Label>
+            <Input
+              inputMode="decimal"
+              value={l.vatAmount}
+              onChange={(e) => props.onChange({ vatAmount: e.target.value })}
+              onBlur={() => props.onRecompute('vatAmount')}
+            />
+          </div>
+          <div>
+            <Label>Gross</Label>
+            <Input
+              inputMode="decimal"
+              value={l.total}
+              onChange={(e) => props.onChange({ total: e.target.value })}
+              onBlur={() => props.onRecompute('total')}
+            />
+          </div>
+          <div>
+            <Label>Rate % (override)</Label>
+            <Input
+              inputMode="decimal"
+              value={l.vatRatePercent}
+              onChange={(e) => props.onChange({ vatRatePercent: e.target.value })}
+              onBlur={() => props.onRecompute('rate')}
+              placeholder="header"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <Label>Total</Label>
+            <Input
+              inputMode="decimal"
+              value={l.total}
+              onChange={(e) =>
+                props.onChange({
+                  total: e.target.value,
+                  subtotal: e.target.value,
+                })
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={l.isBillable}
+            onChange={(e) => props.onChange({ isBillable: e.target.checked })}
+            className="h-4 w-4"
+          />
+          Billable to customer
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={l.isReimbursable}
+            onChange={(e) =>
+              props.onChange({ isReimbursable: e.target.checked })
+            }
+            className="h-4 w-4"
+          />
+          Reimbursable to staff
+        </label>
+      </div>
+    </div>
   );
 }

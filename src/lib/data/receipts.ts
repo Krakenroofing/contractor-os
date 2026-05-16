@@ -3,12 +3,15 @@
 // lib/data/statement-imports.ts).
 
 import 'server-only';
-import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm';
 import {
   receipts,
+  receiptLines,
   receiptAttachments,
   type Receipt,
   type NewReceipt,
+  type ReceiptLine,
+  type NewReceiptLine,
   type ReceiptAttachment,
   type NewReceiptAttachment,
 } from '@/db/schema';
@@ -149,6 +152,145 @@ export async function softDeleteReceipt(
     )
     .returning();
   return rows[0];
+}
+
+// ===== Lines (Phase 2.1) =====
+//
+// A receipt has 1..N lines. A line carries project / cost code / cost type /
+// accounting account / amounts / billable / reimbursable. Posting writes one
+// job_cost_entries row per line; the link is captured in line.postedJobCostEntryId.
+//
+// The header's subtotal/vatAmount/total are a denormalized sum of line totals
+// — call recalcReceiptHeaderTotals after any mutation that changes line money.
+
+export async function listReceiptLines(
+  companyId: string,
+  receiptId: string,
+): Promise<ReceiptLine[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(receiptLines)
+    .where(
+      and(
+        eq(receiptLines.companyId, companyId),
+        eq(receiptLines.receiptId, receiptId),
+        isNull(receiptLines.deletedAt),
+      ),
+    )
+    .orderBy(asc(receiptLines.sortOrder), asc(receiptLines.createdAt));
+}
+
+/** Bulk fetch lines for many receipts (list page). Returns rows in no
+ *  particular order — caller groups by receiptId. */
+export async function listReceiptLinesForReceiptIds(
+  companyId: string,
+  receiptIds: string[],
+): Promise<ReceiptLine[]> {
+  if (!isDatabaseConfigured() || receiptIds.length === 0) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(receiptLines)
+    .where(
+      and(
+        eq(receiptLines.companyId, companyId),
+        inArray(receiptLines.receiptId, receiptIds),
+        isNull(receiptLines.deletedAt),
+      ),
+    );
+}
+
+export async function createReceiptLine(
+  input: NewReceiptLine,
+): Promise<ReceiptLine> {
+  const db = requireDb();
+  const [row] = await db.insert(receiptLines).values(input).returning();
+  return row;
+}
+
+export type UpdateReceiptLinePatch = Partial<
+  Pick<
+    ReceiptLine,
+    | 'sortOrder'
+    | 'projectId'
+    | 'costCodeId'
+    | 'accountingAccountId'
+    | 'costType'
+    | 'description'
+    | 'subtotal'
+    | 'vatAmount'
+    | 'total'
+    | 'vatRatePercent'
+    | 'isBillable'
+    | 'isReimbursable'
+    | 'postedJobCostEntryId'
+  >
+>;
+
+export async function updateReceiptLine(
+  companyId: string,
+  id: string,
+  patch: UpdateReceiptLinePatch,
+): Promise<ReceiptLine | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(receiptLines)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(
+      and(
+        eq(receiptLines.id, id),
+        eq(receiptLines.companyId, companyId),
+        isNull(receiptLines.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+export async function softDeleteReceiptLine(
+  companyId: string,
+  id: string,
+): Promise<ReceiptLine | undefined> {
+  const db = requireDb();
+  const now = new Date();
+  const rows = await db
+    .update(receiptLines)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(receiptLines.id, id),
+        eq(receiptLines.companyId, companyId),
+        isNull(receiptLines.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+/** Recompute and persist receipt header totals as the sum of its non-deleted
+ *  lines. Returns the updated receipt or undefined if not found. */
+export async function recalcReceiptHeaderTotals(
+  companyId: string,
+  receiptId: string,
+): Promise<Receipt | undefined> {
+  const db = requireDb();
+  const lines = await listReceiptLines(companyId, receiptId);
+  let subtotal = 0;
+  let vat = 0;
+  let total = 0;
+  for (const l of lines) {
+    subtotal += Number(l.subtotal);
+    vat += Number(l.vatAmount);
+    total += Number(l.total);
+  }
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return await updateReceipt(companyId, receiptId, {
+    subtotal: round(subtotal).toFixed(2),
+    vatAmount: round(vat).toFixed(2),
+    total: round(total).toFixed(2),
+  });
 }
 
 // ===== Attachments =====

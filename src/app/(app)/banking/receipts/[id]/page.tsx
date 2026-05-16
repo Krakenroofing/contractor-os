@@ -7,13 +7,20 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { jobCostEntries } from '@/db/schema';
-import { getReceipt, listReceiptAttachments } from '@/lib/data/receipts';
+import {
+  getReceipt,
+  listReceiptAttachments,
+  listReceiptLines,
+} from '@/lib/data/receipts';
 import { listVendors } from '@/lib/data/vendors';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
-import { ReceiptForm } from '@/modules/receipts/components/receipt-form';
+import {
+  ReceiptForm,
+  type LineInitial,
+} from '@/modules/receipts/components/receipt-form';
 import { ReceiptAttachmentUploader } from '@/modules/receipts/components/attachment-uploader';
 import {
   AttachmentsList,
@@ -25,14 +32,13 @@ import { toMoneyString } from '@/lib/money';
 
 export const dynamic = 'force-dynamic';
 
-// Best-effort duplicate-vs-PO-receipt check. Returns a warning string when
-// the receipt's (project, vendor, amount, date) match an existing
-// job_cost_entries row from source='po_receipt'. The match is informational
-// only — the post action confirms with the operator before proceeding.
+// Best-effort duplicate-vs-PO-receipt check. Returns a warning when the
+// receipt's (vendor, amount, date) match an existing job_cost_entries row
+// from source='po_receipt'. With multi-line receipts we no longer match on
+// projectId — vendor + date + total is enough for an informational warn.
 async function checkDuplicatePoReceipt(
   companyId: string,
   receipt: {
-    projectId: string | null;
     vendorId: string | null;
     total: string;
     subtotal: string;
@@ -40,7 +46,7 @@ async function checkDuplicatePoReceipt(
   },
 ): Promise<string | null> {
   if (!isDatabaseConfigured()) return null;
-  if (!receipt.projectId || !receipt.vendorId) return null;
+  if (!receipt.vendorId) return null;
   const db = getDb()!;
   const amountKeys = [
     toMoneyString(Number(receipt.total)),
@@ -53,7 +59,6 @@ async function checkDuplicatePoReceipt(
       .where(
         and(
           eq(jobCostEntries.companyId, companyId),
-          eq(jobCostEntries.projectId, receipt.projectId),
           eq(jobCostEntries.vendorId, receipt.vendorId),
           eq(jobCostEntries.entryDate, receipt.receiptDate),
           eq(jobCostEntries.amount, amt),
@@ -63,7 +68,7 @@ async function checkDuplicatePoReceipt(
       )
       .limit(1);
     if (rows.length > 0) {
-      return `An existing job-cost entry from a PO receipt matches this project, vendor, amount, and date. Posting could double-count.`;
+      return `An existing job-cost entry from a PO receipt matches this vendor, amount, and date. Posting could double-count.`;
     }
   }
   return null;
@@ -84,6 +89,7 @@ export default async function ReceiptDetailPage({
   if (!receipt) notFound();
 
   const [
+    lines,
     attachments,
     vendors,
     projects,
@@ -92,6 +98,7 @@ export default async function ReceiptDetailPage({
     bankAccounts,
     dupWarning,
   ] = await Promise.all([
+    listReceiptLines(company.id, receipt.id),
     listReceiptAttachments(company.id, receipt.id),
     listVendors(company.id),
     listProjects(company.id),
@@ -99,7 +106,6 @@ export default async function ReceiptDetailPage({
     listAccountingAccounts(company.id),
     listBankAccounts(company.id),
     checkDuplicatePoReceipt(company.id, {
-      projectId: receipt.projectId,
       vendorId: receipt.vendorId,
       total: receipt.total,
       subtotal: receipt.subtotal,
@@ -121,10 +127,26 @@ export default async function ReceiptDetailPage({
   );
 
   const canEdit = canCreate(role, 'receipts');
-  // Field user can upload but not post/unpost/void/delete. The post panel
-  // gates its own buttons on canPost.
   const canPost = canCreate(role, 'receipts') && role !== 'field_user';
-  const canPostable = Boolean(receipt.projectId && receipt.costCodeId);
+  // Postable = at least one line, every line has project + cost code.
+  const canPostable =
+    lines.length > 0 && lines.every((l) => l.projectId && l.costCodeId);
+
+  const initialLines: LineInitial[] = lines.map((l) => ({
+    id: l.id,
+    projectId: l.projectId,
+    costCodeId: l.costCodeId,
+    accountingAccountId: l.accountingAccountId,
+    costType: l.costType,
+    description: l.description,
+    subtotal: Number(l.subtotal),
+    vatAmount: Number(l.vatAmount),
+    total: Number(l.total),
+    vatRatePercent:
+      l.vatRatePercent === null ? null : Number(l.vatRatePercent),
+    isBillable: l.isBillable,
+    isReimbursable: l.isReimbursable,
+  }));
 
   return (
     <div className="p-6 space-y-6">
@@ -161,15 +183,9 @@ export default async function ReceiptDetailPage({
                   id: receipt.id,
                   receiptDate: receipt.receiptDate,
                   vendorId: receipt.vendorId,
-                  projectId: receipt.projectId,
-                  costCodeId: receipt.costCodeId,
-                  accountingAccountId: receipt.accountingAccountId,
                   bankAccountId: receipt.bankAccountId,
                   paymentSourceType: receipt.paymentSourceType,
                   currency: receipt.currency,
-                  subtotal: Number(receipt.subtotal),
-                  vatAmount: Number(receipt.vatAmount),
-                  total: Number(receipt.total),
                   vatRatePercent:
                     receipt.vatRatePercent === null
                       ? null
@@ -177,11 +193,9 @@ export default async function ReceiptDetailPage({
                   vatIncluded: receipt.vatIncluded,
                   vatRecoverable: receipt.vatRecoverable,
                   vendorTin: receipt.vendorTin,
-                  costType: receipt.costType,
-                  isBillable: receipt.isBillable,
-                  isReimbursable: receipt.isReimbursable,
                   notes: receipt.notes,
                 }}
+                initialLines={initialLines}
                 vatActive={company.isVatActive}
                 defaultCurrency={company.defaultCurrency}
                 defaultVatRate={Number(company.vatRatePercent) || 0}
@@ -245,12 +259,11 @@ export default async function ReceiptDetailPage({
                 potentialDuplicateMessage={dupWarning ?? undefined}
                 canPost={canPost}
               />
-              {receipt.status === 'posted' && receipt.postedJobCostEntryId && (
+              {receipt.status === 'posted' && lines.length > 0 && (
                 <p className="mt-3 text-[11px] text-slate-500">
-                  Job cost entry id:{' '}
-                  <span className="font-mono">
-                    {receipt.postedJobCostEntryId.slice(0, 8)}…
-                  </span>
+                  {lines.length === 1
+                    ? 'Posted to 1 job cost entry.'
+                    : `Posted to ${lines.length} job cost entries.`}
                 </p>
               )}
             </CardContent>

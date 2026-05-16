@@ -23,13 +23,20 @@ import {
   receiptAttachmentKindEnum,
 } from './_enums';
 
-// Phase 2 receipts. Stays draft until the operator posts; posting writes a
-// single row into job_cost_entries with source='receipt_import' and
-// source_ref_id pointing at receipts.id. The 1:1 link is captured in
-// posted_job_cost_entry_id so Unpost can find and remove it.
+// Receipts. Stays draft until the operator posts; posting writes one
+// job_cost_entries row per receipt_lines row, all sharing
+// source='receipt_import' and source_ref_id = receipts.id. The 1:1 link
+// per line is captured in receipt_lines.posted_job_cost_entry_id.
 //
 // Money: numeric(14, 2). Currency is stored on the receipt and inherited by
 // the posted job_cost_entry (FX conversion is deferred).
+//
+// Phase 2.1 (multi-line split): project_id, cost_code_id,
+// accounting_account_id, cost_type, is_billable, is_reimbursable, and
+// posted_job_cost_entry_id remain on the header for historical data but are
+// deprecated — new code reads these from receipt_lines. receipts.subtotal /
+// vat_amount / total are denormalized sums of line totals, kept in sync by
+// the app on every line write.
 export const receipts = pgTable(
   'receipts',
   {
@@ -111,6 +118,77 @@ export const receipts = pgTable(
   }),
 );
 
+// Phase 2.1: one row per cost-code-split of a single receipt. A simple
+// receipt has exactly one line; a Home Depot run for two projects has two.
+// posted_job_cost_entry_id is the 1:1 link to the job_cost_entries row
+// written by Post; Unpost soft-deletes it and clears this column.
+export const receiptLines = pgTable(
+  'receipt_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    receiptId: uuid('receipt_id')
+      .notNull()
+      .references(() => receipts.id, { onDelete: 'cascade' }),
+
+    sortOrder: integer('sort_order').notNull().default(0),
+
+    projectId: uuid('project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
+    costCodeId: uuid('cost_code_id').references(() => costCodes.id, {
+      onDelete: 'set null',
+    }),
+    accountingAccountId: uuid('accounting_account_id').references(
+      () => accountingAccounts.id,
+      { onDelete: 'set null' },
+    ),
+
+    // Free-form override matching the job_cost_type enum at the app layer
+    // (validated by the receipts data layer).
+    costType: text('cost_type'),
+    description: text('description'),
+
+    subtotal: numeric('subtotal', { precision: 14, scale: 2 })
+      .notNull()
+      .default('0'),
+    vatAmount: numeric('vat_amount', { precision: 14, scale: 2 })
+      .notNull()
+      .default('0'),
+    total: numeric('total', { precision: 14, scale: 2 })
+      .notNull()
+      .default('0'),
+    // Per-line VAT rate override. Null = inherit the receipt header's rate.
+    vatRatePercent: numeric('vat_rate_percent', { precision: 6, scale: 3 }),
+
+    isBillable: boolean('is_billable').notNull().default(false),
+    isReimbursable: boolean('is_reimbursable').notNull().default(false),
+
+    postedJobCostEntryId: uuid('posted_job_cost_entry_id').references(
+      () => jobCostEntries.id,
+      { onDelete: 'set null' },
+    ),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => ({
+    receiptIdx: index('receipt_lines_receipt_idx').on(t.receiptId),
+    companyIdx: index('receipt_lines_company_idx').on(t.companyId),
+    projectIdx: index('receipt_lines_project_idx').on(t.projectId),
+    postedJceIdx: index('receipt_lines_posted_jce_idx').on(
+      t.postedJobCostEntryId,
+    ),
+  }),
+);
+
 export const receiptAttachments = pgTable(
   'receipt_attachments',
   {
@@ -144,5 +222,7 @@ export const receiptAttachments = pgTable(
 
 export type Receipt = typeof receipts.$inferSelect;
 export type NewReceipt = typeof receipts.$inferInsert;
+export type ReceiptLine = typeof receiptLines.$inferSelect;
+export type NewReceiptLine = typeof receiptLines.$inferInsert;
 export type ReceiptAttachment = typeof receiptAttachments.$inferSelect;
 export type NewReceiptAttachment = typeof receiptAttachments.$inferInsert;

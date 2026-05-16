@@ -13,8 +13,8 @@ import {
 export type PostPanelProps = {
   receiptId: string;
   status: 'draft' | 'posted' | 'void';
-  canPostable: boolean; // project + cost code present, not voided
-  hasPotentialDuplicate: boolean; // matching (project, vendor, amount, date) found
+  canPostable: boolean; // ≥1 line, every line has project + cost code, not voided
+  hasPotentialDuplicate: boolean; // matching (vendor, amount, date) found
   potentialDuplicateMessage?: string;
   canPost: boolean;
 };
@@ -40,7 +40,11 @@ export function ReceiptPostPanel(props: PostPanelProps) {
   }
 
   function onUnpost() {
-    if (!confirm('Unpost this receipt? The linked job-cost entry will be removed.'))
+    if (
+      !confirm(
+        'Unpost this receipt? All linked job-cost entries will be removed.',
+      )
+    )
       return;
     startTransition(async () => {
       const res = await unpostReceiptAction({ id: props.receiptId });
@@ -96,8 +100,8 @@ export function ReceiptPostPanel(props: PostPanelProps) {
           Posted to job costs.
         </div>
         <p className="text-xs text-emerald-800">
-          A job_cost_entries row was created with source=receipt_import. Unpost
-          to edit any field.
+          One job_cost_entries row was created per line with
+          source=receipt_import. Unpost to edit any field.
         </p>
         {props.canPost && (
           <Button
@@ -131,7 +135,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             onClick={onPost}
             title={
               !props.canPostable
-                ? 'Project and cost code are required to post.'
+                ? 'Every line needs a project and cost code before posting.'
                 : undefined
             }
           >
@@ -163,7 +167,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
       </div>
       {!props.canPostable && (
         <p className="text-[11px] text-slate-500">
-          Project and cost code are required before posting.
+          Every line needs a project and cost code before posting.
         </p>
       )}
     </div>

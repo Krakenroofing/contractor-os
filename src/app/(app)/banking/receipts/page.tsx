@@ -14,7 +14,10 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import { listReceipts } from '@/lib/data/receipts';
+import {
+  listReceipts,
+  listReceiptLinesForReceiptIds,
+} from '@/lib/data/receipts';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
 import { RECEIPT_STATUS_LABEL } from '@/modules/receipts/schema';
@@ -32,6 +35,31 @@ export default async function ReceiptsPage() {
   ]);
   const projectById = new Map(projects.map((p) => [p.id, p.number + ' — ' + p.name]));
   const vendorById = new Map(vendors.map((v) => [v.id, v.name]));
+
+  // Pull lines for visible receipts so the Project column reflects multi-line.
+  const lines = await listReceiptLinesForReceiptIds(
+    company.id,
+    receipts.map((r) => r.id),
+  );
+  const linesByReceipt = new Map<string, typeof lines>();
+  for (const l of lines) {
+    const arr = linesByReceipt.get(l.receiptId) ?? [];
+    arr.push(l);
+    linesByReceipt.set(l.receiptId, arr);
+  }
+
+  function projectDisplay(receiptId: string): string {
+    const rl = linesByReceipt.get(receiptId) ?? [];
+    const projectIds = Array.from(
+      new Set(rl.map((l) => l.projectId).filter((p): p is string => Boolean(p))),
+    );
+    if (projectIds.length === 0) return '—';
+    if (projectIds.length === 1) {
+      return projectById.get(projectIds[0]) ?? '—';
+    }
+    return `Multiple (${projectIds.length})`;
+  }
+
   const canAdd = canCreate(role, 'receipts');
 
   return (
@@ -48,8 +76,8 @@ export default async function ReceiptsPage() {
             Receipts
           </h1>
           <p className="text-sm text-slate-500">
-            Upload receipts, assign to a project + cost code, post to job costs
-            when ready.{' '}
+            Upload receipts, split across projects + cost codes per line, post
+            to job costs when ready.{' '}
             {company.isVatActive
               ? 'VAT split on TRB.'
               : 'No VAT — Kraken posts gross.'}
@@ -85,6 +113,7 @@ export default async function ReceiptsPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Project</TableHead>
+                  <TableHead className="text-right">Lines</TableHead>
                   <TableHead className="text-right">Subtotal</TableHead>
                   <TableHead className="text-right">VAT</TableHead>
                   <TableHead className="text-right">Total</TableHead>
@@ -92,48 +121,54 @@ export default async function ReceiptsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {receipts.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="text-xs font-mono">
-                      <Link
-                        href={{ pathname: `/banking/receipts/${r.id}` }}
-                        className="hover:underline"
-                      >
-                        {r.receiptDate}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {r.vendorId ? vendorById.get(r.vendorId) ?? '—' : '—'}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-700">
-                      {r.projectId ? projectById.get(r.projectId) ?? '—' : '—'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(r.subtotal, r.currency)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-amber-700">
-                      {Number(r.vatAmount) > 0
-                        ? formatMoney(r.vatAmount, r.currency)
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(r.total, r.currency)}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <span
-                        className={
-                          r.status === 'posted'
-                            ? 'inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5'
-                            : r.status === 'void'
-                              ? 'inline-block rounded bg-slate-200 text-slate-700 px-1.5 py-0.5'
-                              : 'inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5'
-                        }
-                      >
-                        {RECEIPT_STATUS_LABEL[r.status]}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {receipts.map((r) => {
+                  const lineCount = (linesByReceipt.get(r.id) ?? []).length;
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="text-xs font-mono">
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.id}` }}
+                          className="hover:underline"
+                        >
+                          {r.receiptDate}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {r.vendorId ? vendorById.get(r.vendorId) ?? '—' : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-700">
+                        {projectDisplay(r.id)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">
+                        {lineCount}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatMoney(r.subtotal, r.currency)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-amber-700">
+                        {Number(r.vatAmount) > 0
+                          ? formatMoney(r.vatAmount, r.currency)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(r.total, r.currency)}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <span
+                          className={
+                            r.status === 'posted'
+                              ? 'inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5'
+                              : r.status === 'void'
+                                ? 'inline-block rounded bg-slate-200 text-slate-700 px-1.5 py-0.5'
+                                : 'inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5'
+                          }
+                        >
+                          {RECEIPT_STATUS_LABEL[r.status]}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -21,17 +21,27 @@ import {
 import {
   createReceipt,
   createReceiptAttachment,
+  createReceiptLine,
   getReceipt,
   listReceiptAttachments,
+  listReceiptLines,
+  recalcReceiptHeaderTotals,
   softDeleteReceipt,
   softDeleteReceiptAttachment,
+  softDeleteReceiptLine,
   updateReceipt,
+  updateReceiptLine,
 } from '@/lib/data/receipts';
 import {
   createJobCostEntry,
   softDeleteJobCostEntry,
 } from '@/lib/data/job-cost-entries';
-import { upsertReceiptSchema, costTypeValues } from './schema';
+import {
+  upsertReceiptSchema,
+  upsertReceiptLineSchema,
+  costTypeValues,
+  type UpsertReceiptLineInput,
+} from './schema';
 import { computeVat, vatQuarterForDate } from './lib/vat';
 
 export type ReceiptActionState = {
@@ -55,19 +65,38 @@ export async function upsertReceiptAction(
     return { formError: 'You do not have permission to manage receipts.' };
   }
   const company = await getActiveCompany();
+
+  // Lines come over as a JSON-encoded array. Parse defensively — a malformed
+  // payload should produce a form error, not a 500.
+  const rawLines = formData.get('lines');
+  let parsedLines: UpsertReceiptLineInput[] = [];
+  if (typeof rawLines === 'string' && rawLines.length > 0) {
+    let arr: unknown;
+    try {
+      arr = JSON.parse(rawLines);
+    } catch {
+      return { formError: 'Could not parse lines payload.' };
+    }
+    if (!Array.isArray(arr)) {
+      return { formError: 'Lines payload must be an array.' };
+    }
+    const each = z.array(upsertReceiptLineSchema).max(50).safeParse(arr);
+    if (!each.success) {
+      return {
+        formError: 'Fix the highlighted line fields.',
+        errors: each.error.flatten().fieldErrors as Record<string, string[]>,
+      };
+    }
+    parsedLines = each.data;
+  }
+
   const parsed = upsertReceiptSchema.safeParse({
     id: (formData.get('id') as string) || undefined,
     receiptDate: formData.get('receiptDate') ?? '',
     vendorId: formData.get('vendorId') ?? '',
-    projectId: formData.get('projectId') ?? '',
-    costCodeId: formData.get('costCodeId') ?? '',
-    accountingAccountId: formData.get('accountingAccountId') ?? '',
     bankAccountId: formData.get('bankAccountId') ?? '',
     paymentSourceType: formData.get('paymentSourceType') ?? 'cash',
     currency: formData.get('currency') ?? company.defaultCurrency,
-    subtotal: formData.get('subtotal') ?? '0',
-    vatAmount: formData.get('vatAmount') ?? '0',
-    total: formData.get('total') ?? '0',
     vatRatePercent: formData.get('vatRatePercent') ?? '',
     vatIncluded:
       formData.get('vatIncluded') === 'on' ||
@@ -76,14 +105,8 @@ export async function upsertReceiptAction(
       formData.get('vatRecoverable') === 'on' ||
       formData.get('vatRecoverable') === 'true',
     vendorTin: formData.get('vendorTin') ?? '',
-    costType: formData.get('costType') ?? '',
-    isBillable:
-      formData.get('isBillable') === 'on' ||
-      formData.get('isBillable') === 'true',
-    isReimbursable:
-      formData.get('isReimbursable') === 'on' ||
-      formData.get('isReimbursable') === 'true',
     notes: formData.get('notes') ?? '',
+    lines: parsedLines,
   });
   if (!parsed.success) {
     return {
@@ -93,51 +116,47 @@ export async function upsertReceiptAction(
   }
   const d = parsed.data;
 
-  // Server-side recompute of VAT triplet to guarantee subtotal+vat=total even
-  // if the client form went out of sync. Defaults to 'init' driver — leaves
-  // existing typed values alone where possible.
-  const computed = company.isVatActive
-    ? computeVat({
-        subtotal: d.subtotal,
-        vatAmount: d.vatAmount,
-        total: d.total,
-        vatRatePercent: d.vatRatePercent ?? 0,
-        vatIncluded: d.vatIncluded ?? true,
-        driver: 'init',
-      })
-    : {
-        subtotal: d.total > 0 ? d.total : d.subtotal,
-        vatAmount: 0,
-        total: d.total > 0 ? d.total : d.subtotal,
-        vatRatePercent: 0,
-      };
+  // Server-side recompute of every line's VAT triplet — guarantees
+  // subtotal + vatAmount = total per line even if the client form drifted.
+  const computedLines = d.lines.map((line, idx) => {
+    const lineRate = line.vatRatePercent ?? d.vatRatePercent ?? 0;
+    const c = company.isVatActive
+      ? computeVat({
+          subtotal: line.subtotal,
+          vatAmount: line.vatAmount,
+          total: line.total,
+          vatRatePercent: lineRate ?? 0,
+          vatIncluded: d.vatIncluded ?? true,
+          driver: 'init',
+        })
+      : {
+          subtotal: line.total > 0 ? line.total : line.subtotal,
+          vatAmount: 0,
+          total: line.total > 0 ? line.total : line.subtotal,
+          vatRatePercent: 0,
+        };
+    return { line, computed: c, sortOrder: line.sortOrder ?? idx };
+  });
 
-  const values = {
+  // Header values. Money columns are denormalized — computed below from lines.
+  const header = {
     companyId: company.id,
-    projectId: d.projectId,
-    costCodeId: d.costCodeId,
     vendorId: d.vendorId,
-    accountingAccountId: d.accountingAccountId,
     paymentSourceType: d.paymentSourceType,
-    bankAccountId: d.paymentSourceType === 'bank' || d.paymentSourceType === 'credit_card' ? d.bankAccountId : null,
+    bankAccountId:
+      d.paymentSourceType === 'bank' || d.paymentSourceType === 'credit_card'
+        ? d.bankAccountId
+        : null,
     receiptDate: d.receiptDate,
     currency: d.currency,
-    subtotal: toMoneyString(computed.subtotal),
-    vatAmount: toMoneyString(computed.vatAmount),
-    total: toMoneyString(computed.total),
     vatRatePercent:
-      d.vatRatePercent === null
-        ? null
-        : toPercentString(d.vatRatePercent),
+      d.vatRatePercent === null ? null : toPercentString(d.vatRatePercent),
     vatIncluded: d.vatIncluded ?? true,
     vatRecoverable: d.vatRecoverable ?? true,
     vatPeriodQuarter: company.isVatActive
       ? vatQuarterForDate(d.receiptDate)
       : null,
     vendorTin: d.vendorTin,
-    costType: d.costType,
-    isBillable: d.isBillable ?? false,
-    isReimbursable: d.isReimbursable ?? false,
     notes: d.notes,
     uploadedByUserId: user.id,
   } as const;
@@ -152,14 +171,79 @@ export async function upsertReceiptAction(
           'This receipt is posted. Unpost it first if you need to edit.',
       };
     }
-    await updateReceipt(company.id, d.id, values);
+    await updateReceipt(company.id, d.id, header);
+    await replaceReceiptLines(company.id, d.id, computedLines);
+    await recalcReceiptHeaderTotals(company.id, d.id);
     revalidatePath('/banking/receipts');
     revalidatePath(`/banking/receipts/${d.id}`);
     return { ok: true, receiptId: d.id };
   }
-  const created = await createReceipt(values);
+
+  // New receipt. Start with zero header totals; recalc after lines insert.
+  const created = await createReceipt({
+    ...header,
+    subtotal: '0',
+    vatAmount: '0',
+    total: '0',
+  });
+  await replaceReceiptLines(company.id, created.id, computedLines);
+  await recalcReceiptHeaderTotals(company.id, created.id);
   revalidatePath('/banking/receipts');
   redirect(`/banking/receipts/${created.id}` as never);
+}
+
+/** Reconcile in-memory line input against the persisted lines: update existing,
+ *  insert new, soft-delete any persisted line whose id is no longer present. */
+async function replaceReceiptLines(
+  companyId: string,
+  receiptId: string,
+  inputs: Array<{
+    line: UpsertReceiptLineInput;
+    computed: { subtotal: number; vatAmount: number; total: number; vatRatePercent: number };
+    sortOrder: number;
+  }>,
+) {
+  const existing = await listReceiptLines(companyId, receiptId);
+  const existingById = new Map(existing.map((l) => [l.id, l]));
+  const seenIds = new Set<string>();
+
+  for (const { line, computed, sortOrder } of inputs) {
+    const values = {
+      sortOrder,
+      projectId: line.projectId,
+      costCodeId: line.costCodeId,
+      accountingAccountId: line.accountingAccountId,
+      costType: line.costType,
+      description: line.description,
+      subtotal: toMoneyString(computed.subtotal),
+      vatAmount: toMoneyString(computed.vatAmount),
+      total: toMoneyString(computed.total),
+      vatRatePercent:
+        line.vatRatePercent === null
+          ? null
+          : toPercentString(line.vatRatePercent),
+      isBillable: line.isBillable ?? false,
+      isReimbursable: line.isReimbursable ?? false,
+    } as const;
+
+    if (line.id && existingById.has(line.id)) {
+      seenIds.add(line.id);
+      await updateReceiptLine(companyId, line.id, values);
+    } else {
+      await createReceiptLine({
+        companyId,
+        receiptId,
+        ...values,
+      });
+    }
+  }
+
+  // Soft-delete any persisted line that the form removed.
+  for (const e of existing) {
+    if (!seenIds.has(e.id)) {
+      await softDeleteReceiptLine(companyId, e.id);
+    }
+  }
 }
 
 // ===== File attachments =====
@@ -240,12 +324,10 @@ export async function deleteReceiptAttachmentAction(input: {
   const role = await getActiveRole();
   if (!canCreate(role, 'receipts')) return { ok: false, error: 'No permission.' };
   const companyId = await getActiveCompanyId();
-  // Find the attachment to grab its storage path before soft-delete.
   const attachments = await listReceiptAttachments(companyId, input.receiptId);
   const target = attachments.find((a) => a.id === input.attachmentId);
   if (!target) return { ok: false, error: 'Attachment not found.' };
   await softDeleteReceiptAttachment(companyId, input.attachmentId);
-  // Best-effort blob cleanup. Orphaned blobs are harmless.
   try {
     await deleteReceiptBlob(target.storagePath);
   } catch {
@@ -258,18 +340,18 @@ export async function deleteReceiptAttachmentAction(input: {
 // ===== Post / Unpost =====
 
 /**
- * Post a draft receipt → creates exactly one job_cost_entries row, 1:1, with
- * source='receipt_import' and source_ref_id=receipts.id. Idempotent: a second
- * call on an already-posted receipt is a no-op.
+ * Post a draft receipt → one job_cost_entries row per receipt_lines row, all
+ * sharing source='receipt_import' and source_ref_id=receipts.id. Per-line link
+ * captured in receipt_lines.posted_job_cost_entry_id. Idempotent: a second call
+ * on a posted receipt is a no-op.
  *
- * Amount written:
- *   - VAT-active + vat_recoverable=true → subtotal (net of VAT). VAT accrues
- *     to the VAT Input account elsewhere; it does NOT post to job_cost_entries.
- *   - VAT-active + vat_recoverable=false → total (gross). VAT is part of the
- *     project's cost.
- *   - VAT-inactive (Kraken) → total (gross). VAT is moot.
+ * Per-line post amount:
+ *   - VAT-active + vat_recoverable=true → line.subtotal (net of VAT)
+ *   - VAT-active + vat_recoverable=false → line.total (gross)
+ *   - VAT-inactive (Kraken) → line.total (gross)
  *
- * Required to post: project_id, cost_code_id. We refuse otherwise.
+ * Required per line: project_id, cost_code_id. We refuse the whole receipt
+ * otherwise and name the offending lines.
  */
 export async function postReceiptAction(input: {
   id: string;
@@ -277,8 +359,6 @@ export async function postReceiptAction(input: {
   const user = await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'receipts') || role === 'field_user') {
-    // Field users can upload receipts but cannot post them — posting is
-    // accounting/PM/owner territory.
     return { ok: false, error: 'No permission to post receipts.' };
   }
   const company = await getActiveCompany();
@@ -287,77 +367,89 @@ export async function postReceiptAction(input: {
   if (receipt.status === 'void') {
     return { ok: false, error: 'Receipt is void.' };
   }
-  if (receipt.status === 'posted' && receipt.postedJobCostEntryId) {
-    return { ok: true }; // idempotent
+  const lines = await listReceiptLines(company.id, receipt.id);
+  if (receipt.status === 'posted' && lines.every((l) => l.postedJobCostEntryId)) {
+    return { ok: true }; // idempotent — every line already posted
   }
-  if (!receipt.projectId) {
-    return { ok: false, error: 'Project is required before posting.' };
-  }
-  if (!receipt.costCodeId) {
-    return { ok: false, error: 'Cost code is required before posting.' };
+  if (lines.length === 0) {
+    return { ok: false, error: 'Add at least one line before posting.' };
   }
 
-  // Decide the amount.
-  const total = Number(receipt.total);
-  const subtotal = Number(receipt.subtotal);
-  const postAmount =
-    company.isVatActive && receipt.vatRecoverable ? subtotal : total;
+  const missing: number[] = [];
+  lines.forEach((l, idx) => {
+    if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+  });
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Line ${missing.join(', ')}: project and cost code are required before posting.`,
+    };
+  }
 
-  // Validate cost_type. Falls back to 'other' if the operator left it blank.
-  const costType =
-    receipt.costType &&
-    (costTypeValues as readonly string[]).includes(receipt.costType)
-      ? (receipt.costType as (typeof costTypeValues)[number])
-      : 'other';
+  for (const line of lines) {
+    if (line.postedJobCostEntryId) continue; // line already posted
 
-  const description =
-    receipt.notes && receipt.notes.length > 0
-      ? `Receipt ${receipt.receiptDate}: ${receipt.notes.slice(0, 200)}`
+    const total = Number(line.total);
+    const subtotal = Number(line.subtotal);
+    const postAmount =
+      company.isVatActive && receipt.vatRecoverable ? subtotal : total;
+
+    const costType =
+      line.costType &&
+      (costTypeValues as readonly string[]).includes(line.costType)
+        ? (line.costType as (typeof costTypeValues)[number])
+        : 'other';
+
+    const lineLabel = line.description
+      ? line.description.slice(0, 200)
+      : receipt.notes
+        ? receipt.notes.slice(0, 200)
+        : '';
+    const description = lineLabel
+      ? `Receipt ${receipt.receiptDate}: ${lineLabel}`
       : `Receipt ${receipt.receiptDate}`;
 
-  // We don't have a transactional wrapper across both data modules — create
-  // the entry, then update the receipt. If the second write fails, the
-  // entry exists but the receipt remains draft and the operator sees the
-  // error. Unposting will not find a posted_job_cost_entry_id to remove,
-  // so a manual cleanup may be needed. Failure here is rare (single row
-  // update) and recoverable.
-  const entry = await createJobCostEntry({
-    companyId: company.id,
-    projectId: receipt.projectId,
-    costCodeId: receipt.costCodeId,
-    source: 'receipt_import',
-    sourceRefId: receipt.id,
-    costType,
-    entryDate: receipt.receiptDate,
-    vendorId: receipt.vendorId,
-    description,
-    quantity: '1',
-    unitCost: toMoneyString(postAmount),
-    amount: toMoneyString(postAmount),
-    isBillable: receipt.isBillable,
-    markupPercent: null,
-    burdenPercent: null,
-    vendorInvoiceNumber: null,
-    attachmentUrl: null,
-    notes: receipt.notes,
-    createdByUserId: user.id,
-  });
+    const entry = await createJobCostEntry({
+      companyId: company.id,
+      projectId: line.projectId!, // checked above
+      costCodeId: line.costCodeId!,
+      source: 'receipt_import',
+      sourceRefId: receipt.id,
+      costType,
+      entryDate: receipt.receiptDate,
+      vendorId: receipt.vendorId,
+      description,
+      quantity: '1',
+      unitCost: toMoneyString(postAmount),
+      amount: toMoneyString(postAmount),
+      isBillable: line.isBillable,
+      markupPercent: null,
+      burdenPercent: null,
+      vendorInvoiceNumber: null,
+      attachmentUrl: null,
+      notes: line.description ?? receipt.notes,
+      createdByUserId: user.id,
+    });
+
+    await updateReceiptLine(company.id, line.id, {
+      postedJobCostEntryId: entry.id,
+    });
+
+    revalidatePath(`/job-costing/${line.projectId}`);
+  }
 
   await updateReceipt(company.id, receipt.id, {
     status: 'posted',
     postedAt: new Date(),
-    postedJobCostEntryId: entry.id,
   });
 
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
-  revalidatePath(`/job-costing/${receipt.projectId}`);
   return { ok: true };
 }
 
-/** Reverse a Post — soft-deletes the linked job_cost_entries row, flips the
- *  receipt back to draft. Refused on a non-posted receipt or one whose entry
- *  link is missing. */
+/** Reverse a Post — soft-deletes every linked job_cost_entries row, clears
+ *  each line's posted ref, flips the receipt back to draft. */
 export async function unpostReceiptAction(input: {
   id: string;
 }): Promise<{ ok: boolean; error?: string }> {
@@ -369,20 +461,29 @@ export async function unpostReceiptAction(input: {
   const companyId = await getActiveCompanyId();
   const receipt = await getReceipt(companyId, input.id);
   if (!receipt) return { ok: false, error: 'Receipt not found.' };
-  if (receipt.status !== 'posted' || !receipt.postedJobCostEntryId) {
+  if (receipt.status !== 'posted') {
     return { ok: false, error: 'Receipt is not posted.' };
   }
-  await softDeleteJobCostEntry(companyId, receipt.postedJobCostEntryId);
+  const lines = await listReceiptLines(companyId, receipt.id);
+
+  for (const line of lines) {
+    if (line.postedJobCostEntryId) {
+      await softDeleteJobCostEntry(companyId, line.postedJobCostEntryId);
+      await updateReceiptLine(companyId, line.id, {
+        postedJobCostEntryId: null,
+      });
+      if (line.projectId) {
+        revalidatePath(`/job-costing/${line.projectId}`);
+      }
+    }
+  }
+
   await updateReceipt(companyId, receipt.id, {
     status: 'draft',
     postedAt: null,
-    postedJobCostEntryId: null,
   });
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
-  if (receipt.projectId) {
-    revalidatePath(`/job-costing/${receipt.projectId}`);
-  }
   return { ok: true };
 }
 
