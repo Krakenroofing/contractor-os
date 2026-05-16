@@ -17,19 +17,80 @@ import { formatMoney } from '@/lib/money';
 import {
   listReceipts,
   listReceiptLinesForReceiptIds,
+  type ListReceiptsFilters,
 } from '@/lib/data/receipts';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
-import { RECEIPT_STATUS_LABEL } from '@/modules/receipts/schema';
+import {
+  RECEIPT_STATUS_LABEL,
+  receiptStatusValues,
+} from '@/modules/receipts/schema';
+import { ReceiptsFilterBar } from '@/modules/receipts/components/receipts-filter-bar';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ReceiptsPage() {
+function firstString(v: string | string[] | undefined): string {
+  if (Array.isArray(v)) return v[0] ?? '';
+  return v ?? '';
+}
+
+function parseFilters(
+  sp: Record<string, string | string[] | undefined>,
+): {
+  filters: ListReceiptsFilters;
+  raw: {
+    status: string;
+    vendorId: string;
+    projectId: string;
+    dateFrom: string;
+    dateTo: string;
+    amountMin: string;
+    amountMax: string;
+  };
+} {
+  const status = firstString(sp.status);
+  const vendorId = firstString(sp.vendorId);
+  const projectId = firstString(sp.projectId);
+  const dateFrom = firstString(sp.dateFrom);
+  const dateTo = firstString(sp.dateTo);
+  const amountMin = firstString(sp.amountMin);
+  const amountMax = firstString(sp.amountMax);
+
+  const filters: ListReceiptsFilters = { limit: 200 };
+  if (
+    status &&
+    (receiptStatusValues as readonly string[]).includes(status)
+  ) {
+    filters.status = status as ListReceiptsFilters['status'];
+  }
+  if (vendorId) filters.vendorId = vendorId;
+  if (projectId) filters.projectId = projectId;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) filters.dateFrom = dateFrom;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) filters.dateTo = dateTo;
+  const minN = Number(amountMin);
+  const maxN = Number(amountMax);
+  if (amountMin && Number.isFinite(minN)) filters.amountMin = minN;
+  if (amountMax && Number.isFinite(maxN)) filters.amountMax = maxN;
+
+  return {
+    filters,
+    raw: { status, vendorId, projectId, dateFrom, dateTo, amountMin, amountMax },
+  };
+}
+
+export default async function ReceiptsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const role = await getActiveRole();
   if (!canView(role, 'receipts')) redirect('/banking' as never);
   const company = await getActiveCompany();
+  const sp = await searchParams;
+  const { filters, raw } = parseFilters(sp);
+
   const [receipts, projects, vendors] = await Promise.all([
-    listReceipts(company.id, { limit: 200 }),
+    listReceipts(company.id, filters),
     listProjects(company.id),
     listVendors(company.id),
   ]);
@@ -61,6 +122,15 @@ export default async function ReceiptsPage() {
   }
 
   const canAdd = canCreate(role, 'receipts');
+  const anyFilterApplied = Boolean(
+    raw.status ||
+      raw.vendorId ||
+      raw.projectId ||
+      raw.dateFrom ||
+      raw.dateTo ||
+      raw.amountMin ||
+      raw.amountMax,
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -90,17 +160,32 @@ export default async function ReceiptsPage() {
         )}
       </div>
 
+      <ReceiptsFilterBar
+        initial={raw}
+        vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+        projects={projects.map((p) => ({
+          id: p.id,
+          label: `${p.number} — ${p.name}`,
+        }))}
+      />
+
       <Card>
         <CardHeader>
-          <CardTitle>Recent receipts</CardTitle>
+          <CardTitle>
+            {anyFilterApplied
+              ? `Filtered receipts (${receipts.length})`
+              : 'Recent receipts'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {receipts.length === 0 ? (
             <div className="p-8 text-center space-y-3">
               <p className="text-sm text-slate-600">
-                No receipts yet. Add one to start tracking field spend.
+                {anyFilterApplied
+                  ? 'No receipts match these filters.'
+                  : 'No receipts yet. Add one to start tracking field spend.'}
               </p>
-              {canAdd && (
+              {!anyFilterApplied && canAdd && (
                 <Link href={{ pathname: '/banking/receipts/new' }}>
                   <Button>Add your first receipt</Button>
                 </Link>
@@ -160,7 +245,9 @@ export default async function ReceiptsPage() {
                               ? 'inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5'
                               : r.status === 'void'
                                 ? 'inline-block rounded bg-slate-200 text-slate-700 px-1.5 py-0.5'
-                                : 'inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5'
+                                : r.status === 'submitted'
+                                  ? 'inline-block rounded bg-blue-100 text-blue-800 px-1.5 py-0.5'
+                                  : 'inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5'
                           }
                         >
                           {RECEIPT_STATUS_LABEL[r.status]}

@@ -16,12 +16,18 @@ export const PAYMENT_SOURCE_LABEL: Record<
   other: 'Other',
 };
 
-export const receiptStatusValues = ['draft', 'posted', 'void'] as const;
+export const receiptStatusValues = [
+  'draft',
+  'submitted',
+  'posted',
+  'void',
+] as const;
 export const RECEIPT_STATUS_LABEL: Record<
   (typeof receiptStatusValues)[number],
   string
 > = {
   draft: 'Draft',
+  submitted: 'Submitted',
   posted: 'Posted',
   void: 'Void',
 };

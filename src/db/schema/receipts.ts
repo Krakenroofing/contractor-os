@@ -95,6 +95,19 @@ export const receipts = pgTable(
       { onDelete: 'set null' },
     ),
 
+    // Phase 2.2 approval audit. submitted_* set on draft → submitted.
+    // approved_* set on submitted/draft → posted. rejection_reason captures
+    // the optional note an approver writes when bouncing back to draft.
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    submittedByUserId: uuid('submitted_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    rejectionReason: text('rejection_reason'),
+
     isBillable: boolean('is_billable').notNull().default(false),
     isReimbursable: boolean('is_reimbursable').notNull().default(false),
     notes: text('notes'),
@@ -115,6 +128,7 @@ export const receipts = pgTable(
     projectIdx: index('receipts_project_idx').on(t.projectId),
     statusIdx: index('receipts_status_idx').on(t.companyId, t.status),
     postedJceIdx: index('receipts_posted_jce_idx').on(t.postedJobCostEntryId),
+    submittedIdx: index('receipts_submitted_idx').on(t.companyId, t.submittedAt),
   }),
 );
 

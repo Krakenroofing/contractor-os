@@ -3,7 +3,17 @@
 // lib/data/statement-imports.ts).
 
 import 'server-only';
-import { and, asc, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  type SQL,
+} from 'drizzle-orm';
 import {
   receipts,
   receiptLines,
@@ -32,9 +42,17 @@ function requireDb() {
 }
 
 export type ListReceiptsFilters = {
+  /** Project filter matches via receipt_lines (Phase 2.1+). A receipt is
+   *  included if it has at least one non-deleted line with this project_id. */
   projectId?: string;
   status?: Receipt['status'];
   vendorId?: string;
+  /** ISO YYYY-MM-DD bounds, inclusive. */
+  dateFrom?: string;
+  dateTo?: string;
+  /** Gross-total bounds, inclusive. */
+  amountMin?: number;
+  amountMax?: number;
   limit?: number;
 };
 
@@ -48,9 +66,38 @@ export async function listReceipts(
     eq(receipts.companyId, companyId),
     isNull(receipts.deletedAt),
   ];
-  if (filters.projectId) conds.push(eq(receipts.projectId, filters.projectId));
   if (filters.status) conds.push(eq(receipts.status, filters.status));
   if (filters.vendorId) conds.push(eq(receipts.vendorId, filters.vendorId));
+  if (filters.dateFrom) conds.push(gte(receipts.receiptDate, filters.dateFrom));
+  if (filters.dateTo) conds.push(lte(receipts.receiptDate, filters.dateTo));
+  if (filters.amountMin !== undefined && Number.isFinite(filters.amountMin)) {
+    conds.push(gte(receipts.total, filters.amountMin.toFixed(2)));
+  }
+  if (filters.amountMax !== undefined && Number.isFinite(filters.amountMax)) {
+    conds.push(lte(receipts.total, filters.amountMax.toFixed(2)));
+  }
+  if (filters.projectId) {
+    // Sub-select receipt_ids that have a line on this project, then filter
+    // the outer query by inArray. Avoids a JOIN that would duplicate header
+    // rows when a receipt has multiple matching lines.
+    const matchedIds = await db
+      .selectDistinct({ receiptId: receiptLines.receiptId })
+      .from(receiptLines)
+      .where(
+        and(
+          eq(receiptLines.companyId, companyId),
+          eq(receiptLines.projectId, filters.projectId),
+          isNull(receiptLines.deletedAt),
+        ),
+      );
+    if (matchedIds.length === 0) return [];
+    conds.push(
+      inArray(
+        receipts.id,
+        matchedIds.map((r) => r.receiptId),
+      ),
+    );
+  }
   return await db
     .select()
     .from(receipts)
@@ -108,6 +155,11 @@ export type UpdateReceiptPatch = Partial<
     | 'status'
     | 'postedAt'
     | 'postedJobCostEntryId'
+    | 'submittedAt'
+    | 'submittedByUserId'
+    | 'approvedAt'
+    | 'approvedByUserId'
+    | 'rejectionReason'
     | 'isBillable'
     | 'isReimbursable'
     | 'notes'

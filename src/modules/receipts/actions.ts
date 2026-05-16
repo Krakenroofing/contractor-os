@@ -9,7 +9,12 @@ import {
 } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { can, canCreate, canView } from '@/lib/permissions';
+import {
+  can,
+  canApproveReceipt,
+  canCreate,
+  canView,
+} from '@/lib/permissions';
 import { toMoneyString, toPercentString } from '@/lib/money';
 import {
   ALLOWED_RECEIPT_MIME,
@@ -162,13 +167,20 @@ export async function upsertReceiptAction(
   } as const;
 
   if (d.id) {
-    // Refuse edit on a posted receipt — operator must Unpost first.
+    // Refuse edits on a locked receipt. Posted → must Unpost. Submitted →
+    // approver must Reject (sends back to draft) before changes are allowed.
     const existing = await getReceipt(company.id, d.id);
     if (!existing) return { formError: 'Receipt not found.' };
     if (existing.status === 'posted') {
       return {
         formError:
           'This receipt is posted. Unpost it first if you need to edit.',
+      };
+    }
+    if (existing.status === 'submitted') {
+      return {
+        formError:
+          'This receipt is submitted for review. Reject it first if changes are needed.',
       };
     }
     await updateReceipt(company.id, d.id, header);
@@ -337,13 +349,96 @@ export async function deleteReceiptAttachmentAction(input: {
   return { ok: true };
 }
 
+// ===== Submit / Reject (Phase 2.2 approval workflow) =====
+
+/** Hand a draft off to an approver. Anyone with create perm can submit
+ *  (including field users — that's the whole point). Idempotent on a
+ *  receipt that's already submitted. */
+export async function submitReceiptAction(input: {
+  id: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'receipts')) {
+    return { ok: false, error: 'No permission to submit receipts.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const receipt = await getReceipt(companyId, input.id);
+  if (!receipt) return { ok: false, error: 'Receipt not found.' };
+  if (receipt.status === 'void') {
+    return { ok: false, error: 'Receipt is void.' };
+  }
+  if (receipt.status === 'posted') {
+    return { ok: false, error: 'Receipt is already posted.' };
+  }
+  if (receipt.status === 'submitted') return { ok: true };
+
+  const lines = await listReceiptLines(companyId, receipt.id);
+  if (lines.length === 0) {
+    return { ok: false, error: 'Add at least one line before submitting.' };
+  }
+  const missing: number[] = [];
+  lines.forEach((l, idx) => {
+    if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+  });
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Line ${missing.join(', ')}: project and cost code are required before submitting.`,
+    };
+  }
+
+  await updateReceipt(companyId, receipt.id, {
+    status: 'submitted',
+    submittedAt: new Date(),
+    submittedByUserId: user.id,
+    // Clear any prior rejection reason — the approver bouncing it once
+    // shouldn't carry the message forward to the next review.
+    rejectionReason: null,
+  });
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  return { ok: true };
+}
+
+/** Approver sends a submitted receipt back to draft with an optional reason.
+ *  Reason is shown on the receipt detail so the submitter can act on it. */
+export async function rejectReceiptAction(input: {
+  id: string;
+  reason?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'No permission to reject receipts.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const receipt = await getReceipt(companyId, input.id);
+  if (!receipt) return { ok: false, error: 'Receipt not found.' };
+  if (receipt.status !== 'submitted') {
+    return { ok: false, error: 'Only submitted receipts can be rejected.' };
+  }
+  const reason = (input.reason ?? '').trim().slice(0, 1000) || null;
+  await updateReceipt(companyId, receipt.id, {
+    status: 'draft',
+    submittedAt: null,
+    submittedByUserId: null,
+    rejectionReason: reason,
+  });
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  return { ok: true };
+}
+
 // ===== Post / Unpost =====
 
 /**
- * Post a draft receipt → one job_cost_entries row per receipt_lines row, all
- * sharing source='receipt_import' and source_ref_id=receipts.id. Per-line link
- * captured in receipt_lines.posted_job_cost_entry_id. Idempotent: a second call
- * on a posted receipt is a no-op.
+ * Approve and post a receipt → one job_cost_entries row per receipt_lines
+ * row, all sharing source='receipt_import' and source_ref_id=receipts.id.
+ * Per-line link captured in receipt_lines.posted_job_cost_entry_id. Records
+ * the approver in approved_at / approved_by_user_id. Callable from either
+ * `submitted` (the normal flow) or `draft` (approver posting their own
+ * receipt or skipping the submit step). Idempotent on `posted`.
  *
  * Per-line post amount:
  *   - VAT-active + vat_recoverable=true → line.subtotal (net of VAT)
@@ -358,8 +453,11 @@ export async function postReceiptAction(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const user = await requireAuth();
   const role = await getActiveRole();
-  if (!canCreate(role, 'receipts') || role === 'field_user') {
-    return { ok: false, error: 'No permission to post receipts.' };
+  if (!canApproveReceipt(role)) {
+    return {
+      ok: false,
+      error: 'Only owners or accounting can approve and post receipts.',
+    };
   }
   const company = await getActiveCompany();
   const receipt = await getReceipt(company.id, input.id);
@@ -438,9 +536,14 @@ export async function postReceiptAction(input: {
     revalidatePath(`/job-costing/${line.projectId}`);
   }
 
+  const now = new Date();
   await updateReceipt(company.id, receipt.id, {
     status: 'posted',
-    postedAt: new Date(),
+    postedAt: now,
+    approvedAt: now,
+    approvedByUserId: user.id,
+    // Clear any prior rejection note — it shouldn't linger on a posted record.
+    rejectionReason: null,
   });
 
   revalidatePath('/banking/receipts');
@@ -449,14 +552,15 @@ export async function postReceiptAction(input: {
 }
 
 /** Reverse a Post — soft-deletes every linked job_cost_entries row, clears
- *  each line's posted ref, flips the receipt back to draft. */
+ *  each line's posted ref, flips the receipt back to draft. Approver-only:
+ *  unposting is an accounting action, not a field-user undo. */
 export async function unpostReceiptAction(input: {
   id: string;
 }): Promise<{ ok: boolean; error?: string }> {
   await requireAuth();
   const role = await getActiveRole();
-  if (!can(role, 'receipts', 'create')) {
-    return { ok: false, error: 'No permission.' };
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can unpost.' };
   }
   const companyId = await getActiveCompanyId();
   const receipt = await getReceipt(companyId, input.id);
@@ -481,6 +585,9 @@ export async function unpostReceiptAction(input: {
   await updateReceipt(companyId, receipt.id, {
     status: 'draft',
     postedAt: null,
+    // Clear the approval audit too — the receipt is effectively un-approved.
+    approvedAt: null,
+    approvedByUserId: null,
   });
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
@@ -492,8 +599,8 @@ export async function voidReceiptAction(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   await requireAuth();
   const role = await getActiveRole();
-  if (!can(role, 'receipts', 'create')) {
-    return { ok: false, error: 'No permission.' };
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can void.' };
   }
   const companyId = await getActiveCompanyId();
   const receipt = await getReceipt(companyId, input.id);
@@ -512,8 +619,8 @@ export async function deleteReceiptAction(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   await requireAuth();
   const role = await getActiveRole();
-  if (!can(role, 'receipts', 'create')) {
-    return { ok: false, error: 'No permission.' };
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can delete.' };
   }
   const companyId = await getActiveCompanyId();
   const receipt = await getReceipt(companyId, input.id);
@@ -526,5 +633,6 @@ export async function deleteReceiptAction(input: {
   return { ok: true };
 }
 
-// Silence the helper-only import warning.
+// Silence the helper-only import warnings.
 void canView;
+void can;

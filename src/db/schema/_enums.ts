@@ -215,9 +215,13 @@ export const statementImportStatusEnum = pgEnum('statement_import_status', [
   'failed',
 ]);
 
-// Receipts — Phase 1.
+// Receipts. 'submitted' added in Phase 2.2 — the holding state between a
+// field user uploading and an approver posting. Lifecycle:
+//   draft ──submit──▶ submitted ──approve & post──▶ posted
+//         ◀──reject──┘
 export const receiptStatusEnum = pgEnum('receipt_status', [
   'draft',
+  'submitted',
   'posted',
   'void',
 ]);

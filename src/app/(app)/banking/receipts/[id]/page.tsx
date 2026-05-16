@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate, canView } from '@/lib/permissions';
+import { canApproveReceipt, canCreate, canView } from '@/lib/permissions';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { jobCostEntries } from '@/db/schema';
 import {
@@ -17,6 +17,7 @@ import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
+import { getUserNamesByIds } from '@/lib/data/users';
 import {
   ReceiptForm,
   type LineInitial,
@@ -127,10 +128,18 @@ export default async function ReceiptDetailPage({
   );
 
   const canEdit = canCreate(role, 'receipts');
-  const canPost = canCreate(role, 'receipts') && role !== 'field_user';
+  const canSubmit = canCreate(role, 'receipts');
+  const canApprove = canApproveReceipt(role);
   // Postable = at least one line, every line has project + cost code.
   const canPostable =
     lines.length > 0 && lines.every((l) => l.projectId && l.costCodeId);
+
+  // Look up names for the audit fields shown in the post panel.
+  const userIds = [
+    receipt.submittedByUserId,
+    receipt.approvedByUserId,
+  ].filter((id): id is string => Boolean(id));
+  const userNames = await getUserNamesByIds(userIds);
 
   const initialLines: LineInitial[] = lines.map((l) => ({
     id: l.id,
@@ -165,7 +174,9 @@ export default async function ReceiptDetailPage({
             ? 'Posted to job costs. Unpost to edit any field.'
             : receipt.status === 'void'
               ? 'Void receipt.'
-              : 'Draft. Attach a photo and Post when ready.'}
+              : receipt.status === 'submitted'
+                ? 'Submitted for review. Waiting for an approver.'
+                : 'Draft. Attach a photo and Submit / Post when ready.'}
         </p>
       </div>
 
@@ -174,7 +185,9 @@ export default async function ReceiptDetailPage({
           <Card>
             <CardHeader>
               <CardTitle>
-                {receipt.status === 'posted' ? 'Details (locked)' : 'Edit'}
+                {receipt.status === 'posted' || receipt.status === 'submitted'
+                  ? 'Details (locked)'
+                  : 'Edit'}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -233,13 +246,13 @@ export default async function ReceiptDetailPage({
               <CardTitle>Attachments</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {canEdit && receipt.status !== 'posted' && (
+              {canEdit && receipt.status === 'draft' && (
                 <ReceiptAttachmentUploader receiptId={receipt.id} />
               )}
               <AttachmentsList
                 receiptId={receipt.id}
                 attachments={attachmentRows}
-                canEdit={canEdit && receipt.status !== 'posted'}
+                canEdit={canEdit && receipt.status === 'draft'}
               />
             </CardContent>
           </Card>
@@ -257,7 +270,29 @@ export default async function ReceiptDetailPage({
                 canPostable={canPostable}
                 hasPotentialDuplicate={Boolean(dupWarning)}
                 potentialDuplicateMessage={dupWarning ?? undefined}
-                canPost={canPost}
+                canApprove={canApprove}
+                canSubmit={canSubmit}
+                submittedAt={
+                  receipt.submittedAt
+                    ? receipt.submittedAt.toISOString().slice(0, 10)
+                    : undefined
+                }
+                submittedByName={
+                  receipt.submittedByUserId
+                    ? userNames.get(receipt.submittedByUserId)
+                    : undefined
+                }
+                approvedAt={
+                  receipt.approvedAt
+                    ? receipt.approvedAt.toISOString().slice(0, 10)
+                    : undefined
+                }
+                approvedByName={
+                  receipt.approvedByUserId
+                    ? userNames.get(receipt.approvedByUserId)
+                    : undefined
+                }
+                rejectionReason={receipt.rejectionReason ?? undefined}
               />
               {receipt.status === 'posted' && lines.length > 0 && (
                 <p className="mt-3 text-[11px] text-slate-500">

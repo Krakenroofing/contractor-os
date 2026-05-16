@@ -279,3 +279,10 @@ export function canView(role: Role, resource: Resource): boolean {
 export function canCreate(role: Role, resource: Resource): boolean {
   return can(role, resource, 'create');
 }
+
+// Phase 2.2 receipts approval: only owners and accounting can approve+post
+// a receipt or reject a submitted one. PMs and field users can create and
+// submit drafts but must wait for an approver to post.
+export function canApproveReceipt(role: Role): boolean {
+  return role === 'owner' || role === 'accounting';
+}
