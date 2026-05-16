@@ -154,9 +154,14 @@ export default async function ReceiptsPage({
           </p>
         </div>
         {canAdd && (
-          <Link href={{ pathname: '/banking/receipts/new' }}>
-            <Button>New receipt</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href={{ pathname: '/banking/receipts/bulk' }}>
+              <Button variant="outline">Bulk upload</Button>
+            </Link>
+            <Link href={{ pathname: '/banking/receipts/new' }}>
+              <Button>New receipt</Button>
+            </Link>
+          </div>
         )}
       </div>
 

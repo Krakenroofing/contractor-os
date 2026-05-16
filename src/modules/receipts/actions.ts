@@ -676,6 +676,127 @@ export async function deleteReceiptAction(input: {
   return { ok: true };
 }
 
+// ===== Bulk import (Phase 2.5) =====
+
+export type BulkImportResultRow = {
+  fileName: string;
+  receiptId?: string;
+  error?: string;
+};
+
+export type BulkImportActionState = {
+  results?: BulkImportResultRow[];
+  formError?: string;
+};
+
+/**
+ * Bulk-create one draft receipt per uploaded file. Each draft gets:
+ *   - receiptDate = today (operator edits later)
+ *   - currency = company default
+ *   - one empty line ready for project / cost code / amount
+ *   - the file attached as the receipt's first attachment
+ *
+ * Files are processed sequentially to keep load on the storage API
+ * predictable. Per-file failures don't abort the batch — the action returns
+ * a result row for every file so the operator knows what landed.
+ */
+export async function bulkCreateReceiptDraftsAction(
+  _prev: BulkImportActionState,
+  formData: FormData,
+): Promise<BulkImportActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'receipts')) {
+    return { formError: 'No permission to create receipts.' };
+  }
+  const company = await getActiveCompany();
+
+  const files = formData
+    .getAll('file')
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return { formError: 'Choose one or more files to upload.' };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const results: BulkImportResultRow[] = [];
+
+  for (const file of files) {
+    const row: BulkImportResultRow = { fileName: file.name };
+    try {
+      if (file.size > MAX_RECEIPT_BYTES) {
+        row.error = 'File too large.';
+        results.push(row);
+        continue;
+      }
+      const mime = (file.type || 'application/octet-stream').toLowerCase();
+      if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+        row.error = `Unsupported file type (${file.type || 'unknown'}).`;
+        results.push(row);
+        continue;
+      }
+
+      const receipt = await createReceipt({
+        companyId: company.id,
+        receiptDate: today,
+        currency: company.defaultCurrency,
+        paymentSourceType: 'cash',
+        vatIncluded: true,
+        vatRecoverable: true,
+        vatRatePercent: company.isVatActive
+          ? toPercentString(Number(company.vatRatePercent) || 0)
+          : null,
+        vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(today) : null,
+        subtotal: '0',
+        vatAmount: '0',
+        total: '0',
+        uploadedByUserId: user.id,
+      });
+
+      await createReceiptLine({
+        companyId: company.id,
+        receiptId: receipt.id,
+        sortOrder: 0,
+        subtotal: '0',
+        vatAmount: '0',
+        total: '0',
+        isBillable: false,
+        isReimbursable: false,
+      });
+
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const upload = await uploadReceiptFile({
+        companyId: company.id,
+        bytes,
+        mimeType: mime,
+        originalFileName: file.name,
+      });
+      await createReceiptAttachment({
+        companyId: company.id,
+        receiptId: receipt.id,
+        storagePath: upload.storagePath,
+        mimeType: mime,
+        byteSize: file.size,
+        originalFilename: file.name,
+        kind: mime === 'application/pdf' ? 'supplier_invoice' : 'receipt_image',
+        uploadedByUserId: user.id,
+      });
+
+      row.receiptId = receipt.id;
+    } catch (err) {
+      if (err instanceof ReceiptStorageNotConfiguredError) {
+        row.error = err.message;
+      } else {
+        row.error = err instanceof Error ? err.message : 'Upload failed.';
+      }
+    }
+    results.push(row);
+  }
+
+  revalidatePath('/banking/receipts');
+  return { results };
+}
+
 // Silence the helper-only import warnings.
 void canView;
 void can;
