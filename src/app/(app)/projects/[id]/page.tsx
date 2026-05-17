@@ -696,22 +696,25 @@ export default async function ProjectDetailPage({
         <CardContent className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <Stat
-              label="Total invoiced"
-              value={formatMoney(invoiceSummary.totalInvoiced)}
+              label="Revenue invoiced (net)"
+              value={formatMoney(invoiceSummary.totalInvoicedNet)}
+              sub={`VAT ${formatMoney(invoiceSummary.totalInvoicedVat)} · gross ${formatMoney(invoiceSummary.totalInvoiced)}`}
             />
             <Stat
-              label="Total paid"
-              value={formatMoney(invoiceSummary.totalPaid)}
+              label="Revenue collected (net)"
+              value={formatMoney(invoiceSummary.totalPaidNet)}
               valueClassName="text-emerald-700"
+              sub={`VAT collected ${formatMoney(invoiceSummary.totalPaidVat)} · gross ${formatMoney(invoiceSummary.totalPaid)}`}
             />
             <Stat
-              label="Outstanding"
+              label="Outstanding (gross)"
               value={formatMoney(invoiceSummary.outstandingBalance)}
               valueClassName={
                 invoiceSummary.outstandingBalance > 0
                   ? 'text-amber-700'
                   : 'text-slate-900'
               }
+              sub={`net ${formatMoney(invoiceSummary.outstandingBalanceNet)} · VAT ${formatMoney(invoiceSummary.outstandingBalanceVat)}`}
             />
             <Stat
               label="Retainage held"
@@ -1336,10 +1339,12 @@ function Stat({
   label,
   value,
   valueClassName,
+  sub,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
+  sub?: string;
 }) {
   return (
     <div>
@@ -1351,6 +1356,7 @@ function Stat({
       >
         {value}
       </p>
+      {sub && <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{sub}</p>}
     </div>
   );
 }

@@ -388,6 +388,14 @@ export type ProjectFinancialRow = {
   revisedContractValue: number;
   totalInvoiced: number;
   totalPaid: number;
+  /** Revenue (ex-VAT). Sum of invoice subtotals. */
+  totalInvoicedNet: number;
+  /** Sum of invoice taxAmount — VAT we'll owe once collected. */
+  totalInvoicedVat: number;
+  /** Revenue collected = paidGross * (subtotal / (subtotal + tax)). */
+  totalPaidNet: number;
+  /** VAT collected (a liability, not revenue). */
+  totalPaidVat: number;
   /** Invoiced against base contract only (invoice.changeOrderId is null). */
   baseInvoiced: number;
   baseInvoicedPaid: number;
@@ -412,6 +420,10 @@ export type ProjectFinancialReport = {
     revisedContractValue: number;
     totalInvoiced: number;
     totalPaid: number;
+    totalInvoicedNet: number;
+    totalInvoicedVat: number;
+    totalPaidNet: number;
+    totalPaidVat: number;
     baseInvoiced: number;
     baseInvoicedPaid: number;
     coInvoiced: number;
@@ -463,6 +475,29 @@ export async function buildProjectFinancialReport(
         (acc, i) => add(acc, parseMoney(i.amountPaid)),
         0,
       );
+      // Net/VAT split — revenue is the subtotal (ex-VAT); the tax amount
+      // is a liability collected on behalf of the government, never income.
+      // Paid amounts split proportionally per invoice's tax/total ratio.
+      const totalInvoicedNet = inRangeInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.subtotal)),
+        0,
+      );
+      const totalInvoicedVat = inRangeInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.taxAmount)),
+        0,
+      );
+      let totalPaidNet = 0;
+      let totalPaidVat = 0;
+      for (const i of inRangeInvoices) {
+        const sub = parseMoney(i.subtotal);
+        const tax = parseMoney(i.taxAmount);
+        const paid = parseMoney(i.amountPaid);
+        const denom = sub + tax;
+        const vatShare = denom > 0 ? tax / denom : 0;
+        const paidVat = paid * vatShare;
+        totalPaidVat = add(totalPaidVat, paidVat);
+        totalPaidNet = add(totalPaidNet, paid - paidVat);
+      }
       // Split by contract source. Invoices without a CO link bill against
       // the base contract; the rest bill against an approved CO.
       const baseInvoices = inRangeInvoices.filter((i) => !i.changeOrderId);
@@ -508,6 +543,10 @@ export async function buildProjectFinancialReport(
         revisedContractValue: revised,
         totalInvoiced: round2(totalInvoiced),
         totalPaid: round2(totalPaid),
+        totalInvoicedNet: round2(totalInvoicedNet),
+        totalInvoicedVat: round2(totalInvoicedVat),
+        totalPaidNet: round2(totalPaidNet),
+        totalPaidVat: round2(totalPaidVat),
         baseInvoiced: round2(baseInvoiced),
         baseInvoicedPaid: round2(baseInvoicedPaid),
         coInvoiced: round2(coInvoiced),
@@ -534,6 +573,10 @@ export async function buildProjectFinancialReport(
       ),
       totalInvoiced: add(acc.totalInvoiced, r.totalInvoiced),
       totalPaid: add(acc.totalPaid, r.totalPaid),
+      totalInvoicedNet: add(acc.totalInvoicedNet, r.totalInvoicedNet),
+      totalInvoicedVat: add(acc.totalInvoicedVat, r.totalInvoicedVat),
+      totalPaidNet: add(acc.totalPaidNet, r.totalPaidNet),
+      totalPaidVat: add(acc.totalPaidVat, r.totalPaidVat),
       baseInvoiced: add(acc.baseInvoiced, r.baseInvoiced),
       baseInvoicedPaid: add(acc.baseInvoicedPaid, r.baseInvoicedPaid),
       coInvoiced: add(acc.coInvoiced, r.coInvoiced),
@@ -551,6 +594,10 @@ export async function buildProjectFinancialReport(
       revisedContractValue: 0,
       totalInvoiced: 0,
       totalPaid: 0,
+      totalInvoicedNet: 0,
+      totalInvoicedVat: 0,
+      totalPaidNet: 0,
+      totalPaidVat: 0,
       baseInvoiced: 0,
       baseInvoicedPaid: 0,
       coInvoiced: 0,

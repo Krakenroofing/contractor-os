@@ -72,15 +72,29 @@ export default async function CustomerDetailPage({
     (acc, row) => ({
       invoiceCount: acc.invoiceCount + row.summary.invoiceCount,
       totalInvoiced: acc.totalInvoiced + row.summary.totalInvoiced,
+      totalInvoicedNet: acc.totalInvoicedNet + row.summary.totalInvoicedNet,
+      totalInvoicedVat: acc.totalInvoicedVat + row.summary.totalInvoicedVat,
       totalPaid: acc.totalPaid + row.summary.totalPaid,
+      totalPaidNet: acc.totalPaidNet + row.summary.totalPaidNet,
+      totalPaidVat: acc.totalPaidVat + row.summary.totalPaidVat,
       outstandingBalance: acc.outstandingBalance + row.summary.outstandingBalance,
+      outstandingBalanceNet:
+        acc.outstandingBalanceNet + row.summary.outstandingBalanceNet,
+      outstandingBalanceVat:
+        acc.outstandingBalanceVat + row.summary.outstandingBalanceVat,
       retainageHeld: acc.retainageHeld + row.summary.retainageHeld,
     }),
     {
       invoiceCount: 0,
       totalInvoiced: 0,
+      totalInvoicedNet: 0,
+      totalInvoicedVat: 0,
       totalPaid: 0,
+      totalPaidNet: 0,
+      totalPaidVat: 0,
       outstandingBalance: 0,
+      outstandingBalanceNet: 0,
+      outstandingBalanceVat: 0,
       retainageHeld: 0,
     },
   );
@@ -205,9 +219,13 @@ export default async function CustomerDetailPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Total invoiced
+              Revenue invoiced (net)
             </p>
             <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+              {formatMoney(rolledUp.totalInvoicedNet)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              VAT {formatMoney(rolledUp.totalInvoicedVat)} · gross{' '}
               {formatMoney(rolledUp.totalInvoiced)}
             </p>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -219,9 +237,13 @@ export default async function CustomerDetailPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Total paid
+              Revenue collected (net)
             </p>
             <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
+              {formatMoney(rolledUp.totalPaidNet)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              VAT collected {formatMoney(rolledUp.totalPaidVat)} · gross{' '}
               {formatMoney(rolledUp.totalPaid)}
             </p>
           </CardContent>
@@ -229,7 +251,7 @@ export default async function CustomerDetailPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Outstanding AR
+              Outstanding AR (gross)
             </p>
             <p
               className={`mt-1 text-xl font-semibold tabular-nums ${
@@ -239,6 +261,10 @@ export default async function CustomerDetailPage({
               }`}
             >
               {formatMoney(rolledUp.outstandingBalance)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              net {formatMoney(rolledUp.outstandingBalanceNet)} · VAT{' '}
+              {formatMoney(rolledUp.outstandingBalanceVat)}
             </p>
           </CardContent>
         </Card>

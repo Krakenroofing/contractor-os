@@ -66,15 +66,47 @@ export default async function PaymentsPage({
   const realPayments = paymentsWithRefs.filter(
     (row) => row.invoice?.status !== 'void',
   );
-  const totalReceived = realPayments
-    .filter(({ p }) => p.status === 'received' || p.status === 'applied')
-    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
-  const pendingTotal = realPayments
-    .filter(({ p }) => p.status === 'pending')
-    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
-  const returnedTotal = realPayments
-    .filter(({ p }) => p.status === 'returned')
-    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
+  // Split every payment into net (revenue) / VAT (liability) using the
+  // parent invoice's tax/total ratio. A payment never has a tax field of
+  // its own — the split is always derived from the invoice it's against.
+  function splitPayment(row: (typeof realPayments)[number]): {
+    gross: number;
+    net: number;
+    vat: number;
+  } {
+    const gross = parseMoney(row.p.amount);
+    const inv = row.invoice;
+    if (!inv) return { gross, net: gross, vat: 0 };
+    const sub = parseMoney(inv.subtotal);
+    const tax = parseMoney(inv.taxAmount);
+    const denom = sub + tax;
+    const vatShare = denom > 0 ? tax / denom : 0;
+    const vat = gross * vatShare;
+    return { gross, net: gross - vat, vat };
+  }
+  const sumSplit = (rows: typeof realPayments) =>
+    rows.reduce(
+      (acc, row) => {
+        const s = splitPayment(row);
+        return {
+          gross: add(acc.gross, s.gross),
+          net: add(acc.net, s.net),
+          vat: add(acc.vat, s.vat),
+        };
+      },
+      { gross: 0, net: 0, vat: 0 },
+    );
+  const receivedRows = realPayments.filter(
+    ({ p }) => p.status === 'received' || p.status === 'applied',
+  );
+  const pendingRows = realPayments.filter(({ p }) => p.status === 'pending');
+  const returnedRows = realPayments.filter(({ p }) => p.status === 'returned');
+  const receivedSplit = sumSplit(receivedRows);
+  const pendingSplit = sumSplit(pendingRows);
+  const returnedSplit = sumSplit(returnedRows);
+  const totalReceived = receivedSplit.gross;
+  const pendingTotal = pendingSplit.gross;
+  const returnedTotal = returnedSplit.gross;
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
@@ -122,21 +154,29 @@ export default async function PaymentsPage({
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KPI
-          label="Received & applied"
+          label="Received & applied (gross)"
           value={formatMoney(totalReceived)}
           valueClassName="text-emerald-700"
+          sub={`revenue ${formatMoney(receivedSplit.net)} · VAT collected ${formatMoney(receivedSplit.vat)}`}
         />
         <KPI
-          label="Pending"
+          label="Pending (gross)"
           value={formatMoney(pendingTotal)}
           valueClassName={pendingTotal > 0 ? 'text-amber-700' : undefined}
+          sub={`revenue ${formatMoney(pendingSplit.net)} · VAT ${formatMoney(pendingSplit.vat)}`}
         />
         <KPI
-          label="Returned"
+          label="Returned (gross)"
           value={formatMoney(returnedTotal)}
           valueClassName={returnedTotal > 0 ? 'text-red-600' : undefined}
+          sub={`revenue ${formatMoney(returnedSplit.net)} · VAT ${formatMoney(returnedSplit.vat)}`}
         />
       </div>
+      <p className="text-xs text-slate-500">
+        <strong>Revenue</strong> = payment × (subtotal / total) of the parent
+        invoice. <strong>VAT collected</strong> is the rest — a liability owed
+        to the government, not income.
+      </p>
 
       {visiblePayments.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
@@ -236,10 +276,12 @@ function KPI({
   label,
   value,
   valueClassName,
+  sub,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
+  sub?: string;
 }) {
   return (
     <Card>
@@ -252,6 +294,9 @@ function KPI({
         >
           {value}
         </p>
+        {sub && (
+          <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{sub}</p>
+        )}
       </CardContent>
     </Card>
   );

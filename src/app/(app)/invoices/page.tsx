@@ -26,6 +26,7 @@ import {
 } from '@/modules/invoices/schema';
 import {
   computeInvoiceFinancials,
+  computeInvoiceVatSplit,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
 import { ReconcileButton } from '@/modules/invoices/components/reconcile-button';
@@ -69,19 +70,34 @@ export default async function InvoicesPage({
   );
 
   // Totals are computed from payment rows so the list, dashboard, and AR
-  // page agree even when the cached `amount_paid` lags briefly.
+  // page agree even when the cached `amount_paid` lags briefly. Net/VAT
+  // split: revenue is the invoice subtotal; VAT is a liability collected
+  // on the government's behalf — never income. Paid amounts split
+  // proportionally per invoice's tax/total ratio.
   let totalInvoiced = 0;
+  let totalInvoicedNet = 0;
+  let totalInvoicedVat = 0;
   let totalPaid = 0;
+  let totalPaidNet = 0;
+  let totalPaidVat = 0;
   let outstanding = 0;
+  let outstandingNet = 0;
+  let outstandingVat = 0;
   for (const inv of allInvoices) {
     if (inv.status === 'void') continue;
-    const fin = computeInvoiceFinancials(
+    const split = computeInvoiceVatSplit(
       inv,
       paymentsByInvoice.get(inv.id) ?? [],
     );
-    totalInvoiced = add(totalInvoiced, fin.total);
-    totalPaid = add(totalPaid, fin.paid);
-    outstanding = add(outstanding, fin.balance);
+    totalInvoiced = add(totalInvoiced, split.gross);
+    totalInvoicedNet = add(totalInvoicedNet, split.net);
+    totalInvoicedVat = add(totalInvoicedVat, split.vat);
+    totalPaid = add(totalPaid, split.paidGross);
+    totalPaidNet = add(totalPaidNet, split.paidNet);
+    totalPaidVat = add(totalPaidVat, split.paidVat);
+    outstanding = add(outstanding, split.balanceGross);
+    outstandingNet = add(outstandingNet, split.balanceNet);
+    outstandingVat = add(outstandingVat, split.balanceVat);
   }
 
   const voidCount = allInvoices.filter((i) => i.status === 'void').length;
@@ -129,16 +145,22 @@ export default async function InvoicesPage({
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KPI label="Total invoiced" value={formatMoney(totalInvoiced)} />
         <KPI
-          label="Total paid"
-          value={formatMoney(totalPaid)}
-          valueClassName="text-emerald-700"
+          label="Revenue invoiced (net)"
+          value={formatMoney(totalInvoicedNet)}
+          sub={`VAT ${formatMoney(totalInvoicedVat)} · gross ${formatMoney(totalInvoiced)}`}
         />
         <KPI
-          label="Outstanding balance"
+          label="Revenue collected (net)"
+          value={formatMoney(totalPaidNet)}
+          valueClassName="text-emerald-700"
+          sub={`VAT collected ${formatMoney(totalPaidVat)} · gross ${formatMoney(totalPaid)}`}
+        />
+        <KPI
+          label="Outstanding balance (gross)"
           value={formatMoney(outstanding)}
           valueClassName={outstanding > 0 ? 'text-amber-700' : 'text-slate-900'}
+          sub={`net ${formatMoney(outstandingNet)} · VAT ${formatMoney(outstandingVat)}`}
         />
       </div>
 
@@ -203,7 +225,13 @@ export default async function InvoicesPage({
                       {inv.dueDate ?? '—'}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(inv.total)}
+                      <div>{formatMoney(inv.total)}</div>
+                      {Number(inv.taxAmount) > 0 && (
+                        <div className="text-[11px] font-normal text-slate-500">
+                          net {formatMoney(inv.subtotal)} ·{' '}
+                          VAT {formatMoney(inv.taxAmount)}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell
                       className={`text-right tabular-nums ${
@@ -250,10 +278,12 @@ function KPI({
   label,
   value,
   valueClassName,
+  sub,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
+  sub?: string;
 }) {
   return (
     <Card>
@@ -266,6 +296,9 @@ function KPI({
         >
           {value}
         </p>
+        {sub && (
+          <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{sub}</p>
+        )}
       </CardContent>
     </Card>
   );

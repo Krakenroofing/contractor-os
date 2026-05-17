@@ -114,3 +114,71 @@ export function groupPaymentsByInvoice(
   }
   return map;
 }
+
+/**
+ * Net/VAT/Gross decomposition for a single invoice and the cash collected
+ * against it. VAT is split proportionally: when an invoice is half-paid,
+ * half the VAT has been collected as a liability — the rest is still a
+ * receivable. This is the canonical split that every income-showing view
+ * should use so that "revenue" never includes VAT we owe the government.
+ *
+ *   subtotal     = invoice.subtotal (always net, ex-VAT)
+ *   taxAmount    = invoice.taxAmount (VAT we'll owe once collected)
+ *   total        = invoice.total (gross = subtotal + tax - retainage held)
+ *   paidGross    = sum of applied payments
+ *   paidNet      = paidGross * (subtotal / (subtotal + tax))
+ *   paidVat      = paidGross - paidNet
+ *
+ * When the invoice has no VAT or zero total the split degrades cleanly to
+ * "all net" so dashboards don't divide by zero.
+ */
+export type InvoiceVatSplit = {
+  /** invoice.subtotal (always ex-VAT). */
+  net: number;
+  /** invoice.taxAmount. */
+  vat: number;
+  /** invoice.total (gross billed, after retainage held). */
+  gross: number;
+  /** Sum of applied payments (gross cash received). */
+  paidGross: number;
+  /** Portion of paidGross that is revenue (net). */
+  paidNet: number;
+  /** Portion of paidGross that is VAT-collected (a liability). */
+  paidVat: number;
+  /** Outstanding balance (gross). */
+  balanceGross: number;
+  /** Outstanding net (revenue not yet realized). */
+  balanceNet: number;
+  /** Outstanding VAT (not yet collected). */
+  balanceVat: number;
+};
+
+export function computeInvoiceVatSplit(
+  invoice: Invoice,
+  payments: InvoicePayment[],
+): InvoiceVatSplit {
+  const net = parseMoney(invoice.subtotal);
+  const vat = parseMoney(invoice.taxAmount);
+  const gross = parseMoney(invoice.total);
+  const paidGross = sumAppliedPayments(payments);
+  const denom = net + vat;
+  const vatShare = denom > 0 ? vat / denom : 0;
+  const paidVat = round2(paidGross * vatShare);
+  const paidNet = round2(paidGross - paidVat);
+  const balanceGross = round2(Math.max(0, gross - paidGross));
+  // The "net side" of what's still owed. Uses the same proportional split
+  // so partial payments don't bias toward one side.
+  const balanceVat = round2(balanceGross * vatShare);
+  const balanceNet = round2(balanceGross - balanceVat);
+  return {
+    net: round2(net),
+    vat: round2(vat),
+    gross: round2(gross),
+    paidGross: round2(paidGross),
+    paidNet,
+    paidVat,
+    balanceGross,
+    balanceNet,
+    balanceVat,
+  };
+}

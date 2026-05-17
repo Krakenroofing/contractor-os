@@ -16,8 +16,10 @@ import {
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
   computeInvoiceFinancials,
+  computeInvoiceVatSplit,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
+import { parseMoney } from '@/lib/money';
 import {
   listMockInvoices as mockList,
   getMockInvoice as mockGet,
@@ -427,8 +429,14 @@ export async function computeProjectInvoiceSummary(
       return {
         invoiceCount: 0,
         totalInvoiced: 0,
+        totalInvoicedNet: 0,
+        totalInvoicedVat: 0,
         totalPaid: 0,
+        totalPaidNet: 0,
+        totalPaidVat: 0,
         outstandingBalance: 0,
+        outstandingBalanceNet: 0,
+        outstandingBalanceVat: 0,
         retainageHeld: 0,
         retainageReleased: 0,
         retainageBalance: 0,
@@ -455,27 +463,45 @@ export async function computeProjectInvoiceSummary(
     }
     const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
     let totalInvoiced = 0;
+    let totalInvoicedNet = 0;
+    let totalInvoicedVat = 0;
     let totalPaid = 0;
+    let totalPaidNet = 0;
+    let totalPaidVat = 0;
     let outstandingBalance = 0;
+    let outstandingBalanceNet = 0;
+    let outstandingBalanceVat = 0;
     let retainageHeld = 0;
     let retainageReleased = 0;
     for (const inv of invRows) {
       if (inv.status === 'void') continue;
-      const fin = computeInvoiceFinancials(
+      const split = computeInvoiceVatSplit(
         inv,
         paymentsByInvoice.get(inv.id) ?? [],
       );
-      totalInvoiced += fin.total;
-      totalPaid += fin.paid;
-      outstandingBalance += fin.balance;
-      retainageHeld += fin.retainageHeld;
-      retainageReleased += fin.retainageReleased;
+      totalInvoiced += split.gross;
+      totalInvoicedNet += split.net;
+      totalInvoicedVat += split.vat;
+      totalPaid += split.paidGross;
+      totalPaidNet += split.paidNet;
+      totalPaidVat += split.paidVat;
+      outstandingBalance += split.balanceGross;
+      outstandingBalanceNet += split.balanceNet;
+      outstandingBalanceVat += split.balanceVat;
+      retainageHeld += parseMoney(inv.retainageAmount);
+      retainageReleased += parseMoney(inv.retainageReleased);
     }
     return {
       invoiceCount: invRows.filter((i) => i.status !== 'void').length,
       totalInvoiced,
+      totalInvoicedNet,
+      totalInvoicedVat,
       totalPaid,
+      totalPaidNet,
+      totalPaidVat,
       outstandingBalance,
+      outstandingBalanceNet,
+      outstandingBalanceVat,
       retainageHeld,
       retainageReleased,
       retainageBalance: retainageHeld - retainageReleased,

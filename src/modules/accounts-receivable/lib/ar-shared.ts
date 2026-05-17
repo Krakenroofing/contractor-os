@@ -78,6 +78,11 @@ export type AgingRow = {
   total: number;
   amountPaid: number;
   balance: number;
+  /** Outstanding balance attributable to revenue (ex-VAT). */
+  balanceNet: number;
+  /** Outstanding balance attributable to VAT we'll collect on the
+   *  government's behalf — not income. */
+  balanceVat: number;
   daysOverdue: number;
   bucket: AgingBucket;
   status: Invoice['status'];
@@ -88,6 +93,10 @@ export type AgingRow = {
 
 export type AgingSummary = {
   totalAR: number;
+  /** Outstanding revenue (ex-VAT) — the money we'll actually keep. */
+  totalARNet: number;
+  /** Outstanding VAT — collected later, owed to the government. */
+  totalARVat: number;
   current: number;
   b1_30: number;
   b31_60: number;
@@ -100,6 +109,8 @@ export type AgingSummary = {
 export function summarizeAging(rows: AgingRow[]): AgingSummary {
   const summary: AgingSummary = {
     totalAR: 0,
+    totalARNet: 0,
+    totalARVat: 0,
     current: 0,
     b1_30: 0,
     b31_60: 0,
@@ -110,6 +121,8 @@ export function summarizeAging(rows: AgingRow[]): AgingSummary {
   };
   for (const r of rows) {
     summary.totalAR = add(summary.totalAR, r.balance);
+    summary.totalARNet = add(summary.totalARNet, r.balanceNet);
+    summary.totalARVat = add(summary.totalARVat, r.balanceVat);
     summary[r.bucket] = add(summary[r.bucket], r.balance);
     if (r.daysOverdue > 0) summary.overdueCount += 1;
   }

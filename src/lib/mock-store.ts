@@ -2635,7 +2635,19 @@ export type ProjectInvoiceSummary = {
   invoiceCount: number;
   totalInvoiced: number;
   totalPaid: number;
+  /** Sum of invoice subtotals (revenue, ex-VAT). */
+  totalInvoicedNet: number;
+  /** Sum of invoice taxAmount (VAT we'll owe once collected). */
+  totalInvoicedVat: number;
+  /** Cash collected attributable to revenue (paid * net/gross share). */
+  totalPaidNet: number;
+  /** Cash collected attributable to VAT-on-behalf-of-government. */
+  totalPaidVat: number;
   outstandingBalance: number;
+  /** Outstanding net side (revenue not yet realized). */
+  outstandingBalanceNet: number;
+  /** Outstanding VAT side (not yet collected). */
+  outstandingBalanceVat: number;
   retainageHeld: number;
   retainageReleased: number;
   retainageBalance: number;
@@ -2645,8 +2657,14 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
   const store = getStore();
   const invs = store.invoices.filter((i) => i.projectId === projectId);
   let totalInvoiced = 0;
+  let totalInvoicedNet = 0;
+  let totalInvoicedVat = 0;
   let totalPaid = 0;
+  let totalPaidNet = 0;
+  let totalPaidVat = 0;
   let outstandingBalance = 0;
+  let outstandingBalanceNet = 0;
+  let outstandingBalanceVat = 0;
   let retainageHeld = 0;
   let retainageReleased = 0;
   for (const inv of invs) {
@@ -2654,6 +2672,8 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
     // Compute paid from payment rows directly — matches the canonical
     // formula in @/modules/invoices/lib/financials and stays correct even
     // if `inv.amount_paid` is briefly stale.
+    const subtotal = Number(inv.subtotal);
+    const tax = Number(inv.taxAmount);
     const total = Number(inv.total);
     let paid = 0;
     for (const p of store.invoicePayments) {
@@ -2662,17 +2682,36 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
         paid += Number(p.amount);
       }
     }
+    const denom = subtotal + tax;
+    const vatShare = denom > 0 ? tax / denom : 0;
+    const paidVat = paid * vatShare;
+    const paidNet = paid - paidVat;
+    const balance = Math.max(0, total - paid);
+    const balanceVat = balance * vatShare;
+    const balanceNet = balance - balanceVat;
     totalInvoiced += total;
+    totalInvoicedNet += subtotal;
+    totalInvoicedVat += tax;
     totalPaid += paid;
-    outstandingBalance += Math.max(0, total - paid);
+    totalPaidNet += paidNet;
+    totalPaidVat += paidVat;
+    outstandingBalance += balance;
+    outstandingBalanceNet += balanceNet;
+    outstandingBalanceVat += balanceVat;
     retainageHeld += Number(inv.retainageAmount);
     retainageReleased += Number(inv.retainageReleased);
   }
   return {
     invoiceCount: invs.filter((i) => i.status !== 'void').length,
     totalInvoiced,
+    totalInvoicedNet,
+    totalInvoicedVat,
     totalPaid,
+    totalPaidNet,
+    totalPaidVat,
     outstandingBalance,
+    outstandingBalanceNet,
+    outstandingBalanceVat,
     retainageHeld,
     retainageReleased,
     retainageBalance: retainageHeld - retainageReleased,

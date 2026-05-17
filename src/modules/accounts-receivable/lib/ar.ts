@@ -13,6 +13,7 @@ import { add, parseMoney, round2 } from '@/lib/money';
 import type { Invoice, InvoicePayment } from '@/db/schema';
 import {
   computeInvoiceFinancials,
+  computeInvoiceVatSplit,
   deriveInvoiceStatus,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
@@ -55,6 +56,7 @@ async function buildAgingRow(
   // leave the cache stale until the next recompute.
   const fin = computeInvoiceFinancials(inv, payments);
   if (fin.balance <= 0) return null;
+  const split = computeInvoiceVatSplit(inv, payments);
 
   const project = await getProject(companyId, inv.projectId);
   const customer = project
@@ -79,6 +81,8 @@ async function buildAgingRow(
     total: fin.total,
     amountPaid: fin.paid,
     balance: fin.balance,
+    balanceNet: split.balanceNet,
+    balanceVat: split.balanceVat,
     daysOverdue,
     bucket,
     status: inv.status,

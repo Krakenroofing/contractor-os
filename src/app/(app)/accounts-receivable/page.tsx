@@ -42,7 +42,12 @@ export default async function AccountsReceivablePage() {
       </header>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KPI label="Total AR" value={formatMoney(summary.totalAR)} highlight />
+        <KPI
+          label="Total AR (gross)"
+          value={formatMoney(summary.totalAR)}
+          highlight
+          sub={`revenue ${formatMoney(summary.totalARNet)} · VAT ${formatMoney(summary.totalARVat)}`}
+        />
         <KPI
           label="Current"
           value={formatMoney(summary.current)}
@@ -99,11 +104,13 @@ function KPI({
   value,
   highlight,
   valueClassName,
+  sub,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
   valueClassName?: string;
+  sub?: string;
 }) {
   return (
     <Card className={highlight ? 'border-slate-300' : undefined}>
@@ -116,6 +123,9 @@ function KPI({
         >
           {value}
         </p>
+        {sub && (
+          <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{sub}</p>
+        )}
       </CardContent>
     </Card>
   );

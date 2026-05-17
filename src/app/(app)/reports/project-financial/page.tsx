@@ -42,20 +42,25 @@ export default async function ProjectFinancialReportPage({
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KPI label="Revised contract" value={formatMoney(report.totals.revisedContractValue)} highlight />
         <KPI
-          label="Invoiced (base + CO)"
+          label="Revenue invoiced (net)"
+          value={formatMoney(report.totals.totalInvoicedNet)}
+          hint={`VAT ${formatMoney(report.totals.totalInvoicedVat)} · gross ${formatMoney(report.totals.totalInvoiced)}`}
+          highlight
+        />
+        <KPI
+          label="Revenue collected (net)"
+          value={formatMoney(report.totals.totalPaidNet)}
+          valueClassName="text-emerald-700"
+          hint={`VAT collected ${formatMoney(report.totals.totalPaidVat)} · gross ${formatMoney(report.totals.totalPaid)}`}
+        />
+        <KPI
+          label="Base vs CO invoiced (gross)"
           value={formatMoney(report.totals.totalInvoiced)}
           hint={`base ${formatMoney(report.totals.baseInvoiced)} · CO ${formatMoney(report.totals.coInvoiced)}`}
         />
         <KPI
-          label="Paid (base + CO)"
-          value={formatMoney(report.totals.totalPaid)}
-          valueClassName="text-emerald-700"
-          hint={`base ${formatMoney(report.totals.baseInvoicedPaid)} · CO ${formatMoney(report.totals.coInvoicedPaid)}`}
-        />
-        <KPI
-          label="Outstanding AR"
+          label="Outstanding AR (gross)"
           value={formatMoney(report.totals.outstandingAR)}
           valueClassName={report.totals.outstandingAR > 0 ? 'text-amber-700' : undefined}
         />
@@ -71,6 +76,15 @@ export default async function ProjectFinancialReportPage({
           }
         />
       </div>
+      <p className="text-xs text-slate-500">
+        <strong>Revenue</strong> = invoice subtotal (ex-VAT). <strong>VAT</strong>{' '}
+        is a liability collected on behalf of the government — never income.
+        Gross = revenue + VAT − retainage held.
+      </p>
+      <p className="text-xs text-slate-500 -mt-2">
+        <strong>Revised contract:</strong>{' '}
+        {formatMoney(report.totals.revisedContractValue)} (base + approved COs).
+      </p>
 
       <p className="text-sm text-slate-600">
         Portfolio margin: <span className="font-semibold tabular-nums">{formatPercent(report.weightedMarginPct, 2)}</span>
@@ -91,8 +105,8 @@ export default async function ProjectFinancialReportPage({
                 <TableHead className="text-right">Contract</TableHead>
                 <TableHead className="text-right">CO</TableHead>
                 <TableHead className="text-right">Revised</TableHead>
-                <TableHead className="text-right">Invoiced</TableHead>
-                <TableHead className="text-right">Paid</TableHead>
+                <TableHead className="text-right">Invoiced (net)</TableHead>
+                <TableHead className="text-right">Paid (net)</TableHead>
                 <TableHead className="text-right">AR</TableHead>
                 <TableHead className="text-right">Retainage</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
@@ -124,7 +138,11 @@ export default async function ProjectFinancialReportPage({
                     {formatMoney(r.revisedContractValue)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    <div>{formatMoney(r.totalInvoiced)}</div>
+                    <div>{formatMoney(r.totalInvoicedNet)}</div>
+                    <div className="text-[11px] text-slate-500 font-normal">
+                      VAT {formatMoney(r.totalInvoicedVat)} · gross{' '}
+                      {formatMoney(r.totalInvoiced)}
+                    </div>
                     {(r.coInvoiced > 0 || r.changeOrders > 0) && (
                       <div className="text-[11px] text-slate-500 font-normal">
                         base {formatMoney(r.baseInvoiced)} ·{' '}
@@ -133,7 +151,11 @@ export default async function ProjectFinancialReportPage({
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-emerald-700">
-                    <div>{formatMoney(r.totalPaid)}</div>
+                    <div>{formatMoney(r.totalPaidNet)}</div>
+                    <div className="text-[11px] text-slate-500 font-normal">
+                      VAT {formatMoney(r.totalPaidVat)} · gross{' '}
+                      {formatMoney(r.totalPaid)}
+                    </div>
                     {(r.coInvoicedPaid > 0 || r.changeOrders > 0) && (
                       <div className="text-[11px] text-slate-500 font-normal">
                         base {formatMoney(r.baseInvoicedPaid)} ·{' '}
