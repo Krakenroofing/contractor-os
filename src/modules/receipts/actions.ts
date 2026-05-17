@@ -87,8 +87,11 @@ export async function upsertReceiptAction(
     }
     const each = z.array(upsertReceiptLineSchema).max(50).safeParse(arr);
     if (!each.success) {
+      const issues = each.error.issues;
       return {
-        formError: 'Fix the highlighted line fields.',
+        formError: `Fix the highlighted line fields. (DEBUG: ${issues
+          .map((i) => `${i.path.join('.') || '<root>'}=${i.message}`)
+          .join(' | ')})`,
         errors: each.error.flatten().fieldErrors as Record<string, string[]>,
       };
     }
@@ -114,8 +117,11 @@ export async function upsertReceiptAction(
     lines: parsedLines,
   });
   if (!parsed.success) {
+    const issues = parsed.error.issues;
     return {
-      formError: 'Fix the highlighted fields.',
+      formError: `Fix the highlighted fields. (DEBUG: ${issues
+        .map((i) => `${i.path.join('.') || '<root>'}=${i.message}`)
+        .join(' | ')})`,
       errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
     };
   }
