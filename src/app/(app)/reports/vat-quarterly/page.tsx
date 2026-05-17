@@ -62,6 +62,80 @@ export default async function VatQuarterlyReportPage({
         </Card>
       ) : (
         <>
+          {(() => {
+            const now = new Date();
+            const cy = now.getUTCFullYear();
+            const cq = Math.min(
+              4,
+              Math.max(1, Math.ceil((now.getUTCMonth() + 1) / 3)),
+            );
+            const currentKey = `${cy}-Q${cq}`;
+            const current = report.quarters.find(
+              (q) => q.quarterKey === currentKey,
+            );
+            if (!current) return null;
+            const isDue = current.netVatDue > 0;
+            return (
+              <Card
+                className={
+                  isDue ? 'border-amber-300' : 'border-emerald-300'
+                }
+              >
+                <CardHeader>
+                  <CardTitle>
+                    Current quarter — {current.label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Output VAT (collected on sales)
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-amber-700">
+                        {formatMoney(current.vatDue)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {current.invoiceCount} invoice
+                        {current.invoiceCount === 1 ? '' : 's'} this quarter
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Input VAT (offset from receipts)
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-700">
+                        {formatMoney(current.inputVat)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {current.receiptCount} posted receipt
+                        {current.receiptCount === 1 ? '' : 's'} this quarter
+                      </p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Net VAT {isDue ? 'due to government' : 'reclaim balance'}
+                      </p>
+                      <p
+                        className={`mt-1 text-3xl font-bold tabular-nums ${
+                          isDue ? 'text-amber-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {formatMoney(Math.abs(current.netVatDue))}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        Output {formatMoney(current.vatDue)} − Input{' '}
+                        {formatMoney(current.inputVat)} ={' '}
+                        {isDue ? '+' : '−'}
+                        {formatMoney(Math.abs(current.netVatDue))}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <KPI label="VAT rate" value={`${report.companyVatRatePct.toFixed(2)}%`} />
             <KPI
