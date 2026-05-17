@@ -29,7 +29,13 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ showVoid?: string }>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const showVoid = sp.showVoid === '1';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'payments');
@@ -47,16 +53,28 @@ export default async function PaymentsPage() {
       return { p, invoice, project, customer };
     }),
   );
+  const voidPaymentCount = paymentsWithRefs.filter(
+    (row) => row.invoice?.status === 'void',
+  ).length;
+  const visiblePayments = showVoid
+    ? paymentsWithRefs
+    : paymentsWithRefs.filter((row) => row.invoice?.status !== 'void');
 
-  const totalReceived = payments
-    .filter((p) => p.status === 'received' || p.status === 'applied')
-    .reduce((acc, p) => add(acc, parseMoney(p.amount)), 0);
-  const pendingTotal = payments
-    .filter((p) => p.status === 'pending')
-    .reduce((acc, p) => add(acc, parseMoney(p.amount)), 0);
-  const returnedTotal = payments
-    .filter((p) => p.status === 'returned')
-    .reduce((acc, p) => add(acc, parseMoney(p.amount)), 0);
+  // KPIs always exclude payments tied to voided invoices — a void invoice
+  // can never have cash that actually hit the bank, so including those rows
+  // would overstate every total regardless of what the visibility toggle says.
+  const realPayments = paymentsWithRefs.filter(
+    (row) => row.invoice?.status !== 'void',
+  );
+  const totalReceived = realPayments
+    .filter(({ p }) => p.status === 'received' || p.status === 'applied')
+    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
+  const pendingTotal = realPayments
+    .filter(({ p }) => p.status === 'pending')
+    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
+  const returnedTotal = realPayments
+    .filter(({ p }) => p.status === 'returned')
+    .reduce((acc, { p }) => add(acc, parseMoney(p.amount)), 0);
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
@@ -68,18 +86,38 @@ export default async function PaymentsPage() {
         </div>
       )}
 
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Payments</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {payments.length} {payments.length === 1 ? 'payment' : 'payments'}
+            {visiblePayments.length}{' '}
+            {visiblePayments.length === 1 ? 'payment' : 'payments'}
+            {!showVoid && voidPaymentCount > 0 && (
+              <>
+                {' '}
+                <span className="text-slate-400">
+                  · {voidPaymentCount} on void invoices hidden
+                </span>
+              </>
+            )}
           </p>
         </div>
-        {allowCreate && (
-          <Link href="/payments/new">
-            <Button>Record Payment</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {voidPaymentCount > 0 && (
+            <Link
+              href={{ pathname: '/payments', query: showVoid ? {} : { showVoid: '1' } }}
+            >
+              <Button size="sm" variant="outline">
+                {showVoid ? 'Hide void' : 'Show void'}
+              </Button>
+            </Link>
+          )}
+          {allowCreate && (
+            <Link href="/payments/new">
+              <Button>Record Payment</Button>
+            </Link>
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -100,10 +138,14 @@ export default async function PaymentsPage() {
         />
       </div>
 
-      {payments.length === 0 ? (
+      {visiblePayments.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No payments recorded yet.</p>
-          {allowCreate && (
+          <p className="text-slate-600">
+            {payments.length === 0
+              ? 'No payments recorded yet.'
+              : 'No payments to show — all are tied to void invoices.'}
+          </p>
+          {allowCreate && payments.length === 0 && (
             <div className="mt-4 inline-flex">
               <Link href="/payments/new">
                 <Button>Record Payment</Button>
@@ -130,7 +172,7 @@ export default async function PaymentsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paymentsWithRefs.map(({ p, invoice, project, customer }) => {
+              {visiblePayments.map(({ p, invoice, project, customer }) => {
                 const method = (p.method ?? 'other') as PaymentMethod;
                 const status = p.status as PaymentStatus;
                 return (

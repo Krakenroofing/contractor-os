@@ -391,7 +391,7 @@ export async function computeProjectInvoiceSummary(
       retainageReleased += fin.retainageReleased;
     }
     return {
-      invoiceCount: invRows.length,
+      invoiceCount: invRows.filter((i) => i.status !== 'void').length,
       totalInvoiced,
       totalPaid,
       outstandingBalance,

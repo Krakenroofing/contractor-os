@@ -83,10 +83,14 @@ const STATUS_LABEL: Record<Project['status'], string> = {
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ showVoid?: string }>;
 }) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
+  const showVoid = sp.showVoid === '1';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'projects');
@@ -119,17 +123,29 @@ export default async function ProjectDetailPage({
   const projectDocuments = await listProjectDocuments(companyId, project.id);
   const recentDocuments = projectDocuments.slice(0, 5);
   const invoices = await listInvoicesForProject(project.id);
+  const voidInvoiceCount = invoices.filter((i) => i.status === 'void').length;
+  const visibleInvoices = showVoid
+    ? invoices
+    : invoices.filter((i) => i.status !== 'void');
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
   const projectPayments = (
     await Promise.all(
       invoices.map(async (inv) => {
         const payments = await getInvoicePayments(inv.id);
-        return payments.map((p) => ({ ...p, invoiceNumber: inv.number }));
+        return payments.map((p) => ({
+          ...p,
+          invoiceNumber: inv.number,
+          invoiceVoid: inv.status === 'void',
+        }));
       }),
     )
   )
     .flat()
     .sort((a, b) => b.paidDate.localeCompare(a.paidDate));
+  const voidPaymentCount = projectPayments.filter((p) => p.invoiceVoid).length;
+  const visiblePayments = showVoid
+    ? projectPayments
+    : projectPayments.filter((p) => !p.invoiceVoid);
 
   const address = [
     project.jobsiteAddressLine1,
@@ -744,10 +760,31 @@ export default async function ProjectDetailPage({
       {/* Invoices for this project */}
       <Card>
         <CardHeader>
-          <CardTitle>Invoices ({invoices.length})</CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle>
+              Invoices ({visibleInvoices.length})
+              {!showVoid && voidInvoiceCount > 0 && (
+                <span className="ml-2 text-xs font-normal text-slate-400">
+                  · {voidInvoiceCount} void hidden
+                </span>
+              )}
+            </CardTitle>
+            {voidInvoiceCount > 0 && (
+              <Link
+                href={{
+                  pathname: `/projects/${project.id}`,
+                  query: showVoid ? {} : { showVoid: '1' },
+                }}
+              >
+                <Button size="sm" variant="outline">
+                  {showVoid ? 'Hide void' : 'Show void'}
+                </Button>
+              </Link>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          {invoices.length === 0 ? (
+          {visibleInvoices.length === 0 ? (
             <Empty>No invoices for this project yet.</Empty>
           ) : (
             <Table>
@@ -763,7 +800,7 @@ export default async function ProjectDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((inv) => {
+                {visibleInvoices.map((inv) => {
                   const balance =
                     Number(inv.total) - Number(inv.amountPaid);
                   const billingLabel = inv.billingType.replace('_', ' ');
@@ -810,10 +847,17 @@ export default async function ProjectDetailPage({
       {/* Payment history */}
       <Card>
         <CardHeader>
-          <CardTitle>Payment history ({projectPayments.length})</CardTitle>
+          <CardTitle>
+            Payment history ({visiblePayments.length})
+            {!showVoid && voidPaymentCount > 0 && (
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                · {voidPaymentCount} on void invoices hidden
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {projectPayments.length === 0 ? (
+          {visiblePayments.length === 0 ? (
             <Empty>No payments recorded against this project yet.</Empty>
           ) : (
             <Table>
@@ -830,7 +874,7 @@ export default async function ProjectDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {projectPayments.map((p) => (
+                {visiblePayments.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-mono text-xs text-slate-700">
                       {p.paymentNumber || '—'}

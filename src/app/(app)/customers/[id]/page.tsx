@@ -31,10 +31,14 @@ const TYPE_LABEL: Record<Customer['customerType'], string> = {
 
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ showVoid?: string }>;
 }) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
+  const showVoid = sp.showVoid === '1';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'customers');
@@ -89,6 +93,10 @@ export default async function CustomerDetailPage({
       })),
     )
     .sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
+  const voidInvoiceCount = allInvoices.filter((i) => i.status === 'void').length;
+  const visibleInvoices = showVoid
+    ? allInvoices
+    : allInvoices.filter((i) => i.status !== 'void');
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -249,11 +257,32 @@ export default async function CustomerDetailPage({
       {allInvoices.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Invoices ({allInvoices.length})</CardTitle>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle>
+                Invoices ({visibleInvoices.length})
+                {!showVoid && voidInvoiceCount > 0 && (
+                  <span className="ml-2 text-xs font-normal text-slate-400">
+                    · {voidInvoiceCount} void hidden
+                  </span>
+                )}
+              </CardTitle>
+              {voidInvoiceCount > 0 && (
+                <Link
+                  href={{
+                    pathname: `/customers/${customer.id}`,
+                    query: showVoid ? {} : { showVoid: '1' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    {showVoid ? 'Hide void' : 'Show void'}
+                  </Button>
+                </Link>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <ul className="divide-y divide-slate-100">
-              {allInvoices.map((inv) => {
+              {visibleInvoices.map((inv) => {
                 const balance =
                   Number(inv.total) - Number(inv.amountPaid);
                 return (

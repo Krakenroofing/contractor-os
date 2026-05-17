@@ -172,9 +172,13 @@ export default async function BankAccountDetailPage({
       .map((m) => m.jobCostEntryId!),
   );
 
-  // Pre-shape candidates once.
-  const invoicePaymentCandidates: InvoicePaymentCandidate[] = payments.map(
-    (p) => {
+  // Pre-shape candidates once. Payments tied to voided invoices are filtered
+  // out — a void invoice can never have cash that actually hit the bank, so
+  // such a payment can never be a legitimate reconciliation match for a real
+  // bank transaction.
+  const invoicePaymentCandidates: InvoicePaymentCandidate[] = payments
+    .filter((p) => invoiceById.get(p.invoiceId)?.status !== 'void')
+    .map((p) => {
       const inv = invoiceById.get(p.invoiceId);
       const proj = inv?.projectId ? projectByIdMap.get(inv.projectId) : null;
       const cust = proj ? customerById.get(proj.customerId) : null;
@@ -186,8 +190,7 @@ export default async function BankAccountDetailPage({
         invoiceNumber: inv?.number ?? '—',
         customerName: cust?.name ?? '—',
       };
-    },
-  );
+    });
   const receiptCandidates: ReceiptCandidate[] = receipts.map((r) => {
     const v = r.vendorId ? vendorById.get(r.vendorId) : null;
     return {
@@ -242,6 +245,7 @@ export default async function BankAccountDetailPage({
       const has = payments.some(
         (p) =>
           !takenInvoicePaymentIds.has(p.id) &&
+          invoiceById.get(p.invoiceId)?.status !== 'void' &&
           p.paidDate === t.transactionDate &&
           Math.round(Math.abs(Number(p.amount)) * 100) === absCents,
       );

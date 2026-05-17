@@ -2669,7 +2669,7 @@ export function computeProjectInvoiceSummary(projectId: string): ProjectInvoiceS
     retainageReleased += Number(inv.retainageReleased);
   }
   return {
-    invoiceCount: invs.length,
+    invoiceCount: invs.filter((i) => i.status !== 'void').length,
     totalInvoiced,
     totalPaid,
     outstandingBalance,

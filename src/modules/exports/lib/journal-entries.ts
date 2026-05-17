@@ -252,6 +252,9 @@ export function buildJournalEntries(
     if (!inRange(p.paidDate, input.fromDate, input.toDate)) continue;
     if (p.status !== 'received' && p.status !== 'applied') continue;
     const inv = invoiceById.get(p.invoiceId);
+    // Payments tied to voided invoices never reflect cash that hit the bank,
+    // so they must not be emitted as journal entries.
+    if (inv?.status === 'void') continue;
     const amount = round2(Number(p.amount));
     const bankLabel = p.bankAccount && p.bankAccount.trim() !== ''
       ? `Bank: ${p.bankAccount.trim()}`
