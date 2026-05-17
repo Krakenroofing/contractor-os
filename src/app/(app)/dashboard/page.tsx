@@ -208,14 +208,6 @@ export default async function DashboardPage() {
               }
               href={canSeeAR ? '/accounts-receivable' : undefined}
             />
-            <KPI
-              label="Cash this month"
-              value={formatMoney(kpis.cashCollectedThisMonth)}
-              valueClassName="text-emerald-700"
-              hint={`${formatMoney(kpis.cashCollectedThisMonthNet)} net · ${formatMoney(
-                kpis.cashCollectedThisMonthVAT,
-              )} VAT`}
-            />
           </div>
         </section>
       )}

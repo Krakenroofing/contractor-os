@@ -16,7 +16,6 @@ import { add, parseMoney, round2, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import {
   buildAgingRowsForCompany,
-  calcCashCollectedThisMonthSplit,
   summarizeAging,
 } from '@/modules/accounts-receivable/lib/ar';
 import {
@@ -65,10 +64,6 @@ export type DashboardKPIs = {
   // Profitability
   projectedGrossProfit: number;
   projectedGrossMarginPct: number;
-  // Cash this month (gross). Split fields below for VAT transparency.
-  cashCollectedThisMonth: number;
-  cashCollectedThisMonthNet: number;
-  cashCollectedThisMonthVAT: number;
 };
 
 export type AlertItem = {
@@ -313,8 +308,6 @@ export async function buildDashboardData(
     label: `${r.invoiceNumber} — ${r.customerName} · ${r.daysOverdue}d late`,
   }));
 
-  const cashSplit = await calcCashCollectedThisMonthSplit(companyId, asOf);
-
   // ---- Retainage ----
   const retainageRows = await buildRetainageRowsForCompany(companyId, asOf);
   const retainageSummary = summarizeRetainage(retainageRows);
@@ -423,9 +416,6 @@ export async function buildDashboardData(
       committedPurchaseOrderTotal: round2(committedTotal),
       projectedGrossProfit: round2(projectedGrossProfit),
       projectedGrossMarginPct,
-      cashCollectedThisMonth: cashSplit.gross,
-      cashCollectedThisMonthNet: cashSplit.net,
-      cashCollectedThisMonthVAT: cashSplit.vat,
     },
     alerts: {
       overdueInvoices: {
