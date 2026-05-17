@@ -87,23 +87,24 @@ const nullableUuid = z
   );
 
 const moneyString = z
-  .string()
-  .trim()
-  .default('0')
+  .union([z.string(), z.number()])
+  .optional()
   .transform((v) => {
-    const n = Number(v.replace(/,/g, ''));
+    if (v === undefined || v === null) return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    const n = Number(v.replace(/,/g, '').trim());
     return Number.isFinite(n) ? n : 0;
   });
 
 const percentString = z
-  .string()
-  .trim()
+  .union([z.string(), z.number(), z.null()])
   .optional()
-  .or(z.literal(''))
-  .or(z.null())
   .transform((v) => {
-    if (v === '' || v === undefined || v === null) return null;
-    const n = Number(v);
+    if (v === undefined || v === null) return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const trimmed = v.trim();
+    if (trimmed === '') return null;
+    const n = Number(trimmed);
     return Number.isFinite(n) ? n : null;
   });
 
