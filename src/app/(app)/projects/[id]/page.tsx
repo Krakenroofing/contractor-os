@@ -21,6 +21,7 @@ import { formatMoney } from '@/lib/money';
 import { computeProjectStatusCounts } from '@/lib/status-machine';
 import {
   computeProjectInvoiceSummary,
+  computeProjectInvoicesByContractSource,
   listInvoicesForProject,
 } from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
@@ -128,6 +129,8 @@ export default async function ProjectDetailPage({
     ? invoices
     : invoices.filter((i) => i.status !== 'void');
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
+  const invoicesBySource = await computeProjectInvoicesByContractSource(project.id);
+  const coById = new Map(changeOrders.map((co) => [co.id, co]));
   const projectPayments = (
     await Promise.all(
       invoices.map(async (inv) => {
@@ -690,7 +693,7 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <Stat
               label="Total invoiced"
@@ -715,6 +718,153 @@ export default async function ProjectDetailPage({
               value={formatMoney(invoiceSummary.retainageHeld)}
             />
           </div>
+
+          {/* Breakdown by contract source — base contract vs each linked
+              change order. Only renders when the project actually has CO
+              billings or COs on record, so single-contract projects keep
+              the simpler one-block summary. Invoices without a linked CO
+              roll up into the "Base contract" bucket. */}
+          {(invoicesBySource.byChangeOrder.length > 0 ||
+            changeOrders.length > 0) && (
+            <div className="border-t border-slate-200 pt-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500 mb-2">
+                Billed by contract source
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source</TableHead>
+                    <TableHead className="text-right">Invoices</TableHead>
+                    <TableHead className="text-right">Invoiced</TableHead>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Outstanding</TableHead>
+                    <TableHead className="text-right">Retainage held</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="font-medium text-slate-900">
+                      Base contract
+                      <span className="ml-2 text-xs font-normal text-slate-500">
+                        {formatMoney(project.originalContractValue)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {invoicesBySource.base.invoiceCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(invoicesBySource.base.totalInvoiced)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-emerald-700">
+                      {formatMoney(invoicesBySource.base.totalPaid)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        invoicesBySource.base.outstandingBalance > 0
+                          ? 'text-amber-700'
+                          : 'text-slate-600'
+                      }`}
+                    >
+                      {formatMoney(invoicesBySource.base.outstandingBalance)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {formatMoney(invoicesBySource.base.retainageHeld)}
+                    </TableCell>
+                  </TableRow>
+                  {invoicesBySource.byChangeOrder.map((bucket) => {
+                    const co = bucket.changeOrderId
+                      ? coById.get(bucket.changeOrderId)
+                      : undefined;
+                    const coLabel = co
+                      ? `${co.number} — ${co.description.slice(0, 40)}`
+                      : 'Linked change order';
+                    return (
+                      <TableRow key={bucket.changeOrderId ?? 'co-unknown'}>
+                        <TableCell className="font-medium text-slate-900">
+                          {co ? (
+                            <Link
+                              href={`/change-orders/${co.id}`}
+                              className="hover:underline"
+                            >
+                              {coLabel}
+                            </Link>
+                          ) : (
+                            coLabel
+                          )}
+                          {co && (
+                            <span className="ml-2 text-xs font-normal text-slate-500">
+                              {formatMoney(co.total)}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {bucket.invoiceCount}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(bucket.totalInvoiced)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-emerald-700">
+                          {formatMoney(bucket.totalPaid)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${
+                            bucket.outstandingBalance > 0
+                              ? 'text-amber-700'
+                              : 'text-slate-600'
+                          }`}
+                        >
+                          {formatMoney(bucket.outstandingBalance)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {formatMoney(bucket.retainageHeld)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {/* List approved COs that have ZERO billings — so the user
+                      sees them as ready-to-invoice rather than missing. */}
+                  {changeOrders
+                    .filter(
+                      (co) =>
+                        co.status === 'approved' &&
+                        !invoicesBySource.byChangeOrder.some(
+                          (b) => b.changeOrderId === co.id,
+                        ),
+                    )
+                    .map((co) => (
+                      <TableRow key={`unbilled-${co.id}`} className="opacity-70">
+                        <TableCell className="font-medium text-slate-900">
+                          <Link
+                            href={`/change-orders/${co.id}`}
+                            className="hover:underline"
+                          >
+                            {co.number} — {co.description.slice(0, 40)}
+                          </Link>
+                          <span className="ml-2 text-xs font-normal text-slate-500">
+                            {formatMoney(co.total)} · not yet billed
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-400">
+                          0
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-400">
+                          {formatMoney(0)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-400">
+                          {formatMoney(0)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-400">
+                          {formatMoney(0)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-400">
+                          {formatMoney(0)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

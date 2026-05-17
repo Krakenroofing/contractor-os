@@ -201,6 +201,10 @@ export async function updateInvoiceHeader(
  */
 export type UpdateInvoiceFullInput = {
   billingType: Invoice['billingType'];
+  /** Reclassification: which change order this invoice bills against. Null
+   *  means "base contract". Editable post-send because the link drives
+   *  reporting only — it doesn't change the money on the invoice. */
+  changeOrderId: string | null;
   invoiceDate: string;
   dueDate: string | null;
   subtotal: string;
@@ -261,6 +265,7 @@ export async function updateInvoiceFull(
       .update(invoices)
       .set({
         billingType: patch.billingType,
+        changeOrderId: patch.changeOrderId,
         invoiceDate: patch.invoiceDate,
         dueDate: patch.dueDate,
         subtotal: patch.subtotal,
@@ -327,6 +332,82 @@ export async function deleteDraftInvoice(
     return true;
   }
   return mockDeleteDraft(companyId, id);
+}
+
+/**
+ * Per-source bucket of invoice activity on a project. `changeOrderId` is
+ * null when the bucket represents billing against the base contract
+ * (invoices created without a linked change order).
+ */
+export type ProjectInvoiceSourceBucket = {
+  changeOrderId: string | null;
+  invoiceCount: number;
+  totalInvoiced: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  retainageHeld: number;
+  retainageReleased: number;
+  retainageBalance: number;
+};
+
+export type ProjectInvoicesByContractSource = {
+  base: ProjectInvoiceSourceBucket;
+  byChangeOrder: ProjectInvoiceSourceBucket[];
+};
+
+function emptyBucket(changeOrderId: string | null): ProjectInvoiceSourceBucket {
+  return {
+    changeOrderId,
+    invoiceCount: 0,
+    totalInvoiced: 0,
+    totalPaid: 0,
+    outstandingBalance: 0,
+    retainageHeld: 0,
+    retainageReleased: 0,
+    retainageBalance: 0,
+  };
+}
+
+/**
+ * Split a project's invoice activity into base-contract billings vs.
+ * billings tagged to a specific change order. Voided invoices are excluded
+ * from every bucket (they never hit the bank). The bucketing rule lives in
+ * JS so the DB and mock paths share one implementation.
+ */
+export async function computeProjectInvoicesByContractSource(
+  projectId: string,
+): Promise<ProjectInvoicesByContractSource> {
+  const invs = await listInvoicesForProject(projectId);
+  const nonVoid = invs.filter((i) => i.status !== 'void');
+  const paymentsByInvoice = new Map<string, Awaited<ReturnType<typeof import('./invoice-payments').getInvoicePayments>>>();
+  await Promise.all(
+    nonVoid.map(async (inv) => {
+      const { getInvoicePayments } = await import('./invoice-payments');
+      paymentsByInvoice.set(inv.id, await getInvoicePayments(inv.id));
+    }),
+  );
+  const base = emptyBucket(null);
+  const byCoMap = new Map<string, ProjectInvoiceSourceBucket>();
+  for (const inv of nonVoid) {
+    const bucket = inv.changeOrderId
+      ? (byCoMap.get(inv.changeOrderId) ?? emptyBucket(inv.changeOrderId))
+      : base;
+    const fin = computeInvoiceFinancials(inv, paymentsByInvoice.get(inv.id) ?? []);
+    bucket.invoiceCount += 1;
+    bucket.totalInvoiced += fin.total;
+    bucket.totalPaid += fin.paid;
+    bucket.outstandingBalance += fin.balance;
+    bucket.retainageHeld += fin.retainageHeld;
+    bucket.retainageReleased += fin.retainageReleased;
+    bucket.retainageBalance = bucket.retainageHeld - bucket.retainageReleased;
+    if (inv.changeOrderId && !byCoMap.has(inv.changeOrderId)) {
+      byCoMap.set(inv.changeOrderId, bucket);
+    }
+  }
+  return {
+    base,
+    byChangeOrder: Array.from(byCoMap.values()),
+  };
 }
 
 /**

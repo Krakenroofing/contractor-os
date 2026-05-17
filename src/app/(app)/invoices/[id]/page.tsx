@@ -76,11 +76,20 @@ export default async function InvoiceDetailPage({
   const otherInvoices = allProjectInvoices
     .filter((i) => i.id !== invoice.id && i.status !== 'void')
     .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
-  // Sum of prior non-void invoice totals on the same project (excluding this
-  // invoice). Used by the progress-billing block.
+  // Prior-billed split by contract source. When this invoice is tagged to
+  // a CO, the progress block compares against billings on the SAME source
+  // only — otherwise base-contract billings inflate the "prior billed"
+  // figure on a CO invoice and the % calc is meaningless.
+  const priorOnSameSource = otherInvoices
+    .filter((i) => i.invoiceDate <= invoice.invoiceDate)
+    .filter((i) => (i.changeOrderId ?? null) === (invoice.changeOrderId ?? null))
+    .reduce((sum, i) => sum + Number(i.total), 0);
+  // Kept for backwards compatibility with code paths that still read the
+  // whole-project figure. Most callers should prefer priorOnSameSource.
   const priorBilledOnProject = otherInvoices
     .filter((i) => i.invoiceDate <= invoice.invoiceDate)
     .reduce((sum, i) => sum + Number(i.total), 0);
+  void priorBilledOnProject;
 
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
 
@@ -397,70 +406,91 @@ export default async function InvoiceDetailPage({
         </CardContent>
       </Card>
 
-      {/* Phase 1: Progress billing summary. Aggregates project-level
-          numbers (contract, change orders, prior billed, retainage held)
-          for the current project — useful for AIA-style progress invoices. */}
-      {template?.showProgressBilling && project && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{template.progressBillingLabel}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm">
-            <div className="space-y-1">
-              <Row
-                label={template.contractValueLabel}
-                value={formatMoney(project.originalContractValue)}
-              />
-              <Row
-                label={template.changeOrdersLabel}
-                value={formatMoney(project.totalChangeOrders)}
-              />
-              <Row
-                label="Total project value"
-                value={formatMoney(project.contractValue)}
-                bold
-              />
-              <Row
-                label="% billed (this invoice)"
-                value={
-                  Number(project.contractValue) > 0
-                    ? `${(
-                        (Number(invoice.subtotal) /
-                          Number(project.contractValue)) *
-                        100
-                      ).toFixed(2)}%`
-                    : '—'
-                }
-              />
-              <Row
-                label={template.priorBilledLabel}
-                value={`(${formatMoney(priorBilledOnProject)})`}
-              />
-              {Number(invoice.retainageAmount) > 0 && (
+      {/* Phase 1: Progress billing summary. When the invoice is tagged to a
+          specific CO, the denominator is that CO's value alone — otherwise
+          we'd compare CO-3 billings to (base + every CO), which always
+          understates the % billed. Base-contract invoices compare against
+          the original contract (NOT contract + COs) for the same reason. */}
+      {template?.showProgressBilling && project && (() => {
+        const sourceValue = invoice.changeOrderId && co
+          ? Number(co.total)
+          : Number(project.originalContractValue);
+        const sourceLabel = co
+          ? `Bills against ${co.number}`
+          : 'Bills against base contract';
+        const sourceValueLabel = co
+          ? `${co.number} value`
+          : template.contractValueLabel;
+        return (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle>{template.progressBillingLabel}</CardTitle>
+                <span className="text-xs uppercase tracking-wide text-slate-500">
+                  {sourceLabel}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="text-sm">
+              <div className="space-y-1">
                 <Row
-                  label={template.retainageHeldLabel}
-                  value={`(${formatMoney(invoice.retainageAmount)})`}
+                  label={template.contractValueLabel}
+                  value={formatMoney(project.originalContractValue)}
                 />
-              )}
-              <Row
-                label="Invoice subtotal"
-                value={formatMoney(invoice.subtotal)}
-              />
-              {vatRatePct > 0 && (
                 <Row
-                  label={`${template.vatLabel} (${vatRatePct.toFixed(2)}%)`}
-                  value={formatMoney(vatAmount)}
+                  label={template.changeOrdersLabel}
+                  value={formatMoney(project.totalChangeOrders)}
                 />
-              )}
-              <Row
-                label="Invoice final total"
-                value={formatMoney(invoice.total)}
-                bold
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <Row
+                  label="Revised project value"
+                  value={formatMoney(project.contractValue)}
+                />
+                <Row
+                  label={sourceValueLabel}
+                  value={formatMoney(sourceValue)}
+                  bold
+                />
+                <Row
+                  label={`% billed against ${co ? co.number : 'base contract'} (this invoice)`}
+                  value={
+                    sourceValue > 0
+                      ? `${(
+                          (Number(invoice.subtotal) / sourceValue) *
+                          100
+                        ).toFixed(2)}%`
+                      : '—'
+                  }
+                />
+                <Row
+                  label={`${template.priorBilledLabel} (${co ? co.number : 'base contract'})`}
+                  value={`(${formatMoney(priorOnSameSource)})`}
+                />
+                {Number(invoice.retainageAmount) > 0 && (
+                  <Row
+                    label={template.retainageHeldLabel}
+                    value={`(${formatMoney(invoice.retainageAmount)})`}
+                  />
+                )}
+                <Row
+                  label="Invoice subtotal"
+                  value={formatMoney(invoice.subtotal)}
+                />
+                {vatRatePct > 0 && (
+                  <Row
+                    label={`${template.vatLabel} (${vatRatePct.toFixed(2)}%)`}
+                    value={formatMoney(vatAmount)}
+                  />
+                )}
+                <Row
+                  label="Invoice final total"
+                  value={formatMoney(invoice.total)}
+                  bold
+                />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Phase 1: Account history — prior invoices for the same project. */}
       {template?.showAccountHistory && otherInvoices.length > 0 && (

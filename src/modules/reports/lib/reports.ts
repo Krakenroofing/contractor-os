@@ -388,6 +388,12 @@ export type ProjectFinancialRow = {
   revisedContractValue: number;
   totalInvoiced: number;
   totalPaid: number;
+  /** Invoiced against base contract only (invoice.changeOrderId is null). */
+  baseInvoiced: number;
+  baseInvoicedPaid: number;
+  /** Invoiced against any linked change order (invoice.changeOrderId set). */
+  coInvoiced: number;
+  coInvoicedPaid: number;
   outstandingAR: number;
   retainageHeld: number;
   retainageReleased: number;
@@ -406,6 +412,10 @@ export type ProjectFinancialReport = {
     revisedContractValue: number;
     totalInvoiced: number;
     totalPaid: number;
+    baseInvoiced: number;
+    baseInvoicedPaid: number;
+    coInvoiced: number;
+    coInvoicedPaid: number;
     outstandingAR: number;
     retainageHeld: number;
     retainageReleased: number;
@@ -453,6 +463,26 @@ export async function buildProjectFinancialReport(
         (acc, i) => add(acc, parseMoney(i.amountPaid)),
         0,
       );
+      // Split by contract source. Invoices without a CO link bill against
+      // the base contract; the rest bill against an approved CO.
+      const baseInvoices = inRangeInvoices.filter((i) => !i.changeOrderId);
+      const coInvoices = inRangeInvoices.filter((i) => i.changeOrderId);
+      const baseInvoiced = baseInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.total)),
+        0,
+      );
+      const baseInvoicedPaid = baseInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.amountPaid)),
+        0,
+      );
+      const coInvoiced = coInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.total)),
+        0,
+      );
+      const coInvoicedPaid = coInvoices.reduce(
+        (acc, i) => add(acc, parseMoney(i.amountPaid)),
+        0,
+      );
       const retainageHeld = inRangeInvoices.reduce(
         (acc, i) => add(acc, parseMoney(i.retainageAmount)),
         0,
@@ -478,6 +508,10 @@ export async function buildProjectFinancialReport(
         revisedContractValue: revised,
         totalInvoiced: round2(totalInvoiced),
         totalPaid: round2(totalPaid),
+        baseInvoiced: round2(baseInvoiced),
+        baseInvoicedPaid: round2(baseInvoicedPaid),
+        coInvoiced: round2(coInvoiced),
+        coInvoicedPaid: round2(coInvoicedPaid),
         outstandingAR: round2(subtract(totalInvoiced, totalPaid)),
         retainageHeld: round2(retainageHeld),
         retainageReleased: round2(retainageReleased),
@@ -500,6 +534,10 @@ export async function buildProjectFinancialReport(
       ),
       totalInvoiced: add(acc.totalInvoiced, r.totalInvoiced),
       totalPaid: add(acc.totalPaid, r.totalPaid),
+      baseInvoiced: add(acc.baseInvoiced, r.baseInvoiced),
+      baseInvoicedPaid: add(acc.baseInvoicedPaid, r.baseInvoicedPaid),
+      coInvoiced: add(acc.coInvoiced, r.coInvoiced),
+      coInvoicedPaid: add(acc.coInvoicedPaid, r.coInvoicedPaid),
       outstandingAR: add(acc.outstandingAR, r.outstandingAR),
       retainageHeld: add(acc.retainageHeld, r.retainageHeld),
       retainageReleased: add(acc.retainageReleased, r.retainageReleased),
@@ -513,6 +551,10 @@ export async function buildProjectFinancialReport(
       revisedContractValue: 0,
       totalInvoiced: 0,
       totalPaid: 0,
+      baseInvoiced: 0,
+      baseInvoicedPaid: 0,
+      coInvoiced: 0,
+      coInvoicedPaid: 0,
       outstandingAR: 0,
       retainageHeld: 0,
       retainageReleased: 0,

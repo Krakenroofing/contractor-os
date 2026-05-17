@@ -3983,6 +3983,7 @@ export function updateMockInvoiceFull(
   id: string,
   patch: {
     billingType: Invoice['billingType'];
+    changeOrderId: string | null;
     invoiceDate: string;
     dueDate: string | null;
     subtotal: string;
@@ -4033,6 +4034,7 @@ export function updateMockInvoiceFull(
   }
 
   inv.billingType = patch.billingType;
+  inv.changeOrderId = patch.changeOrderId;
   inv.invoiceDate = patch.invoiceDate;
   inv.dueDate = patch.dueDate;
   inv.subtotal = patch.subtotal;

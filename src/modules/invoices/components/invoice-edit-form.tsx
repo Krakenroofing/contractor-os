@@ -45,6 +45,8 @@ export type InvoiceEditFormInitial = {
   customerLabel: string;
   status: string;
   billingType: BillingType;
+  /** UUID of the linked change order, or '' for base contract. */
+  changeOrderId: string;
   invoiceDate: string;
   dueDate: string;
   taxAmount: string;
@@ -64,7 +66,18 @@ export type InvoiceEditFormInitial = {
   }>;
 };
 
-export function InvoiceEditForm({ initial }: { initial: InvoiceEditFormInitial }) {
+export type InvoiceEditFormChangeOrderOption = {
+  id: string;
+  label: string;
+};
+
+export function InvoiceEditForm({
+  initial,
+  changeOrderOptions,
+}: {
+  initial: InvoiceEditFormInitial;
+  changeOrderOptions: InvoiceEditFormChangeOrderOption[];
+}) {
   const [state, formAction, pending] = useActionState(
     updateInvoiceFullAction,
     initialState,
@@ -80,6 +93,7 @@ export function InvoiceEditForm({ initial }: { initial: InvoiceEditFormInitial }
     })),
   );
   const [billingType, setBillingType] = useState<BillingType>(initial.billingType);
+  const [changeOrderId, setChangeOrderId] = useState(initial.changeOrderId);
   const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate);
   const [dueDate, setDueDate] = useState(initial.dueDate);
   const [taxAmount, setTaxAmount] = useState(initial.taxAmount);
@@ -229,6 +243,28 @@ export function InvoiceEditForm({ initial }: { initial: InvoiceEditFormInitial }
               onChange={(e) => setBillingLabel(e.target.value)}
               placeholder="e.g. Billing 3 of 12"
             />
+          </Field>
+          <Field
+            label="Bills against (change order)"
+            error={err('changeOrderId')}
+          >
+            <Select
+              name="changeOrderId"
+              value={changeOrderId}
+              onChange={(e) => setChangeOrderId(e.target.value)}
+            >
+              <option value="">Base contract</option>
+              {changeOrderOptions.map((co) => (
+                <option key={co.id} value={co.id}>
+                  {co.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-slate-500 mt-1">
+              Reclassifies this invoice for reporting. Doesn&apos;t change the
+              money on the invoice — just which contract bucket it rolls up
+              under.
+            </p>
           </Field>
         </div>
       </fieldset>

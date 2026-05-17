@@ -377,6 +377,10 @@ export async function updateInvoiceFullAction(
   try {
     await updateInvoiceFull(companyId, data.id, {
       billingType: data.billingType,
+      changeOrderId:
+        data.changeOrderId && data.changeOrderId.trim() !== ''
+          ? data.changeOrderId
+          : null,
       invoiceDate: data.invoiceDate,
       dueDate: data.dueDate && data.dueDate !== '' ? data.dueDate : null,
       subtotal: toMoneyString(subtotal),

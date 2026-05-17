@@ -9,6 +9,7 @@ import { canCreate } from '@/lib/permissions';
 import { getInvoice, getInvoiceLineItems } from '@/lib/data/invoices';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
+import { listChangeOrdersForProject } from '@/lib/data/change-orders';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,9 @@ export default async function EditInvoicePage({
     ? await getCustomer(companyId, project.customerId)
     : undefined;
   const lines = await getInvoiceLineItems(invoice.id);
+  // Load every CO on the project so the operator can retroactively tag this
+  // invoice as billing against a specific CO (or null = base contract).
+  const projectChangeOrders = await listChangeOrdersForProject(invoice.projectId);
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -73,6 +77,7 @@ export default async function EditInvoicePage({
           customerLabel: customer?.name ?? 'Unknown customer',
           status: invoice.status,
           billingType: invoice.billingType,
+          changeOrderId: invoice.changeOrderId ?? '',
           invoiceDate: invoice.invoiceDate,
           dueDate: invoice.dueDate ?? '',
           taxAmount: invoice.taxAmount,
@@ -91,6 +96,10 @@ export default async function EditInvoicePage({
             unitCost: Number(l.unitCost).toString(),
           })),
         }}
+        changeOrderOptions={projectChangeOrders.map((co) => ({
+          id: co.id,
+          label: `${co.number} — ${co.description.slice(0, 60)}`,
+        }))}
       />
     </div>
   );

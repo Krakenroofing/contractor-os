@@ -43,11 +43,16 @@ export default async function ProjectFinancialReportPage({
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPI label="Revised contract" value={formatMoney(report.totals.revisedContractValue)} highlight />
-        <KPI label="Invoiced" value={formatMoney(report.totals.totalInvoiced)} />
         <KPI
-          label="Paid"
+          label="Invoiced (base + CO)"
+          value={formatMoney(report.totals.totalInvoiced)}
+          hint={`base ${formatMoney(report.totals.baseInvoiced)} · CO ${formatMoney(report.totals.coInvoiced)}`}
+        />
+        <KPI
+          label="Paid (base + CO)"
           value={formatMoney(report.totals.totalPaid)}
           valueClassName="text-emerald-700"
+          hint={`base ${formatMoney(report.totals.baseInvoicedPaid)} · CO ${formatMoney(report.totals.coInvoicedPaid)}`}
         />
         <KPI
           label="Outstanding AR"
@@ -118,9 +123,23 @@ export default async function ProjectFinancialReportPage({
                   <TableCell className="text-right tabular-nums font-medium">
                     {formatMoney(r.revisedContractValue)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(r.totalInvoiced)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <div>{formatMoney(r.totalInvoiced)}</div>
+                    {(r.coInvoiced > 0 || r.changeOrders > 0) && (
+                      <div className="text-[11px] text-slate-500 font-normal">
+                        base {formatMoney(r.baseInvoiced)} ·{' '}
+                        CO {formatMoney(r.coInvoiced)}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums text-emerald-700">
-                    {formatMoney(r.totalPaid)}
+                    <div>{formatMoney(r.totalPaid)}</div>
+                    {(r.coInvoicedPaid > 0 || r.changeOrders > 0) && (
+                      <div className="text-[11px] text-slate-500 font-normal">
+                        base {formatMoney(r.baseInvoicedPaid)} ·{' '}
+                        CO {formatMoney(r.coInvoicedPaid)}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell
                     className={`text-right tabular-nums ${
@@ -156,11 +175,13 @@ function KPI({
   value,
   highlight,
   valueClassName,
+  hint,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
   valueClassName?: string;
+  hint?: string;
 }) {
   return (
     <Card className={highlight ? 'border-slate-300' : undefined}>
@@ -169,6 +190,7 @@ function KPI({
         <p className={`mt-1 text-xl font-semibold tabular-nums ${valueClassName ?? 'text-slate-900'}`}>
           {value}
         </p>
+        {hint && <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{hint}</p>}
       </CardContent>
     </Card>
   );
