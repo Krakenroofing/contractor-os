@@ -77,7 +77,8 @@ const nullableUuid = z
   .string()
   .optional()
   .or(z.literal(''))
-  .transform((v) => (v === '' || v === undefined ? null : v))
+  .or(z.null())
+  .transform((v) => (v === '' || v === undefined || v === null ? null : v))
   .refine(
     (v) =>
       v === null ||
@@ -99,8 +100,9 @@ const percentString = z
   .trim()
   .optional()
   .or(z.literal(''))
+  .or(z.null())
   .transform((v) => {
-    if (v === '' || v === undefined) return null;
+    if (v === '' || v === undefined || v === null) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   });
