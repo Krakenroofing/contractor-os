@@ -15,7 +15,6 @@ import {
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
-  computeInvoiceFinancials,
   computeInvoiceVatSplit,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
@@ -345,8 +344,20 @@ export type ProjectInvoiceSourceBucket = {
   changeOrderId: string | null;
   invoiceCount: number;
   totalInvoiced: number;
+  /** Sum of invoice subtotals in this bucket (revenue, ex-VAT). */
+  totalInvoicedNet: number;
+  /** Sum of invoice taxAmount in this bucket. */
+  totalInvoicedVat: number;
   totalPaid: number;
+  /** Portion of paid attributable to revenue. */
+  totalPaidNet: number;
+  /** Portion of paid attributable to VAT (a liability). */
+  totalPaidVat: number;
   outstandingBalance: number;
+  /** Outstanding revenue not yet realized. */
+  outstandingBalanceNet: number;
+  /** Outstanding VAT not yet collected. */
+  outstandingBalanceVat: number;
   retainageHeld: number;
   retainageReleased: number;
   retainageBalance: number;
@@ -362,8 +373,14 @@ function emptyBucket(changeOrderId: string | null): ProjectInvoiceSourceBucket {
     changeOrderId,
     invoiceCount: 0,
     totalInvoiced: 0,
+    totalInvoicedNet: 0,
+    totalInvoicedVat: 0,
     totalPaid: 0,
+    totalPaidNet: 0,
+    totalPaidVat: 0,
     outstandingBalance: 0,
+    outstandingBalanceNet: 0,
+    outstandingBalanceVat: 0,
     retainageHeld: 0,
     retainageReleased: 0,
     retainageBalance: 0,
@@ -373,8 +390,9 @@ function emptyBucket(changeOrderId: string | null): ProjectInvoiceSourceBucket {
 /**
  * Split a project's invoice activity into base-contract billings vs.
  * billings tagged to a specific change order. Voided invoices are excluded
- * from every bucket (they never hit the bank). The bucketing rule lives in
- * JS so the DB and mock paths share one implementation.
+ * from every bucket (they never hit the bank). Each bucket carries the full
+ * net/VAT/gross decomposition so customer- and dashboard-level rollups can
+ * sub-split base vs CO without re-deriving from raw invoices.
  */
 export async function computeProjectInvoicesByContractSource(
   projectId: string,
@@ -394,13 +412,19 @@ export async function computeProjectInvoicesByContractSource(
     const bucket = inv.changeOrderId
       ? (byCoMap.get(inv.changeOrderId) ?? emptyBucket(inv.changeOrderId))
       : base;
-    const fin = computeInvoiceFinancials(inv, paymentsByInvoice.get(inv.id) ?? []);
+    const split = computeInvoiceVatSplit(inv, paymentsByInvoice.get(inv.id) ?? []);
     bucket.invoiceCount += 1;
-    bucket.totalInvoiced += fin.total;
-    bucket.totalPaid += fin.paid;
-    bucket.outstandingBalance += fin.balance;
-    bucket.retainageHeld += fin.retainageHeld;
-    bucket.retainageReleased += fin.retainageReleased;
+    bucket.totalInvoiced += split.gross;
+    bucket.totalInvoicedNet += split.net;
+    bucket.totalInvoicedVat += split.vat;
+    bucket.totalPaid += split.paidGross;
+    bucket.totalPaidNet += split.paidNet;
+    bucket.totalPaidVat += split.paidVat;
+    bucket.outstandingBalance += split.balanceGross;
+    bucket.outstandingBalanceNet += split.balanceNet;
+    bucket.outstandingBalanceVat += split.balanceVat;
+    bucket.retainageHeld += parseMoney(inv.retainageAmount);
+    bucket.retainageReleased += parseMoney(inv.retainageReleased);
     bucket.retainageBalance = bucket.retainageHeld - bucket.retainageReleased;
     if (inv.changeOrderId && !byCoMap.has(inv.changeOrderId)) {
       byCoMap.set(inv.changeOrderId, bucket);

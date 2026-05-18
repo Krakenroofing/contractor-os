@@ -75,6 +75,8 @@ export type AgingRow = {
   customerName: string;
   invoiceDate: string;
   dueDate: string | null;
+  /** null = billed against base contract. Otherwise the linked change order id. */
+  changeOrderId: string | null;
   total: number;
   amountPaid: number;
   balance: number;
@@ -97,6 +99,10 @@ export type AgingSummary = {
   totalARNet: number;
   /** Outstanding VAT — collected later, owed to the government. */
   totalARVat: number;
+  /** Outstanding AR billed against the original base contract. Gross. */
+  totalARBase: number;
+  /** Outstanding AR billed against approved change orders. Gross. */
+  totalARCo: number;
   current: number;
   b1_30: number;
   b31_60: number;
@@ -111,6 +117,8 @@ export function summarizeAging(rows: AgingRow[]): AgingSummary {
     totalAR: 0,
     totalARNet: 0,
     totalARVat: 0,
+    totalARBase: 0,
+    totalARCo: 0,
     current: 0,
     b1_30: 0,
     b31_60: 0,
@@ -123,6 +131,11 @@ export function summarizeAging(rows: AgingRow[]): AgingSummary {
     summary.totalAR = add(summary.totalAR, r.balance);
     summary.totalARNet = add(summary.totalARNet, r.balanceNet);
     summary.totalARVat = add(summary.totalARVat, r.balanceVat);
+    if (r.changeOrderId) {
+      summary.totalARCo = add(summary.totalARCo, r.balance);
+    } else {
+      summary.totalARBase = add(summary.totalARBase, r.balance);
+    }
     summary[r.bucket] = add(summary[r.bucket], r.balance);
     if (r.daysOverdue > 0) summary.overdueCount += 1;
   }

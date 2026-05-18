@@ -48,6 +48,10 @@ export type DashboardKPIs = {
   totalInvoicedNet: number;
   totalInvoicedVAT: number;
   totalInvoicedGross: number;
+  /** Gross billed against the base contract only. */
+  totalInvoicedGrossBase: number;
+  /** Gross billed against approved change orders only. */
+  totalInvoicedGrossCo: number;
 
   // Paid totals — same shape. Paid amounts are split proportionally by each
   // invoice's tax/total ratio: payment×(tax/total) is VAT collected,
@@ -56,8 +60,16 @@ export type DashboardKPIs = {
   totalPaidNet: number;
   totalPaidVAT: number;
   totalPaidGross: number;
+  /** Gross collected against the base contract only. */
+  totalPaidGrossBase: number;
+  /** Gross collected against approved change orders only. */
+  totalPaidGrossCo: number;
 
   outstandingAR: number;
+  /** Outstanding AR billed against the base contract. */
+  outstandingARBase: number;
+  /** Outstanding AR billed against approved change orders. */
+  outstandingARCo: number;
   retainageHeld: number;
   committedPurchaseOrders: number;
   committedPurchaseOrderTotal: number;
@@ -229,10 +241,16 @@ export async function buildDashboardData(
   let totalInvoicedGross = 0;
   let totalInvoicedNet = 0;
   let totalInvoicedVAT = 0;
+  let totalInvoicedGrossBase = 0;
+  let totalInvoicedGrossCo = 0;
   let totalPaidGross = 0;
   let totalPaidNet = 0;
   let totalPaidVAT = 0;
+  let totalPaidGrossBase = 0;
+  let totalPaidGrossCo = 0;
   let outstandingAR = 0;
+  let outstandingARBase = 0;
+  let outstandingARCo = 0;
   // Accumulator for the per-quarter timeline. Keyed by `YYYY-Qn`; only
   // populated from non-void invoices, dropped if the invoice predates the
   // timeline start (Q1 2025 today).
@@ -260,6 +278,15 @@ export async function buildDashboardData(
     totalPaidNet = add(totalPaidNet, paidNet);
     totalPaidVAT = add(totalPaidVAT, paidVat);
     outstandingAR = add(outstandingAR, fin.balance);
+    if (inv.changeOrderId) {
+      totalInvoicedGrossCo = add(totalInvoicedGrossCo, fin.total);
+      totalPaidGrossCo = add(totalPaidGrossCo, fin.paid);
+      outstandingARCo = add(outstandingARCo, fin.balance);
+    } else {
+      totalInvoicedGrossBase = add(totalInvoicedGrossBase, fin.total);
+      totalPaidGrossBase = add(totalPaidGrossBase, fin.paid);
+      outstandingARBase = add(outstandingARBase, fin.balance);
+    }
 
     // Quarterly rollup. Bucket by invoiceDate — same source of truth as
     // the VAT report (accrual basis), so revenue lines up exactly.
@@ -406,11 +433,17 @@ export async function buildDashboardData(
       totalInvoicedNet: round2(totalInvoicedNet),
       totalInvoicedVAT: round2(totalInvoicedVAT),
       totalInvoicedGross: round2(totalInvoicedGross),
+      totalInvoicedGrossBase: round2(totalInvoicedGrossBase),
+      totalInvoicedGrossCo: round2(totalInvoicedGrossCo),
       totalPaid: round2(totalPaidGross),
       totalPaidNet: round2(totalPaidNet),
       totalPaidVAT: round2(totalPaidVAT),
       totalPaidGross: round2(totalPaidGross),
+      totalPaidGrossBase: round2(totalPaidGrossBase),
+      totalPaidGrossCo: round2(totalPaidGrossCo),
       outstandingAR: round2(outstandingAR),
+      outstandingARBase: round2(outstandingARBase),
+      outstandingARCo: round2(outstandingARCo),
       retainageHeld: round2(retainageSummary.outstanding),
       committedPurchaseOrders: committedCount,
       committedPurchaseOrderTotal: round2(committedTotal),

@@ -702,6 +702,10 @@ export type ARCustomerRow = {
   customerName: string;
   invoiceCount: number;
   totalAR: number;
+  /** Outstanding AR billed against the original base contract. Gross. */
+  baseAR: number;
+  /** Outstanding AR billed against approved change orders. Gross. */
+  coAR: number;
   current: number;
   b1_30: number;
   b31_60: number;
@@ -737,6 +741,8 @@ export async function buildARReport(
       customerName: r.customerName,
       invoiceCount: 0,
       totalAR: 0,
+      baseAR: 0,
+      coAR: 0,
       current: 0,
       b1_30: 0,
       b31_60: 0,
@@ -746,6 +752,11 @@ export async function buildARReport(
     };
     existing.invoiceCount += 1;
     existing.totalAR = add(existing.totalAR, r.balance);
+    if (r.changeOrderId) {
+      existing.coAR = add(existing.coAR, r.balance);
+    } else {
+      existing.baseAR = add(existing.baseAR, r.balance);
+    }
     existing[r.bucket] = add(existing[r.bucket], r.balance);
     if (r.daysOverdue > 0) existing.overdueCount += 1;
     byCustomer.set(r.customerId, existing);

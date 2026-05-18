@@ -188,16 +188,18 @@ export default async function DashboardPage() {
             <KPI
               label="Gross invoiced"
               value={formatMoney(kpis.totalInvoicedGross)}
-              hint="Net + VAT − retainage"
+              hint={`base ${formatMoney(kpis.totalInvoicedGrossBase)} · CO ${formatMoney(
+                kpis.totalInvoicedGrossCo,
+              )}`}
               href="/invoices"
             />
             <KPI
               label="Total paid (gross)"
               value={formatMoney(kpis.totalPaid)}
               valueClassName="text-emerald-700"
-              hint={`${formatMoney(kpis.totalPaidNet)} net · ${formatMoney(
-                kpis.totalPaidVAT,
-              )} VAT`}
+              hint={`base ${formatMoney(kpis.totalPaidGrossBase)} · CO ${formatMoney(
+                kpis.totalPaidGrossCo,
+              )}`}
               href="/payments"
             />
             <KPI
@@ -206,6 +208,9 @@ export default async function DashboardPage() {
               valueClassName={
                 kpis.outstandingAR > 0 ? 'text-amber-700' : 'text-emerald-700'
               }
+              hint={`base ${formatMoney(kpis.outstandingARBase)} · CO ${formatMoney(
+                kpis.outstandingARCo,
+              )}`}
               href={canSeeAR ? '/accounts-receivable' : undefined}
             />
           </div>

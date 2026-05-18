@@ -78,6 +78,7 @@ async function buildAgingRow(
     customerName: customer?.name ?? 'Unknown customer',
     invoiceDate: inv.invoiceDate,
     dueDate: inv.dueDate,
+    changeOrderId: inv.changeOrderId ?? null,
     total: fin.total,
     amountPaid: fin.paid,
     balance: fin.balance,

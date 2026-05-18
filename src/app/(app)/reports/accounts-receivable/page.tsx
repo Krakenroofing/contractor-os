@@ -47,7 +47,14 @@ export default async function ARReportPage({
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KPI label="Total AR" value={formatMoney(report.summary.totalAR)} highlight />
+        <KPI
+          label="Total AR"
+          value={formatMoney(report.summary.totalAR)}
+          hint={`base ${formatMoney(report.summary.totalARBase)} · CO ${formatMoney(
+            report.summary.totalARCo,
+          )}`}
+          highlight
+        />
         {AGING_BUCKETS.map((b) => (
           <KPI
             key={b}
@@ -89,6 +96,8 @@ export default async function ARReportPage({
                   <TableHead>Customer</TableHead>
                   <TableHead className="text-right">Invoices</TableHead>
                   <TableHead className="text-right">Total AR</TableHead>
+                  <TableHead className="text-right">Base AR</TableHead>
+                  <TableHead className="text-right">CO AR</TableHead>
                   <TableHead className="text-right">Current</TableHead>
                   <TableHead className="text-right">1–30</TableHead>
                   <TableHead className="text-right">31–60</TableHead>
@@ -106,6 +115,12 @@ export default async function ARReportPage({
                     <TableCell className="text-right tabular-nums">{c.invoiceCount}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {formatMoney(c.totalAR)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {formatMoney(c.baseAR)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {c.coAR > 0 ? formatMoney(c.coAR) : <span className="text-slate-400">—</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-emerald-700">
                       {formatMoney(c.current)}
@@ -144,6 +159,7 @@ export default async function ARReportPage({
                 <TableHead>Invoice</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Project</TableHead>
+                <TableHead>Source</TableHead>
                 <TableHead>Invoice date</TableHead>
                 <TableHead>Due</TableHead>
                 <TableHead className="text-right">Total</TableHead>
@@ -162,6 +178,13 @@ export default async function ARReportPage({
                   </TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell className="text-slate-700">{r.projectName}</TableCell>
+                  <TableCell className="text-xs text-slate-600">
+                    {r.changeOrderId ? (
+                      <Badge tone="blue">CO</Badge>
+                    ) : (
+                      <span className="text-slate-500">Base</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-slate-600">{r.invoiceDate}</TableCell>
                   <TableCell className="text-slate-600">{r.dueDate ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(r.total)}</TableCell>
@@ -191,11 +214,13 @@ export default async function ARReportPage({
 function KPI({
   label,
   value,
+  hint,
   highlight,
   valueClassName,
 }: {
   label: string;
   value: string;
+  hint?: string;
   highlight?: boolean;
   valueClassName?: string;
 }) {
@@ -206,6 +231,7 @@ function KPI({
         <p className={`mt-1 text-xl font-semibold tabular-nums ${valueClassName ?? 'text-slate-900'}`}>
           {value}
         </p>
+        {hint && <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{hint}</p>}
       </CardContent>
     </Card>
   );

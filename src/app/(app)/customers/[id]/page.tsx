@@ -12,6 +12,7 @@ import { getCustomer } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import {
   computeProjectInvoiceSummary,
+  computeProjectInvoicesByContractSource,
   listInvoicesForProject,
 } from '@/lib/data/invoices';
 import { formatMoney } from '@/lib/money';
@@ -61,10 +62,13 @@ export default async function CustomerDetailPage({
   // Roll up invoice activity across every project for this customer.
   // computeProjectInvoiceSummary already sums payment rows (not the cached
   // amountPaid) — so this stays correct even if a status cache drifted.
+  // We pair it with computeProjectInvoicesByContractSource so the
+  // customer-level tiles can show a base-vs-change-order sub-split.
   const invoiceSummaries = await Promise.all(
     linkedProjects.map(async (p) => ({
       project: p,
       summary: await computeProjectInvoiceSummary(p.id),
+      bySource: await computeProjectInvoicesByContractSource(p.id),
       invoices: await listInvoicesForProject(p.id),
     })),
   );
@@ -96,6 +100,44 @@ export default async function CustomerDetailPage({
       outstandingBalanceNet: 0,
       outstandingBalanceVat: 0,
       retainageHeld: 0,
+    },
+  );
+  // Sum the base-bucket and the change-order-buckets across every project
+  // so the customer-level tiles can show a "base $X · CO $Y" sub-line in
+  // the same unit as the headline figure.
+  const sourceTotals = invoiceSummaries.reduce(
+    (acc, row) => {
+      const co = row.bySource.byChangeOrder.reduce(
+        (sum, b) => ({
+          invoicedNet: sum.invoicedNet + b.totalInvoicedNet,
+          paidNet: sum.paidNet + b.totalPaidNet,
+          outstanding: sum.outstanding + b.outstandingBalance,
+          retainage: sum.retainage + (b.retainageHeld - b.retainageReleased),
+        }),
+        { invoicedNet: 0, paidNet: 0, outstanding: 0, retainage: 0 },
+      );
+      const base = row.bySource.base;
+      return {
+        baseInvoicedNet: acc.baseInvoicedNet + base.totalInvoicedNet,
+        coInvoicedNet: acc.coInvoicedNet + co.invoicedNet,
+        basePaidNet: acc.basePaidNet + base.totalPaidNet,
+        coPaidNet: acc.coPaidNet + co.paidNet,
+        baseOutstanding: acc.baseOutstanding + base.outstandingBalance,
+        coOutstanding: acc.coOutstanding + co.outstanding,
+        baseRetainage:
+          acc.baseRetainage + (base.retainageHeld - base.retainageReleased),
+        coRetainage: acc.coRetainage + co.retainage,
+      };
+    },
+    {
+      baseInvoicedNet: 0,
+      coInvoicedNet: 0,
+      basePaidNet: 0,
+      coPaidNet: 0,
+      baseOutstanding: 0,
+      coOutstanding: 0,
+      baseRetainage: 0,
+      coRetainage: 0,
     },
   );
   const allInvoices = invoiceSummaries
@@ -225,6 +267,10 @@ export default async function CustomerDetailPage({
               {formatMoney(rolledUp.totalInvoicedNet)}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              base {formatMoney(sourceTotals.baseInvoicedNet)} · CO{' '}
+              {formatMoney(sourceTotals.coInvoicedNet)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
               VAT {formatMoney(rolledUp.totalInvoicedVat)} · gross{' '}
               {formatMoney(rolledUp.totalInvoiced)}
             </p>
@@ -241,6 +287,10 @@ export default async function CustomerDetailPage({
             </p>
             <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
               {formatMoney(rolledUp.totalPaidNet)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              base {formatMoney(sourceTotals.basePaidNet)} · CO{' '}
+              {formatMoney(sourceTotals.coPaidNet)}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
               VAT collected {formatMoney(rolledUp.totalPaidVat)} · gross{' '}
@@ -263,6 +313,10 @@ export default async function CustomerDetailPage({
               {formatMoney(rolledUp.outstandingBalance)}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              base {formatMoney(sourceTotals.baseOutstanding)} · CO{' '}
+              {formatMoney(sourceTotals.coOutstanding)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
               net {formatMoney(rolledUp.outstandingBalanceNet)} · VAT{' '}
               {formatMoney(rolledUp.outstandingBalanceVat)}
             </p>
@@ -275,6 +329,10 @@ export default async function CustomerDetailPage({
             </p>
             <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
               {formatMoney(rolledUp.retainageHeld)}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">
+              base {formatMoney(sourceTotals.baseRetainage)} · CO{' '}
+              {formatMoney(sourceTotals.coRetainage)}
             </p>
           </CardContent>
         </Card>

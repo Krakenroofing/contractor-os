@@ -50,7 +50,6 @@ async function main() {
   console.log(`  totalInvoiced  = ${fmt(dash0.kpis.totalInvoiced)}`);
   console.log(`  totalPaid      = ${fmt(dash0.kpis.totalPaid)}`);
   console.log(`  outstandingAR  = ${fmt(dash0.kpis.outstandingAR)}`);
-  console.log(`  cashThisMonth  = ${fmt(dash0.kpis.cashCollectedThisMonth)}`);
 
   // Self-consistency: sum(non-void invoice totals) - sum(applied payments)
   // == outstandingAR
