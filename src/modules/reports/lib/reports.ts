@@ -6,7 +6,12 @@
 import 'server-only';
 import { listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
-import { listInvoices, getInvoiceLineItems } from '@/lib/data/invoices';
+import {
+  computeProjectInvoicesByContractSource,
+  getInvoiceLineItems,
+  listInvoices,
+  listInvoicesForProject,
+} from '@/lib/data/invoices';
 import { listPayments } from '@/lib/data/invoice-payments';
 import { listReceipts } from '@/lib/data/receipts';
 import {
@@ -1179,4 +1184,274 @@ export async function buildLandedCostReport(
   void listChangeOrders;
 
   return { rows, totals, effectiveDutyVatPct };
+}
+
+// =====================================================================
+// Customer Summary Report
+// =====================================================================
+//
+// Pick a customer and see every project under them with:
+//   - contract value (revised = base + approved COs)
+//   - billed (gross + net split + base/CO source split)
+//   - still billable (revised contract − billed gross)
+//   - collected (gross + net)
+//   - outstanding (billed − collected)
+//   - retainage held
+// Plus a flat list of every invoice for that customer with the same
+// base/CO source flag the AR report uses.
+//
+// When no customer is selected (filters.customerId empty), the report
+// returns empty rows and the page shows an empty-state nudge to pick one.
+
+export type CustomerProjectRow = {
+  projectId: string;
+  projectNumber: string;
+  projectName: string;
+  status: string;
+  contractValue: number;
+  changeOrders: number;
+  revisedContractValue: number;
+  totalInvoiced: number;
+  totalInvoicedNet: number;
+  totalInvoicedVat: number;
+  baseInvoiced: number;
+  coInvoiced: number;
+  /** Revised contract − billed (gross). Negative means over-billed. */
+  stillBillable: number;
+  totalPaid: number;
+  totalPaidNet: number;
+  outstandingAR: number;
+  retainageHeld: number;
+  retainageReleased: number;
+  retainageBalance: number;
+};
+
+export type CustomerInvoiceRow = {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string | null;
+  projectId: string;
+  projectNumber: string;
+  projectName: string;
+  status: string;
+  /** 'base' when invoice has no changeOrderId; 'co' otherwise. */
+  source: 'base' | 'co';
+  /** When source = 'co', the change order's display number ('CO-101' style),
+   *  otherwise null. */
+  changeOrderNumber: string | null;
+  total: number;
+  subtotal: number;
+  taxAmount: number;
+  amountPaid: number;
+  balance: number;
+};
+
+export type CustomerSummaryReport = {
+  /** Picked customer, or null when no selection was made. */
+  customer: { id: string; name: string } | null;
+  projectRows: CustomerProjectRow[];
+  invoiceRows: CustomerInvoiceRow[];
+  totals: {
+    contractValue: number;
+    changeOrders: number;
+    revisedContractValue: number;
+    totalInvoiced: number;
+    totalInvoicedNet: number;
+    totalInvoicedVat: number;
+    baseInvoiced: number;
+    coInvoiced: number;
+    stillBillable: number;
+    totalPaid: number;
+    totalPaidNet: number;
+    outstandingAR: number;
+    retainageHeld: number;
+    retainageReleased: number;
+    retainageBalance: number;
+    invoiceCount: number;
+    projectCount: number;
+  };
+};
+
+export async function buildCustomerSummaryReport(
+  companyId: string,
+  filters: ReportFilters,
+): Promise<CustomerSummaryReport> {
+  const customers = await listCustomers(companyId);
+  const customer = filters.customerId
+    ? (customers.find((c) => c.id === filters.customerId) ?? null)
+    : null;
+  if (!customer) {
+    return {
+      customer: null,
+      projectRows: [],
+      invoiceRows: [],
+      totals: {
+        contractValue: 0,
+        changeOrders: 0,
+        revisedContractValue: 0,
+        totalInvoiced: 0,
+        totalInvoicedNet: 0,
+        totalInvoicedVat: 0,
+        baseInvoiced: 0,
+        coInvoiced: 0,
+        stillBillable: 0,
+        totalPaid: 0,
+        totalPaidNet: 0,
+        outstandingAR: 0,
+        retainageHeld: 0,
+        retainageReleased: 0,
+        retainageBalance: 0,
+        invoiceCount: 0,
+        projectCount: 0,
+      },
+    };
+  }
+
+  const allProjects = await listProjects(companyId);
+  const projects = allProjects.filter((p) => p.customerId === customer.id);
+  const changeOrders = await listChangeOrders(companyId);
+  const coById = new Map(changeOrders.map((co) => [co.id, co]));
+
+  const projectRows: CustomerProjectRow[] = [];
+  const invoiceRows: CustomerInvoiceRow[] = [];
+
+  for (const p of projects) {
+    const bySource = await computeProjectInvoicesByContractSource(p.id);
+    const invoices = await listInvoicesForProject(p.id);
+
+    const coTotals = bySource.byChangeOrder.reduce(
+      (acc, b) => ({
+        invoiced: acc.invoiced + b.totalInvoiced,
+        invoicedNet: acc.invoicedNet + b.totalInvoicedNet,
+        invoicedVat: acc.invoicedVat + b.totalInvoicedVat,
+        paid: acc.paid + b.totalPaid,
+        paidNet: acc.paidNet + b.totalPaidNet,
+        outstanding: acc.outstanding + b.outstandingBalance,
+      }),
+      { invoiced: 0, invoicedNet: 0, invoicedVat: 0, paid: 0, paidNet: 0, outstanding: 0 },
+    );
+
+    const totalInvoiced = bySource.base.totalInvoiced + coTotals.invoiced;
+    const totalInvoicedNet = bySource.base.totalInvoicedNet + coTotals.invoicedNet;
+    const totalInvoicedVat = bySource.base.totalInvoicedVat + coTotals.invoicedVat;
+    const totalPaid = bySource.base.totalPaid + coTotals.paid;
+    const totalPaidNet = bySource.base.totalPaidNet + coTotals.paidNet;
+    const outstandingAR = bySource.base.outstandingBalance + coTotals.outstanding;
+    const retainageHeld =
+      bySource.base.retainageHeld +
+      bySource.byChangeOrder.reduce((s, b) => s + b.retainageHeld, 0);
+    const retainageReleased =
+      bySource.base.retainageReleased +
+      bySource.byChangeOrder.reduce((s, b) => s + b.retainageReleased, 0);
+
+    const contractValue = parseMoney(p.originalContractValue);
+    const revisedContractValue = parseMoney(p.contractValue);
+    const changeOrdersTotal = subtract(revisedContractValue, contractValue);
+    const stillBillable = round2(subtract(revisedContractValue, totalInvoiced));
+
+    projectRows.push({
+      projectId: p.id,
+      projectNumber: p.number,
+      projectName: p.name,
+      status: p.status,
+      contractValue: round2(contractValue),
+      changeOrders: round2(changeOrdersTotal),
+      revisedContractValue: round2(revisedContractValue),
+      totalInvoiced: round2(totalInvoiced),
+      totalInvoicedNet: round2(totalInvoicedNet),
+      totalInvoicedVat: round2(totalInvoicedVat),
+      baseInvoiced: round2(bySource.base.totalInvoiced),
+      coInvoiced: round2(coTotals.invoiced),
+      stillBillable,
+      totalPaid: round2(totalPaid),
+      totalPaidNet: round2(totalPaidNet),
+      outstandingAR: round2(outstandingAR),
+      retainageHeld: round2(retainageHeld),
+      retainageReleased: round2(retainageReleased),
+      retainageBalance: round2(retainageHeld - retainageReleased),
+    });
+
+    for (const inv of invoices) {
+      if (normalizeStatus('invoice', inv.status) === 'void') continue;
+      if (filters.from || filters.to) {
+        if (!isInRange(inv.invoiceDate, filters)) continue;
+      }
+      const total = parseMoney(inv.total);
+      const subtotal = parseMoney(inv.subtotal);
+      const taxAmount = parseMoney(inv.taxAmount);
+      const amountPaid = parseMoney(inv.amountPaid);
+      const balance = round2(Math.max(0, subtract(total, amountPaid)));
+      const co = inv.changeOrderId ? coById.get(inv.changeOrderId) : undefined;
+      invoiceRows.push({
+        invoiceId: inv.id,
+        invoiceNumber: inv.number,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        projectId: p.id,
+        projectNumber: p.number,
+        projectName: p.name,
+        status: inv.status,
+        source: inv.changeOrderId ? 'co' : 'base',
+        changeOrderNumber: co?.number ?? null,
+        total: round2(total),
+        subtotal: round2(subtotal),
+        taxAmount: round2(taxAmount),
+        amountPaid: round2(amountPaid),
+        balance,
+      });
+    }
+  }
+
+  // Sort: projects by status (active first) then by number; invoices by date desc.
+  projectRows.sort((a, b) => a.projectNumber.localeCompare(b.projectNumber));
+  invoiceRows.sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
+
+  const totals = projectRows.reduce(
+    (acc, r) => ({
+      contractValue: add(acc.contractValue, r.contractValue),
+      changeOrders: add(acc.changeOrders, r.changeOrders),
+      revisedContractValue: add(acc.revisedContractValue, r.revisedContractValue),
+      totalInvoiced: add(acc.totalInvoiced, r.totalInvoiced),
+      totalInvoicedNet: add(acc.totalInvoicedNet, r.totalInvoicedNet),
+      totalInvoicedVat: add(acc.totalInvoicedVat, r.totalInvoicedVat),
+      baseInvoiced: add(acc.baseInvoiced, r.baseInvoiced),
+      coInvoiced: add(acc.coInvoiced, r.coInvoiced),
+      stillBillable: add(acc.stillBillable, r.stillBillable),
+      totalPaid: add(acc.totalPaid, r.totalPaid),
+      totalPaidNet: add(acc.totalPaidNet, r.totalPaidNet),
+      outstandingAR: add(acc.outstandingAR, r.outstandingAR),
+      retainageHeld: add(acc.retainageHeld, r.retainageHeld),
+      retainageReleased: add(acc.retainageReleased, r.retainageReleased),
+      retainageBalance: add(acc.retainageBalance, r.retainageBalance),
+      invoiceCount: acc.invoiceCount,
+      projectCount: acc.projectCount,
+    }),
+    {
+      contractValue: 0,
+      changeOrders: 0,
+      revisedContractValue: 0,
+      totalInvoiced: 0,
+      totalInvoicedNet: 0,
+      totalInvoicedVat: 0,
+      baseInvoiced: 0,
+      coInvoiced: 0,
+      stillBillable: 0,
+      totalPaid: 0,
+      totalPaidNet: 0,
+      outstandingAR: 0,
+      retainageHeld: 0,
+      retainageReleased: 0,
+      retainageBalance: 0,
+      invoiceCount: invoiceRows.length,
+      projectCount: projectRows.length,
+    },
+  );
+
+  return {
+    customer: { id: customer.id, name: customer.name },
+    projectRows,
+    invoiceRows,
+    totals,
+  };
 }

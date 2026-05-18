@@ -16,16 +16,19 @@ import {
   type ReportType,
   type ReportFilters,
   REPORT_SUPPORTS_PROJECT_FILTER,
+  REPORT_SUPPORTS_CUSTOMER_FILTER,
 } from '@/modules/reports/lib/filters';
 
 export function FilterBar({
   reportType,
   initial,
   projects,
+  customers = [],
 }: {
   reportType: ReportType;
   initial: ReportFilters;
   projects: { id: string; label: string }[];
+  customers?: { id: string; label: string }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -33,9 +36,11 @@ export function FilterBar({
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [projectId, setProjectId] = useState(initial.projectId);
+  const [customerId, setCustomerId] = useState(initial.customerId);
   const [pending, startTransition] = useTransition();
 
   const supportsProject = REPORT_SUPPORTS_PROJECT_FILTER[reportType];
+  const supportsCustomer = REPORT_SUPPORTS_CUSTOMER_FILTER[reportType];
 
   function applyFilters() {
     const params = new URLSearchParams(searchParams);
@@ -45,6 +50,8 @@ export function FilterBar({
     else params.delete('to');
     if (supportsProject && projectId) params.set('projectId', projectId);
     else params.delete('projectId');
+    if (supportsCustomer && customerId) params.set('customerId', customerId);
+    else params.delete('customerId');
     const qs = params.toString();
     startTransition(() => {
       // Cast through unknown — typedRoutes is OK with the pathname value at
@@ -59,12 +66,18 @@ export function FilterBar({
     setFrom('');
     setTo('');
     setProjectId('');
+    setCustomerId('');
     startTransition(() => {
       router.push(pathname as unknown as Parameters<typeof router.push>[0]);
     });
   }
 
-  const csvHref = buildCsvUrl(reportType, { from, to, projectId });
+  const csvHref = buildCsvUrl(reportType, {
+    from,
+    to,
+    projectId,
+    customerId,
+  });
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 print:hidden">
@@ -88,6 +101,22 @@ export function FilterBar({
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        {supportsCustomer && (
+          <div className="space-y-1">
+            <Label>Customer</Label>
+            <Select
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+            >
+              <option value="">All customers</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
                 </option>
               ))}
             </Select>

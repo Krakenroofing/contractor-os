@@ -20,8 +20,8 @@ export const dynamic = 'force-dynamic';
 // remain available in the full grid below.
 const FEATURED: ReportType[] = [
   'project-financial',
+  'customer-summary',
   'accounts-receivable',
-  'job-cost',
 ];
 
 export default async function ReportsIndexPage() {

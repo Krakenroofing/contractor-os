@@ -8,6 +8,9 @@ export type ReportFilters = {
   to: string;
   /** Project filter (UUID). Empty string = all projects. */
   projectId: string;
+  /** Customer filter (UUID). Empty string = all customers. Currently honoured
+   *  only by the customer-summary report. */
+  customerId: string;
 };
 
 export const REPORT_TYPES = [
@@ -19,6 +22,7 @@ export const REPORT_TYPES = [
   'purchase-orders',
   'landed-cost',
   'vat-quarterly',
+  'customer-summary',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
@@ -31,6 +35,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'purchase-orders': 'Purchase Order Summary',
   'landed-cost': 'Landed Cost Summary',
   'vat-quarterly': 'VAT Quarterly Report',
+  'customer-summary': 'Customer Summary Report',
 };
 
 export const REPORT_DESCRIPTION: Record<ReportType, string> = {
@@ -50,6 +55,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Landed-cost imports with CIF, duty, VAT, and per-unit cost.',
   'vat-quarterly':
     'Accrual-basis VAT liability by quarter — every sent invoice with VAT, grouped by quarter of sent date.',
+  'customer-summary':
+    'Pick a customer — see every project they own with contract, billed, still billable, collected, and a list of their invoices.',
 };
 
 /**
@@ -65,6 +72,24 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   'purchase-orders': true,
   'landed-cost': true,
   'vat-quarterly': false,
+  'customer-summary': false,
+};
+
+/**
+ * Whether a report supports filtering by customer. Today only the
+ * customer-summary report does — the rest treat customer as a per-project
+ * dimension and use the project filter instead.
+ */
+export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
+  'project-financial': false,
+  'job-cost': false,
+  'accounts-receivable': false,
+  'invoice-summary': false,
+  'payment-summary': false,
+  'purchase-orders': false,
+  'landed-cost': false,
+  'vat-quarterly': false,
+  'customer-summary': true,
 };
 
 export function parseReportFilters(
@@ -79,6 +104,7 @@ export function parseReportFilters(
     from: get('from'),
     to: get('to'),
     projectId: get('projectId'),
+    customerId: get('customerId'),
   };
 }
 
@@ -108,6 +134,7 @@ export function buildCsvUrl(type: ReportType, filters: ReportFilters): string {
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   if (filters.projectId) params.set('projectId', filters.projectId);
+  if (filters.customerId) params.set('customerId', filters.customerId);
   const qs = params.toString();
   return `/reports/${type}/export.csv${qs ? `?${qs}` : ''}`;
 }
