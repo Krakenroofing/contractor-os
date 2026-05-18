@@ -12,6 +12,7 @@ import {
   ALLOWED_STATEMENT_MIME,
   MAX_STATEMENT_BYTES,
   StatementStorageNotConfiguredError,
+  deleteStatementBlob,
   downloadStatementBytes,
   uploadStatementFile,
 } from '@/lib/storage/statement-files';
@@ -21,6 +22,7 @@ import {
 } from '@/lib/data/bank-accounts';
 import {
   createImportBatch,
+  deleteImportBatch,
   getImportBatch,
   updateImportBatch,
   upsertMapping,
@@ -191,6 +193,43 @@ export async function uploadStatementAction(
   }
   revalidatePath('/banking');
   redirect(`/banking/import/${createdBatchId}` as never);
+}
+
+// ===== Delete an import batch =====
+//
+// Hard-delete: transactions and any match rows cascade automatically via the
+// FK chain (imported_transactions.batchId → CASCADE, transaction_matches
+// .importedTransactionId → CASCADE). The matched invoice/receipt/job-cost
+// rows themselves are NOT deleted — only the match link is severed, so they
+// revert to "unmatched" naturally. The uploaded source file in Supabase
+// Storage is removed best-effort after the row delete; a storage failure
+// does not roll back the DB delete.
+
+export async function deleteImportBatchAction(input: {
+  batchId: string;
+}): Promise<{ ok: boolean; error?: string; bankAccountId?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'statement_imports')) {
+    return { ok: false, error: 'No permission to delete statement imports.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const batchIdParsed = z.string().uuid().safeParse(input.batchId);
+  if (!batchIdParsed.success) {
+    return { ok: false, error: 'Invalid batch id.' };
+  }
+  const deleted = await deleteImportBatch(companyId, batchIdParsed.data);
+  if (!deleted) return { ok: false, error: 'Import batch not found.' };
+  // Best-effort storage cleanup. We've already removed the DB row, so even
+  // if the blob lingers it's orphaned and harmless.
+  try {
+    await deleteStatementBlob(deleted.storagePath);
+  } catch {
+    // Swallow — DB delete already succeeded.
+  }
+  revalidatePath('/banking');
+  revalidatePath(`/banking/accounts/${deleted.bankAccountId}`);
+  return { ok: true, bankAccountId: deleted.bankAccountId };
 }
 
 // ===== Commit import =====

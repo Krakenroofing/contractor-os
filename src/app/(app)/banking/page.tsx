@@ -19,6 +19,7 @@ import {
   listImportBatches,
 } from '@/lib/data/statement-imports';
 import { BANK_ACCOUNT_TYPE_LABEL } from '@/modules/banking/schema';
+import { DeleteImportBatchButton } from '@/modules/banking/components/delete-import-batch-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -149,6 +150,7 @@ export default async function BankingHome() {
                   <TableHead className="text-right">Duplicates</TableHead>
                   <TableHead className="text-right">Errors</TableHead>
                   <TableHead>Uploaded</TableHead>
+                  {canImport && <TableHead className="text-right"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -178,6 +180,15 @@ export default async function BankingHome() {
                     <TableCell className="text-xs text-slate-500">
                       {b.createdAt.toISOString().slice(0, 10)}
                     </TableCell>
+                    {canImport && (
+                      <TableCell className="text-right">
+                        <DeleteImportBatchButton
+                          batchId={b.id}
+                          filename={b.sourceFilename}
+                          rowCount={b.rowCount}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

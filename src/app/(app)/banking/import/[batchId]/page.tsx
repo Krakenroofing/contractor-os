@@ -12,6 +12,7 @@ import { getBankAccount } from '@/lib/data/bank-accounts';
 import { downloadStatementBytes } from '@/lib/storage/statement-files';
 import { parseStatementBytes } from '@/modules/banking/lib/parse';
 import { MappingWizard } from '@/modules/banking/components/mapping-wizard';
+import { DeleteImportBatchButton } from '@/modules/banking/components/delete-import-batch-button';
 import type {
   AmountStrategy,
   ColumnMap,
@@ -81,20 +82,28 @@ export default async function MappingPage({
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <Link
-          href={{ pathname: '/banking' }}
-          className="text-xs text-slate-500 hover:text-slate-900"
-        >
-          ← Back to Banking
-        </Link>
-        <h1 className="text-xl font-semibold text-slate-900 mt-1">
-          Map columns
-        </h1>
-        <p className="text-sm text-slate-500">
-          {account.name} · {batch.sourceFilename} · {parsed.rows.length} row(s)
-          in file
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Link
+            href={{ pathname: '/banking' }}
+            className="text-xs text-slate-500 hover:text-slate-900"
+          >
+            ← Back to Banking
+          </Link>
+          <h1 className="text-xl font-semibold text-slate-900 mt-1">
+            Map columns
+          </h1>
+          <p className="text-sm text-slate-500">
+            {account.name} · {batch.sourceFilename} · {parsed.rows.length} row(s)
+            in file
+          </p>
+        </div>
+        <DeleteImportBatchButton
+          batchId={batch.id}
+          filename={batch.sourceFilename}
+          rowCount={parsed.rows.length}
+          redirectOnSuccess="/banking"
+        />
       </div>
       <Card>
         <CardHeader>

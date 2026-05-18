@@ -188,6 +188,33 @@ export async function updateImportBatch(
   return row;
 }
 
+/**
+ * Hard-delete an import batch and everything that hangs off it. Relies on
+ * the FK cascade: imported_transactions.batchId → cascade → transaction
+ * matches on those transactions → cascade. Matched invoices/receipts/job
+ * cost entries themselves are NOT touched; only the match link is severed,
+ * so the target record reverts to "unmatched" naturally.
+ *
+ * Returns the deleted batch row (so the caller can revalidate the right
+ * account page) or undefined if the batch wasn't found in this company.
+ */
+export async function deleteImportBatch(
+  companyId: string,
+  id: string,
+): Promise<StatementImportBatch | undefined> {
+  const db = requireDb();
+  const [row] = await db
+    .delete(statementImportBatches)
+    .where(
+      and(
+        eq(statementImportBatches.id, id),
+        eq(statementImportBatches.companyId, companyId),
+      ),
+    )
+    .returning();
+  return row;
+}
+
 // ===== Imported transactions =====
 
 export type ListImportedTransactionsFilters = {
