@@ -118,21 +118,40 @@ export async function createSignedLogoUrl(
 // @react-pdf/renderer's <Image> needs an actual data URL (or a URL the
 // server can fetch). Signed URLs work, but data URLs are more reliable
 // for cross-environment PDF rendering.
+//
+// Failure modes are logged (not thrown) so the PDF still renders without a
+// logo rather than crashing the whole export. The previous version
+// swallowed errors silently, which made it impossible to tell whether
+// "logo missing" was due to env misconfig, a bad path, or a storage
+// outage — the logs below give us that signal.
 export async function getCompanyLogoDataUrl(
   storagePath: string,
   mimeType: string | null = null,
 ): Promise<string | null> {
   const client = getSupabaseAdminClient();
-  if (!client) return null;
+  if (!client) {
+    console.error(
+      '[company-logos] Supabase admin client unavailable — set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. Logo will be omitted from PDF.',
+    );
+    return null;
+  }
   const { data, error } = await client.storage
     .from(COMPANY_LOGOS_BUCKET)
     .download(storagePath);
-  if (error || !data) return null;
+  if (error || !data) {
+    console.error(
+      `[company-logos] Failed to download logo at "${storagePath}": ${error?.message ?? 'no data returned'}. Logo will be omitted from PDF.`,
+    );
+    return null;
+  }
   try {
     const buf = Buffer.from(await data.arrayBuffer());
     const mime = mimeType || guessMime(storagePath) || 'image/png';
     return `data:${mime};base64,${buf.toString('base64')}`;
-  } catch {
+  } catch (err) {
+    console.error(
+      `[company-logos] Failed to encode logo at "${storagePath}": ${err instanceof Error ? err.message : String(err)}.`,
+    );
     return null;
   }
 }

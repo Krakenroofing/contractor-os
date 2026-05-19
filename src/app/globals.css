@@ -11,3 +11,40 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
     Cantarell, sans-serif;
 }
+
+/* Client-facing print output. The app sidebar and filter bar are hidden via
+   Tailwind `print:hidden`; this block sets the page geometry and forces color
+   preservation so the branded header, status pills, and currency colors don't
+   wash out when the user saves as PDF. */
+@media print {
+  @page {
+    size: Letter;
+    margin: 0.5in 0.5in 0.6in 0.5in;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a;
+  }
+
+  /* Preserve brand colors, status pills, and red/green money figures in PDFs.
+     Without this, Chromium-based browsers strip backgrounds and dull colors
+     when "Background graphics" is off in the print dialog. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Keep table headers visible across page breaks and avoid splitting a row
+     across pages. Affects all report tables. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  tfoot {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

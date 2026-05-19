@@ -176,11 +176,12 @@ const styles = StyleSheet.create({
     fontSize: pdfTheme.fontSize.md,
     fontFamily: 'Helvetica-Bold',
   },
-  // Larger box than the initials chip so brand marks aren't crushed.
-  // objectFit:'contain' preserves aspect ratio for tall or wide logos.
+  // Sized to match the on-screen DocumentBranding card (h-20 max-w-[180px]).
+  // objectFit:'contain' preserves aspect ratio so square marks (Kraken) and
+  // wide wordmarks (TRB) both render without distortion.
   logoImage: {
-    width: 90,
-    height: 42,
+    width: 130,
+    height: 60,
     objectFit: 'contain',
   },
   dataTableTitle: {
@@ -257,7 +258,13 @@ function HeaderBlock({ payload }: { payload: DocumentPayload }) {
           <Image src={c.logoDataUrl!} style={styles.logoImage} />
         ) : null}
         <View>
-          <Text style={styles.companyName}>{c.name}</Text>
+          {/* Suppress the text company-name when a logo is present —
+              uploaded logos almost always include the company wordmark,
+              so rendering both reads as duplication. Mirrors the on-screen
+              DocumentBranding card. */}
+          {!hasLogo ? (
+            <Text style={styles.companyName}>{c.name}</Text>
+          ) : null}
           {companyAddress(c) ? (
             <Text style={styles.muted}>{companyAddress(c)}</Text>
           ) : null}
