@@ -1216,10 +1216,16 @@ export type CustomerProjectRow = {
   totalInvoicedVat: number;
   baseInvoiced: number;
   coInvoiced: number;
-  /** Revised contract − billed (gross). Negative means over-billed. */
+  /** Revised contract − billed (NET, ex-VAT). Apples-to-apples comparison:
+   *  the contract amount is the net the customer owes for work, and the
+   *  net billed is what we've invoiced for that work — VAT is a separate
+   *  liability collected on behalf of the government and is never part of
+   *  "what's left to bill on the job". Negative means over-billed against
+   *  the revised contract. */
   stillBillable: number;
   totalPaid: number;
   totalPaidNet: number;
+  totalPaidVat: number;
   outstandingAR: number;
   retainageHeld: number;
   retainageReleased: number;
@@ -1264,6 +1270,7 @@ export type CustomerSummaryReport = {
     stillBillable: number;
     totalPaid: number;
     totalPaidNet: number;
+    totalPaidVat: number;
     outstandingAR: number;
     retainageHeld: number;
     retainageReleased: number;
@@ -1298,6 +1305,7 @@ export async function buildCustomerSummaryReport(
         stillBillable: 0,
         totalPaid: 0,
         totalPaidNet: 0,
+        totalPaidVat: 0,
         outstandingAR: 0,
         retainageHeld: 0,
         retainageReleased: 0,
@@ -1327,9 +1335,18 @@ export async function buildCustomerSummaryReport(
         invoicedVat: acc.invoicedVat + b.totalInvoicedVat,
         paid: acc.paid + b.totalPaid,
         paidNet: acc.paidNet + b.totalPaidNet,
+        paidVat: acc.paidVat + b.totalPaidVat,
         outstanding: acc.outstanding + b.outstandingBalance,
       }),
-      { invoiced: 0, invoicedNet: 0, invoicedVat: 0, paid: 0, paidNet: 0, outstanding: 0 },
+      {
+        invoiced: 0,
+        invoicedNet: 0,
+        invoicedVat: 0,
+        paid: 0,
+        paidNet: 0,
+        paidVat: 0,
+        outstanding: 0,
+      },
     );
 
     const totalInvoiced = bySource.base.totalInvoiced + coTotals.invoiced;
@@ -1337,6 +1354,7 @@ export async function buildCustomerSummaryReport(
     const totalInvoicedVat = bySource.base.totalInvoicedVat + coTotals.invoicedVat;
     const totalPaid = bySource.base.totalPaid + coTotals.paid;
     const totalPaidNet = bySource.base.totalPaidNet + coTotals.paidNet;
+    const totalPaidVat = bySource.base.totalPaidVat + coTotals.paidVat;
     const outstandingAR = bySource.base.outstandingBalance + coTotals.outstanding;
     const retainageHeld =
       bySource.base.retainageHeld +
@@ -1348,7 +1366,12 @@ export async function buildCustomerSummaryReport(
     const contractValue = parseMoney(p.originalContractValue);
     const revisedContractValue = parseMoney(p.contractValue);
     const changeOrdersTotal = subtract(revisedContractValue, contractValue);
-    const stillBillable = round2(subtract(revisedContractValue, totalInvoiced));
+    // Contract values are stored NET (ex-VAT) because VAT is not part of
+    // the contracted scope — it's an additional liability collected on
+    // each invoice. Comparing the net contract against gross billed makes
+    // every VAT-active project look over-billed by the VAT amount, so the
+    // comparison must be net-vs-net.
+    const stillBillable = round2(subtract(revisedContractValue, totalInvoicedNet));
 
     projectRows.push({
       projectId: p.id,
@@ -1366,6 +1389,7 @@ export async function buildCustomerSummaryReport(
       stillBillable,
       totalPaid: round2(totalPaid),
       totalPaidNet: round2(totalPaidNet),
+      totalPaidVat: round2(totalPaidVat),
       outstandingAR: round2(outstandingAR),
       retainageHeld: round2(retainageHeld),
       retainageReleased: round2(retainageReleased),
@@ -1420,6 +1444,7 @@ export async function buildCustomerSummaryReport(
       stillBillable: add(acc.stillBillable, r.stillBillable),
       totalPaid: add(acc.totalPaid, r.totalPaid),
       totalPaidNet: add(acc.totalPaidNet, r.totalPaidNet),
+      totalPaidVat: add(acc.totalPaidVat, r.totalPaidVat),
       outstandingAR: add(acc.outstandingAR, r.outstandingAR),
       retainageHeld: add(acc.retainageHeld, r.retainageHeld),
       retainageReleased: add(acc.retainageReleased, r.retainageReleased),
@@ -1439,6 +1464,7 @@ export async function buildCustomerSummaryReport(
       stillBillable: 0,
       totalPaid: 0,
       totalPaidNet: 0,
+      totalPaidVat: 0,
       outstandingAR: 0,
       retainageHeld: 0,
       retainageReleased: 0,

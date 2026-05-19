@@ -92,13 +92,15 @@ export default async function CustomerSummaryReportPage({
                     ? 'text-slate-900'
                     : 'text-emerald-700'
               }
-              hint="Revised contract − billed"
+              hint="Revised contract − billed (net)"
             />
             <KPI
               label="Collected (gross)"
               value={formatMoney(report.totals.totalPaid)}
               valueClassName="text-emerald-700"
-              hint={`net ${formatMoney(report.totals.totalPaidNet)}`}
+              hint={`net ${formatMoney(report.totals.totalPaidNet)} · VAT ${formatMoney(
+                report.totals.totalPaidVat,
+              )}`}
             />
             <KPI
               label="Outstanding AR"
@@ -297,9 +299,15 @@ export default async function CustomerSummaryReportPage({
 
           <p className="text-xs text-slate-500">
             <strong>Contract value</strong> is the revised contract (base +
-            approved COs). <strong>Still billable</strong> = revised contract −
-            billed (gross). Negative means over-billed.{' '}
-            <strong>Outstanding AR</strong> = billed − collected.
+            approved COs), stored net of VAT. <strong>Billed (gross)</strong>{' '}
+            includes VAT; the net + VAT breakdown is shown beneath.{' '}
+            <strong>Still billable</strong> = revised contract − billed{' '}
+            <em>net</em> — net vs net, because VAT is a separate liability
+            collected on behalf of the government and is not part of contract
+            scope. Negative means over-billed.{' '}
+            <strong>Collected (gross)</strong> includes VAT received; the
+            net + VAT breakdown is shown beneath.{' '}
+            <strong>Outstanding AR</strong> = billed − collected (both gross).
           </p>
         </>
       )}
