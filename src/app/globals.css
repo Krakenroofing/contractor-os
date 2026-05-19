@@ -20,6 +20,19 @@ body {
   @page {
     size: Letter;
     margin: 0.5in 0.5in 0.6in 0.5in;
+
+    /* Best-effort blanking of the browser's auto-inserted URL / date /
+       page-number footer. Firefox honors these margin-box rules so its
+       printouts come out clean. Chromium-based browsers (Chrome, Edge,
+       Brave) ignore them when the user's print dialog has "Headers and
+       footers" checked — there's no CSS way to force that off, so the
+       filter bar shows an inline tip telling the user to uncheck it once. */
+    @top-left { content: ''; }
+    @top-center { content: ''; }
+    @top-right { content: ''; }
+    @bottom-left { content: ''; }
+    @bottom-center { content: ''; }
+    @bottom-right { content: ''; }
   }
 
   html,

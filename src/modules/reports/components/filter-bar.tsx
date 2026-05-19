@@ -132,18 +132,25 @@ export function FilterBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-        <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
-          Print / Save as PDF
-        </Button>
-        <Link href={{ pathname: csvHref }} target="_blank" rel="noopener noreferrer">
-          <Button type="button" variant="outline" size="sm">
-            Download CSV
+      <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+            Print / Save as PDF
           </Button>
-        </Link>
-        <p className="text-xs text-slate-500 ml-2">
-          Print uses your browser&apos;s print dialog (choose &ldquo;Save as PDF&rdquo;
-          to save). CSV is filtered to match the visible rows.
+          <Link href={{ pathname: csvHref }} target="_blank" rel="noopener noreferrer">
+            <Button type="button" variant="outline" size="sm">
+              Download CSV
+            </Button>
+          </Link>
+        </div>
+        <p className="text-xs text-slate-500">
+          Print opens your browser&apos;s dialog — choose &ldquo;Save as PDF&rdquo; for
+          a file. CSV is filtered to match the visible rows.
+        </p>
+        <p className="text-xs text-amber-700">
+          <strong>To hide the URL and timestamp on the printed page:</strong> in
+          the print dialog, open <em>More settings</em> and uncheck{' '}
+          <em>Headers and footers</em>. The setting persists for future prints.
         </p>
       </div>
     </div>
