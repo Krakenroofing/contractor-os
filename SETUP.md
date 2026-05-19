@@ -1,6 +1,6 @@
 # Setup — Demo Mode → Supabase Postgres
 
-Contractor OS runs in two modes. The choice happens at startup via the
+KrakenOps Pro runs in two modes. The choice happens at startup via the
 `DATABASE_URL` environment variable.
 
 | Mode | When | Foundation entities (companies / customers / projects / vendors) | Everything else |

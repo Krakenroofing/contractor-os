@@ -95,7 +95,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <aside className="w-64 shrink-0 border-r border-slate-200 bg-white flex flex-col print:hidden">
         <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between gap-2">
           <Link href={{ pathname: '/dashboard' }} className="text-base font-semibold text-slate-900">
-            Contractor OS
+            KrakenOps Pro
           </Link>
           {/* Demo-mode badge — local development only. Never rendered in
               production builds (see isDevDemoMode in src/lib/auth). */}

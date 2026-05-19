@@ -7,7 +7,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <p className="text-base font-semibold text-slate-900">Contractor OS</p>
+          <p className="text-base font-semibold text-slate-900">KrakenOps Pro</p>
           <p className="text-xs text-slate-500 mt-0.5">Sign in to continue</p>
         </div>
         {children}

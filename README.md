@@ -1,4 +1,4 @@
-# Contractor OS
+# KrakenOps Pro
 
 Modular operations platform for roofing and general contracting companies. See [PRODUCT_PLAN.md](./PRODUCT_PLAN.md) for the full product spec.
 

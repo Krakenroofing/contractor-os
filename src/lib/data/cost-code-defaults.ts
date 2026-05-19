@@ -1,4 +1,4 @@
-// Canonical default cost-code library for Contractor OS.
+// Canonical default cost-code library for KrakenOps Pro.
 //
 // This file is the single source of truth for the global library. It is
 // consumed by:

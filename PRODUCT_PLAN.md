@@ -1,6 +1,6 @@
-# Contractor OS — V1 Product Plan
+# KrakenOps Pro — V1 Product Plan
 
-A modular operations platform for roofing and general contracting companies. The thesis is simple: contractors lose margin between the estimate and the closeout because the numbers live in three different systems. Contractor OS owns the job-profitability loop — estimate → proposal → change orders → POs → actual costs → P&L — and hands clean data off to QuickBooks, payroll, and tax tools instead of trying to replace them.
+A modular operations platform for roofing and general contracting companies. The thesis is simple: contractors lose margin between the estimate and the closeout because the numbers live in three different systems. KrakenOps Pro owns the job-profitability loop — estimate → proposal → change orders → POs → actual costs → P&L — and hands clean data off to QuickBooks, payroll, and tax tools instead of trying to replace them.
 
 ---
 
@@ -404,7 +404,7 @@ Sequence after V1 ships, ordered by customer-pull and difficulty.
 ### Integration design principles
 - Every integration is **opt-in per company** and configurable per object (e.g. sync customers but not invoices).
 - All sync is **idempotent and audited** — every external write goes through a queue with retries and a per-record sync log.
-- We never become the **system of record for the GL** — accounting tools own that. Contractor OS owns the job-level financial truth and pushes summaries.
+- We never become the **system of record for the GL** — accounting tools own that. KrakenOps Pro owns the job-level financial truth and pushes summaries.
 - Webhooks from us → customer endpoints from day one (V1.1) so power users can build their own automations.
 
 ---
