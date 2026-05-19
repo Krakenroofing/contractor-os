@@ -2387,6 +2387,34 @@ export function createMockPayment(
   return payment;
 }
 
+/**
+ * Mirror of the DB-mode deleteOrphanedPaymentsForVoidedInvoice. Hard-gates on
+ * status === 'void' so the same safety contract holds in demo mode.
+ */
+export function deleteOrphanedPaymentsForVoidedInvoice(
+  companyId: string,
+  invoiceId: string,
+): { deletedCount: number; deletedAmount: number } {
+  const store = getStore();
+  const inv = store.invoices.find(
+    (i) => i.id === invoiceId && i.companyId === companyId,
+  );
+  if (!inv) {
+    throw new Error('Invoice not found in active company');
+  }
+  if (inv.status !== 'void') {
+    throw new Error('Refusing to delete payments: invoice is not voided.');
+  }
+  const toRemove = store.invoicePayments.filter((p) => p.invoiceId === invoiceId);
+  if (toRemove.length === 0) return { deletedCount: 0, deletedAmount: 0 };
+  const deletedAmount = toRemove.reduce((s, p) => s + Number(p.amount), 0);
+  store.invoicePayments = store.invoicePayments.filter(
+    (p) => p.invoiceId !== invoiceId,
+  );
+  recomputeInvoicePaymentState(invoiceId);
+  return { deletedCount: toRemove.length, deletedAmount };
+}
+
 // =====================================================================
 // Retainage releases — first-class
 // =====================================================================

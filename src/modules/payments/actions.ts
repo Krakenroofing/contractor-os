@@ -9,8 +9,13 @@ import { toMoneyString } from '@/lib/money';
 import { getInvoice } from '@/lib/data/invoices';
 import {
   createPayment,
+  deleteOrphanedPaymentsForVoidedInvoice,
   DuplicatePaymentNumberError,
+  InvoiceNotVoidedError,
 } from '@/lib/data/invoice-payments';
+import { appendActivity } from '@/lib/mock-store';
+import { ROLE_LABELS } from '@/lib/permissions';
+import { formatMoney } from '@/lib/money';
 import { paymentFormSchema } from './schema';
 
 export type CreatePaymentState = {
@@ -90,4 +95,75 @@ export async function createPaymentAction(
   // recorded.
   revalidatePath('/dashboard');
   redirect(`/payments/${createdId}`);
+}
+
+export type DeleteOrphanedPaymentsState = {
+  ok?: boolean;
+  formError?: string;
+  result?: { deletedCount: number; deletedAmount: number };
+};
+
+/**
+ * Action wired to the "Delete payment rows" buttons on both the voided
+ * invoice detail page and the /settings/diagnostics card. Only deletes
+ * payments on voided invoices (the data layer enforces this), so a slip
+ * can't silently wipe a live invoice's payments.
+ */
+export async function deleteOrphanedPaymentsAction(
+  _prev: DeleteOrphanedPaymentsState,
+  formData: FormData,
+): Promise<DeleteOrphanedPaymentsState> {
+  const role = await getActiveRole();
+  // Same permission gate as creating payments — only roles that can record
+  // payments can erase the orphan rows on a voided invoice.
+  if (!canCreate(role, 'payments')) {
+    return { formError: 'Not allowed to delete payments.' };
+  }
+  const invoiceId = formData.get('invoiceId');
+  if (typeof invoiceId !== 'string' || invoiceId === '') {
+    return { formError: 'Missing invoice id.' };
+  }
+  const companyId = await getActiveCompanyId();
+  // Pre-fetch for the activity-log entry below; also confirms the invoice
+  // belongs to the active company before we attempt the delete.
+  const invoice = await getInvoice(companyId, invoiceId);
+  if (!invoice) return { formError: 'Invoice not found.' };
+
+  let result: { deletedCount: number; deletedAmount: number };
+  try {
+    result = await deleteOrphanedPaymentsForVoidedInvoice(companyId, invoiceId);
+  } catch (err) {
+    if (err instanceof InvoiceNotVoidedError) {
+      return { formError: 'Refusing to delete: invoice is not voided.' };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to delete payments: ${message}` };
+  }
+
+  if (result.deletedCount === 0) {
+    return { formError: 'No payment rows to delete on this invoice.' };
+  }
+
+  appendActivity(companyId, {
+    entityType: 'invoice',
+    entityId: invoiceId,
+    kind: 'payment_deleted',
+    summary: `Deleted ${result.deletedCount} orphaned payment row${
+      result.deletedCount === 1 ? '' : 's'
+    } (${formatMoney(result.deletedAmount)}) from voided invoice ${invoice.number}`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePath('/payments');
+  revalidatePath('/invoices');
+  revalidatePath(`/invoices/${invoiceId}`);
+  revalidatePath(`/projects/${invoice.projectId}`);
+  revalidatePath('/accounts-receivable');
+  revalidatePath('/dashboard');
+  revalidatePath('/settings/diagnostics');
+  // Customer summary report aggregates payment data — refresh too.
+  revalidatePath('/reports/customer-summary');
+  revalidatePath('/reports/payment-summary');
+
+  return { ok: true, result };
 }

@@ -35,6 +35,7 @@ import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
 import { InvoiceActionsBar } from '@/modules/invoices/components/invoice-actions-bar';
 import { DocumentDownloadButtons } from '@/components/document-download-buttons';
+import { DeleteOrphanedPaymentsButton } from '@/modules/payments/components/delete-orphaned-payments-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -210,6 +211,33 @@ export default async function InvoiceDetailPage({
           { label: 'Paid', value: invoice.paidAt },
         ]}
       />
+
+      {/* Orphaned-payments notice: only rendered when the invoice is voided
+          AND payment rows exist on it. Voids should make payments vanish
+          from every total, so the existence of payment rows on a void is a
+          data-cleanliness flag the operator needs to resolve. The button
+          deletes the orphans after a two-click confirm; activity log
+          captures the action. */}
+      {invoice.status === 'void' && payments.length > 0 && allowCreate && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-2">
+          <p>
+            <strong>
+              This voided invoice still has {payments.length} payment row
+              {payments.length === 1 ? '' : 's'} attached.
+            </strong>{' '}
+            Voided invoices vanish from every report total, but the underlying
+            payment rows stay until removed. If those payments were duplicates
+            (e.g. you re-invoiced and the customer&apos;s cash was re-applied
+            to the corrected invoice), delete them here. If the cash was real,
+            re-apply it to the right invoice via <em>Record Payment</em> on
+            that invoice first, then delete these.
+          </p>
+          <DeleteOrphanedPaymentsButton
+            invoiceId={invoice.id}
+            paymentCount={payments.length}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPI label="Billing type" value={BILLING_TYPE_LABEL[invoice.billingType]} />

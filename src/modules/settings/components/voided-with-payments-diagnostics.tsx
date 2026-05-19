@@ -39,6 +39,7 @@ import {
   customers,
 } from '@/db/schema';
 import { formatMoney, parseMoney } from '@/lib/money';
+import { DeleteOrphanedPaymentsButton } from '@/modules/payments/components/delete-orphaned-payments-button';
 
 type VoidedRow = {
   invoiceId: string;
@@ -142,6 +143,7 @@ export async function VoidedWithPaymentsDiagnostics() {
                     <TableHead className="text-right">Voided total</TableHead>
                     <TableHead className="text-right">Payments</TableHead>
                     <TableHead className="text-right">Cash logged</TableHead>
+                    <TableHead className="text-right">Cleanup</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -172,6 +174,12 @@ export async function VoidedWithPaymentsDiagnostics() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-amber-700 font-medium">
                         {formatMoney(r.paymentTotal)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DeleteOrphanedPaymentsButton
+                          invoiceId={r.invoiceId}
+                          paymentCount={r.paymentCount}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

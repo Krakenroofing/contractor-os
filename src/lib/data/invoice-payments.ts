@@ -25,6 +25,7 @@ import {
   getMockInvoicePayments as mockGetForInvoice,
   listInvoicePaymentsForCompany as mockListForCompany,
   createMockPayment as mockCreate,
+  deleteOrphanedPaymentsForVoidedInvoice as mockDeleteOrphanedPayments,
   recomputeInvoicePaymentStateInMemory,
   DuplicatePaymentNumberError,
   type CreatePaymentInput,
@@ -210,4 +211,63 @@ export async function createPayment(
     return inserted[0];
   }
   return mockCreate(companyId, input);
+}
+
+/**
+ * Hard-delete every payment row attached to a voided invoice. Used by the
+ * voided-invoices-with-orphaned-payments cleanup flow when the operator has
+ * confirmed the payment was a duplicate (cash already re-recorded against a
+ * corrected invoice).
+ *
+ * Hard-gated: throws if the invoice is not actually voided, so the operator
+ * can't accidentally wipe payments off a live invoice through this path.
+ * Returns the number of rows deleted and the combined amount for activity
+ * logging.
+ */
+export class InvoiceNotVoidedError extends Error {
+  constructor() {
+    super('Refusing to delete payments: invoice is not voided.');
+    this.name = 'InvoiceNotVoidedError';
+  }
+}
+
+export async function deleteOrphanedPaymentsForVoidedInvoice(
+  companyId: string,
+  invoiceId: string,
+): Promise<{ deletedCount: number; deletedAmount: number }> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    // Verify invoice exists in the active company AND is voided.
+    const invRows = await db
+      .select({ id: invoices.id, status: invoices.status })
+      .from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId)))
+      .limit(1);
+    const inv = invRows[0];
+    if (!inv) {
+      throw new Error('Invoice not found in active company');
+    }
+    if (inv.status !== 'void') {
+      throw new InvoiceNotVoidedError();
+    }
+    // Snapshot for the return value, then delete.
+    const toDelete = await db
+      .select({ amount: invoicePayments.amount })
+      .from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceId));
+    if (toDelete.length === 0) {
+      return { deletedCount: 0, deletedAmount: 0 };
+    }
+    const deletedAmount = toDelete.reduce((s, r) => s + Number(r.amount), 0);
+    await db
+      .delete(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceId));
+    // Recompute so amountPaid reflects the now-empty payment set. The void
+    // status stays put (recompute only flips paid → sent when there were
+    // payments; for void invoices the else-if doesn't match).
+    await recomputeInvoicePaymentState(invoiceId);
+    return { deletedCount: toDelete.length, deletedAmount };
+  }
+  // Demo mode: mock-store path.
+  return mockDeleteOrphanedPayments(companyId, invoiceId);
 }
