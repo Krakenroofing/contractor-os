@@ -134,11 +134,17 @@ export async function updateProjectAction(
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
 
-  // Note: we deliberately do NOT update `number` (immutable display id) or
-  // `originalContractValue` (kept as audit trail). `currentBudget` follows
-  // the form's estimatedBudget field exactly like create. Change orders
-  // continue to flow through their own action; we don't touch
-  // `totalChangeOrders` here.
+  // The form's "Base contract value" field IS the base — it maps to
+  // originalContractValue. Editing it must keep the invariant:
+  //
+  //   contractValue (revised) = originalContractValue + sum(approved COs)
+  //
+  // We set originalContractValue from the form, then call the recompute
+  // helper to derive contractValue from it + the actual approved-CO sum.
+  // The old behavior — updating only contractValue and "preserving"
+  // originalContractValue as an audit trail — silently broke the invariant
+  // every time the operator corrected a contract value, which is why
+  // Customer Summary stillBillable on West Wind and MoH didn't tie out.
   try {
     const updated = await updateProject(companyId, id, {
       customerId: data.customerId,
@@ -154,6 +160,10 @@ export async function updateProjectAction(
       startDate: emptyToNull(data.startDate ?? null),
       targetCompletionDate: emptyToNull(data.targetCompletionDate ?? null),
       actualCompletionDate: null,
+      // Set originalContractValue from the form. contractValue gets
+      // overwritten below by the recompute; setting it here too keeps the
+      // row internally consistent if recompute fails for any reason.
+      originalContractValue: data.contractValue,
       contractValue: data.contractValue,
       currentBudget: data.estimatedBudget,
       notes: emptyToNull(data.notes ?? null),
@@ -161,6 +171,10 @@ export async function updateProjectAction(
     if (!updated) {
       return { formError: 'Project not found in the active company.' };
     }
+    // Re-derive contractValue = originalContractValue + sum(approved COs).
+    // Quiet no-op in demo mode (recompute returns null when the DB isn't
+    // configured); demo path uses the mock-store update above directly.
+    await recomputeProjectContractTotalsFromCOs(id);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to save project: ${message}` };
@@ -168,6 +182,10 @@ export async function updateProjectAction(
 
   revalidatePath('/projects');
   revalidatePath(`/projects/${id}`);
+  // Customer Summary aggregates contract value — refresh it too so the
+  // operator sees the corrected stillBillable on the next page load.
+  revalidatePath('/reports/customer-summary');
+  revalidatePath('/dashboard');
   redirect(`/projects/${id}`);
 }
 

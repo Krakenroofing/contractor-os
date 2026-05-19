@@ -67,7 +67,12 @@ export default async function EditProjectPage({
           jobsitePostalCode: project.jobsitePostalCode ?? '',
           startDate: project.startDate ?? '',
           targetCompletionDate: project.targetCompletionDate ?? '',
-          contractValue: project.contractValue,
+          // Show the BASE contract (originalContractValue), not the revised
+          // total. The form's "Contract value" field is the signed-contract
+          // amount before COs; revisions flow through approved change
+          // orders, not through this field. The action layer keeps the
+          // revised total in sync via recomputeProjectChangeOrderTotals.
+          contractValue: project.originalContractValue,
           estimatedBudget: project.currentBudget,
           notes: project.notes ?? '',
         }}

@@ -144,15 +144,17 @@ export function ProjectForm({
         </Field>
 
         <Field
-          label="Contract value (net, ex-VAT)"
+          label="Base contract value (net, ex-VAT, before change orders)"
           error={err('contractValue')}
           hint={
             <>
-              Enter the contracted amount <strong>before VAT</strong>. If the
-              signed contract is $110,000 incl. 10% VAT, enter $100,000 here.
-              VAT is added on each invoice and tracked separately as a
-              liability — it&apos;s not part of contract scope, so reports
-              compare net contract vs net billed.
+              Enter the <strong>signed contract amount before VAT</strong> and{' '}
+              <strong>before any change orders</strong>. Approved change
+              orders are tracked separately and roll up into the Revised
+              Contract figure on the project page. Example: signed contract
+              $110,000 incl. 10% VAT → enter $100,000 here. The system
+              auto-recomputes the revised total ({' '}base + approved COs)
+              on save.
             </>
           }
         >
