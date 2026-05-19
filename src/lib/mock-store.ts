@@ -2251,8 +2251,14 @@ export function getMockInvoicePayments(invoiceId: string): InvoicePayment[] {
 
 export function listInvoicePaymentsForCompany(companyId: string): InvoicePayment[] {
   const store = getStore();
+  // Exclude voided invoices' payments — same rule as the DB-mode listing.
+  // Voided invoice = cash never hit the bank, so it must not show up in any
+  // total. The payment rows stay in the store for audit / recovery but no
+  // aggregation surfaces them.
   const invoiceIds = new Set(
-    store.invoices.filter((i) => i.companyId === companyId).map((i) => i.id),
+    store.invoices
+      .filter((i) => i.companyId === companyId && i.status !== 'void')
+      .map((i) => i.id),
   );
   return store.invoicePayments.filter((p) => invoiceIds.has(p.invoiceId));
 }

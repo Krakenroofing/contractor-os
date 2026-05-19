@@ -12,7 +12,7 @@
 //   - Demo mode: existing in-memory mutation in mock-store
 
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import {
   invoicePayments,
   invoices,
@@ -33,6 +33,13 @@ import {
 export { DuplicatePaymentNumberError };
 export type { CreatePaymentInput };
 
+// Voided invoices vanish from every total in this system — that's the
+// operator's mental model ("the payment never hit the bank"). Banking
+// reconciliation is a separate surface; the cash from a voided invoice's
+// payment is something the operator handles manually (refund the customer
+// or re-apply the cash to a different invoice). The filter below stops
+// orphaned payments from polluting AR, the payment summary report, and
+// every other aggregation that scans the payments table.
 export async function listPayments(companyId: string): Promise<InvoicePayment[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
@@ -40,7 +47,12 @@ export async function listPayments(companyId: string): Promise<InvoicePayment[]>
       .select({ p: invoicePayments })
       .from(invoicePayments)
       .innerJoin(invoices, eq(invoicePayments.invoiceId, invoices.id))
-      .where(eq(invoices.companyId, companyId));
+      .where(
+        and(
+          eq(invoices.companyId, companyId),
+          ne(invoices.status, 'void'),
+        ),
+      );
     return rows
       .map((r) => r.p)
       .sort((a, b) => b.paidDate.localeCompare(a.paidDate));
@@ -84,13 +96,19 @@ export async function listInvoicePaymentsForCompany(
 ): Promise<InvoicePayment[]> {
   if (isDatabaseConfigured()) {
     // Same shape as listPayments but ordering preserved (no sort) — used by
-    // cash-collected calc and aging derivations.
+    // cash-collected calc and aging derivations. Same void-filter rationale
+    // as listPayments: a voided invoice's payments vanish from every total.
     const db = getDb()!;
     const rows = await db
       .select({ p: invoicePayments })
       .from(invoicePayments)
       .innerJoin(invoices, eq(invoicePayments.invoiceId, invoices.id))
-      .where(eq(invoices.companyId, companyId));
+      .where(
+        and(
+          eq(invoices.companyId, companyId),
+          ne(invoices.status, 'void'),
+        ),
+      );
     return rows.map((r) => r.p);
   }
   return mockListForCompany(companyId);
