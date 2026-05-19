@@ -9,6 +9,7 @@ import { DiagnosticsBanner } from '@/components/diagnostics-banner';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { LogoStorageDiagnostics } from '@/modules/settings/components/logo-storage-diagnostics';
+import { VoidedWithPaymentsDiagnostics } from '@/modules/settings/components/voided-with-payments-diagnostics';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,8 @@ export default async function DiagnosticsPage() {
       </Card>
 
       <LogoStorageDiagnostics />
+
+      <VoidedWithPaymentsDiagnostics />
     </div>
   );
 }
