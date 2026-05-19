@@ -45,6 +45,12 @@ export default async function CustomerSummaryReportPage({
       customers={customers.map((c) => ({ id: c.id, label: c.name }))}
       companyName={company.name}
     >
+      {/* The Projects table on this report needs 14 audit-grade columns
+          (base contract → CO → revised → billed net/VAT/gross → collected
+          net/VAT/gross → still billable → AR → retainage). That doesn't
+          fit on Letter portrait without crushing every column. Override
+          the global @page rule to landscape JUST for this route. */}
+      <style>{`@media print { @page { size: Letter landscape; margin: 0.35in; } }`}</style>
       {!report.customer ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">
@@ -125,17 +131,28 @@ export default async function CustomerSummaryReportPage({
               </p>
             </div>
           ) : (
+            // Wide audit-grade layout: every gross / net / VAT amount lives in
+            // its own column so a government audit can trace each figure
+            // without parsing stacked sub-labels. Overflow on screen for the
+            // 14-column table; the print-mode landscape page (see <style>
+            // block below) makes the whole grid fit on paper.
             <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Project</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Contract value</TableHead>
-                    <TableHead className="text-right">Billed</TableHead>
-                    <TableHead className="text-right">Still billable</TableHead>
-                    <TableHead className="text-right">Collected</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Base\ncontract`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Approved\nCO`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Revised\ncontract`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Billed\nnet`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Billed\nVAT`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Billed\ngross`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Collected\nnet`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Collected\nVAT`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Collected\ngross`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Still\nbillable`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Outstanding\nAR`}</TableHead>
                     <TableHead className="text-right">Retainage</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -157,27 +174,31 @@ export default async function CustomerSummaryReportPage({
                         {r.status.replace('_', ' ')}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        <div className="font-medium">
-                          {formatMoney(r.revisedContractValue)}
-                        </div>
-                        {r.changeOrders > 0 && (
-                          <div className="text-[11px] text-slate-500 font-normal">
-                            base {formatMoney(r.contractValue)} · CO{' '}
-                            {formatMoney(r.changeOrders)}
-                          </div>
-                        )}
+                        {formatMoney(r.contractValue)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {formatMoney(r.changeOrders)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(r.revisedContractValue)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        <div>{formatMoney(r.totalInvoiced)}</div>
-                        <div className="text-[11px] text-slate-500 font-normal">
-                          net {formatMoney(r.totalInvoicedNet)}
-                        </div>
-                        {(r.coInvoiced > 0 || r.changeOrders > 0) && (
-                          <div className="text-[11px] text-slate-500 font-normal">
-                            base {formatMoney(r.baseInvoiced)} · CO{' '}
-                            {formatMoney(r.coInvoiced)}
-                          </div>
-                        )}
+                        {formatMoney(r.totalInvoicedNet)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {formatMoney(r.totalInvoicedVat)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(r.totalInvoiced)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-700">
+                        {formatMoney(r.totalPaidNet)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {formatMoney(r.totalPaidVat)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-700 font-medium">
+                        {formatMoney(r.totalPaid)}
                       </TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${
@@ -189,12 +210,6 @@ export default async function CustomerSummaryReportPage({
                         }`}
                       >
                         {formatMoney(r.stillBillable)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-emerald-700">
-                        <div>{formatMoney(r.totalPaid)}</div>
-                        <div className="text-[11px] text-slate-500 font-normal">
-                          net {formatMoney(r.totalPaidNet)}
-                        </div>
                       </TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${
@@ -208,6 +223,60 @@ export default async function CustomerSummaryReportPage({
                       </TableCell>
                     </TableRow>
                   ))}
+                  {/* Totals row — matches the KPI tiles and gives auditors a
+                      single anchored line per customer that ties out to every
+                      column. Styled distinctly so it doesn't get mistaken for
+                      another project. */}
+                  <TableRow className="bg-slate-50 font-semibold border-t-2 border-slate-300">
+                    <TableCell colSpan={2} className="text-slate-900 uppercase text-xs tracking-wide">
+                      Totals ({report.totals.projectCount} project
+                      {report.totals.projectCount === 1 ? '' : 's'})
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.contractValue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.changeOrders)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.revisedContractValue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.totalInvoicedNet)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.totalInvoicedVat)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.totalInvoiced)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-emerald-700">
+                      {formatMoney(report.totals.totalPaidNet)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.totalPaidVat)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-emerald-700">
+                      {formatMoney(report.totals.totalPaid)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        report.totals.stillBillable < 0 ? 'text-red-600' : ''
+                      }`}
+                    >
+                      {formatMoney(report.totals.stillBillable)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        report.totals.outstandingAR > 0 ? 'text-amber-700' : ''
+                      }`}
+                    >
+                      {formatMoney(report.totals.outstandingAR)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(report.totals.retainageBalance)}
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </div>
