@@ -31,6 +31,20 @@ export async function ReportShell({
 }) {
   return (
     <div className="p-8 max-w-[110rem] space-y-6 print:p-0 print:max-w-none">
+      {/* Force landscape orientation on every report PDF. Two reasons:
+            1. The audit-grade tables (Customer Summary's 14 columns, AR
+               aging breakdowns, etc.) need the wider page to render
+               without squeezing money figures into 1-character columns.
+            2. Some Chromium versions interpret `size: Letter landscape`
+               as "portrait page with rotated content" and the operator
+               has to hand-rotate every saved PDF. Passing explicit
+               dimensions (`11in 8.5in`) avoids that interpretation
+               entirely — the page IS landscape, not rotated portrait.
+          Other surfaces (invoices, proposals, POs, COs) keep the global
+          portrait setup from globals.css since their PDFs are
+          customer-facing letterhead, not wide tables. */}
+      <style>{`@media print { @page { size: 11in 8.5in; margin: 0.35in; } }`}</style>
+
       <div className="print:hidden">
         <Breadcrumbs
           items={[

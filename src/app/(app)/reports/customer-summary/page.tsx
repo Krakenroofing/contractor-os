@@ -45,12 +45,6 @@ export default async function CustomerSummaryReportPage({
       customers={customers.map((c) => ({ id: c.id, label: c.name }))}
       companyName={company.name}
     >
-      {/* The Projects table on this report needs 14 audit-grade columns
-          (base contract → CO → revised → billed net/VAT/gross → collected
-          net/VAT/gross → still billable → AR → retainage). That doesn't
-          fit on Letter portrait without crushing every column. Override
-          the global @page rule to landscape JUST for this route. */}
-      <style>{`@media print { @page { size: Letter landscape; margin: 0.35in; } }`}</style>
       {!report.customer ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">
