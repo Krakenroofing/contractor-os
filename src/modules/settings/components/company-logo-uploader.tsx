@@ -71,12 +71,16 @@ export function CompanyLogoUploader({
         >
           <div className="flex-1 min-w-[220px]">
             <Label className="text-xs">
-              Upload logo (PNG, JPG, WebP, GIF, or SVG, ≤ 5 MB)
+              Upload logo (PNG or JPG only, ≤ 5 MB)
             </Label>
             <Input
               type="file"
               name="logo"
-              accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml"
+              // PNG/JPG only — @react-pdf/renderer can't embed SVG, WebP, GIF,
+              // or AVIF into generated PDFs. Those formats render fine on
+              // screen but silently disappear from every invoice / proposal /
+              // PO / CO PDF the system downloads.
+              accept="image/png,image/jpeg,image/jpg"
               required
               className="bg-white"
             />

@@ -117,8 +117,27 @@ export async function LogoStorageDiagnostics() {
         checks.push({
           label: 'PDF payload includes logo data URL',
           pass: true,
-          detail: `buildCompanyInfo() returned a ${mime} data URL of ${dataUrlBytes.toLocaleString()} chars. The next invoice / proposal / PO / CO PDF will embed this logo.`,
+          detail: `buildCompanyInfo() returned a ${mime} data URL of ${dataUrlBytes.toLocaleString()} chars.`,
         });
+
+        // 6. @react-pdf/renderer only embeds raster images (PNG, JPEG). SVG,
+        //    WebP, GIF, and AVIF data URLs are silently dropped — the rest of
+        //    the PDF renders, but no logo appears. This is the most common
+        //    "everything looks fine but the logo isn't there" failure mode.
+        const PDF_COMPATIBLE = new Set(['image/png', 'image/jpeg', 'image/jpg']);
+        if (PDF_COMPATIBLE.has(mime)) {
+          checks.push({
+            label: '@react-pdf can embed this image format',
+            pass: true,
+            detail: `${mime} is a raster format @react-pdf supports. The next PDF you download will include the logo.`,
+          });
+        } else {
+          checks.push({
+            label: '@react-pdf can embed this image format',
+            pass: false,
+            detail: `${mime} is not embeddable by @react-pdf/renderer. It works on screen (browsers render it fine), which is why reports show the logo — but PDFs silently drop it. Fix: re-upload the logo as a PNG or JPEG.`,
+          });
+        }
       } else {
         checks.push({
           label: 'PDF payload includes logo data URL',

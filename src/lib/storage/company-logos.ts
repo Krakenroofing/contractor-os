@@ -20,13 +20,15 @@ export const COMPANY_LOGOS_BUCKET = 'company-logos';
 // high-DPI marks or vector exports rasterized to PNG.
 export const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
+// PNG and JPEG only — @react-pdf/renderer (used by every invoice / proposal /
+// PO / CO PDF export) cannot embed SVG, WebP, GIF, or AVIF. Those formats
+// render fine in the browser but silently vanish from generated PDFs, so
+// they're rejected at upload time to prevent the "logo on screen, missing
+// in PDF" trap.
 export const ALLOWED_LOGO_MIME = new Set<string>([
   'image/jpeg',
   'image/jpg',
   'image/png',
-  'image/webp',
-  'image/svg+xml',
-  'image/gif',
 ]);
 
 // 7 days. Logos render on the company-settings page, on every document
