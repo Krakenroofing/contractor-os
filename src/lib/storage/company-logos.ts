@@ -126,6 +126,14 @@ export async function createSignedLogoUrl(
 // swallowed errors silently, which made it impossible to tell whether
 // "logo missing" was due to env misconfig, a bad path, or a storage
 // outage — the logs below give us that signal.
+//
+// IMPORTANT: the mime type for the data URL is derived from magic bytes,
+// not from the filename extension. Users routinely upload PNGs saved with
+// a .jpg extension (or vice versa). Browsers tolerate the mismatch, but
+// @react-pdf does a strict format-specific decode — declaring image/jpeg
+// for actual PNG bytes makes the image silently disappear from PDFs. The
+// sniff path also catches the case where a file was renamed (e.g. an SVG
+// dropped in with a .png extension) before it reaches the renderer.
 export async function getCompanyLogoDataUrl(
   storagePath: string,
   mimeType: string | null = null,
@@ -148,7 +156,13 @@ export async function getCompanyLogoDataUrl(
   }
   try {
     const buf = Buffer.from(await data.arrayBuffer());
-    const mime = mimeType || guessMime(storagePath) || 'image/png';
+    const sniffed = sniffImageMime(buf);
+    const mime = sniffed || mimeType || guessMime(storagePath) || 'image/png';
+    if (sniffed && mimeType && sniffed !== mimeType) {
+      console.warn(
+        `[company-logos] Logo at "${storagePath}" was uploaded with mime "${mimeType}" but actual bytes are "${sniffed}". Using sniffed value so @react-pdf decodes correctly.`,
+      );
+    }
     return `data:${mime};base64,${buf.toString('base64')}`;
   } catch (err) {
     console.error(
@@ -156,6 +170,25 @@ export async function getCompanyLogoDataUrl(
     );
     return null;
   }
+}
+
+// Magic-byte sniff for the formats we accept. Returns null for anything
+// that isn't a real PNG or JPEG so the caller can fall back without
+// declaring a wrong mime.
+function sniffImageMime(buf: Buffer): string | null {
+  if (buf.length < 4) return null;
+  if (
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47
+  ) {
+    return 'image/png';
+  }
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  return null;
 }
 
 function guessMime(path: string): string | null {
