@@ -88,11 +88,56 @@ export async function LogoStorageDiagnostics() {
           detail: 'Storage returned no data and no error. Treat as a broken upload — re-upload the logo from Settings.',
         });
       } else {
-        const bytes = (await data.arrayBuffer()).byteLength;
+        const buf = Buffer.from(await data.arrayBuffer());
+        const bytes = buf.byteLength;
         checks.push({
           label: 'Logo file downloads from bucket',
           pass: true,
           detail: `Downloaded ${bytes.toLocaleString()} bytes.`,
+        });
+
+        // 4b. Magic-byte sniff. The file's declared mime (from the storage
+        //     path extension) is what we hand to @react-pdf, but the actual
+        //     file bytes are what gets decoded. If they disagree — e.g. an
+        //     SVG was uploaded with a .png filename, or an HEIC was renamed
+        //     to .jpg — the browser is forgiving and renders it on screen,
+        //     but @react-pdf does a strict PNG/JPEG decode and silently
+        //     drops the image. This check catches that mismatch.
+        const head = buf.subarray(0, Math.min(16, buf.byteLength));
+        const hex = Array.from(head)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join(' ');
+        const ascii = head.toString('utf8', 0, Math.min(8, head.length));
+        const isPng =
+          head[0] === 0x89 &&
+          head[1] === 0x50 &&
+          head[2] === 0x4e &&
+          head[3] === 0x47;
+        const isJpeg =
+          head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+        const looksLikeSvg = ascii.startsWith('<svg') || ascii.startsWith('<?xml');
+        const isGif = ascii.startsWith('GIF8');
+        const isWebp =
+          head[0] === 0x52 &&
+          head[1] === 0x49 &&
+          head[2] === 0x46 &&
+          head[3] === 0x46;
+
+        let actualFormat: string;
+        if (isPng) actualFormat = 'PNG';
+        else if (isJpeg) actualFormat = 'JPEG';
+        else if (looksLikeSvg) actualFormat = 'SVG (text-based)';
+        else if (isGif) actualFormat = 'GIF';
+        else if (isWebp) actualFormat = 'WebP / RIFF';
+        else actualFormat = `Unknown (first bytes: ${hex.slice(0, 23)})`;
+
+        const pdfReady = isPng || isJpeg;
+        checks.push({
+          label: 'File bytes match PNG or JPEG signature',
+          pass: pdfReady,
+          detail: pdfReady
+            ? `Magic bytes confirm a real ${actualFormat}. @react-pdf will accept this.`
+            : `Detected: ${actualFormat}. The file was stored with an extension that says PNG/JPG but the actual bytes are something else. @react-pdf does a strict decode and silently drops the image. Fix: open the original logo in any image editor (Paint, Preview, Photoshop, GIMP) and export/save as ".png" — that will produce real PNG bytes. Then re-upload from Settings → Logo.`,
         });
       }
     } catch (err) {
