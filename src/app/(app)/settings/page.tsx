@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CalcDebugToggle } from '@/components/calc-debug-toggle';
 import { getActiveCompany } from '@/lib/active-company';
@@ -62,11 +63,20 @@ export default async function SettingsPage() {
         <CardHeader>
           <CardTitle>Logo</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <CompanyLogoUploader
             companyName={company.name}
             currentLogoUrl={logoSignedUrl}
           />
+          <p className="text-xs text-slate-500">
+            Logo not showing up on invoices or PDFs?{' '}
+            <Link
+              href="/settings/diagnostics"
+              className="text-slate-900 underline hover:no-underline"
+            >
+              Run logo storage diagnostics →
+            </Link>
+          </p>
         </CardContent>
       </Card>
 

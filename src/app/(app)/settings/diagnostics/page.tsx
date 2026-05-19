@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DiagnosticsBanner } from '@/components/diagnostics-banner';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
+import { LogoStorageDiagnostics } from '@/modules/settings/components/logo-storage-diagnostics';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,8 @@ export default async function DiagnosticsPage() {
           </p>
         </CardContent>
       </Card>
+
+      <LogoStorageDiagnostics />
     </div>
   );
 }
