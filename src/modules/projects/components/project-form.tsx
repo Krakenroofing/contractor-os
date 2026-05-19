@@ -143,7 +143,19 @@ export function ProjectForm({
           </Select>
         </Field>
 
-        <Field label="Contract value" error={err('contractValue')}>
+        <Field
+          label="Contract value (net, ex-VAT)"
+          error={err('contractValue')}
+          hint={
+            <>
+              Enter the contracted amount <strong>before VAT</strong>. If the
+              signed contract is $110,000 incl. 10% VAT, enter $100,000 here.
+              VAT is added on each invoice and tracked separately as a
+              liability — it&apos;s not part of contract scope, so reports
+              compare net contract vs net billed.
+            </>
+          }
+        >
           <Input
             name="contractValue"
             inputMode="decimal"
@@ -233,12 +245,17 @@ function Field({
   children,
   className,
   required,
+  hint,
 }: {
   label: string;
   error?: string;
   children: React.ReactNode;
   className?: string;
   required?: boolean;
+  /** Optional helper text rendered under the input. Use to explain a
+   *  non-obvious data convention (e.g. "enter net, ex-VAT") so operators
+   *  don't have to guess. */
+  hint?: React.ReactNode;
 }) {
   return (
     <div className={`space-y-1.5 ${className ?? ''}`}>
@@ -247,6 +264,7 @@ function Field({
         {required && <span className="text-red-600 ml-0.5">*</span>}
       </Label>
       {children}
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
