@@ -14,6 +14,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getSupabaseAdminClient } from '@/lib/auth/supabase-admin';
+import { buildCompanyInfo } from '@/lib/exports/data/company-info';
 import {
   COMPANY_LOGOS_BUCKET,
   createSignedLogoUrl,
@@ -69,36 +70,67 @@ export async function LogoStorageDiagnostics() {
       });
     }
 
-    // 4. Direct download — this is what the PDF renderer uses
+    // 4. Direct download — primitive storage probe
     try {
       const { data, error } = await adminClient.storage
         .from(COMPANY_LOGOS_BUCKET)
         .download(logoPath);
       if (error) {
         checks.push({
-          label: 'Logo file downloads (used by PDF export)',
+          label: 'Logo file downloads from bucket',
           pass: false,
           detail: `Storage returned: "${error.message}". Likely the "${COMPANY_LOGOS_BUCKET}" bucket does not exist in production Supabase, or the service role key does not have access to it.`,
         });
       } else if (!data) {
         checks.push({
-          label: 'Logo file downloads (used by PDF export)',
+          label: 'Logo file downloads from bucket',
           pass: false,
           detail: 'Storage returned no data and no error. Treat as a broken upload — re-upload the logo from Settings.',
         });
       } else {
         const bytes = (await data.arrayBuffer()).byteLength;
         checks.push({
-          label: 'Logo file downloads (used by PDF export)',
+          label: 'Logo file downloads from bucket',
           pass: true,
-          detail: `Downloaded ${bytes.toLocaleString()} bytes. The PDF export path will embed this logo on the next invoice / proposal / PO / CO download.`,
+          detail: `Downloaded ${bytes.toLocaleString()} bytes.`,
         });
       }
     } catch (err) {
       checks.push({
-        label: 'Logo file downloads (used by PDF export)',
+        label: 'Logo file downloads from bucket',
         pass: false,
         detail: `Threw: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+
+    // 5. End-to-end: run the SAME function the PDF renderer calls. This
+    //    catches any drift between the raw storage probe (check #4) and the
+    //    buildCompanyInfo wrapper that prepares the payload for @react-pdf.
+    //    If checks #1-#4 pass but this one fails, the bug is in the wrapper
+    //    or downstream of it — not in storage.
+    try {
+      const info = await buildCompanyInfo(company);
+      if (info.logoDataUrl) {
+        const dataUrlBytes = info.logoDataUrl.length;
+        const mimeMatch = info.logoDataUrl.match(/^data:([^;]+);base64,/);
+        const mime = mimeMatch ? mimeMatch[1] : 'unknown';
+        checks.push({
+          label: 'PDF payload includes logo data URL',
+          pass: true,
+          detail: `buildCompanyInfo() returned a ${mime} data URL of ${dataUrlBytes.toLocaleString()} chars. The next invoice / proposal / PO / CO PDF will embed this logo.`,
+        });
+      } else {
+        checks.push({
+          label: 'PDF payload includes logo data URL',
+          pass: false,
+          detail: 'buildCompanyInfo() returned null for logoDataUrl despite the raw download succeeding. Check the Vercel function logs for "[company-logos]" lines — the failure reason will be there. Likely candidates: a stale deployment is running pre-fix code, or @react-pdf is rejecting the encoded mime type.',
+        });
+      }
+    } catch (err) {
+      checks.push({
+        label: 'PDF payload includes logo data URL',
+        pass: false,
+        detail: `buildCompanyInfo() threw: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
   }
