@@ -53,6 +53,23 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 2,
   },
+  // Right-aligned counterparts to `muted` and `subtle`. Used for the
+  // "from" / contact block that sits under the title (address, email,
+  // license, TIN). Right alignment keeps the document type and the issuer
+  // contact info as a single block readers' eyes can track in one pass.
+  mutedRight: {
+    color: pdfTheme.colors.muted,
+    fontSize: pdfTheme.fontSize.sm,
+    textAlign: 'right',
+  },
+  subtleRight: {
+    color: pdfTheme.colors.subtle,
+    fontSize: pdfTheme.fontSize.xs,
+    textAlign: 'right',
+  },
+  headerContact: {
+    marginTop: 8,
+  },
   badge: {
     alignSelf: 'flex-end',
     marginTop: 4,
@@ -245,46 +262,48 @@ function initials(name: string): string {
 function HeaderBlock({ payload }: { payload: DocumentPayload }) {
   const c = payload.company;
   const tinLabel = c.tinLabel && c.tinLabel.trim() !== '' ? c.tinLabel : 'TIN';
-  // When the company hasn't uploaded a logo image, drop the initials chip
-  // entirely so the company text sits flush against the left page margin
-  // rather than indented by a placeholder block.
   const hasLogo = !!c.logoDataUrl;
+  const contactLine = [c.email, c.phone, c.website].filter(Boolean).join(' · ');
   return (
     <View style={styles.headerRow}>
-      <View style={{ flexDirection: 'row', gap: hasLogo ? 10 : 0 }}>
+      {/* LEFT: logo only when uploaded. Logos already carry the company
+          wordmark, so repeating "TRB Ltd" as text next to the mark reads
+          as duplication. When there's no logo, fall back to the name in
+          large type so the space isn't blank. */}
+      <View>
         {hasLogo ? (
-          // @react-pdf accepts data URLs directly for <Image src>; sized
-          // generously so a reasonable logo file doesn't get crushed.
           <Image src={c.logoDataUrl!} style={styles.logoImage} />
-        ) : null}
-        <View>
-          {/* Suppress the text company-name when a logo is present —
-              uploaded logos almost always include the company wordmark,
-              so rendering both reads as duplication. Mirrors the on-screen
-              DocumentBranding card. */}
-          {!hasLogo ? (
-            <Text style={styles.companyName}>{c.name}</Text>
-          ) : null}
-          {companyAddress(c) ? (
-            <Text style={styles.muted}>{companyAddress(c)}</Text>
-          ) : null}
-          <Text style={styles.muted}>
-            {[c.email, c.phone, c.website].filter(Boolean).join(' · ')}
-          </Text>
-          {c.licenseNumber ? (
-            <Text style={styles.subtle}>License #: {c.licenseNumber}</Text>
-          ) : null}
-          {c.tinNumber ? (
-            <Text style={styles.subtle}>{tinLabel}: {c.tinNumber}</Text>
-          ) : null}
-        </View>
+        ) : (
+          <Text style={styles.companyName}>{c.name}</Text>
+        )}
       </View>
+
+      {/* RIGHT: document type, number, status, then the issuer contact
+          block (address, email/phone, license, TIN). Right-aligning the
+          contact info groups the "what is this document, who is it from"
+          metadata into a single visual block. */}
       <View>
         <Text style={styles.title}>{payload.title}</Text>
         <Text style={styles.number}>{payload.number}</Text>
         {payload.statusLabel ? (
           <Text style={styles.badge}>{payload.statusLabel}</Text>
         ) : null}
+        <View style={styles.headerContact}>
+          {companyAddress(c) ? (
+            <Text style={styles.mutedRight}>{companyAddress(c)}</Text>
+          ) : null}
+          {contactLine ? (
+            <Text style={styles.mutedRight}>{contactLine}</Text>
+          ) : null}
+          {c.licenseNumber ? (
+            <Text style={styles.subtleRight}>License #: {c.licenseNumber}</Text>
+          ) : null}
+          {c.tinNumber ? (
+            <Text style={styles.subtleRight}>
+              {tinLabel}: {c.tinNumber}
+            </Text>
+          ) : null}
+        </View>
       </View>
     </View>
   );
