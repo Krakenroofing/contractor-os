@@ -70,7 +70,7 @@ export default async function NewInvoicePage() {
           : undefined;
       return {
         id: p.id,
-        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+        label: `${p.name}${customer ? ` (${customer.name})` : ''}`,
         contractValue: parseMoney(p.contractValue),
         priorBilledGross: Math.round(priorBilledGross * 100) / 100,
         priorBilledNet: Math.round(priorBilledNet * 100) / 100,

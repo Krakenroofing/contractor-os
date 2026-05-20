@@ -41,7 +41,7 @@ export default async function EstimatesPage() {
 
   const projects = (await listProjects(companyId)).map((p) => ({
     id: p.id,
-    label: `${p.number} — ${p.name}`,
+    label: p.name,
   }));
 
   return (

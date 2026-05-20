@@ -39,7 +39,7 @@ export default async function EditChangeOrderPage({
       const customer = await getCustomer(companyId, p.customerId);
       return {
         id: p.id,
-        label: `${p.number} — ${p.name}${customer ? ` (${customer.name})` : ''}`,
+        label: `${p.name}${customer ? ` (${customer.name})` : ''}`,
       };
     }),
   );

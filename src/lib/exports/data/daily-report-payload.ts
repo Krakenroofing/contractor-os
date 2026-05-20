@@ -197,7 +197,6 @@ export async function buildDailyReportPayload(
     project: project
       ? {
           name: report.projectNameSnapshot ?? project.name,
-          number: project.number,
           description: report.projectLocationSnapshot ?? null,
         }
       : undefined,

@@ -34,7 +34,6 @@ export function ProjectDetail({
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-xs text-slate-500">{project.number}</p>
           <h1 className="text-2xl font-semibold text-slate-900">{project.name}</h1>
           <div className="mt-1 flex items-center gap-3 text-sm text-slate-600">
             <span>{customer.name}</span>

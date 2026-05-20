@@ -80,7 +80,6 @@ export type RetainageRow = {
   invoiceDate: string;
   projectId: string;
   projectName: string;
-  projectNumber: string;
   customerId: string;
   customerName: string;
   contractValue: number;

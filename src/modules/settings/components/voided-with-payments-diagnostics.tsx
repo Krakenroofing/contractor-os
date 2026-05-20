@@ -46,7 +46,6 @@ type VoidedRow = {
   invoiceNumber: string;
   voidedTotal: number;
   projectId: string;
-  projectNumber: string;
   projectName: string;
   customerName: string;
   paymentCount: number;
@@ -66,7 +65,6 @@ async function loadVoidedWithPayments(companyId: string): Promise<VoidedRow[]> {
       invoiceNumber: invoices.number,
       invoiceTotal: invoices.total,
       projectId: projects.id,
-      projectNumber: projects.number,
       projectName: projects.name,
       customerName: customers.name,
     })
@@ -97,7 +95,6 @@ async function loadVoidedWithPayments(companyId: string): Promise<VoidedRow[]> {
       invoiceNumber: inv.invoiceNumber,
       voidedTotal: parseMoney(inv.invoiceTotal),
       projectId: inv.projectId,
-      projectNumber: inv.projectNumber,
       projectName: inv.projectName,
       customerName: inv.customerName,
       paymentCount: payments.length,
@@ -160,9 +157,6 @@ export async function VoidedWithPaymentsDiagnostics() {
                       <TableCell className="text-slate-700">
                         <div className="text-sm">{r.customerName}</div>
                         <div className="text-xs text-slate-500">
-                          <span className="font-mono mr-1">
-                            {r.projectNumber}
-                          </span>
                           {r.projectName}
                         </div>
                       </TableCell>

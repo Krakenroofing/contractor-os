@@ -572,7 +572,6 @@ export async function buildInvoicePayload(
     project: project
       ? {
           name: project.name,
-          number: project.number,
           description: project.notes,
           descriptionLabel: template?.projectDescriptionLabel ?? null,
         }

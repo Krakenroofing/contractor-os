@@ -48,7 +48,6 @@ export interface CustomerInfo {
 
 export interface ProjectInfo {
   name?: string | null;
-  number?: string | null;
   description?: string | null;
   /** Template override for the project block heading, e.g. "Project" / "Job". */
   descriptionLabel?: string | null;

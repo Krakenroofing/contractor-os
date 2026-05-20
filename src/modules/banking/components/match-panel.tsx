@@ -301,8 +301,8 @@ export function MatchPanel(props: MatchPanelProps) {
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate">
-                  {m.candidate.projectNumber
-                    ? `${m.candidate.projectNumber}: `
+                  {m.candidate.projectName
+                    ? `${m.candidate.projectName}: `
                     : ''}
                   {m.candidate.description.slice(0, 70)} · ${fmtMoney(
                     m.candidate.amount,

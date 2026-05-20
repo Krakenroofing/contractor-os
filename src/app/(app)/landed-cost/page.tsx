@@ -96,7 +96,7 @@ export default async function LandedCostPage() {
                             href={`/projects/${project.id}`}
                             className="hover:underline"
                           >
-                            {project.number}
+                            {project.name}
                           </Link>
                         ) : (
                           '—'

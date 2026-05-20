@@ -41,7 +41,7 @@ export default async function CustomerSummaryReportPage({
     <ReportShell
       type="customer-summary"
       filters={filters}
-      projects={projects.map((p) => ({ id: p.id, label: `${p.number} — ${p.name}` }))}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       customers={customers.map((c) => ({ id: c.id, label: c.name }))}
       companyName={company.name}
     >
@@ -158,9 +158,6 @@ export default async function CustomerSummaryReportPage({
                           href={{ pathname: `/projects/${r.projectId}` }}
                           className="hover:underline"
                         >
-                          <span className="font-mono text-xs text-slate-500 mr-2">
-                            {r.projectNumber}
-                          </span>
                           {r.projectName}
                         </Link>
                       </TableCell>
@@ -317,9 +314,6 @@ export default async function CustomerSummaryReportPage({
                         {r.invoiceDate}
                       </TableCell>
                       <TableCell className="text-slate-700">
-                        <span className="font-mono text-xs text-slate-500 mr-1">
-                          {r.projectNumber}
-                        </span>
                         {r.projectName}
                       </TableCell>
                       <TableCell>

@@ -19,7 +19,6 @@ export async function GET(req: NextRequest) {
 
   const rows: CsvCell[][] = [
     [
-      'Project number',
       'Project name',
       'Customer',
       'Status',
@@ -35,7 +34,6 @@ export async function GET(req: NextRequest) {
       'Margin %',
     ],
     ...report.rows.map((r) => [
-      r.projectNumber,
       r.projectName,
       r.customerName,
       r.projectStatus,
@@ -53,7 +51,6 @@ export async function GET(req: NextRequest) {
     [],
     [
       'TOTALS',
-      '',
       '',
       '',
       '',
@@ -85,7 +82,7 @@ export async function GET(req: NextRequest) {
       '',
     ],
     [
-      'Project number',
+      'Project name',
       'Code',
       'Description',
       'Category',
@@ -95,7 +92,7 @@ export async function GET(req: NextRequest) {
       'Variance',
     ],
     ...report.costCodeBreakdown.map((r) => [
-      r.projectNumber,
+      r.projectName,
       r.code,
       r.description,
       r.category,

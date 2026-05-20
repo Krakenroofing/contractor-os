@@ -165,9 +165,6 @@ export default async function BackfillReviewPage() {
                   >
                     <div className="min-w-0">
                       <p className="font-medium text-slate-900 truncate">
-                        <span className="font-mono text-xs text-slate-500 mr-2">
-                          {p.projectNumber}
-                        </span>
                         {p.projectName}
                       </p>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">

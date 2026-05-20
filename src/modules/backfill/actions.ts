@@ -19,10 +19,7 @@ import {
   createCustomer,
   type CreateCustomerInput,
 } from '@/lib/data/customers';
-import {
-  createProject,
-  DuplicateProjectNumberError,
-} from '@/lib/data/projects';
+import { createProject } from '@/lib/data/projects';
 import {
   createEstimate,
   DuplicateEstimateNumberError,
@@ -155,7 +152,6 @@ export async function backfillCustomerAction(
 
 const projectSchema = z.object({
   customerId: z.string().uuid('Pick a customer'),
-  number: z.string().min(1, 'Project number is required').max(50),
   name: z.string().min(1, 'Project name is required').max(200),
   status: z.enum(['lead', 'estimating', 'won', 'in_progress', 'closed', 'lost']),
   startDate: z.string().min(1, 'Start date required for backfill'),
@@ -173,7 +169,6 @@ export async function backfillProjectAction(
 
   const parsed = projectSchema.safeParse({
     customerId: formData.get('customerId'),
-    number: formData.get('number'),
     name: formData.get('name'),
     status: formData.get('status') ?? 'in_progress',
     startDate: formData.get('startDate'),
@@ -188,7 +183,6 @@ export async function backfillProjectAction(
   try {
     await createProject(companyId, {
       customerId: data.customerId,
-      number: data.number,
       name: data.name,
       status: data.status,
       jobsiteAddressLine1: null,
@@ -208,9 +202,6 @@ export async function backfillProjectAction(
       notes: null,
     });
   } catch (err) {
-    if (err instanceof DuplicateProjectNumberError) {
-      return { errors: { number: ['Already used'] } };
-    }
     return { formError: err instanceof Error ? err.message : 'Unknown error' };
   }
 

@@ -187,7 +187,7 @@ export default async function NewBankingRulePage({
               }))}
             projects={projects.map((p) => ({
               id: p.id,
-              label: `${p.number} — ${p.name}`,
+              label: p.name,
             }))}
             costCodes={costCodes.map((c) => ({
               id: c.id,

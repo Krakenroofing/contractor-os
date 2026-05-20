@@ -90,7 +90,8 @@ export async function GET(
     ],
   ];
 
-  const filename = `job-cost-breakdown-${project.number}-${new Date()
+  const slug = project.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+  const filename = `job-cost-breakdown-${slug}-${new Date()
     .toISOString()
     .slice(0, 10)}.csv`;
   return csvResponse(filename, toCsv(rows));

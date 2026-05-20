@@ -75,7 +75,6 @@ async function buildRetainageRow(
     invoiceDate: inv.invoiceDate,
     projectId: inv.projectId,
     projectName: project?.name ?? 'Unknown project',
-    projectNumber: project?.number ?? '—',
     customerId: project?.customerId ?? '',
     customerName: customer?.name ?? 'Unknown customer',
     contractValue: project ? parseMoney(project.contractValue) : 0,

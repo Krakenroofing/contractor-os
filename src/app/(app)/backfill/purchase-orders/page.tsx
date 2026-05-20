@@ -59,7 +59,7 @@ export default async function BackfillPurchaseOrdersPage() {
           <PurchaseOrderMiniForm
             projects={projects.map((p) => ({
               id: p.id,
-              label: `${p.number} — ${p.name}`,
+              label: p.name,
             }))}
             vendors={vendors.map((v) => ({ id: v.id, name: v.name }))}
           />

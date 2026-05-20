@@ -6,7 +6,6 @@ import type { Project } from '@/db/schema';
 
 export type ProjectListRow = {
   id: string;
-  number: string;
   name: string;
   status: Project['status'];
   customerId: string;
@@ -29,7 +28,6 @@ export async function listProjects(): Promise<ProjectListRow[]> {
     const customer = customerById.get(p.customerId);
     return {
       id: p.id,
-      number: p.number,
       name: p.name,
       status: p.status,
       customerId: p.customerId,

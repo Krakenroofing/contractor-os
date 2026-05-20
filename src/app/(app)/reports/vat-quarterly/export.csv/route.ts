@@ -71,7 +71,6 @@ export async function GET(req: NextRequest) {
     [
       'Invoice',
       'Customer',
-      'Project number',
       'Project name',
       'Invoice date',
       'Quarter',
@@ -85,7 +84,6 @@ export async function GET(req: NextRequest) {
     ...report.invoices.map((r) => [
       r.invoiceNumber,
       r.customerName,
-      r.projectNumber ?? '',
       r.projectName ?? '',
       r.effectiveDate,
       r.quarterKey.replace(/^(\d{4})-(Q\d)$/, '$2 $1'),
@@ -101,7 +99,6 @@ export async function GET(req: NextRequest) {
     [
       'Receipt date',
       'Vendor',
-      'Project number',
       'Project name',
       'Quarter',
       'Recoverable',
@@ -113,7 +110,6 @@ export async function GET(req: NextRequest) {
     ...report.expenses.map((r) => [
       r.receiptDate,
       r.vendorName,
-      r.projectNumber ?? '',
       r.projectName ?? '',
       r.quarterKey.replace(/^(\d{4})-(Q\d)$/, '$2 $1'),
       r.recoverable ? 'yes' : 'no',

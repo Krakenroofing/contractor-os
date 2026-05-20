@@ -47,8 +47,7 @@ export default async function EditProjectPage({
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Edit project</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Update name, status, jobsite, contract value, or budget. Project
-          number is locked.
+          Update name, status, jobsite, contract value, or budget.
         </p>
       </header>
 
@@ -58,7 +57,6 @@ export default async function EditProjectPage({
         initial={{
           id: project.id,
           customerId: project.customerId,
-          number: project.number,
           name: project.name,
           status: project.status,
           jobsiteAddressLine1: project.jobsiteAddressLine1 ?? '',

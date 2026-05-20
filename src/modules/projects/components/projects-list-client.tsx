@@ -46,7 +46,6 @@ const STATUS_LABEL: Record<Project['status'], string> = {
 
 export type ProjectRow = {
   id: string;
-  number: string;
   name: string;
   status: Project['status'];
   customerName: string;
@@ -72,7 +71,6 @@ export function ProjectsListClient({
       const matchesSearch =
         q === '' ||
         p.name.toLowerCase().includes(q) ||
-        p.number.toLowerCase().includes(q) ||
         p.customerName.toLowerCase().includes(q);
       const matchesStatus = !statusFilter || p.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -81,8 +79,6 @@ export function ProjectsListClient({
     if (sort) {
       const get = (p: ProjectRow): string | number | null => {
         switch (sort.key) {
-          case 'number':
-            return p.number;
           case 'name':
             return p.name;
           case 'customer':
@@ -144,7 +140,7 @@ export function ProjectsListClient({
       <ListToolbar
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by name, number, or customer…"
+        searchPlaceholder="Search by name or customer…"
         filters={[
           {
             label: 'Status',
@@ -178,9 +174,6 @@ export function ProjectsListClient({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>
-                  <SortableHeader label="Number" sortKey="number" sort={sort} onSort={onSort} />
-                </TableHead>
                 <TableHead>
                   <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} />
                 </TableHead>
@@ -221,9 +214,6 @@ export function ProjectsListClient({
                 const profit = parseMoney(p.contractValue) - parseMoney(p.currentBudget);
                 return (
                   <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      {p.number}
-                    </TableCell>
                     <TableCell className="font-medium text-slate-900">{p.name}</TableCell>
                     <TableCell className="text-slate-600">{p.customerName}</TableCell>
                     <TableCell>

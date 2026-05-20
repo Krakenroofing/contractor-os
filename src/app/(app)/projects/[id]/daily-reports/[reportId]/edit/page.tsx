@@ -90,7 +90,7 @@ export default async function EditDailyReportPage({
       <Breadcrumbs
         items={[
           { href: '/projects', label: 'Projects' },
-          { href: `/projects/${project.id}`, label: project.number },
+          { href: `/projects/${project.id}`, label: project.name },
           {
             href: `/projects/${project.id}/daily-reports`,
             label: 'Daily Reports',
@@ -103,7 +103,6 @@ export default async function EditDailyReportPage({
         ]}
       />
       <div>
-        <p className="font-mono text-xs text-slate-500">{project.number}</p>
         <h1 className="text-2xl font-semibold text-slate-900">
           Edit daily report
         </h1>

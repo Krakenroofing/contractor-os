@@ -69,9 +69,6 @@ export default async function BackfillProjectsPage() {
                 >
                   <div className="min-w-0">
                     <p className="font-medium text-slate-900 truncate">
-                      <span className="font-mono text-xs text-slate-500 mr-2">
-                        {p.number}
-                      </span>
                       {p.name}
                     </p>
                     <p className="text-xs text-slate-500">

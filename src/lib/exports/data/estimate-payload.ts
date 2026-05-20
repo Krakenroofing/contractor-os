@@ -60,7 +60,6 @@ export async function buildEstimatePayload(
     project: project
       ? {
           name: project.name,
-          number: project.number,
           description: project.notes,
         }
       : undefined,

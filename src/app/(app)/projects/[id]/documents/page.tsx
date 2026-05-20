@@ -75,14 +75,13 @@ export default async function ProjectDocumentsPage({
       <Breadcrumbs
         items={[
           { href: '/projects', label: 'Projects' },
-          { href: `/projects/${project.id}`, label: project.number },
+          { href: `/projects/${project.id}`, label: project.name },
           { label: 'Documents' },
         ]}
       />
 
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-xs text-slate-500">{project.number}</p>
           <h1 className="text-xl md:text-2xl font-semibold text-slate-900">
             Documents
           </h1>

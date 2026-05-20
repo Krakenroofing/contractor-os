@@ -19,7 +19,6 @@ type ProjectStatus = (typeof projectStatusValues)[number];
 export type ProjectFormInitialValues = {
   id?: string;
   customerId: string;
-  number: string;
   name: string;
   status: ProjectStatus;
   jobsiteAddressLine1: string;
@@ -35,7 +34,6 @@ export type ProjectFormInitialValues = {
 
 const blankInitial: ProjectFormInitialValues = {
   customerId: '',
-  number: '',
   name: '',
   status: 'lead',
   jobsiteAddressLine1: '',
@@ -90,35 +88,6 @@ export function ProjectForm({
       {isEdit && <input type="hidden" name="id" value={mode.id} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Project number" error={err('number')} required>
-          {/* Project number is the stable display identifier — locked once
-              created. readOnly (not disabled) so the value still submits
-              with the form so create/edit share the same Zod schema. */}
-          <Input
-            name="number"
-            placeholder="2026-004"
-            required
-            defaultValue={values.number}
-            readOnly={isEdit}
-            className={isEdit ? 'bg-slate-50 text-slate-600' : undefined}
-          />
-          {isEdit && (
-            <p className="text-xs text-slate-500">
-              Project number is locked. Contact support if you need to renumber.
-            </p>
-          )}
-        </Field>
-
-        <Field label="Status" error={err('status')}>
-          <Select name="status" defaultValue={values.status}>
-            {projectStatusValues.map((s) => (
-              <option key={s} value={s}>
-                {statusLabel[s]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
         <Field label="Project name" error={err('name')} className="md:col-span-2" required>
           <Input
             name="name"
@@ -128,7 +97,7 @@ export function ProjectForm({
           />
         </Field>
 
-        <Field label="Customer" error={err('customerId')} className="md:col-span-2" required>
+        <Field label="Customer" error={err('customerId')} required>
           <Select name="customerId" required defaultValue={values.customerId}>
             <option value="" disabled>
               {customers.length === 0
@@ -138,6 +107,16 @@ export function ProjectForm({
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Status" error={err('status')}>
+          <Select name="status" defaultValue={values.status}>
+            {projectStatusValues.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel[s]}
               </option>
             ))}
           </Select>

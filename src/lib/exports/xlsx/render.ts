@@ -81,7 +81,6 @@ export async function renderDocumentXlsx(
         : 'Project';
     row = writeKeyValueBlock(ws, row, projectLabel, [
       payload.project.name ? ['Name', payload.project.name] : null,
-      payload.project.number ? ['Number', payload.project.number] : null,
       payload.project.description
         ? ['Description', payload.project.description]
         : null,

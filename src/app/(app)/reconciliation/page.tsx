@@ -203,9 +203,6 @@ export default async function ReconciliationPage() {
               {data.rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell className="font-medium text-slate-900">
-                    <span className="font-mono text-xs text-slate-500 mr-2">
-                      {r.projectNumber}
-                    </span>
                     {r.projectName}
                   </TableCell>
                   <TableCell className="text-slate-600">

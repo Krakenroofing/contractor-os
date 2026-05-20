@@ -183,7 +183,7 @@ export default async function JobCostingProjectPage({
       <Breadcrumbs
         items={[
           { href: '/job-costing', label: 'Job Costing' },
-          { label: fin.projectNumber },
+          { label: fin.projectName },
         ]}
       />
 
@@ -202,7 +202,6 @@ export default async function JobCostingProjectPage({
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-xs text-slate-500">{fin.projectNumber}</p>
           <h1 className="text-2xl font-semibold text-slate-900">{fin.projectName}</h1>
           <p className="text-sm text-slate-600 mt-1">{fin.customerName}</p>
         </div>

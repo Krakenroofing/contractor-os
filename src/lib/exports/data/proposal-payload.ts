@@ -82,7 +82,6 @@ export async function buildProposalPayload(
     project: project
       ? {
           name: project.name,
-          number: project.number,
           description: project.notes,
         }
       : undefined,

@@ -60,7 +60,6 @@ export type ReconciliationWarning = {
 
 export type ProjectReconciliationRow = {
   projectId: string;
-  projectNumber: string;
   projectName: string;
   customerId: string;
   customerName: string;
@@ -251,7 +250,7 @@ export async function buildReconciliationData(
         severity: 'warn',
         category: 'co-not-rolled-up',
         projectId: project.id,
-        message: `Project ${project.number}: approved CO total (${approvedTotal.toFixed(2)}) doesn't match project.totalChangeOrders (${stored.toFixed(2)})`,
+        message: `Project ${project.name}: approved CO total (${approvedTotal.toFixed(2)}) doesn't match project.totalChangeOrders (${stored.toFixed(2)})`,
         href: `/projects/${project.id}`,
       });
     }
@@ -266,7 +265,7 @@ export async function buildReconciliationData(
         severity: 'warn',
         category: 'co-not-rolled-up',
         projectId: project.id,
-        message: `Project ${project.number}: contractValue (${actualContract.toFixed(2)}) ≠ originalContractValue + totalChangeOrders (${expectedContract.toFixed(2)})`,
+        message: `Project ${project.name}: contractValue (${actualContract.toFixed(2)}) ≠ originalContractValue + totalChangeOrders (${expectedContract.toFixed(2)})`,
         href: `/projects/${project.id}`,
       });
     }
@@ -411,7 +410,6 @@ export async function buildReconciliationData(
 
       return {
         projectId: project.id,
-        projectNumber: project.number,
         projectName: project.name,
         customerId: project.customerId,
         customerName: customerById.get(project.customerId)?.name ?? 'Unknown',

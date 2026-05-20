@@ -64,7 +64,6 @@ export type VatQuarterlyInvoiceRow = {
   invoiceId: string;
   invoiceNumber: string;
   customerName: string;
-  projectNumber: string | null;
   projectName: string | null;
   status: string;
   // ISO date of the event used to bucket the invoice into a quarter.
@@ -102,7 +101,6 @@ export type VatQuarterlyExpenseRow = {
   receiptDate: string;
   quarterKey: string;
   vendorName: string;
-  projectNumber: string | null;
   projectName: string | null;
   subtotal: number;
   vatRatePct: number;
@@ -218,7 +216,6 @@ export async function buildVatQuarterlyReport(
         invoiceId: inv.id,
         invoiceNumber: inv.number,
         customerName: customer?.name ?? '—',
-        projectNumber: project?.number ?? null,
         projectName: project?.name ?? null,
         status: inv.status,
         effectiveDate: effective,
@@ -296,7 +293,6 @@ export async function buildVatQuarterlyReport(
       receiptDate: effective,
       quarterKey: key,
       vendorName: vendor?.name ?? '—',
-      projectNumber: project?.number ?? null,
       projectName: project?.name ?? null,
       subtotal,
       vatRatePct: ratePct,
@@ -384,7 +380,6 @@ export async function buildVatQuarterlyReport(
 
 export type ProjectFinancialRow = {
   projectId: string;
-  projectNumber: string;
   projectName: string;
   customerName: string;
   status: string;
@@ -539,7 +534,6 @@ export async function buildProjectFinancialReport(
 
       return {
         projectId: project.id,
-        projectNumber: project.number,
         projectName: project.name,
         customerName: customerById.get(project.customerId)?.name ?? 'Unknown',
         status: project.status,
@@ -634,7 +628,7 @@ export type JobCostReport = {
   rows: JobCostProjectRow[];
   costCodeBreakdown: (CostCodeBreakdownRow & {
     projectId: string;
-    projectNumber: string;
+    projectName: string;
   })[];
   totals: {
     revisedContractValue: number;
@@ -670,7 +664,7 @@ export async function buildJobCostReport(
       costCodeBreakdown.push({
         ...r,
         projectId: project.id,
-        projectNumber: project.number,
+        projectName: project.name,
       });
     }
   }
@@ -1205,7 +1199,6 @@ export async function buildLandedCostReport(
 
 export type CustomerProjectRow = {
   projectId: string;
-  projectNumber: string;
   projectName: string;
   status: string;
   contractValue: number;
@@ -1238,7 +1231,6 @@ export type CustomerInvoiceRow = {
   invoiceDate: string;
   dueDate: string | null;
   projectId: string;
-  projectNumber: string;
   projectName: string;
   status: string;
   /** 'base' when invoice has no changeOrderId; 'co' otherwise. */
@@ -1375,7 +1367,6 @@ export async function buildCustomerSummaryReport(
 
     projectRows.push({
       projectId: p.id,
-      projectNumber: p.number,
       projectName: p.name,
       status: p.status,
       contractValue: round2(contractValue),
@@ -1413,7 +1404,6 @@ export async function buildCustomerSummaryReport(
         invoiceDate: inv.invoiceDate,
         dueDate: inv.dueDate,
         projectId: p.id,
-        projectNumber: p.number,
         projectName: p.name,
         status: inv.status,
         source: inv.changeOrderId ? 'co' : 'base',
@@ -1427,8 +1417,8 @@ export async function buildCustomerSummaryReport(
     }
   }
 
-  // Sort: projects by status (active first) then by number; invoices by date desc.
-  projectRows.sort((a, b) => a.projectNumber.localeCompare(b.projectNumber));
+  // Sort: projects by name; invoices by date desc.
+  projectRows.sort((a, b) => a.projectName.localeCompare(b.projectName));
   invoiceRows.sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
 
   const totals = projectRows.reduce(

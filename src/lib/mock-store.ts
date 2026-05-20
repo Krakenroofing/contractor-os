@@ -161,7 +161,7 @@ function makeCustomer(
 
 function makeProject(
   companyId: string,
-  over: Partial<Project> & Pick<Project, 'customerId' | 'number' | 'name'>,
+  over: Partial<Project> & Pick<Project, 'customerId' | 'name'>,
 ): Project {
   const now = new Date();
   return {
@@ -991,7 +991,6 @@ function seed(): Store {
 
   const smithProject = makeProject(KRAKEN_ID, {
     customerId: smith.id,
-    number: '2026-001',
     name: 'Smith residence — full roof replacement',
     status: 'in_progress',
     jobsiteAddressLine1: '142 Maple St',
@@ -1009,7 +1008,6 @@ function seed(): Store {
   });
   const sunsetProject = makeProject(KRAKEN_ID, {
     customerId: acme.id,
-    number: '2026-002',
     name: 'Sunset Plaza — TPO recoat (3 buildings)',
     status: 'won',
     jobsiteAddressLine1: '500 Sunset Blvd',
@@ -1025,7 +1023,6 @@ function seed(): Store {
   });
   const garciaProject = makeProject(KRAKEN_ID, {
     customerId: garcia.id,
-    number: '2026-003',
     name: 'Garcia kitchen remodel',
     status: 'estimating',
     jobsiteAddressLine1: '88 Pinecrest Dr',
@@ -1396,7 +1393,6 @@ function seed(): Store {
 
   const baysideProject = makeProject(TRB_ID, {
     customerId: bayside.id,
-    number: '2026-T01',
     name: 'Bayside Beach House — cedar shake re-roof',
     status: 'estimating',
     jobsiteAddressLine1: '12 Cable Beach Cay',
@@ -2780,13 +2776,6 @@ export function listJobCostEntriesForProject(projectId: string): JobCostEntry[] 
 // public API — create
 // =====================================================================
 
-export class DuplicateProjectNumberError extends Error {
-  constructor() {
-    super('Project number already used');
-    this.name = 'DuplicateProjectNumberError';
-  }
-}
-
 export class DuplicateEstimateNumberError extends Error {
   constructor() {
     super('Estimate number already used');
@@ -2875,14 +2864,6 @@ export function createMockProject(
   >,
 ): Project {
   const store = getStore();
-  if (
-    store.projects.some(
-      (p) =>
-        p.number === input.number && p.companyId === companyId && !p.deletedAt,
-    )
-  ) {
-    throw new DuplicateProjectNumberError();
-  }
   const now = new Date();
   const project: Project = {
     id: randomUUID(),
@@ -3964,7 +3945,6 @@ export function updateMockProject(
       | 'reconciliationVerifiedAt'
       | 'reconciliationVerifiedRole'
       | 'reconciliationVerifiedNote'
-      | 'number'
     >
   >,
 ): Project | undefined {

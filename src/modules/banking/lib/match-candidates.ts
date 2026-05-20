@@ -71,7 +71,7 @@ export type JobCostEntryCandidate = {
   entryDate: string;
   amount: number;
   description: string;
-  projectNumber: string | null;
+  projectName: string | null;
   vendorName: string | null;
 };
 

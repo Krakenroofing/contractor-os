@@ -44,7 +44,7 @@ export default async function BackfillInvoicesPage() {
           <InvoiceMiniForm
             projects={projects.map((p) => ({
               id: p.id,
-              label: `${p.number} — ${p.name}`,
+              label: p.name,
             }))}
           />
           <p className="text-xs text-slate-500 mt-3">

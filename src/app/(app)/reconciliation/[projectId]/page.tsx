@@ -55,7 +55,7 @@ export default async function ReconciliationDetailPage({
       <Breadcrumbs
         items={[
           { href: '/reconciliation', label: 'Reconciliation' },
-          { label: row.projectNumber },
+          { label: row.projectName },
         ]}
       />
 
@@ -74,7 +74,6 @@ export default async function ReconciliationDetailPage({
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <p className="font-mono text-xs text-slate-500">{row.projectNumber}</p>
           <h1 className="text-2xl font-semibold text-slate-900">
             {row.projectName}
           </h1>

@@ -51,7 +51,7 @@ export async function markProjectVerifiedAction(
     entityType: 'project' as never,
     entityId: projectId,
     kind: 'reconciliation_verified',
-    summary: `Project ${updated.number} marked reconciled${note ? ` — ${note.trim()}` : ''}`,
+    summary: `Project ${updated.name} marked reconciled${note ? ` — ${note.trim()}` : ''}`,
     actorRole: ROLE_LABELS[role],
   });
 
@@ -89,7 +89,7 @@ export async function unmarkProjectVerifiedAction(
     entityType: 'project' as never,
     entityId: projectId,
     kind: 'reconciliation_unverified',
-    summary: `Project ${updated.number}: reconciliation flag cleared`,
+    summary: `Project ${updated.name}: reconciliation flag cleared`,
     actorRole: ROLE_LABELS[role],
   });
 

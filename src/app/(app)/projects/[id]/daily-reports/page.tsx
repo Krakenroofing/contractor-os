@@ -41,13 +41,12 @@ export default async function DailyReportsListPage({
       <Breadcrumbs
         items={[
           { href: '/projects', label: 'Projects' },
-          { href: `/projects/${project.id}`, label: project.number },
+          { href: `/projects/${project.id}`, label: project.name },
           { label: 'Daily Reports' },
         ]}
       />
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <p className="font-mono text-xs text-slate-500">{project.number}</p>
           <h1 className="text-2xl font-semibold text-slate-900">
             Daily Reports
           </h1>

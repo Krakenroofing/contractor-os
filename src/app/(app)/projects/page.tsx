@@ -19,7 +19,6 @@ export default async function ProjectsPage() {
       const customer = await getCustomer(companyId, p.customerId);
       return {
         id: p.id,
-        number: p.number,
         name: p.name,
         status: p.status,
         customerName: customer?.name ?? 'Unknown customer',

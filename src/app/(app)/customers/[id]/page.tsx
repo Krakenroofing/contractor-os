@@ -145,7 +145,6 @@ export default async function CustomerDetailPage({
       row.invoices.map((inv) => ({
         ...inv,
         projectName: row.project.name,
-        projectNumber: row.project.number,
       })),
     )
     .sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate));
@@ -379,7 +378,7 @@ export default async function CustomerDetailPage({
                         {inv.number} · {inv.invoiceDate}
                       </div>
                       <div className="text-slate-900 truncate">
-                        {inv.projectNumber} — {inv.projectName}
+                        {inv.projectName}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
@@ -424,7 +423,6 @@ export default async function CustomerDetailPage({
               {linkedProjects.map((p) => (
                 <li key={p.id} className="flex items-center justify-between py-2">
                   <div>
-                    <div className="font-mono text-xs text-slate-500">{p.number}</div>
                     <div className="text-slate-900">{p.name}</div>
                   </div>
                   <Link href={`/projects/${p.id}`}>

@@ -26,7 +26,6 @@ export async function GET(req: NextRequest) {
     [],
     ['Projects'],
     [
-      'Project number',
       'Project name',
       'Status',
       'Base contract',
@@ -47,7 +46,6 @@ export async function GET(req: NextRequest) {
       'Retainage balance',
     ],
     ...report.projectRows.map((r) => [
-      r.projectNumber,
       r.projectName,
       r.status,
       r.contractValue,
@@ -69,7 +67,6 @@ export async function GET(req: NextRequest) {
     ]),
     [
       'TOTALS',
-      '',
       '',
       report.totals.contractValue,
       report.totals.changeOrders,
@@ -94,7 +91,6 @@ export async function GET(req: NextRequest) {
       'Invoice',
       'Date',
       'Due',
-      'Project number',
       'Project name',
       'Source',
       'CO #',
@@ -109,7 +105,6 @@ export async function GET(req: NextRequest) {
       r.invoiceNumber,
       r.invoiceDate,
       r.dueDate ?? '',
-      r.projectNumber,
       r.projectName,
       r.source === 'co' ? 'CO' : 'Base',
       r.changeOrderNumber ?? '',

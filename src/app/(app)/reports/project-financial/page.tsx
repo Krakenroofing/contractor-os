@@ -38,7 +38,7 @@ export default async function ProjectFinancialReportPage({
     <ReportShell
       type="project-financial"
       filters={filters}
-      projects={projects.map((p) => ({ id: p.id, label: `${p.number} — ${p.name}` }))}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -118,9 +118,6 @@ export default async function ProjectFinancialReportPage({
               {report.rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell className="font-medium text-slate-900">
-                    <span className="font-mono text-xs text-slate-500 mr-2">
-                      {r.projectNumber}
-                    </span>
                     {r.projectName}
                     {r.verifiedAt && (
                       <Badge tone="green" className="ml-2">

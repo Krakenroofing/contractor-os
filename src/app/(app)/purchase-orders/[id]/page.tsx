@@ -102,7 +102,7 @@ export default async function PurchaseOrderDetailPage({
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-slate-600">
             {project && (
               <Link href={`/projects/${project.id}`} className="hover:underline">
-                {project.number} — {project.name}
+                {project.name}
               </Link>
             )}
             {customer && (

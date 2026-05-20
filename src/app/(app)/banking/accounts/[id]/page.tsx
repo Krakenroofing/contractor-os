@@ -213,7 +213,7 @@ export default async function BankAccountDetailPage({
         entryDate: j.entryDate,
         amount: Number(j.amount),
         description: j.description,
-        projectNumber: p?.number ?? null,
+        projectName: p?.name ?? null,
         vendorName: v?.name ?? null,
       };
     });
@@ -281,7 +281,7 @@ export default async function BankAccountDetailPage({
 
   const projectOptions = projects.map((p) => ({
     id: p.id,
-    label: `${p.number} — ${p.name}`,
+    label: p.name,
   }));
   const costCodeOptions = costCodes.map((c) => ({
     id: c.id,

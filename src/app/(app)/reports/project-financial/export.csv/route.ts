@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
 
   const rows: CsvCell[][] = [
     [
-      'Project number',
       'Project name',
       'Customer',
       'Status',
@@ -48,7 +47,6 @@ export async function GET(req: NextRequest) {
       'Verified',
     ],
     ...report.rows.map((r) => [
-      r.projectNumber,
       r.projectName,
       r.customerName,
       r.status,
@@ -77,7 +75,6 @@ export async function GET(req: NextRequest) {
     [],
     [
       'TOTALS',
-      '',
       '',
       '',
       report.totals.contractValue,

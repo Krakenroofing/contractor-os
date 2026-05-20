@@ -70,7 +70,7 @@ export default async function BankingRulesPage() {
   const categoryById = new Map(
     accountingAccounts.map((a) => [a.id, a.code ? `${a.code} ${a.name}` : a.name]),
   );
-  const projectById = new Map(projects.map((p) => [p.id, `${p.number} ${p.name}`]));
+  const projectById = new Map(projects.map((p) => [p.id, p.name]));
   const costCodeById = new Map(costCodes.map((c) => [c.id, `${c.code} ${c.description}`]));
 
   const rows: RuleRow[] = rules.map((r) => {

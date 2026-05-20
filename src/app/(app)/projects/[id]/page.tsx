@@ -164,7 +164,7 @@ export default async function ProjectDetailPage({
       <Breadcrumbs
         items={[
           { href: '/projects', label: 'Projects' },
-          { label: project.number },
+          { label: project.name },
         ]}
       />
 
@@ -193,7 +193,6 @@ export default async function ProjectDetailPage({
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-xs text-slate-500">{project.number}</p>
           <h1 className="text-2xl font-semibold text-slate-900">{project.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-slate-600">
             <Link href={`/customers/${customer.id}`} className="hover:underline">
@@ -1272,7 +1271,6 @@ export default async function ProjectDetailPage({
             <CardTitle>Project</CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-1">
-            <Row label="Number" value={project.number} />
             <Row label="Customer" value={customer.name} />
             <Row label="Status" value={STATUS_LABEL[project.status]} />
             <Row

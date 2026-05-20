@@ -13,7 +13,6 @@ import {
   updateProject,
 } from '@/lib/data/projects';
 import { recomputeProjectContractTotalsFromCOs } from '@/lib/data/change-orders';
-import { DuplicateProjectNumberError } from '@/lib/mock-store';
 import { projectFormSchema } from './schema';
 
 export type CreateProjectState = {
@@ -39,7 +38,6 @@ function emptyToNull(v: string | null | undefined): string | null {
 function readForm(formData: FormData) {
   return {
     customerId: formData.get('customerId'),
-    number: formData.get('number'),
     name: formData.get('name'),
     status: formData.get('status') ?? 'lead',
     jobsiteAddressLine1: formData.get('jobsiteAddressLine1') ?? '',
@@ -76,7 +74,6 @@ export async function createProjectAction(
   try {
     const project = await createProject(companyId, {
       customerId: data.customerId,
-      number: data.number,
       name: data.name,
       status: data.status,
       jobsiteAddressLine1: emptyToNull(data.jobsiteAddressLine1 ?? null),
@@ -97,9 +94,6 @@ export async function createProjectAction(
     });
     createdId = project.id;
   } catch (err) {
-    if (err instanceof DuplicateProjectNumberError) {
-      return { errors: { number: ['That project number is already used'] } };
-    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to create project: ${message}` };
   }

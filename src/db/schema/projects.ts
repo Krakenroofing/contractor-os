@@ -6,7 +6,6 @@ import {
   numeric,
   date,
   index,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { customers } from './customers';
@@ -23,7 +22,6 @@ export const projects = pgTable(
     customerId: uuid('customer_id')
       .notNull()
       .references(() => customers.id, { onDelete: 'restrict' }),
-    number: text('number').notNull(),
     name: text('name').notNull(),
     status: projectStatusEnum('status').notNull().default('lead'),
     jobsiteAddressLine1: text('jobsite_address_line1'),
@@ -67,7 +65,6 @@ export const projects = pgTable(
   (t) => ({
     companyIdx: index('projects_company_idx').on(t.companyId),
     customerIdx: index('projects_customer_idx').on(t.customerId),
-    numberUniq: uniqueIndex('projects_company_number_uniq').on(t.companyId, t.number),
   }),
 );
 

@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
         r.receiptDate,
         vendor?.name ?? '',
         r.vendorTin ?? '',
-        project ? `${project.number} — ${project.name}` : '',
+        project ? project.name : '',
         code ? `${code.code} — ${code.description}` : '',
         r.paymentSourceType,
         bank?.name ?? '',

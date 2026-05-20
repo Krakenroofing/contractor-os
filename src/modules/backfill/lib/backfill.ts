@@ -287,7 +287,7 @@ export async function getBackfillWarnings(
       warnings.push({
         severity: 'info',
         category: 'incomplete-project',
-        message: `${p.number} — ${p.name}: no estimate on file`,
+        message: `${p.name}: no estimate on file`,
         href: `/projects/${p.id}`,
       });
     }
@@ -376,7 +376,6 @@ export async function getBackfillWarnings(
 
 export type ProjectBackfillStatus = {
   projectId: string;
-  projectNumber: string;
   projectName: string;
   hasEstimate: boolean;
   hasProposal: boolean;
@@ -412,7 +411,6 @@ export async function getProjectBackfillStatuses(
     const complete = hasEstimate && hasInvoice;
     return {
       projectId: p.id,
-      projectNumber: p.number,
       projectName: p.name,
       hasEstimate,
       hasProposal,

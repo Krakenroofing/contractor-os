@@ -37,7 +37,7 @@ export default async function JobCostReportPage({
     <ReportShell
       type="job-cost"
       filters={filters}
-      projects={projects.map((p) => ({ id: p.id, label: `${p.number} — ${p.name}` }))}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -80,9 +80,6 @@ export default async function JobCostReportPage({
               {report.rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell className="font-medium text-slate-900">
-                    <span className="font-mono text-xs text-slate-500 mr-2">
-                      {r.projectNumber}
-                    </span>
                     {r.projectName}
                   </TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
@@ -132,8 +129,8 @@ export default async function JobCostReportPage({
               <TableBody>
                 {report.costCodeBreakdown.map((r, i) => (
                   <TableRow key={`${r.projectId}-${r.costCodeId}-${i}`}>
-                    <TableCell className="font-mono text-xs text-slate-500">
-                      {r.projectNumber}
+                    <TableCell className="text-xs text-slate-700">
+                      {r.projectName}
                     </TableCell>
                     <TableCell className="font-mono text-xs">{r.code}</TableCell>
                     <TableCell className="text-slate-700">{r.description}</TableCell>

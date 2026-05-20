@@ -310,7 +310,6 @@ export default async function VendorDetailPage({
               {linkedProjects.map((p) => (
                 <li key={p.id} className="flex items-center justify-between py-2">
                   <div>
-                    <div className="font-mono text-xs text-slate-500">{p.number}</div>
                     <div className="text-slate-900">{p.name}</div>
                   </div>
                   <Link href={`/projects/${p.id}`}>

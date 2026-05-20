@@ -115,7 +115,7 @@ export default async function ReceiptsPage({
       ? listReceipts(company.id, { status: 'posted', limit: 5000 })
       : Promise.resolve([]),
   ]);
-  const projectById = new Map(projects.map((p) => [p.id, p.number + ' — ' + p.name]));
+  const projectById = new Map(projects.map((p) => [p.id, p.name]));
   const vendorById = new Map(vendors.map((v) => [v.id, v.name]));
 
   // Pull lines for visible receipts so the Project column reflects multi-line.
@@ -225,7 +225,7 @@ export default async function ReceiptsPage({
         vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
         projects={projects.map((p) => ({
           id: p.id,
-          label: `${p.number} — ${p.name}`,
+          label: p.name,
         }))}
       />
 

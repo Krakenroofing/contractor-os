@@ -19,7 +19,6 @@ const moneyString = z
 
 export const projectFormSchema = z.object({
   customerId: z.string().uuid('Pick a customer'),
-  number: z.string().min(1, 'Project number is required').max(50),
   name: z.string().min(1, 'Name is required').max(200),
   status: z.enum(projectStatusValues).default('lead'),
   jobsiteAddressLine1: optionalString,

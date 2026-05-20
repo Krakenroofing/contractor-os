@@ -38,7 +38,7 @@ export default async function LandedCostReportPage({
     <ReportShell
       type="landed-cost"
       filters={filters}
-      projects={projects.map((p) => ({ id: p.id, label: `${p.number} — ${p.name}` }))}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

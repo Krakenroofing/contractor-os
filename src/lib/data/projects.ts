@@ -11,10 +11,7 @@ import {
   updateMockProject as mockUpdate,
   softDeleteMockProject as mockSoftDelete,
   setProjectVerifiedInMemory,
-  DuplicateProjectNumberError,
 } from '@/lib/mock-store';
-
-export { DuplicateProjectNumberError };
 
 export type CreateProjectInput = Omit<
   Project,
@@ -28,10 +25,7 @@ export type CreateProjectInput = Omit<
   | 'reconciliationVerifiedNote'
 >;
 
-// Updates exclude immutable fields (id, companyId, number) — number doubles
-// as a stable display identifier, so we don't allow renumbering through the
-// edit form. If renumbering is ever needed, build a separate dedicated flow.
-export type UpdateProjectInput = Partial<Omit<CreateProjectInput, 'number'>>;
+export type UpdateProjectInput = Partial<CreateProjectInput>;
 
 export type ProjectVerificationPatch = {
   verifiedAt: Date | null;
@@ -111,22 +105,6 @@ export async function createProject(
 ): Promise<Project> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    // Mirror the mock-store's project-number uniqueness contract so behavior
-    // matches between backends.
-    const existing = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(
-        and(
-          eq(projects.companyId, companyId),
-          eq(projects.number, input.number),
-          isNull(projects.deletedAt),
-        ),
-      )
-      .limit(1);
-    if (existing.length > 0) {
-      throw new DuplicateProjectNumberError();
-    }
     const rows = await db
       .insert(projects)
       .values({ ...input, companyId })

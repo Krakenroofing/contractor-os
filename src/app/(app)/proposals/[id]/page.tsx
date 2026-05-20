@@ -93,7 +93,7 @@ export default async function ProposalDetailPage({
               <>
                 <span className="text-slate-400">·</span>
                 <Link href={`/projects/${project.id}`} className="hover:underline">
-                  {project.number}
+                  {project.name}
                 </Link>
               </>
             )}

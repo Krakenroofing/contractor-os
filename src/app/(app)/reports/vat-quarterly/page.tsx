@@ -38,7 +38,7 @@ export default async function VatQuarterlyReportPage({
     <ReportShell
       type="vat-quarterly"
       filters={filters}
-      projects={projects.map((p) => ({ id: p.id, label: `${p.number} — ${p.name}` }))}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       companyName={company.name}
     >
       {!report.isVatActive ? (
@@ -283,9 +283,7 @@ export default async function VatQuarterlyReportPage({
                           {r.customerName}
                         </TableCell>
                         <TableCell className="text-slate-700">
-                          {r.projectNumber
-                            ? `${r.projectNumber} — ${r.projectName ?? ''}`
-                            : '—'}
+                          {r.projectName ?? '—'}
                         </TableCell>
                         <TableCell className="text-slate-600">
                           {r.effectiveDate}
@@ -354,9 +352,7 @@ export default async function VatQuarterlyReportPage({
                           {r.vendorName}
                         </TableCell>
                         <TableCell className="text-slate-700">
-                          {r.projectNumber
-                            ? `${r.projectNumber} — ${r.projectName ?? ''}`
-                            : '—'}
+                          {r.projectName ?? '—'}
                         </TableCell>
                         <TableCell className="text-slate-700">
                           {r.quarterKey.replace(/^(\d{4})-(Q\d)$/, '$2 $1')}

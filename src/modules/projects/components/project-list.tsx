@@ -34,7 +34,6 @@ export function ProjectList({ projects }: { projects: ProjectListRow[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Number</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Customer</TableHead>
             <TableHead>Status</TableHead>
@@ -48,9 +47,6 @@ export function ProjectList({ projects }: { projects: ProjectListRow[] }) {
             const profit = parseMoney(p.contractValue) - parseMoney(p.currentBudget);
             return (
               <TableRow key={p.id}>
-                <TableCell className="font-mono text-xs text-slate-700">
-                  {p.number}
-                </TableCell>
                 <TableCell className="font-medium text-slate-900">{p.name}</TableCell>
                 <TableCell className="text-slate-600">{p.customerName}</TableCell>
                 <TableCell>

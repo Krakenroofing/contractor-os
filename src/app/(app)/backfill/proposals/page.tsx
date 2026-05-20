@@ -45,7 +45,7 @@ export default async function BackfillProposalsPage() {
           <ProposalMiniForm
             projects={projects.map((p) => ({
               id: p.id,
-              label: `${p.number} — ${p.name}`,
+              label: p.name,
             }))}
           />
         </CardContent>

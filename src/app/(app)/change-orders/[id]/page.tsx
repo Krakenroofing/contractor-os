@@ -105,7 +105,7 @@ export default async function ChangeOrderDetailPage({
               <>
                 <span className="text-slate-400">·</span>
                 <Link href={`/projects/${project.id}`} className="hover:underline">
-                  {project.number}
+                  {project.name}
                 </Link>
               </>
             )}
@@ -291,7 +291,7 @@ export default async function ChangeOrderDetailPage({
                 <p className="text-xs text-slate-500">
                   This CO has rolled into{' '}
                   <Link href={`/projects/${project.id}`} className="hover:underline">
-                    {project.number}
+                    {project.name}
                   </Link>
                   's contract value and approved-CO summary.
                 </p>

@@ -31,7 +31,6 @@ import type { CostCode, Project, PurchaseOrder } from '@/db/schema';
 
 export type ProjectFinancials = {
   projectId: string;
-  projectNumber: string;
   projectName: string;
   customerName: string;
   status: Project['status'];
@@ -175,7 +174,6 @@ export async function computeProjectFinancials(
 
   return {
     projectId: project.id,
-    projectNumber: project.number,
     projectName: project.name,
     customerName: customer?.name ?? 'Unknown customer',
     status: project.status,
