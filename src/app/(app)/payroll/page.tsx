@@ -19,11 +19,18 @@ import {
   ByJobView,
   type ByJobRow,
 } from '@/modules/payroll/components/by-job-view';
+import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
+import { C17SummaryView } from '@/modules/payroll/components/c17-summary';
 import {
+  formatPeriodLabel,
   mondayOf,
   todayISO,
   weekDates,
 } from '@/modules/payroll/lib/periods';
+import {
+  computeC17Summary,
+  computePeriodPaystubs,
+} from '@/modules/payroll/lib/payroll-math';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,7 +57,14 @@ export default async function PayrollPage({
     typeof sp.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)
       ? mondayOf(sp.week)
       : mondayOf(todayISO());
-  const view: TabKey = sp.view === 'by-job' ? 'by-job' : 'timesheet';
+  const view: TabKey =
+    sp.view === 'by-job'
+      ? 'by-job'
+      : sp.view === 'paystubs'
+        ? 'paystubs'
+        : sp.view === 'c17'
+          ? 'c17'
+          : 'timesheet';
 
   // Find or create the period containing the requested week.
   const period = await getOrCreatePeriodForDate(companyId, requestedWeek);
@@ -144,7 +158,7 @@ export default async function PayrollPage({
 
       <PayrollTabs active={view} weekStart={period.startDate} />
 
-      {view === 'timesheet' ? (
+      {view === 'timesheet' && (
         <TimesheetGrid
           days={days}
           employees={timesheetRows}
@@ -152,7 +166,9 @@ export default async function PayrollPage({
           allowEdit={allowEdit}
           locked={isLocked}
         />
-      ) : (
+      )}
+
+      {view === 'by-job' && (
         <ByJobView
           rows={byJobRows}
           allowEdit={allowEdit}
@@ -160,6 +176,25 @@ export default async function PayrollPage({
           weekStart={period.startDate}
         />
       )}
+
+      {(view === 'paystubs' || view === 'c17') &&
+        (() => {
+          // Paystubs and C17 share the same compute step. Both views derive
+          // from the same paystub array so the totals on C17 always match
+          // the sum of the cards on the Paystubs tab.
+          const paystubs = computePeriodPaystubs(allEmployees, allEntries, period);
+          const summary = computeC17Summary(paystubs);
+          if (view === 'paystubs') {
+            return <PaystubsView paystubs={paystubs} />;
+          }
+          return (
+            <C17SummaryView
+              summary={summary}
+              paystubs={paystubs}
+              periodLabel={formatPeriodLabel(period.startDate, period.endDate)}
+            />
+          );
+        })()}
     </div>
   );
 }

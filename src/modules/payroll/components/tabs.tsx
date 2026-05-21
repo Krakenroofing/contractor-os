@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
-export type TabKey = 'timesheet' | 'by-job';
+export type TabKey = 'timesheet' | 'by-job' | 'paystubs' | 'c17';
 
 export function PayrollTabs({
   active,
@@ -12,7 +12,7 @@ export function PayrollTabs({
 }) {
   return (
     <div className="border-b border-slate-200">
-      <nav className="flex gap-1 -mb-px">
+      <nav className="flex gap-1 -mb-px overflow-x-auto">
         <Tab
           label="Timesheet"
           active={active === 'timesheet'}
@@ -22,6 +22,16 @@ export function PayrollTabs({
           label="By job"
           active={active === 'by-job'}
           href={{ pathname: '/payroll', query: { week: weekStart, view: 'by-job' } }}
+        />
+        <Tab
+          label="Paystubs"
+          active={active === 'paystubs'}
+          href={{ pathname: '/payroll', query: { week: weekStart, view: 'paystubs' } }}
+        />
+        <Tab
+          label="C17 (NIB)"
+          active={active === 'c17'}
+          href={{ pathname: '/payroll', query: { week: weekStart, view: 'c17' } }}
         />
       </nav>
     </div>
