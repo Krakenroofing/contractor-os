@@ -22,6 +22,13 @@ import {
 import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
 import { C17SummaryView } from '@/modules/payroll/components/c17-summary';
 import {
+  SubPaymentsListClient,
+  type SubPaymentRow,
+} from '@/modules/subcontractor-payments/components/sub-payments-list-client';
+import { listSubcontractorPayments } from '@/lib/data/subcontractor-payments';
+import { listVendors } from '@/lib/data/vendors';
+import type { SubPaymentStatus } from '@/modules/subcontractor-payments/schema';
+import {
   formatPeriodLabel,
   mondayOf,
   todayISO,
@@ -64,7 +71,9 @@ export default async function PayrollPage({
         ? 'paystubs'
         : sp.view === 'c17'
           ? 'c17'
-          : 'timesheet';
+          : sp.view === 'subs'
+            ? 'subs'
+            : 'timesheet';
 
   // Find or create the period containing the requested week.
   const period = await getOrCreatePeriodForDate(companyId, requestedWeek);
@@ -195,6 +204,66 @@ export default async function PayrollPage({
             />
           );
         })()}
+
+      {view === 'subs' && (
+        <SubsTab companyId={companyId} allowEdit={allowEdit} />
+      )}
+    </div>
+  );
+}
+
+async function SubsTab({
+  companyId,
+  allowEdit,
+}: {
+  companyId: string;
+  allowEdit: boolean;
+}) {
+  const [subs, allProjects, allVendors] = await Promise.all([
+    listSubcontractorPayments(companyId),
+    listProjects(companyId),
+    listVendors(companyId),
+  ]);
+  const projectById = new Map(allProjects.map((p) => [p.id, p]));
+  const vendorById = new Map(allVendors.map((v) => [v.id, v]));
+
+  const rows: SubPaymentRow[] = subs.map((s) => {
+    const vendor = vendorById.get(s.vendorId);
+    const project = s.projectId ? projectById.get(s.projectId) : undefined;
+    return {
+      id: s.id,
+      vendorId: s.vendorId,
+      vendorName: vendor?.name ?? '— deleted —',
+      projectId: s.projectId,
+      projectName: project?.name ?? 'Unassigned',
+      workPeriodStart: s.workPeriodStart,
+      workPeriodEnd: s.workPeriodEnd,
+      scopeDescription: s.scopeDescription,
+      grossAmount: s.grossAmount,
+      retainagePercent: s.retainagePercent,
+      retainageHeld: s.retainageHeld,
+      netPaid: s.netPaid,
+      paidDate: s.paidDate,
+      status: s.status as SubPaymentStatus,
+    };
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-600">
+          {rows.length}{' '}
+          {rows.length === 1
+            ? 'subcontractor payment'
+            : 'subcontractor payments'}
+        </p>
+        {allowEdit && (
+          <Link href="/payroll/subcontractor-payments/new">
+            <Button>Add subcontractor payment</Button>
+          </Link>
+        )}
+      </div>
+      <SubPaymentsListClient rows={rows} allowEdit={allowEdit} />
     </div>
   );
 }

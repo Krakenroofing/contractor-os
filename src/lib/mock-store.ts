@@ -15,6 +15,7 @@ import type {
   Employee,
   PayPeriod,
   TimeEntry,
+  SubcontractorPayment,
   Estimate,
   EstimateLineItem,
   Invoice,
@@ -65,6 +66,7 @@ type Store = {
   employees: Employee[];
   payPeriods: PayPeriod[];
   timeEntries: TimeEntry[];
+  subcontractorPayments: SubcontractorPayment[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
   laborEntries: LaborEntry[];
@@ -1847,6 +1849,7 @@ function seed(): Store {
     employees: [],
     payPeriods: [],
     timeEntries: [],
+    subcontractorPayments: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
     laborEntries: smithLabor,
@@ -4396,5 +4399,95 @@ export function deleteMockTimeEntry(
   );
   if (idx === -1) return undefined;
   const [removed] = store.timeEntries.splice(idx, 1);
+  return removed;
+}
+
+// =====================================================================
+// Subcontractor payments (payroll Phase 4)
+// =====================================================================
+
+export type CreateSubcontractorPaymentInput = Omit<
+  SubcontractorPayment,
+  'id' | 'companyId' | 'createdAt' | 'updatedAt'
+>;
+
+export function listMockSubcontractorPayments(
+  companyId: string,
+  filters?: {
+    vendorId?: string;
+    projectId?: string;
+    status?: string;
+    overlapsStart?: string;
+    overlapsEnd?: string;
+  },
+): SubcontractorPayment[] {
+  return getStore()
+    .subcontractorPayments.filter((s) => {
+      if (s.companyId !== companyId) return false;
+      if (filters?.vendorId && s.vendorId !== filters.vendorId) return false;
+      if (filters?.projectId && s.projectId !== filters.projectId) return false;
+      if (filters?.status && s.status !== filters.status) return false;
+      // Overlap test: payment's work period overlaps [overlapsStart, overlapsEnd].
+      if (filters?.overlapsStart && filters?.overlapsEnd) {
+        if (s.workPeriodEnd < filters.overlapsStart) return false;
+        if (s.workPeriodStart > filters.overlapsEnd) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => (a.workPeriodStart < b.workPeriodStart ? 1 : -1));
+}
+
+export function getMockSubcontractorPayment(
+  companyId: string,
+  id: string,
+): SubcontractorPayment | undefined {
+  return getStore().subcontractorPayments.find(
+    (s) => s.id === id && s.companyId === companyId,
+  );
+}
+
+export function createMockSubcontractorPayment(
+  companyId: string,
+  input: CreateSubcontractorPaymentInput,
+): SubcontractorPayment {
+  const store = getStore();
+  const now = new Date();
+  const payment: SubcontractorPayment = {
+    id: randomUUID(),
+    companyId,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+  store.subcontractorPayments.push(payment);
+  return payment;
+}
+
+export function updateMockSubcontractorPayment(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Omit<SubcontractorPayment, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>
+  >,
+): SubcontractorPayment | undefined {
+  const store = getStore();
+  const p = store.subcontractorPayments.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!p) return undefined;
+  Object.assign(p, patch, { updatedAt: new Date() });
+  return p;
+}
+
+export function deleteMockSubcontractorPayment(
+  companyId: string,
+  id: string,
+): SubcontractorPayment | undefined {
+  const store = getStore();
+  const idx = store.subcontractorPayments.findIndex(
+    (s) => s.id === id && s.companyId === companyId,
+  );
+  if (idx === -1) return undefined;
+  const [removed] = store.subcontractorPayments.splice(idx, 1);
   return removed;
 }
