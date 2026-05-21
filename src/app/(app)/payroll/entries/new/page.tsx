@@ -9,6 +9,7 @@ import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { TimeEntryForm } from '@/modules/payroll/components/time-entry-form';
 import { todayISO } from '@/modules/payroll/lib/periods';
+import type { EmploymentType } from '@/modules/employees/schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,8 +49,10 @@ export default async function NewTimeEntryPage({
           Add time entry
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Each entry is one employee's hours on one date. The weekly period
-          (Mon–Sun containing the date) is found or created automatically.
+          Pick the employee first — the form switches between Hours
+          (hourly / salaried) and Amount (piecework / contract / commission
+          / lump-sum) based on their type. The weekly period (Mon–Sun
+          containing the date) is found or created automatically.
         </p>
       </header>
 
@@ -57,7 +60,9 @@ export default async function NewTimeEntryPage({
         initial={{
           employeeId: prefillEmployeeId,
           workDate: prefillWorkDate,
+          entryType: 'hours',
           hours: '',
+          amount: '',
           projectId: '',
           costCodeId: '',
           notes: '',
@@ -67,6 +72,7 @@ export default async function NewTimeEntryPage({
           .map((e) => ({
             id: e.id,
             label: `${e.firstName} ${e.lastName}`.trim(),
+            employmentType: e.employmentType as EmploymentType,
           }))}
         projects={projects.map((p) => ({ id: p.id, label: p.name }))}
         costCodes={costCodes.map((c) => ({

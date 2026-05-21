@@ -98,26 +98,35 @@ export default async function PayrollPage({
   const employeeById = new Map(allEmployees.map((e) => [e.id, e]));
   const projectById = new Map(allProjects.map((p) => [p.id, p]));
 
-  // Aggregate hours per (employee, date) for the timesheet grid. We include
-  // every active employee even if they have zero hours so the grid is the
-  // full roster instead of "people who happened to log something."
+  // Aggregate per-(employee, date) for the timesheet grid. Hourly /
+  // salaried employees show hours; piecework / contract / commission /
+  // lump-sum show $ amount instead — both pivot off the same daily roll-up.
+  // Active roster is included even when nothing is logged so the grid
+  // mirrors the full team, not just "people who happened to enter something."
   const activeEmployees = allEmployees.filter((e) => e.active);
   const timesheetRows: TimesheetEmployee[] = activeEmployees.map((e) => {
-    const hoursByDate: Record<string, number> = {};
+    const valueByDate: Record<string, number> = {};
+    const employmentType = e.employmentType as EmploymentType;
+    const isHours = employmentType === 'hourly' || employmentType === 'salaried';
     for (const entry of allEntries) {
       if (entry.employeeId !== e.id) continue;
-      hoursByDate[entry.workDate] =
-        (hoursByDate[entry.workDate] ?? 0) + Number(entry.hours);
+      const useAmount = entry.entryType === 'amount';
+      const value = useAmount ? Number(entry.amount) : Number(entry.hours);
+      valueByDate[entry.workDate] =
+        (valueByDate[entry.workDate] ?? 0) + value;
     }
     return {
       id: e.id,
       fullName: `${e.firstName} ${e.lastName}`.trim(),
-      hoursByDate,
+      employmentType,
+      valueUnit: isHours ? 'hours' : 'money',
+      valueByDate,
     };
   });
 
   // Build by-job rows. Each time entry becomes one row; project null →
-  // "Unassigned" group.
+  // "Unassigned" group. We surface entry_type so the row can render hours
+  // or $ amount appropriately.
   const byJobRows: ByJobRow[] = allEntries.map((entry) => {
     const emp = employeeById.get(entry.employeeId);
     const proj = entry.projectId ? projectById.get(entry.projectId) : undefined;
@@ -133,13 +142,23 @@ export default async function PayrollPage({
       // future enrichment if needed. For now we surface the FK presence as a
       // monospace dash.
       costCode: entry.costCodeId ? '…' : null,
+      entryType: entry.entryType as 'hours' | 'amount',
       hours: entry.hours,
+      amount: entry.amount,
       notes: entry.notes,
       canEdit: allowEdit && !isLocked,
     };
   });
 
-  const totalHours = allEntries.reduce((a, e) => a + Number(e.hours), 0);
+  // Header summary: hours for entry_type='hours' rows + dollars for
+  // entry_type='amount' rows. Display them separately so each unit
+  // remains meaningful.
+  const totalHours = allEntries
+    .filter((e) => e.entryType !== 'amount')
+    .reduce((a, e) => a + Number(e.hours), 0);
+  const totalAmount = allEntries
+    .filter((e) => e.entryType === 'amount')
+    .reduce((a, e) => a + Number(e.amount), 0);
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
@@ -159,7 +178,17 @@ export default async function PayrollPage({
             <strong className="text-slate-900 tabular-nums">
               {totalHours.toFixed(2)}
             </strong>{' '}
-            hrs logged this week
+            hrs
+            {totalAmount > 0 && (
+              <>
+                {' · '}
+                <strong className="text-slate-900 tabular-nums">
+                  ${totalAmount.toFixed(2)}
+                </strong>{' '}
+                in variable pay
+              </>
+            )}{' '}
+            logged this week
           </p>
         </div>
         {allowEdit && !isLocked && (
@@ -199,9 +228,10 @@ export default async function PayrollPage({
       {view === 'pay-run' &&
         (() => {
           // Pay Run table: one row per active employee with editable gross
-          // for the period. Hourly/salaried rows show the rate-derived
-          // gross as a placeholder so leaving the input blank "uses the
-          // rate"; piecework/contract/commission/lump-sum rows need entry.
+          // for the period. Hourly = hours × rate. Salaried = weekly rate.
+          // Piecework / contract / commission / lump-sum = sum of any
+          // amount-type entries logged so far this week. The override
+          // input takes precedence over all of that when set.
           const overrideByEmpId = new Map(
             allOverrides.map((o) => [o.employeeId, o]),
           );
@@ -210,17 +240,25 @@ export default async function PayrollPage({
             .map((e) => {
               const employmentType = e.employmentType as EmploymentType;
               const payRate = parseMoney(e.payRate);
+              const myEntries = allEntries.filter(
+                (entry) => entry.employeeId === e.id,
+              );
               const hours = round2(
-                allEntries
-                  .filter((entry) => entry.employeeId === e.id)
+                myEntries
+                  .filter((entry) => entry.entryType !== 'amount')
                   .reduce((sum, entry) => sum + parseMoney(entry.hours), 0),
+              );
+              const amountTotal = round2(
+                myEntries
+                  .filter((entry) => entry.entryType === 'amount')
+                  .reduce((sum, entry) => sum + parseMoney(entry.amount), 0),
               );
               const rateGross =
                 employmentType === 'hourly'
                   ? multiply(hours, payRate)
                   : employmentType === 'salaried'
                     ? round2(payRate)
-                    : 0;
+                    : amountTotal;
               const existing = overrideByEmpId.get(e.id);
               return {
                 employeeId: e.id,

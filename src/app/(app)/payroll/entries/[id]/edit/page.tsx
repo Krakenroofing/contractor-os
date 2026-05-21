@@ -10,6 +10,7 @@ import { listCostCodes } from '@/lib/data/cost-codes';
 import { getTimeEntry } from '@/lib/data/time-entries';
 import { TimeEntryForm } from '@/modules/payroll/components/time-entry-form';
 import { DeleteTimeEntryButton } from '@/modules/payroll/components/delete-time-entry-button';
+import type { EmploymentType } from '@/modules/employees/schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,9 @@ export default async function EditTimeEntryPage({
           id: entry.id,
           employeeId: entry.employeeId,
           workDate: entry.workDate,
+          entryType: entry.entryType as 'hours' | 'amount',
           hours: entry.hours,
+          amount: entry.amount,
           projectId: entry.projectId ?? '',
           costCodeId: entry.costCodeId ?? '',
           notes: entry.notes ?? '',
@@ -63,6 +66,7 @@ export default async function EditTimeEntryPage({
         employees={employees.map((e) => ({
           id: e.id,
           label: `${e.firstName} ${e.lastName}`.trim(),
+          employmentType: e.employmentType as EmploymentType,
         }))}
         projects={projects.map((p) => ({ id: p.id, label: p.name }))}
         costCodes={costCodes.map((c) => ({

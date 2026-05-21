@@ -1,7 +1,8 @@
-// "By Job" view: hours allocated to specific projects this week. Grouped
-// by project, with employee + day breakdown inside each group. Includes a
-// dedicated "Unassigned" group for entries that have no project_id — those
-// are general timesheet hours that haven't been allocated yet.
+// "By Job" view: hours + variable-pay allocated to projects this week.
+// Grouped by project, with employee + day + value per row. Includes a
+// dedicated "Unassigned" group for entries with no project_id. Same
+// rows can be hours (timesheet) or $ amount (piecework / commission /
+// contract / lump-sum) — entry_type drives the display.
 
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatMoney } from '@/lib/money';
 
 export type ByJobRow = {
   id: string;
@@ -22,7 +24,9 @@ export type ByJobRow = {
   projectId: string | null;
   projectName: string; // "Unassigned" when null
   costCode: string | null;
+  entryType: 'hours' | 'amount';
   hours: string;
+  amount: string;
   notes: string | null;
   canEdit: boolean;
 };
@@ -41,11 +45,11 @@ export function ByJobView({
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-        <p className="text-slate-600">No time entries for this week yet.</p>
+        <p className="text-slate-600">No entries for this week yet.</p>
         {allowEdit && !locked && (
           <div className="mt-4 inline-flex">
             <Link href={`/payroll/entries/new?workDate=${weekStart}`}>
-              <Button>Add time entry</Button>
+              <Button>Add entry</Button>
             </Link>
           </div>
         )}
@@ -71,7 +75,12 @@ export function ByJobView({
   return (
     <div className="space-y-4">
       {ordered.map(([key, g]) => {
-        const total = g.rows.reduce((a, r) => a + Number(r.hours), 0);
+        const totalHours = g.rows
+          .filter((r) => r.entryType !== 'amount')
+          .reduce((a, r) => a + Number(r.hours), 0);
+        const totalAmount = g.rows
+          .filter((r) => r.entryType === 'amount')
+          .reduce((a, r) => a + Number(r.amount), 0);
         return (
           <div key={key} className="rounded-lg border border-slate-200 bg-white">
             <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
@@ -82,8 +91,25 @@ export function ByJobView({
                 )}
               </div>
               <span className="text-xs text-slate-500 tabular-nums">
-                {g.rows.length} {g.rows.length === 1 ? 'entry' : 'entries'} ·{' '}
-                <strong className="text-slate-900">{total.toFixed(2)}</strong> hrs
+                {g.rows.length} {g.rows.length === 1 ? 'entry' : 'entries'}
+                {totalHours > 0 && (
+                  <>
+                    {' · '}
+                    <strong className="text-slate-900">
+                      {totalHours.toFixed(2)}
+                    </strong>{' '}
+                    hrs
+                  </>
+                )}
+                {totalAmount > 0 && (
+                  <>
+                    {' · '}
+                    <strong className="text-slate-900">
+                      {formatMoney(totalAmount)}
+                    </strong>{' '}
+                    pay
+                  </>
+                )}
               </span>
             </div>
             <Table>
@@ -92,7 +118,7 @@ export function ByJobView({
                   <TableHead>Date</TableHead>
                   <TableHead>Employee</TableHead>
                   <TableHead>Cost code</TableHead>
-                  <TableHead className="text-right">Hours</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead className="text-right" />
                 </TableRow>
@@ -110,7 +136,21 @@ export function ByJobView({
                       {r.costCode ?? '—'}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
-                      {Number(r.hours).toFixed(2)}
+                      {r.entryType === 'amount' ? (
+                        <>
+                          {formatMoney(r.amount)}
+                          <span className="ml-1 text-[10px] text-slate-400">
+                            pay
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {Number(r.hours).toFixed(2)}
+                          <span className="ml-1 text-[10px] text-slate-400">
+                            hrs
+                          </span>
+                        </>
+                      )}
                     </TableCell>
                     <TableCell className="text-slate-600 text-xs">
                       {r.notes ?? '—'}

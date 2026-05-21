@@ -31,7 +31,9 @@ function readForm(formData: FormData) {
   return {
     employeeId: formData.get('employeeId') ?? '',
     workDate: formData.get('workDate') ?? '',
+    entryType: formData.get('entryType') ?? 'hours',
     hours: formData.get('hours') ?? '',
+    amount: formData.get('amount') ?? '',
     projectId: formData.get('projectId') ?? '',
     costCodeId: formData.get('costCodeId') ?? '',
     notes: formData.get('notes') ?? '',
@@ -87,7 +89,12 @@ export async function createTimeEntryAction(
       employeeId: data.employeeId,
       payPeriodId: period.id,
       workDate: data.workDate,
-      hours: data.hours,
+      entryType: data.entryType,
+      // The unused field is always '0' so 'amount' rows don't carry stale
+      // hours and 'hours' rows don't carry stale amounts. The math layer
+      // reads only the field that matches entry_type.
+      hours: data.entryType === 'hours' ? data.hours : '0',
+      amount: data.entryType === 'amount' ? data.amount : '0',
       projectId: data.projectId,
       costCodeId: data.costCodeId,
       notes: emptyToNull(data.notes ?? null),
@@ -150,7 +157,9 @@ export async function updateTimeEntryAction(
       employeeId: data.employeeId,
       payPeriodId: period.id,
       workDate: data.workDate,
-      hours: data.hours,
+      entryType: data.entryType,
+      hours: data.entryType === 'hours' ? data.hours : '0',
+      amount: data.entryType === 'amount' ? data.amount : '0',
       projectId: data.projectId,
       costCodeId: data.costCodeId,
       notes: emptyToNull(data.notes ?? null),

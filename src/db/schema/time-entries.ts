@@ -35,7 +35,17 @@ export const timeEntries = pgTable(
       .notNull()
       .references(() => payPeriods.id, { onDelete: 'cascade' }),
     workDate: date('work_date').notNull(),
-    hours: numeric('hours', { precision: 7, scale: 2 }).notNull(),
+    // 'hours' = traditional timesheet row (hours × rate drives pay).
+    // 'amount' = direct pay-amount row used for piecework / contract /
+    // commission / lump-sum employees who aren't billed by the hour.
+    // Both types co-exist in this table so the timesheet UI is a single
+    // entry point regardless of how the employee gets paid.
+    entryType: text('entry_type').notNull().default('hours'),
+    hours: numeric('hours', { precision: 7, scale: 2 }).notNull().default('0'),
+    // Pay amount for entry_type='amount' rows. Zero for hours rows.
+    amount: numeric('amount', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
     projectId: uuid('project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),

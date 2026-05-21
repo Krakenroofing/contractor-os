@@ -1,10 +1,12 @@
 // Server-rendered timesheet grid: rows = employees, columns = days of the
-// week. Each cell shows the total hours that employee worked that day and
-// links to an "add entry" form pre-filled with the employee + date so the
-// click-from-cell flow is a single tap. Right column = weekly total per
-// employee. Bottom row = daily total across all employees.
+// week. Each cell shows what that employee logged that day — hours for
+// hourly / salaried employees, $ amount for piecework / contract /
+// commission / lump-sum employees. Same grid, two units. Click any cell
+// to open the entry form pre-filled with the employee + date so the
+// flow stays a single tap.
 
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -14,13 +16,22 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatMoney } from '@/lib/money';
 import { formatDayLabel } from '@/modules/payroll/lib/periods';
+import {
+  EMPLOYMENT_TYPE_LABEL,
+  EMPLOYMENT_TYPE_TONE,
+  type EmploymentType,
+} from '@/modules/employees/schema';
 
 export type TimesheetEmployee = {
   id: string;
   fullName: string;
-  // Map work_date → total hours for that day. Days with no entries are absent.
-  hoursByDate: Record<string, number>;
+  employmentType: EmploymentType;
+  /** 'hours' → cells render as 8.00; 'money' → cells render as $X.XX. */
+  valueUnit: 'hours' | 'money';
+  /** Map work_date → that day's value (hours or money depending on unit). */
+  valueByDate: Record<string, number>;
 };
 
 export function TimesheetGrid({
@@ -51,22 +62,12 @@ export function TimesheetGrid({
     );
   }
 
-  // Column totals (per day, across all employees).
-  const dailyTotals: Record<string, number> = {};
-  for (const d of days) dailyTotals[d] = 0;
-  for (const e of employees) {
-    for (const d of days) {
-      dailyTotals[d] += e.hoursByDate[d] ?? 0;
-    }
-  }
-  const grandTotal = Object.values(dailyTotals).reduce((a, b) => a + b, 0);
-
   return (
     <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="min-w-[180px]">Employee</TableHead>
+            <TableHead className="min-w-[220px]">Employee</TableHead>
             {days.map((d) => (
               <TableHead key={d} className="text-right tabular-nums">
                 {formatDayLabel(d)}
@@ -80,16 +81,25 @@ export function TimesheetGrid({
         <TableBody>
           {employees.map((emp) => {
             const total = days.reduce(
-              (a, d) => a + (emp.hoursByDate[d] ?? 0),
+              (a, d) => a + (emp.valueByDate[d] ?? 0),
               0,
             );
+            const renderValue = (v: number) =>
+              emp.valueUnit === 'hours' ? v.toFixed(2) : formatMoney(v);
             return (
               <TableRow key={emp.id}>
-                <TableCell className="font-medium text-slate-900">
-                  {emp.fullName}
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-900">
+                      {emp.fullName}
+                    </span>
+                    <Badge tone={EMPLOYMENT_TYPE_TONE[emp.employmentType]}>
+                      {EMPLOYMENT_TYPE_LABEL[emp.employmentType]}
+                    </Badge>
+                  </div>
                 </TableCell>
                 {days.map((d) => {
-                  const h = emp.hoursByDate[d] ?? 0;
+                  const v = emp.valueByDate[d] ?? 0;
                   return (
                     <TableCell key={d} className="text-right">
                       {allowEdit && !locked ? (
@@ -97,45 +107,32 @@ export function TimesheetGrid({
                           href={`/payroll/entries/new?employeeId=${emp.id}&workDate=${d}`}
                           className="block w-full text-right tabular-nums hover:text-blue-700"
                         >
-                          {h > 0 ? (
-                            h.toFixed(2)
+                          {v > 0 ? (
+                            renderValue(v)
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
                         </Link>
                       ) : (
                         <span className="tabular-nums text-slate-600">
-                          {h > 0 ? h.toFixed(2) : '—'}
+                          {v > 0 ? renderValue(v) : '—'}
                         </span>
                       )}
                     </TableCell>
                   );
                 })}
                 <TableCell className="text-right tabular-nums font-semibold">
-                  {total > 0 ? total.toFixed(2) : '—'}
+                  {total > 0 ? renderValue(total) : '—'}
                 </TableCell>
               </TableRow>
             );
           })}
-          <TableRow className="bg-slate-50">
-            <TableCell className="font-semibold text-slate-700">
-              Daily total
-            </TableCell>
-            {days.map((d) => (
-              <TableCell key={d} className="text-right tabular-nums font-semibold">
-                {dailyTotals[d] > 0 ? dailyTotals[d].toFixed(2) : '—'}
-              </TableCell>
-            ))}
-            <TableCell className="text-right tabular-nums font-bold text-slate-900">
-              {grandTotal > 0 ? grandTotal.toFixed(2) : '—'}
-            </TableCell>
-          </TableRow>
         </TableBody>
       </Table>
       {allowEdit && !locked && (
         <div className="border-t border-slate-200 p-3 flex justify-end">
           <Link href={`/payroll/entries/new?workDate=${weekStart}`}>
-            <Button size="sm">Add time entry</Button>
+            <Button size="sm">Add entry</Button>
           </Link>
         </div>
       )}

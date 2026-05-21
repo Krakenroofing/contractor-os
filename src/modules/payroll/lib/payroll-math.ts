@@ -2,12 +2,19 @@
 // Compute a weekly paystub for one employee from their employment type,
 // stored pay rate, time entries for the period, and any manual override.
 //
+// time_entries carry an entry_type — 'hours' rows are the classic
+// timesheet shape (hours × rate), 'amount' rows are direct pay events
+// used for piecework / contract / commission / lump-sum employees. Both
+// types live in the same table; the math layer reads only the field
+// that matches the row's type.
+//
 // Gross calculation precedence (first match wins):
 //   1. Manual period_pay_override for this (employee, period) → use it.
-//   2. Hourly with stored rate > 0 → sum(hours_logged) × hourly rate.
+//   2. Hourly with stored rate > 0 → sum(hours rows) × hourly rate.
 //   3. Salaried with stored rate > 0 → weekly rate.
-//   4. Piecework / Contract / Commission / Lump sum without override → $0
-//      (must be entered each period via the Pay Run tab).
+//   4. Piecework / Contract / Commission / Lump sum → sum(amount rows)
+//      for the period. If no amount entries exist yet → $0 (still needs
+//      entry via timesheet or Pay Run).
 //
 // NIB exemption (nibExempt = true):
 //   - No employee NIB withheld.
@@ -91,10 +98,10 @@ function shouldIncludeEmployee(
 }
 
 /**
- * Compute gross pay from rate + hours when no manual override is set.
- * Hourly multiplies hours × rate; salaried pays the weekly rate;
- * piecework / contract / commission / lump_sum without a manual override
- * pay zero (must be entered via Pay Run).
+ * Compute gross pay from rate + hours + amount-entries when no manual
+ * override is set. Hourly = hours × rate. Salaried = weekly rate.
+ * Piecework / contract / commission / lump_sum = sum of amount entries
+ * logged this period.
  *
  * Returns {gross, source} so the paystub can label the number with where
  * it came from.
@@ -103,6 +110,7 @@ function computeRateGross(
   employmentType: EmploymentType,
   payRate: number,
   hoursWorked: number,
+  amountTotal: number,
 ): { gross: number; source: GrossSource } {
   if (employmentType === 'hourly') {
     const gross = multiply(hoursWorked, payRate);
@@ -112,9 +120,12 @@ function computeRateGross(
     const gross = round2(payRate);
     return { gross, source: gross > 0 ? 'rate' : 'none' };
   }
-  // Piecework / contract / commission / lump_sum: no auto-pay without an
-  // override. User must enter gross via Pay Run.
-  return { gross: 0, source: 'none' };
+  // Piecework / contract / commission / lump_sum: gross is the sum of
+  // direct pay entries (entry_type='amount') logged this period.
+  return {
+    gross: round2(amountTotal),
+    source: amountTotal > 0 ? 'rate' : 'none',
+  };
 }
 
 /** Compute the paystub for one employee for one weekly period. */
@@ -130,8 +141,17 @@ export function computeEmployeePaystub(
   const nibExempt = employee.nibExempt === true;
 
   const myEntries = entries.filter((e) => e.employeeId === employee.id);
+  // Only 'hours' rows contribute to hoursWorked; 'amount' rows are pay
+  // events, not time worked, so they don't sum here.
   const hoursWorked = round2(
-    myEntries.reduce((sum, e) => sum + parseMoney(e.hours), 0),
+    myEntries
+      .filter((e) => e.entryType !== 'amount')
+      .reduce((sum, e) => sum + parseMoney(e.hours), 0),
+  );
+  const amountTotal = round2(
+    myEntries
+      .filter((e) => e.entryType === 'amount')
+      .reduce((sum, e) => sum + parseMoney(e.amount), 0),
   );
   const myOverride = overrides.find(
     (o) => o.employeeId === employee.id && o.payPeriodId === period.id,
@@ -160,14 +180,19 @@ export function computeEmployeePaystub(
     };
   }
 
-  // Override always wins. Otherwise compute from rate.
+  // Override always wins. Otherwise compute from rate + entries.
   let gross: number;
   let grossSource: GrossSource;
   if (myOverride) {
     gross = parseMoney(myOverride.grossAmount);
     grossSource = 'override';
   } else {
-    const computed = computeRateGross(employmentType, payRate, hoursWorked);
+    const computed = computeRateGross(
+      employmentType,
+      payRate,
+      hoursWorked,
+      amountTotal,
+    );
     gross = computed.gross;
     grossSource = computed.source;
   }
