@@ -22,6 +22,13 @@ import {
 import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
 import { C10SummaryView } from '@/modules/payroll/components/c10-summary';
 import {
+  PayRunTable,
+  type PayRunRow,
+} from '@/modules/payroll/components/pay-run-table';
+import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
+import { parseMoney, multiply, round2 } from '@/lib/money';
+import type { EmploymentType } from '@/modules/employees/schema';
+import {
   SubPaymentsListClient,
   type SubPaymentRow,
 } from '@/modules/subcontractor-payments/components/sub-payments-list-client';
@@ -67,23 +74,26 @@ export default async function PayrollPage({
   const view: TabKey =
     sp.view === 'by-job'
       ? 'by-job'
-      : sp.view === 'paystubs'
-        ? 'paystubs'
-        : sp.view === 'c10'
-          ? 'c10'
-          : sp.view === 'subs'
-            ? 'subs'
-            : 'timesheet';
+      : sp.view === 'pay-run'
+        ? 'pay-run'
+        : sp.view === 'paystubs'
+          ? 'paystubs'
+          : sp.view === 'c10'
+            ? 'c10'
+            : sp.view === 'subs'
+              ? 'subs'
+              : 'timesheet';
 
   // Find or create the period containing the requested week.
   const period = await getOrCreatePeriodForDate(companyId, requestedWeek);
   const isLocked = period.status === 'locked';
   const days = weekDates(period.startDate);
 
-  const [allEmployees, allProjects, allEntries] = await Promise.all([
+  const [allEmployees, allProjects, allEntries, allOverrides] = await Promise.all([
     listEmployees(companyId),
     listProjects(companyId),
     listTimeEntries(companyId, { payPeriodId: period.id }),
+    listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
   ]);
   const employeeById = new Map(allEmployees.map((e) => [e.id, e]));
   const projectById = new Map(allProjects.map((p) => [p.id, p]));
@@ -186,15 +196,67 @@ export default async function PayrollPage({
         />
       )}
 
+      {view === 'pay-run' &&
+        (() => {
+          // Pay Run table: one row per active employee with editable gross
+          // for the period. Hourly/salaried rows show the rate-derived
+          // gross as a placeholder so leaving the input blank "uses the
+          // rate"; piecework/contract/commission/lump-sum rows need entry.
+          const overrideByEmpId = new Map(
+            allOverrides.map((o) => [o.employeeId, o]),
+          );
+          const rows: PayRunRow[] = allEmployees
+            .filter((e) => e.active)
+            .map((e) => {
+              const employmentType = e.employmentType as EmploymentType;
+              const payRate = parseMoney(e.payRate);
+              const hours = round2(
+                allEntries
+                  .filter((entry) => entry.employeeId === e.id)
+                  .reduce((sum, entry) => sum + parseMoney(entry.hours), 0),
+              );
+              const rateGross =
+                employmentType === 'hourly'
+                  ? multiply(hours, payRate)
+                  : employmentType === 'salaried'
+                    ? round2(payRate)
+                    : 0;
+              const existing = overrideByEmpId.get(e.id);
+              return {
+                employeeId: e.id,
+                employeeName: `${e.firstName} ${e.lastName}`.trim(),
+                employmentType,
+                hoursWorked: hours,
+                payRate,
+                rateGross,
+                overrideAmount: existing?.grossAmount ?? '',
+                nibExempt: e.nibExempt,
+              };
+            })
+            .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+          return (
+            <PayRunTable
+              rows={rows}
+              payPeriodId={period.id}
+              locked={isLocked}
+            />
+          );
+        })()}
+
       {(view === 'paystubs' || view === 'c10') &&
         (() => {
           // Paystubs and C-10 share the same compute step. Both views derive
           // from the same paystub array so the totals on the C-10 view always
           // match the sum of the cards on the Paystubs tab.
-          const paystubs = computePeriodPaystubs(allEmployees, allEntries, period);
+          const paystubs = computePeriodPaystubs(
+            allEmployees,
+            allEntries,
+            period,
+            allOverrides,
+          );
           const summary = computeC10Summary(paystubs);
           if (view === 'paystubs') {
-            return <PaystubsView paystubs={paystubs} />;
+            return <PaystubsView paystubs={paystubs} payPeriodId={period.id} />;
           }
           return (
             <C10SummaryView

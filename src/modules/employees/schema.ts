@@ -48,24 +48,32 @@ export const PAY_RATE_BASIS_LABEL: Record<EmploymentType, string> = {
 
 /** Short hint shown under the pay rate input. */
 export const PAY_RATE_HINT: Record<EmploymentType, string> = {
-  hourly: 'Multiplied by hours logged each week to compute gross.',
-  salaried: 'Paid each week regardless of hours logged. NIB capped at $810/week.',
+  hourly:
+    'Default hourly rate. Multiplied by hours logged each week to compute gross. Can be overridden per week from the Pay Run tab.',
+  salaried:
+    'Weekly salary. Can be overridden per week from the Pay Run tab. NIB capped at $810/week.',
   piecework:
-    'Flat amount paid each period for now. Per-piece math will come in a later phase.',
+    'Optional. Pay varies by pieces completed — enter gross each week from the Pay Run tab.',
   contract:
-    'Flat amount paid each period. Set to whatever was contracted for the work.',
+    'Optional. Pay varies by contract scope — enter gross each week from the Pay Run tab.',
   commission:
-    'Flat amount paid each period. Per-sale % math will come in a later phase.',
+    'Optional. Pay varies by sales — enter gross each week from the Pay Run tab.',
   lump_sum:
-    'Flat amount paid each period until set back to zero.',
+    'Optional. Pay is entered each week from the Pay Run tab.',
 };
 
 const optionalString = z.string().optional().or(z.literal(''));
 
-const moneyString = z
+// Money input that accepts empty string and treats it as '0'. Used for
+// pay rates that may be optional — piecework / commission / contract /
+// lump-sum employees often have no fixed rate (pay is entered each week
+// via Pay Run instead).
+const optionalMoneyString = z
   .string()
   .trim()
-  .refine((v) => v !== '' && !Number.isNaN(Number(v)) && Number(v) >= 0, {
+  .default('0')
+  .transform((v) => (v === '' ? '0' : v))
+  .refine((v) => !Number.isNaN(Number(v)) && Number(v) >= 0, {
     message: 'Enter a non-negative number',
   });
 
@@ -88,7 +96,7 @@ export const employeeFormSchema = z.object({
     .or(z.literal('')),
   phone: optionalString,
   employmentType: z.enum(employmentTypeValues).default('hourly'),
-  payRate: moneyString.default('0'),
+  payRate: optionalMoneyString,
   hireDate: optionalDate,
   terminationDate: optionalDate,
   active: z.coerce.boolean().default(true),

@@ -160,14 +160,12 @@ export function EmployeeForm({
           <Field
             label={`Pay rate (${PAY_RATE_BASIS_LABEL[employmentType]})`}
             error={err('payRate')}
-            required
           >
             <Input
               name="payRate"
               type="number"
               step="0.01"
               min="0"
-              required
               defaultValue={values.payRate}
               placeholder="0.00"
             />

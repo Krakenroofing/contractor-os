@@ -1,7 +1,13 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
-export type TabKey = 'timesheet' | 'by-job' | 'paystubs' | 'c10' | 'subs';
+export type TabKey =
+  | 'timesheet'
+  | 'by-job'
+  | 'pay-run'
+  | 'paystubs'
+  | 'c10'
+  | 'subs';
 
 export function PayrollTabs({
   active,
@@ -22,6 +28,11 @@ export function PayrollTabs({
           label="By job"
           active={active === 'by-job'}
           href={{ pathname: '/payroll', query: { week: weekStart, view: 'by-job' } }}
+        />
+        <Tab
+          label="Pay run"
+          active={active === 'pay-run'}
+          href={{ pathname: '/payroll', query: { week: weekStart, view: 'pay-run' } }}
         />
         <Tab
           label="Paystubs"

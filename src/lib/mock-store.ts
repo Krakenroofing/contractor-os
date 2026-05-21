@@ -15,6 +15,7 @@ import type {
   Employee,
   PayPeriod,
   TimeEntry,
+  PeriodPayOverride,
   SubcontractorPayment,
   Estimate,
   EstimateLineItem,
@@ -66,6 +67,7 @@ type Store = {
   employees: Employee[];
   payPeriods: PayPeriod[];
   timeEntries: TimeEntry[];
+  periodPayOverrides: PeriodPayOverride[];
   subcontractorPayments: SubcontractorPayment[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
@@ -1849,6 +1851,7 @@ function seed(): Store {
     employees: [],
     payPeriods: [],
     timeEntries: [],
+    periodPayOverrides: [],
     subcontractorPayments: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
@@ -4399,6 +4402,91 @@ export function deleteMockTimeEntry(
   );
   if (idx === -1) return undefined;
   const [removed] = store.timeEntries.splice(idx, 1);
+  return removed;
+}
+
+// =====================================================================
+// Period pay overrides (payroll Phase 4.6)
+// =====================================================================
+
+export type UpsertPeriodPayOverrideInput = {
+  employeeId: string;
+  payPeriodId: string;
+  grossAmount: string;
+  notes: string | null;
+};
+
+export function listMockPeriodPayOverrides(
+  companyId: string,
+  filters?: { payPeriodId?: string; employeeId?: string },
+): PeriodPayOverride[] {
+  return getStore().periodPayOverrides.filter((o) => {
+    if (o.companyId !== companyId) return false;
+    if (filters?.payPeriodId && o.payPeriodId !== filters.payPeriodId) return false;
+    if (filters?.employeeId && o.employeeId !== filters.employeeId) return false;
+    return true;
+  });
+}
+
+export function getMockPeriodPayOverride(
+  companyId: string,
+  employeeId: string,
+  payPeriodId: string,
+): PeriodPayOverride | undefined {
+  return getStore().periodPayOverrides.find(
+    (o) =>
+      o.companyId === companyId &&
+      o.employeeId === employeeId &&
+      o.payPeriodId === payPeriodId,
+  );
+}
+
+export function upsertMockPeriodPayOverride(
+  companyId: string,
+  input: UpsertPeriodPayOverrideInput,
+): PeriodPayOverride {
+  const store = getStore();
+  const existing = store.periodPayOverrides.find(
+    (o) =>
+      o.companyId === companyId &&
+      o.employeeId === input.employeeId &&
+      o.payPeriodId === input.payPeriodId,
+  );
+  if (existing) {
+    existing.grossAmount = input.grossAmount;
+    existing.notes = input.notes;
+    existing.updatedAt = new Date();
+    return existing;
+  }
+  const now = new Date();
+  const row: PeriodPayOverride = {
+    id: randomUUID(),
+    companyId,
+    employeeId: input.employeeId,
+    payPeriodId: input.payPeriodId,
+    grossAmount: input.grossAmount,
+    notes: input.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.periodPayOverrides.push(row);
+  return row;
+}
+
+export function deleteMockPeriodPayOverride(
+  companyId: string,
+  employeeId: string,
+  payPeriodId: string,
+): PeriodPayOverride | undefined {
+  const store = getStore();
+  const idx = store.periodPayOverrides.findIndex(
+    (o) =>
+      o.companyId === companyId &&
+      o.employeeId === employeeId &&
+      o.payPeriodId === payPeriodId,
+  );
+  if (idx === -1) return undefined;
+  const [removed] = store.periodPayOverrides.splice(idx, 1);
   return removed;
 }
 

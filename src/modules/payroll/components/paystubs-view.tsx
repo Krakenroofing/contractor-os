@@ -12,8 +12,15 @@ import {
 } from '@/modules/employees/schema';
 import type { EmployeePaystub } from '../lib/payroll-math';
 import { NIB_RATES } from '../lib/nib';
+import { PaystubOverrideEditor } from './paystub-override-editor';
 
-export function PaystubsView({ paystubs }: { paystubs: EmployeePaystub[] }) {
+export function PaystubsView({
+  paystubs,
+  payPeriodId,
+}: {
+  paystubs: EmployeePaystub[];
+  payPeriodId: string;
+}) {
   const paid = paystubs.filter((p) => !p.skipped);
   const skipped = paystubs.filter((p) => p.skipped);
 
@@ -36,7 +43,11 @@ export function PaystubsView({ paystubs }: { paystubs: EmployeePaystub[] }) {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {paid.map((p) => (
-            <PaystubCard key={p.employeeId} paystub={p} />
+            <PaystubCard
+              key={p.employeeId}
+              paystub={p}
+              payPeriodId={payPeriodId}
+            />
           ))}
         </div>
       )}
@@ -65,7 +76,13 @@ export function PaystubsView({ paystubs }: { paystubs: EmployeePaystub[] }) {
   );
 }
 
-function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
+function PaystubCard({
+  paystub: p,
+  payPeriodId,
+}: {
+  paystub: EmployeePaystub;
+  payPeriodId: string;
+}) {
   const ceilingHit = p.gross > NIB_RATES.weeklyWageCeiling;
   // Rate basis label is contextual to employment type. Hourly = /hr,
   // salaried = /wk, all other types are "per period".
@@ -88,6 +105,9 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
                 {EMPLOYMENT_TYPE_LABEL[p.employmentType]}
               </Badge>
               {p.nibExempt && <Badge tone="slate">NIB exempt</Badge>}
+              {p.grossSource === 'override' && (
+                <Badge tone="blue">Manual gross</Badge>
+              )}
               <span className="tabular-nums">
                 {formatMoney(p.payRate)}
                 {rateBasis}
@@ -138,6 +158,15 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
             <span className="tabular-nums">{formatMoney(p.nib.employer)}</span>
           </div>
         )}
+
+        <div className="border-t border-slate-200 pt-3">
+          <PaystubOverrideEditor
+            employeeId={p.employeeId}
+            payPeriodId={payPeriodId}
+            currentGross={p.gross}
+            hasOverride={p.grossSource === 'override'}
+          />
+        </div>
       </CardContent>
     </Card>
   );

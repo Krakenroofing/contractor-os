@@ -1,14 +1,13 @@
 // =====================================================================
-// Compute a weekly paystub for one employee from their pay rate +
-// employment type + the time entries logged inside a pay period.
+// Compute a weekly paystub for one employee from their employment type,
+// stored pay rate, time entries for the period, and any manual override.
 //
-// Gross calculation by type:
-//   - Hourly: sum(hours_logged) × hourly rate.
-//   - Salaried: weekly salary, regardless of hours logged.
-//   - Piecework / Contract / Commission / Lump sum: flat pay_rate per
-//     period for now. Per-type math (pieces × rate, % of sales, etc.)
-//     can refine these in a follow-up phase. Edit pay_rate to whatever
-//     the employee is owed this period.
+// Gross calculation precedence (first match wins):
+//   1. Manual period_pay_override for this (employee, period) → use it.
+//   2. Hourly with stored rate > 0 → sum(hours_logged) × hourly rate.
+//   3. Salaried with stored rate > 0 → weekly rate.
+//   4. Piecework / Contract / Commission / Lump sum without override → $0
+//      (must be entered each period via the Pay Run tab).
 //
 // NIB exemption (nibExempt = true):
 //   - No employee NIB withheld.
@@ -25,9 +24,19 @@
 // =====================================================================
 
 import { add, multiply, parseMoney, round2, subtract } from '@/lib/money';
-import type { Employee, PayPeriod, TimeEntry } from '@/db/schema';
+import type {
+  Employee,
+  PayPeriod,
+  PeriodPayOverride,
+  TimeEntry,
+} from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
 import { calculateWeeklyNib, type NibBreakdown } from './nib';
+
+/** Where the paystub's gross came from. Drives UI hints (e.g. "Override"
+ *  badge on the card) and tells the user what to edit if the number is
+ *  wrong. */
+export type GrossSource = 'override' | 'rate' | 'none';
 
 export type EmployeePaystub = {
   employeeId: string;
@@ -36,6 +45,7 @@ export type EmployeePaystub = {
   hoursWorked: number;
   payRate: number;
   gross: number;
+  grossSource: GrossSource;
   nib: NibBreakdown;
   /** True if NIB calculations were skipped because nibExempt is set. */
   nibExempt: boolean;
@@ -81,22 +91,30 @@ function shouldIncludeEmployee(
 }
 
 /**
- * Compute gross pay for one employee for one weekly period based on
- * their employment type. Hourly multiplies hours × rate; every other
- * type pays the stored rate as a flat per-period amount.
+ * Compute gross pay from rate + hours when no manual override is set.
+ * Hourly multiplies hours × rate; salaried pays the weekly rate;
+ * piecework / contract / commission / lump_sum without a manual override
+ * pay zero (must be entered via Pay Run).
+ *
+ * Returns {gross, source} so the paystub can label the number with where
+ * it came from.
  */
-function computeGross(
+function computeRateGross(
   employmentType: EmploymentType,
   payRate: number,
   hoursWorked: number,
-): number {
+): { gross: number; source: GrossSource } {
   if (employmentType === 'hourly') {
-    return multiply(hoursWorked, payRate);
+    const gross = multiply(hoursWorked, payRate);
+    return { gross, source: gross > 0 ? 'rate' : 'none' };
   }
-  // Salaried / piecework / contract / commission / lump_sum: pay_rate is
-  // already "amount per period" — return it as the gross. Future phases
-  // can refine per-type math (pieces × rate, % of sales, etc.).
-  return round2(payRate);
+  if (employmentType === 'salaried') {
+    const gross = round2(payRate);
+    return { gross, source: gross > 0 ? 'rate' : 'none' };
+  }
+  // Piecework / contract / commission / lump_sum: no auto-pay without an
+  // override. User must enter gross via Pay Run.
+  return { gross: 0, source: 'none' };
 }
 
 /** Compute the paystub for one employee for one weekly period. */
@@ -104,6 +122,7 @@ export function computeEmployeePaystub(
   employee: Employee,
   entries: TimeEntry[],
   period: PayPeriod,
+  overrides: PeriodPayOverride[],
 ): EmployeePaystub {
   const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
   const employmentType = employee.employmentType as EmploymentType;
@@ -114,8 +133,16 @@ export function computeEmployeePaystub(
   const hoursWorked = round2(
     myEntries.reduce((sum, e) => sum + parseMoney(e.hours), 0),
   );
+  const myOverride = overrides.find(
+    (o) => o.employeeId === employee.id && o.payPeriodId === period.id,
+  );
+  const hasOverride = myOverride !== undefined;
 
-  const eligibility = shouldIncludeEmployee(employee, period, myEntries.length > 0);
+  const eligibility = shouldIncludeEmployee(
+    employee,
+    period,
+    myEntries.length > 0 || hasOverride,
+  );
   if (!eligibility.include) {
     return {
       employeeId: employee.id,
@@ -124,6 +151,7 @@ export function computeEmployeePaystub(
       hoursWorked,
       payRate,
       gross: 0,
+      grossSource: 'none',
       nib: calculateWeeklyNib(0),
       nibExempt,
       net: 0,
@@ -132,7 +160,17 @@ export function computeEmployeePaystub(
     };
   }
 
-  const gross = computeGross(employmentType, payRate, hoursWorked);
+  // Override always wins. Otherwise compute from rate.
+  let gross: number;
+  let grossSource: GrossSource;
+  if (myOverride) {
+    gross = parseMoney(myOverride.grossAmount);
+    grossSource = 'override';
+  } else {
+    const computed = computeRateGross(employmentType, payRate, hoursWorked);
+    gross = computed.gross;
+    grossSource = computed.source;
+  }
 
   // NIB exemption short-circuits the whole NIB block to zero. The C10
   // summary later filters by !nibExempt so exempt employees don't roll
@@ -149,6 +187,7 @@ export function computeEmployeePaystub(
     hoursWorked,
     payRate,
     gross,
+    grossSource,
     nib,
     nibExempt,
     net,
@@ -161,9 +200,10 @@ export function computePeriodPaystubs(
   employees: Employee[],
   entries: TimeEntry[],
   period: PayPeriod,
+  overrides: PeriodPayOverride[],
 ): EmployeePaystub[] {
   return employees
-    .map((e) => computeEmployeePaystub(e, entries, period))
+    .map((e) => computeEmployeePaystub(e, entries, period, overrides))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 }
 
