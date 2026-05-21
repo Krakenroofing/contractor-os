@@ -20,7 +20,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-const PUBLIC_PATHS = ['/login', '/logout', '/accept-invite', '/no-access'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/logout',
+  '/accept-invite',
+  '/no-access',
+  '/forgot-password',
+  '/reset-password',
+];
 
 /**
  * Names of the request headers middleware uses to forward the validated

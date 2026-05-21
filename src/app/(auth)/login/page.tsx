@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; reset?: string }>;
 }) {
   // Local-dev demo mode only: there's no real auth, so jump straight to the
   // dashboard. In production-misconfigured mode (env vars missing AND
@@ -23,6 +23,7 @@ export default async function LoginPage({
   const params = await searchParams;
   const nextUrl = typeof params.next === 'string' ? params.next : '/dashboard';
   const explicitError = typeof params.error === 'string' ? params.error : null;
+  const justReset = params.reset === '1';
   const initialError =
     explicitError ??
     (!isAuthEnabled()
@@ -31,7 +32,12 @@ export default async function LoginPage({
 
   return (
     <Card>
-      <CardContent className="p-6">
+      <CardContent className="p-6 space-y-4">
+        {justReset && (
+          <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
+            Your password has been updated. Sign in with the new password.
+          </div>
+        )}
         <LoginForm nextUrl={nextUrl} initialError={initialError} />
       </CardContent>
     </Card>

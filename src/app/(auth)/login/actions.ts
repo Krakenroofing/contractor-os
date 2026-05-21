@@ -20,6 +20,7 @@ const schema = z.object({
   email: z.string().email('Please enter a valid email').max(200),
   password: z.string().min(1, 'Password is required').max(200),
   next: z.string().optional(),
+  remember: z.string().optional(),
 });
 
 /**
@@ -28,16 +29,28 @@ const schema = z.object({
  * persist non-Secure auth cookies on HTTPS pages, which surfaces as "no
  * cookie in DevTools after a successful sign-in". Local dev keeps the
  * default so http://localhost still works without TLS.
+ *
+ * When `remember` is false, strip the persistence attributes (maxAge /
+ * expires) so the browser treats them as session cookies that vanish on
+ * browser close.
  */
-function hardenCookieOptions(options: CookieOptions | undefined): CookieOptions {
+function hardenCookieOptions(
+  options: CookieOptions | undefined,
+  remember: boolean,
+): CookieOptions {
   const isProduction = process.env.NODE_ENV === 'production';
-  return {
+  const base: CookieOptions = {
     ...options,
     path: options?.path ?? '/',
     sameSite: options?.sameSite ?? 'lax',
     secure: isProduction ? true : (options?.secure ?? false),
     httpOnly: options?.httpOnly ?? false,
   };
+  if (!remember) {
+    delete base.maxAge;
+    delete base.expires;
+  }
+  return base;
 }
 
 export async function signInAction(
@@ -57,12 +70,18 @@ export async function signInAction(
     email: formData.get('email'),
     password: formData.get('password'),
     next: formData.get('next') ?? '',
+    remember: formData.get('remember') ?? '',
   });
   if (!parsed.success) {
     return {
       error: parsed.error.errors[0]?.message ?? 'Invalid email or password.',
     };
   }
+
+  // HTML checkboxes only submit a value when checked. The default browser
+  // value is "on" — anything truthy here means the user wants persistent
+  // cookies; missing or empty means session-only.
+  const remember = parsed.data.remember === 'on';
 
   const cookieStore = await cookies();
   const cookiesWritten: { name: string; valueLen: number }[] = [];
@@ -77,7 +96,7 @@ export async function signInAction(
         // headers on the action's response. That's the reliable path that
         // the browser-side document.cookie write was failing.
         for (const { name, value, options } of cookiesToSet) {
-          cookieStore.set(name, value, hardenCookieOptions(options));
+          cookieStore.set(name, value, hardenCookieOptions(options, remember));
           cookiesWritten.push({ name, valueLen: value?.length ?? 0 });
         }
       },

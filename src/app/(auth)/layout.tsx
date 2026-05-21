@@ -1,6 +1,7 @@
-// Minimal layout for unauthenticated routes (currently /login). No sidebar,
-// no company switcher — just the form on a centered card so it works
-// before any of the in-app context is available.
+// Minimal layout for unauthenticated routes (login, forgot-password,
+// reset-password, accept-invite). No sidebar, no company switcher — just
+// the form on a centered card so it works before any of the in-app context
+// is available. Each child form supplies its own heading.
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -8,7 +9,6 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <p className="text-base font-semibold text-slate-900">KrakenOps Pro</p>
-          <p className="text-xs text-slate-500 mt-0.5">Sign in to continue</p>
         </div>
         {children}
       </div>
