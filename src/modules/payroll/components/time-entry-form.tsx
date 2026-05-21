@@ -11,6 +11,7 @@ import {
   updateTimeEntryAction,
   type TimeEntryState,
 } from '../actions';
+import { OVERHEAD_VALUE } from '../schema';
 import {
   EMPLOYMENT_TYPE_LABEL,
   type EmploymentType,
@@ -32,6 +33,7 @@ export type TimeEntryFormInitialValues = {
   amount: string;
   projectId: string;
   costCodeId: string;
+  isOverhead: boolean;
   notes: string;
 };
 
@@ -43,16 +45,12 @@ const blankInitial: TimeEntryFormInitialValues = {
   amount: '',
   projectId: '',
   costCodeId: '',
+  isOverhead: false,
   notes: '',
 };
 
 type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
 
-/**
- * Employee types that get paid by the hour. Everything else is paid by
- * direct amount — the form switches between Hours and Amount inputs as
- * soon as the user picks an employee.
- */
 const HOURLY_TYPES: ReadonlySet<EmploymentType> = new Set([
   'hourly',
   'salaried',
@@ -62,6 +60,20 @@ function inferEntryType(employmentType: EmploymentType | undefined): 'hours' | '
   if (!employmentType) return 'hours';
   return HOURLY_TYPES.has(employmentType) ? 'hours' : 'amount';
 }
+
+type AllocationRow = {
+  /** UUID for a real project, OVERHEAD_VALUE for overhead, or '' for unassigned. */
+  projectId: string;
+  /** UUID for a cost code, or '' for none. */
+  costCodeId: string;
+  percent: string;
+};
+
+const makeBlankAllocation = (): AllocationRow => ({
+  projectId: '',
+  costCodeId: '',
+  percent: '100',
+});
 
 export function TimeEntryForm({
   mode = { kind: 'create' },
@@ -86,11 +98,6 @@ export function TimeEntryForm({
   );
   const err = (key: string) => state.errors?.[key]?.[0];
 
-  // Track the currently-selected employee so the form can switch field
-  // sets without a page round-trip. On edit, honor whatever entry_type
-  // was stored — that way fixing a typo on an existing row doesn't
-  // accidentally change its type based on the employee's current
-  // setting.
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(
     values.employeeId,
   );
@@ -99,14 +106,41 @@ export function TimeEntryForm({
     [employees],
   );
   const selectedEmployee = employeeMap.get(selectedEmployeeId);
-
-  // Source of truth for which input renders:
-  //   - On create: derived from the selected employee's type.
-  //   - On edit: the stored entry_type (which itself was set per the
-  //     employee's type when the row was created).
   const entryType: 'hours' | 'amount' = isEdit
     ? values.entryType
     : inferEntryType(selectedEmployee?.employmentType);
+
+  // CREATE-mode allocation state. EDIT-mode uses a single project/cost-code
+  // picker pulled from initial values (no allocation array, no percent).
+  const [allocations, setAllocations] = useState<AllocationRow[]>(() => [
+    makeBlankAllocation(),
+  ]);
+
+  const totalPercent = useMemo(
+    () =>
+      allocations.reduce((sum, a) => sum + (Number(a.percent) || 0), 0),
+    [allocations],
+  );
+  const percentValid = Math.abs(totalPercent - 100) <= 0.01;
+
+  function updateAllocation(idx: number, patch: Partial<AllocationRow>) {
+    setAllocations((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+    );
+  }
+  function addAllocation() {
+    // New row gets the remaining percent. Helps the user finish to 100%.
+    const remaining = Math.max(0, +(100 - totalPercent).toFixed(2));
+    setAllocations((prev) => [
+      ...prev,
+      { projectId: '', costCodeId: '', percent: remaining.toString() },
+    ]);
+  }
+  function removeAllocation(idx: number) {
+    setAllocations((prev) =>
+      prev.length === 1 ? prev : prev.filter((_, i) => i !== idx),
+    );
+  }
 
   return (
     <form action={formAction} className="space-y-6">
@@ -139,8 +173,8 @@ export function TimeEntryForm({
           {selectedEmployee && !isEdit && (
             <p className="text-[11px] text-slate-500 mt-1">
               {entryType === 'hours'
-                ? 'Hourly / salaried — enter hours worked.'
-                : 'Variable pay — enter the amount earned (commission, piecework, contract, etc.).'}
+                ? 'Hourly / salaried — enter hours worked, then allocate across projects.'
+                : 'Variable pay — enter the amount earned, then allocate across projects.'}
             </p>
           )}
         </Field>
@@ -187,37 +221,27 @@ export function TimeEntryForm({
             </p>
           </Field>
         )}
-
-        <Field label="Project (optional)" error={err('projectId')}>
-          <Select name="projectId" defaultValue={values.projectId}>
-            <option value="">— Unassigned —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Leave blank for general work. Pick a project to allocate the entry
-            to that job.
-          </p>
-        </Field>
-
-        <Field
-          label="Cost code (optional)"
-          error={err('costCodeId')}
-          className="md:col-span-2"
-        >
-          <Select name="costCodeId" defaultValue={values.costCodeId}>
-            <option value="">— None —</option>
-            {costCodes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
       </div>
+
+      {isEdit ? (
+        <EditAllocationFields
+          err={err}
+          initial={values}
+          projects={projects}
+          costCodes={costCodes}
+        />
+      ) : (
+        <CreateAllocationFields
+          allocations={allocations}
+          totalPercent={totalPercent}
+          percentValid={percentValid}
+          projects={projects}
+          costCodes={costCodes}
+          onUpdate={updateAllocation}
+          onAdd={addAllocation}
+          onRemove={removeAllocation}
+        />
+      )}
 
       <Field label="Notes" error={err('notes')}>
         <textarea
@@ -234,13 +258,14 @@ export function TimeEntryForm({
       </Field>
 
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+        <Button
+          type="submit"
+          disabled={pending || (!isEdit && !percentValid)}
+        >
           {pending
             ? isEdit
               ? 'Saving…'
-              : entryType === 'amount'
-                ? 'Adding pay…'
-                : 'Adding hours…'
+              : 'Adding…'
             : isEdit
               ? 'Save changes'
               : entryType === 'amount'
@@ -254,6 +279,202 @@ export function TimeEntryForm({
         </Link>
       </div>
     </form>
+  );
+}
+
+/** Create-mode allocation list — repeatable rows summing to 100%. */
+function CreateAllocationFields({
+  allocations,
+  totalPercent,
+  percentValid,
+  projects,
+  costCodes,
+  onUpdate,
+  onAdd,
+  onRemove,
+}: {
+  allocations: AllocationRow[];
+  totalPercent: number;
+  percentValid: boolean;
+  projects: Option[];
+  costCodes: Option[];
+  onUpdate: (idx: number, patch: Partial<AllocationRow>) => void;
+  onAdd: () => void;
+  onRemove: (idx: number) => void;
+}) {
+  return (
+    <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <legend className="px-1 text-sm font-medium text-slate-700">
+          Allocation
+        </legend>
+        <span
+          className={`text-xs tabular-nums ${percentValid ? 'text-emerald-700' : 'text-red-600'}`}
+        >
+          {totalPercent.toFixed(2)}% allocated
+          {!percentValid && ' · must total 100%'}
+        </span>
+      </div>
+
+      <p className="text-[11px] text-slate-500">
+        Split this entry across one or more projects. Pick &ldquo;Overhead&rdquo;
+        for non-billable company labor. Percents must sum to exactly 100%.
+      </p>
+
+      <div className="space-y-3">
+        {allocations.map((row, idx) => (
+          <div
+            key={idx}
+            className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end"
+          >
+            {/* Hidden inputs carry the values into FormData under array
+                indices the server action knows how to parse. */}
+            <input
+              type="hidden"
+              name={`allocations[${idx}].projectId`}
+              value={row.projectId}
+            />
+            <input
+              type="hidden"
+              name={`allocations[${idx}].costCodeId`}
+              value={row.costCodeId}
+            />
+            <input
+              type="hidden"
+              name={`allocations[${idx}].percent`}
+              value={row.percent}
+            />
+
+            <div className="md:col-span-5">
+              <Label className="text-xs">Project</Label>
+              <Select
+                value={row.projectId}
+                onChange={(e) =>
+                  onUpdate(idx, { projectId: e.target.value })
+                }
+              >
+                <option value="">— Unassigned —</option>
+                <option value={OVERHEAD_VALUE}>Overhead (non-project)</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="md:col-span-4">
+              <Label className="text-xs">Cost code</Label>
+              <Select
+                value={row.costCodeId}
+                onChange={(e) =>
+                  onUpdate(idx, { costCodeId: e.target.value })
+                }
+              >
+                <option value="">— None —</option>
+                {costCodes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="md:col-span-2">
+              <Label className="text-xs">%</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                value={row.percent}
+                onChange={(e) =>
+                  onUpdate(idx, { percent: e.target.value })
+                }
+                className="text-right tabular-nums"
+              />
+            </div>
+
+            <div className="md:col-span-1 flex md:justify-end">
+              {allocations.length > 1 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onRemove(idx)}
+                >
+                  ×
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onAdd}
+          disabled={totalPercent >= 100}
+        >
+          + Add allocation
+        </Button>
+        {!percentValid && (
+          <p className="text-xs text-red-600">
+            Total is {totalPercent.toFixed(2)}% — adjust the rows so they sum
+            to 100%.
+          </p>
+        )}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Edit-mode allocation — single project + cost code, no percent. The
+ *  Project picker includes "Overhead" so an existing row can be flipped
+ *  to / from overhead in place. */
+function EditAllocationFields({
+  err,
+  initial,
+  projects,
+  costCodes,
+}: {
+  err: (key: string) => string | undefined;
+  initial: TimeEntryFormInitialValues;
+  projects: Option[];
+  costCodes: Option[];
+}) {
+  const defaultProject = initial.isOverhead
+    ? OVERHEAD_VALUE
+    : initial.projectId;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Field label="Project / Overhead" error={err('projectId')}>
+        <Select name="projectId" defaultValue={defaultProject}>
+          <option value="">— Unassigned —</option>
+          <option value={OVERHEAD_VALUE}>Overhead (non-project)</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field label="Cost code (optional)" error={err('costCodeId')}>
+        <Select name="costCodeId" defaultValue={initial.costCodeId}>
+          <option value="">— None —</option>
+          {costCodes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </div>
   );
 }
 

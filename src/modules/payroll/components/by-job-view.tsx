@@ -22,7 +22,8 @@ export type ByJobRow = {
   workDate: string;
   employeeName: string;
   projectId: string | null;
-  projectName: string; // "Unassigned" when null
+  projectName: string; // "Overhead" or "Unassigned" when projectId is null
+  isOverhead: boolean;
   costCode: string | null;
   entryType: 'hours' | 'amount';
   hours: string;
@@ -58,17 +59,29 @@ export function ByJobView({
   }
 
   // Group rows by project so each project gets its own header band.
+  // Three special bucket keys land at the bottom:
+  //   __overhead__   — intentional non-project labor.
+  //   __unassigned__ — project_id null AND not flagged overhead (needs
+  //                    allocation).
   const groups = new Map<string, { name: string; rows: ByJobRow[] }>();
   for (const r of rows) {
-    const key = r.projectId ?? '__unassigned__';
+    const key = r.projectId
+      ? r.projectId
+      : r.isOverhead
+        ? '__overhead__'
+        : '__unassigned__';
     const g = groups.get(key);
     if (g) g.rows.push(r);
     else groups.set(key, { name: r.projectName, rows: [r] });
   }
-  // Sort groups so "Unassigned" lands at the bottom.
+  // Sort groups so real projects come first, then Overhead, then
+  // Unassigned at the very bottom.
+  const orderRank = (k: string) =>
+    k === '__unassigned__' ? 2 : k === '__overhead__' ? 1 : 0;
   const ordered = Array.from(groups.entries()).sort(([ka, va], [kb, vb]) => {
-    if (ka === '__unassigned__') return 1;
-    if (kb === '__unassigned__') return -1;
+    const ra = orderRank(ka);
+    const rb = orderRank(kb);
+    if (ra !== rb) return ra - rb;
     return va.name.localeCompare(vb.name);
   });
 
@@ -86,6 +99,9 @@ export function ByJobView({
             <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-slate-900">{g.name}</h2>
+                {key === '__overhead__' && (
+                  <Badge tone="purple">Overhead</Badge>
+                )}
                 {key === '__unassigned__' && (
                   <Badge tone="amber">Not allocated to a job</Badge>
                 )}

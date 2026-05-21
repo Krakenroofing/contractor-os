@@ -4,6 +4,7 @@ import {
   text,
   date,
   numeric,
+  boolean,
   timestamp,
   index,
 } from 'drizzle-orm/pg-core';
@@ -52,6 +53,12 @@ export const timeEntries = pgTable(
     costCodeId: uuid('cost_code_id').references(() => costCodes.id, {
       onDelete: 'set null',
     }),
+    // True when this row represents overhead labor (admin, training,
+    // equipment maintenance) rather than work tied to a specific job.
+    // When true, project_id stays null. Reports group overhead
+    // separately from "Unassigned" rows that just haven't been
+    // allocated to a job yet.
+    isOverhead: boolean('is_overhead').notNull().default(false),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

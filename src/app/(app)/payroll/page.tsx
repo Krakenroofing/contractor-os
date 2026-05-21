@@ -124,9 +124,10 @@ export default async function PayrollPage({
     };
   });
 
-  // Build by-job rows. Each time entry becomes one row; project null →
-  // "Unassigned" group. We surface entry_type so the row can render hours
-  // or $ amount appropriately.
+  // Build by-job rows. Each time entry becomes one row. Three buckets:
+  //   - Real project → grouped by project name.
+  //   - is_overhead=true → "Overhead" group (deliberate non-billable).
+  //   - Neither → "Unassigned" group (needs allocation).
   const byJobRows: ByJobRow[] = allEntries.map((entry) => {
     const emp = employeeById.get(entry.employeeId);
     const proj = entry.projectId ? projectById.get(entry.projectId) : undefined;
@@ -137,7 +138,8 @@ export default async function PayrollPage({
         ? `${emp.firstName} ${emp.lastName}`.trim()
         : '— deleted —',
       projectId: entry.projectId,
-      projectName: proj?.name ?? 'Unassigned',
+      projectName: proj?.name ?? (entry.isOverhead ? 'Overhead' : 'Unassigned'),
+      isOverhead: entry.isOverhead,
       // We don't carry the cost code label in time_entries — defer that to a
       // future enrichment if needed. For now we surface the FK presence as a
       // monospace dash.

@@ -65,6 +65,7 @@ export default async function NewTimeEntryPage({
           amount: '',
           projectId: '',
           costCodeId: '',
+          isOverhead: false,
           notes: '',
         }}
         employees={employees
