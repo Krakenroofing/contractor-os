@@ -26,3 +26,4 @@ export * from './statement-imports';
 export * from './banking-rules';
 export * from './receipts';
 export * from './transaction-matches';
+export * from './employees';

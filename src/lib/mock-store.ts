@@ -12,6 +12,7 @@ import type {
   Company,
   CostCode,
   Customer,
+  Employee,
   Estimate,
   EstimateLineItem,
   Invoice,
@@ -59,6 +60,7 @@ type Store = {
   changeOrders: ChangeOrder[];
   changeOrderLineItems: ChangeOrderLineItem[];
   vendors: Vendor[];
+  employees: Employee[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
   laborEntries: LaborEntry[];
@@ -1838,6 +1840,7 @@ function seed(): Store {
     changeOrders: [smithCO.co, sunsetCO.co],
     changeOrderLineItems: [...smithCO.lines, ...sunsetCO.lines],
     vendors: [abcSupply, frontRangeLumber, mountainCrane, pacificCedar],
+    employees: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
     laborEntries: smithLabor,
@@ -4166,4 +4169,81 @@ export function updateMockPurchaseOrderHeader(
   po.notes = patch.notes;
   po.updatedAt = new Date();
   return po;
+}
+
+// =====================================================================
+// Employees (payroll Phase 1)
+// =====================================================================
+
+export type CreateEmployeeInput = Omit<
+  Employee,
+  'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'
+>;
+
+export function listMockEmployees(companyId: string): Employee[] {
+  return getStore()
+    .employees.filter((e) => e.companyId === companyId && !e.deletedAt)
+    .sort((a, b) => {
+      const an = `${a.lastName} ${a.firstName}`.toLowerCase();
+      const bn = `${b.lastName} ${b.firstName}`.toLowerCase();
+      return an.localeCompare(bn);
+    });
+}
+
+export function getMockEmployee(
+  companyId: string,
+  id: string,
+): Employee | undefined {
+  return getStore().employees.find(
+    (e) => e.id === id && e.companyId === companyId && !e.deletedAt,
+  );
+}
+
+export function createMockEmployee(
+  companyId: string,
+  input: CreateEmployeeInput,
+): Employee {
+  const store = getStore();
+  const now = new Date();
+  const employee: Employee = {
+    id: randomUUID(),
+    companyId,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+  store.employees.push(employee);
+  return employee;
+}
+
+export function updateMockEmployee(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Omit<Employee, 'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'>
+  >,
+): Employee | undefined {
+  const store = getStore();
+  const e = store.employees.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!e) return undefined;
+  Object.assign(e, patch, { updatedAt: new Date() });
+  return e;
+}
+
+export function softDeleteMockEmployee(
+  companyId: string,
+  id: string,
+): Employee | undefined {
+  const store = getStore();
+  const e = store.employees.find(
+    (x) => x.id === id && x.companyId === companyId && !x.deletedAt,
+  );
+  if (!e) return undefined;
+  const now = new Date();
+  e.deletedAt = now;
+  e.updatedAt = now;
+  return e;
 }

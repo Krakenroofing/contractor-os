@@ -60,6 +60,8 @@ export const RESOURCES = [
   'receipts',
   // Accountant exports — Phase 1.
   'exports',
+  // Payroll Phase 1: employees as first-class records.
+  'employees',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -100,6 +102,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     banking_rules: RW,
     receipts: RW,
     exports: RW,
+    employees: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -137,6 +140,8 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     banking_rules: READ,
     receipts: RW,
     exports: READ,
+    // PMs don't see payroll — pay info stays with owner + accounting.
+    employees: NONE,
   },
   estimator: {
     dashboard: READ,
@@ -168,6 +173,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     banking_rules: NONE,
     receipts: NONE,
     exports: NONE,
+    employees: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -199,6 +205,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     banking_rules: RW,
     receipts: RW,
     exports: RW,
+    employees: RW,
   },
   field_user: {
     dashboard: READ,
@@ -234,6 +241,8 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // server-side via a separate role check.
     receipts: RW,
     exports: NONE,
+    // Field users never see colleagues' pay info.
+    employees: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -265,6 +274,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     banking_rules: READ,
     receipts: READ,
     exports: READ,
+    employees: READ,
   },
 };
 
