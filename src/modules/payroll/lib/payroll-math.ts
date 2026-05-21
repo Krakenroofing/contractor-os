@@ -35,6 +35,7 @@ import type {
   Employee,
   PayPeriod,
   PeriodPayOverride,
+  PeriodPaystubSnapshot,
   TimeEntry,
 } from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
@@ -220,13 +221,57 @@ export function computeEmployeePaystub(
   };
 }
 
-/** Compute all paystubs for a period, sorted by employee name. */
+/**
+ * Reconstruct a paystub from a frozen snapshot row. Used for locked
+ * periods so rate changes after lock-time don't rewrite history.
+ */
+function paystubFromSnapshot(snap: PeriodPaystubSnapshot): EmployeePaystub {
+  const gross = parseMoney(snap.gross);
+  const insurableWage = parseMoney(snap.insurableWage);
+  const employeeNib = parseMoney(snap.employeeNib);
+  const employerNib = parseMoney(snap.employerNib);
+  return {
+    employeeId: snap.employeeId,
+    employeeName: snap.employeeName,
+    employmentType: snap.employmentType as EmploymentType,
+    hoursWorked: parseMoney(snap.hoursWorked),
+    payRate: parseMoney(snap.payRate),
+    gross,
+    grossSource: (snap.grossSource as GrossSource) ?? 'none',
+    nib: {
+      gross,
+      insurableWage,
+      employee: employeeNib,
+      employer: employerNib,
+      total: round2(employeeNib + employerNib),
+    },
+    nibExempt: snap.nibExempt,
+    net: parseMoney(snap.net),
+    skipped: false,
+  };
+}
+
+/**
+ * Compute all paystubs for a period, sorted by employee name.
+ *
+ * When the period is locked AND a snapshot set exists, paystubs are
+ * reconstructed from snapshots — the live employee.pay_rate is ignored,
+ * which is the entire point of locking. When the period is open (or
+ * locked but has no snapshots, e.g. legacy data), paystubs compute
+ * live as before.
+ */
 export function computePeriodPaystubs(
   employees: Employee[],
   entries: TimeEntry[],
   period: PayPeriod,
   overrides: PeriodPayOverride[],
+  snapshots: PeriodPaystubSnapshot[] = [],
 ): EmployeePaystub[] {
+  if (period.status === 'locked' && snapshots.length > 0) {
+    return snapshots
+      .map(paystubFromSnapshot)
+      .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+  }
   return employees
     .map((e) => computeEmployeePaystub(e, entries, period, overrides))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));

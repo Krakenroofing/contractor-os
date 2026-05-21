@@ -16,8 +16,19 @@ import {
 import { getOrCreatePeriodForDate, getPayPeriod, updatePayPeriod } from '@/lib/data/pay-periods';
 import {
   deletePeriodPayOverride,
+  listPeriodPayOverrides,
   upsertPeriodPayOverride,
 } from '@/lib/data/period-pay-overrides';
+import {
+  deletePaystubSnapshotsForPeriod,
+  replacePaystubSnapshotsForPeriod,
+} from '@/lib/data/period-paystub-snapshots';
+import { listEmployees } from '@/lib/data/employees';
+import { listTimeEntries } from '@/lib/data/time-entries';
+import {
+  computePeriodPaystubs,
+  type EmployeePaystub,
+} from './lib/payroll-math';
 import {
   multiply,
   parseMoney,
@@ -490,4 +501,147 @@ export async function setPeriodStatusAction(input: {
   if (!updated) return { ok: false, error: 'Period not found.' };
   revalidatePath('/payroll');
   return { ok: true };
+}
+
+// =====================================================================
+// Lock / unlock period (Phase 4.9)
+// =====================================================================
+//
+// Lock computes paystubs live one last time, writes the snapshot set
+// for the period, then flips status to 'locked'. After lock, subsequent
+// reads of this period reconstruct paystubs from the snapshots — so
+// editing an employee's pay rate AFTER lock can't rewrite history.
+//
+// Unlock clears snapshots and flips status to 'open'. Used to fix
+// mistakes; the computation goes live again.
+
+export type LockPeriodState = { formError?: string };
+
+function paystubToSnapshot(
+  payPeriodId: string,
+  paystub: EmployeePaystub,
+): {
+  payPeriodId: string;
+  employeeId: string;
+  employeeName: string;
+  employmentType: string;
+  payRate: string;
+  hoursWorked: string;
+  gross: string;
+  insurableWage: string;
+  employeeNib: string;
+  employerNib: string;
+  net: string;
+  nibExempt: boolean;
+  grossSource: string;
+} {
+  return {
+    payPeriodId,
+    employeeId: paystub.employeeId,
+    employeeName: paystub.employeeName,
+    employmentType: paystub.employmentType,
+    payRate: toMoneyString(paystub.payRate),
+    hoursWorked: paystub.hoursWorked.toFixed(2),
+    gross: toMoneyString(paystub.gross),
+    insurableWage: toMoneyString(paystub.nib.insurableWage),
+    employeeNib: toMoneyString(paystub.nib.employee),
+    employerNib: toMoneyString(paystub.nib.employer),
+    net: toMoneyString(paystub.net),
+    nibExempt: paystub.nibExempt,
+    grossSource: paystub.grossSource,
+  };
+}
+
+export async function lockPeriodAction(
+  _prev: LockPeriodState,
+  formData: FormData,
+): Promise<LockPeriodState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { formError: 'You do not have permission to lock pay periods.' };
+  }
+
+  const idResult = idSchema.safeParse(formData.get('payPeriodId'));
+  if (!idResult.success) return { formError: 'Missing pay period id.' };
+  const payPeriodId = idResult.data;
+  const companyId = await getActiveCompanyId();
+
+  const period = await getPayPeriod(companyId, payPeriodId);
+  if (!period) return { formError: 'Pay period not found.' };
+  if (period.status === 'locked') {
+    // Already locked — surface as a no-op rather than an error so a
+    // double-click on the button doesn't blow up.
+    revalidatePath('/payroll');
+    return {};
+  }
+
+  // Compute paystubs live ONE LAST TIME using the current rates +
+  // entries + overrides, then freeze them.
+  const [employees, entries, overrides] = await Promise.all([
+    listEmployees(companyId),
+    listTimeEntries(companyId, { payPeriodId }),
+    listPeriodPayOverrides(companyId, { payPeriodId }),
+  ]);
+  // Pass empty snapshots so this compute runs live (we're about to
+  // become the snapshot source).
+  const paystubs = computePeriodPaystubs(
+    employees,
+    entries,
+    period,
+    overrides,
+    [],
+  );
+  // Only snapshot rows that actually got paid (gross > 0) and weren't
+  // skipped (terminated / inactive without entries). Skipped employees
+  // would just clutter the locked-period view with $0 ghost rows.
+  const snapshottable = paystubs.filter((p) => !p.skipped);
+  const snapshotInputs = snapshottable.map((p) =>
+    paystubToSnapshot(payPeriodId, p),
+  );
+
+  try {
+    await replacePaystubSnapshotsForPeriod(companyId, payPeriodId, snapshotInputs);
+    await updatePayPeriod(companyId, payPeriodId, { status: 'locked' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to lock period: ${message}` };
+  }
+
+  revalidatePath('/payroll');
+  return {};
+}
+
+export async function unlockPeriodAction(
+  _prev: LockPeriodState,
+  formData: FormData,
+): Promise<LockPeriodState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { formError: 'You do not have permission to unlock pay periods.' };
+  }
+
+  const idResult = idSchema.safeParse(formData.get('payPeriodId'));
+  if (!idResult.success) return { formError: 'Missing pay period id.' };
+  const payPeriodId = idResult.data;
+  const companyId = await getActiveCompanyId();
+
+  const period = await getPayPeriod(companyId, payPeriodId);
+  if (!period) return { formError: 'Pay period not found.' };
+  if (period.status === 'open') {
+    revalidatePath('/payroll');
+    return {};
+  }
+
+  try {
+    await deletePaystubSnapshotsForPeriod(companyId, payPeriodId);
+    await updatePayPeriod(companyId, payPeriodId, { status: 'open' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to unlock period: ${message}` };
+  }
+
+  revalidatePath('/payroll');
+  return {};
 }

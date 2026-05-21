@@ -26,6 +26,8 @@ import {
   type PayRunRow,
 } from '@/modules/payroll/components/pay-run-table';
 import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
+import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
+import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { parseMoney, multiply, round2 } from '@/lib/money';
 import type { EmploymentType } from '@/modules/employees/schema';
 import {
@@ -89,11 +91,18 @@ export default async function PayrollPage({
   const isLocked = period.status === 'locked';
   const days = weekDates(period.startDate);
 
-  const [allEmployees, allProjects, allEntries, allOverrides] = await Promise.all([
+  const [
+    allEmployees,
+    allProjects,
+    allEntries,
+    allOverrides,
+    allSnapshots,
+  ] = await Promise.all([
     listEmployees(companyId),
     listProjects(companyId),
     listTimeEntries(companyId, { payPeriodId: period.id }),
     listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
+    listPaystubSnapshots(companyId, { payPeriodId: period.id }),
   ]);
   const employeeById = new Map(allEmployees.map((e) => [e.id, e]));
   const projectById = new Map(allProjects.map((p) => [p.id, p]));
@@ -200,11 +209,19 @@ export default async function PayrollPage({
         )}
       </header>
 
-      <PeriodSelector
-        weekStart={period.startDate}
-        weekEnd={period.endDate}
-        status={period.status as 'open' | 'locked'}
-      />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <PeriodSelector
+          weekStart={period.startDate}
+          weekEnd={period.endDate}
+          status={period.status as 'open' | 'locked'}
+        />
+        {allowEdit && (
+          <PeriodLockButton
+            payPeriodId={period.id}
+            locked={isLocked}
+          />
+        )}
+      </div>
 
       <PayrollTabs active={view} weekStart={period.startDate} />
 
@@ -293,6 +310,7 @@ export default async function PayrollPage({
             allEntries,
             period,
             allOverrides,
+            allSnapshots,
           );
           const summary = computeC10Summary(paystubs);
           if (view === 'paystubs') {

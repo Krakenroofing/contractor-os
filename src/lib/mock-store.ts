@@ -16,6 +16,7 @@ import type {
   PayPeriod,
   TimeEntry,
   PeriodPayOverride,
+  PeriodPaystubSnapshot,
   SubcontractorPayment,
   Estimate,
   EstimateLineItem,
@@ -68,6 +69,7 @@ type Store = {
   payPeriods: PayPeriod[];
   timeEntries: TimeEntry[];
   periodPayOverrides: PeriodPayOverride[];
+  periodPaystubSnapshots: PeriodPaystubSnapshot[];
   subcontractorPayments: SubcontractorPayment[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
@@ -1852,6 +1854,7 @@ function seed(): Store {
     payPeriods: [],
     timeEntries: [],
     periodPayOverrides: [],
+    periodPaystubSnapshots: [],
     subcontractorPayments: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
@@ -4578,4 +4581,62 @@ export function deleteMockSubcontractorPayment(
   if (idx === -1) return undefined;
   const [removed] = store.subcontractorPayments.splice(idx, 1);
   return removed;
+}
+
+// =====================================================================
+// Period paystub snapshots (payroll Phase 4.9 — lock & post)
+// =====================================================================
+
+export type CreateSnapshotInput = Omit<
+  PeriodPaystubSnapshot,
+  'id' | 'companyId' | 'snapshottedAt'
+>;
+
+export function listMockPaystubSnapshots(
+  companyId: string,
+  filters?: { payPeriodId?: string },
+): PeriodPaystubSnapshot[] {
+  return getStore().periodPaystubSnapshots.filter((s) => {
+    if (s.companyId !== companyId) return false;
+    if (filters?.payPeriodId && s.payPeriodId !== filters.payPeriodId) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/** Atomic "replace all snapshots for this period" — used when locking. */
+export function replaceMockPaystubSnapshotsForPeriod(
+  companyId: string,
+  payPeriodId: string,
+  inputs: CreateSnapshotInput[],
+): PeriodPaystubSnapshot[] {
+  const store = getStore();
+  // Drop any existing snapshots for this period — locking always
+  // rewrites the full set.
+  store.periodPaystubSnapshots = store.periodPaystubSnapshots.filter(
+    (s) => !(s.companyId === companyId && s.payPeriodId === payPeriodId),
+  );
+  const now = new Date();
+  const inserted: PeriodPaystubSnapshot[] = inputs.map((input) => ({
+    id: randomUUID(),
+    companyId,
+    snapshottedAt: now,
+    ...input,
+  }));
+  store.periodPaystubSnapshots.push(...inserted);
+  return inserted;
+}
+
+/** Atomic "drop all snapshots for this period" — used when unlocking. */
+export function deleteMockPaystubSnapshotsForPeriod(
+  companyId: string,
+  payPeriodId: string,
+): number {
+  const store = getStore();
+  const before = store.periodPaystubSnapshots.length;
+  store.periodPaystubSnapshots = store.periodPaystubSnapshots.filter(
+    (s) => !(s.companyId === companyId && s.payPeriodId === payPeriodId),
+  );
+  return before - store.periodPaystubSnapshots.length;
 }
