@@ -27,3 +27,5 @@ export * from './banking-rules';
 export * from './receipts';
 export * from './transaction-matches';
 export * from './employees';
+export * from './pay-periods';
+export * from './time-entries';

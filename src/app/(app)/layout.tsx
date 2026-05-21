@@ -32,6 +32,7 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/retainage', label: 'Retainage', resource: 'retainage' },
   { href: '/job-costing', label: 'Job Costing', resource: 'job_costing' },
   { href: '/employees', label: 'Employees', resource: 'employees' },
+  { href: '/payroll', label: 'Payroll', resource: 'payroll' },
   { href: '/banking', label: 'Banking & Receipts', resource: 'bank_accounts' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },

@@ -62,6 +62,8 @@ export const RESOURCES = [
   'exports',
   // Payroll Phase 1: employees as first-class records.
   'employees',
+  // Payroll Phase 2: weekly timesheet + by-job allocation.
+  'payroll',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -103,6 +105,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     receipts: RW,
     exports: RW,
     employees: RW,
+    payroll: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -142,6 +145,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: READ,
     // PMs don't see payroll — pay info stays with owner + accounting.
     employees: NONE,
+    payroll: NONE,
   },
   estimator: {
     dashboard: READ,
@@ -174,6 +178,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     receipts: NONE,
     exports: NONE,
     employees: NONE,
+    payroll: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -206,6 +211,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     receipts: RW,
     exports: RW,
     employees: RW,
+    payroll: RW,
   },
   field_user: {
     dashboard: READ,
@@ -243,6 +249,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: NONE,
     // Field users never see colleagues' pay info.
     employees: NONE,
+    payroll: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -275,6 +282,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     receipts: READ,
     exports: READ,
     employees: READ,
+    payroll: READ,
   },
 };
 

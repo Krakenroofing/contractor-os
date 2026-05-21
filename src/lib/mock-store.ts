@@ -13,6 +13,8 @@ import type {
   CostCode,
   Customer,
   Employee,
+  PayPeriod,
+  TimeEntry,
   Estimate,
   EstimateLineItem,
   Invoice,
@@ -61,6 +63,8 @@ type Store = {
   changeOrderLineItems: ChangeOrderLineItem[];
   vendors: Vendor[];
   employees: Employee[];
+  payPeriods: PayPeriod[];
+  timeEntries: TimeEntry[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
   laborEntries: LaborEntry[];
@@ -1841,6 +1845,8 @@ function seed(): Store {
     changeOrderLineItems: [...smithCO.lines, ...sunsetCO.lines],
     vendors: [abcSupply, frontRangeLumber, mountainCrane, pacificCedar],
     employees: [],
+    payPeriods: [],
+    timeEntries: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
     laborEntries: smithLabor,
@@ -4246,4 +4252,149 @@ export function softDeleteMockEmployee(
   e.deletedAt = now;
   e.updatedAt = now;
   return e;
+}
+
+// =====================================================================
+// Pay periods (payroll Phase 2)
+// =====================================================================
+
+export type CreatePayPeriodInput = Omit<
+  PayPeriod,
+  'id' | 'companyId' | 'createdAt' | 'updatedAt'
+>;
+
+export function listMockPayPeriods(companyId: string): PayPeriod[] {
+  return getStore()
+    .payPeriods.filter((p) => p.companyId === companyId)
+    .sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
+}
+
+export function getMockPayPeriod(
+  companyId: string,
+  id: string,
+): PayPeriod | undefined {
+  return getStore().payPeriods.find(
+    (p) => p.id === id && p.companyId === companyId,
+  );
+}
+
+export function getMockPayPeriodByStart(
+  companyId: string,
+  startDate: string,
+): PayPeriod | undefined {
+  return getStore().payPeriods.find(
+    (p) => p.companyId === companyId && p.startDate === startDate,
+  );
+}
+
+export function createMockPayPeriod(
+  companyId: string,
+  input: CreatePayPeriodInput,
+): PayPeriod {
+  const store = getStore();
+  const now = new Date();
+  const period: PayPeriod = {
+    id: randomUUID(),
+    companyId,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+  store.payPeriods.push(period);
+  return period;
+}
+
+export function updateMockPayPeriod(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Omit<PayPeriod, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>
+  >,
+): PayPeriod | undefined {
+  const store = getStore();
+  const p = store.payPeriods.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!p) return undefined;
+  Object.assign(p, patch, { updatedAt: new Date() });
+  return p;
+}
+
+// =====================================================================
+// Time entries (payroll Phase 2)
+// =====================================================================
+
+export type CreateTimeEntryInput = Omit<
+  TimeEntry,
+  'id' | 'companyId' | 'createdAt' | 'updatedAt'
+>;
+
+export function listMockTimeEntries(
+  companyId: string,
+  filters?: { payPeriodId?: string; employeeId?: string; projectId?: string },
+): TimeEntry[] {
+  return getStore()
+    .timeEntries.filter((t) => {
+      if (t.companyId !== companyId) return false;
+      if (filters?.payPeriodId && t.payPeriodId !== filters.payPeriodId) return false;
+      if (filters?.employeeId && t.employeeId !== filters.employeeId) return false;
+      if (filters?.projectId && t.projectId !== filters.projectId) return false;
+      return true;
+    })
+    .sort((a, b) => (a.workDate < b.workDate ? 1 : -1));
+}
+
+export function getMockTimeEntry(
+  companyId: string,
+  id: string,
+): TimeEntry | undefined {
+  return getStore().timeEntries.find(
+    (t) => t.id === id && t.companyId === companyId,
+  );
+}
+
+export function createMockTimeEntry(
+  companyId: string,
+  input: CreateTimeEntryInput,
+): TimeEntry {
+  const store = getStore();
+  const now = new Date();
+  const entry: TimeEntry = {
+    id: randomUUID(),
+    companyId,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+  store.timeEntries.push(entry);
+  return entry;
+}
+
+export function updateMockTimeEntry(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Omit<TimeEntry, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>
+  >,
+): TimeEntry | undefined {
+  const store = getStore();
+  const t = store.timeEntries.find(
+    (x) => x.id === id && x.companyId === companyId,
+  );
+  if (!t) return undefined;
+  Object.assign(t, patch, { updatedAt: new Date() });
+  return t;
+}
+
+export function deleteMockTimeEntry(
+  companyId: string,
+  id: string,
+): TimeEntry | undefined {
+  const store = getStore();
+  const idx = store.timeEntries.findIndex(
+    (t) => t.id === id && t.companyId === companyId,
+  );
+  if (idx === -1) return undefined;
+  const [removed] = store.timeEntries.splice(idx, 1);
+  return removed;
 }
