@@ -1,22 +1,67 @@
 import { z } from 'zod';
 
-export const employmentTypeValues = ['hourly', 'salaried'] as const;
+export const employmentTypeValues = [
+  'hourly',
+  'salaried',
+  'piecework',
+  'contract',
+  'commission',
+  'lump_sum',
+] as const;
 export type EmploymentType = (typeof employmentTypeValues)[number];
 
 export const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
   hourly: 'Hourly',
   salaried: 'Salaried',
+  piecework: 'Piecework',
+  contract: 'Contract',
+  commission: 'Sales commission',
+  lump_sum: 'Lump sum',
 };
 
-export const EMPLOYMENT_TYPE_TONE: Record<EmploymentType, 'blue' | 'green'> = {
+export const EMPLOYMENT_TYPE_TONE: Record<
+  EmploymentType,
+  'blue' | 'green' | 'amber' | 'slate' | 'purple' | 'red'
+> = {
   hourly: 'blue',
   salaried: 'green',
+  piecework: 'amber',
+  contract: 'purple',
+  commission: 'red',
+  lump_sum: 'slate',
+};
+
+/**
+ * Short label for the pay rate field, contextual to employment type.
+ * Hourly: "$/hour". Salaried: "$/week". Everything else for now:
+ * "Per period" (gross = the stored rate, paid out each period). Per-type
+ * math (pieces × rate, % of sales, etc.) is a follow-up phase.
+ */
+export const PAY_RATE_BASIS_LABEL: Record<EmploymentType, string> = {
+  hourly: '$/hour',
+  salaried: '$/week',
+  piecework: 'Per period',
+  contract: 'Per period',
+  commission: 'Per period',
+  lump_sum: 'Per period',
+};
+
+/** Short hint shown under the pay rate input. */
+export const PAY_RATE_HINT: Record<EmploymentType, string> = {
+  hourly: 'Multiplied by hours logged each week to compute gross.',
+  salaried: 'Paid each week regardless of hours logged. NIB capped at $710/week.',
+  piecework:
+    'Flat amount paid each period for now. Per-piece math will come in a later phase.',
+  contract:
+    'Flat amount paid each period. Set to whatever was contracted for the work.',
+  commission:
+    'Flat amount paid each period. Per-sale % math will come in a later phase.',
+  lump_sum:
+    'Flat amount paid each period until set back to zero.',
 };
 
 const optionalString = z.string().optional().or(z.literal(''));
 
-// Money / rate strings get the same regex treatment as invoice line items —
-// validated at the form layer, stored as numeric strings for drizzle.
 const moneyString = z
   .string()
   .trim()
@@ -47,6 +92,7 @@ export const employeeFormSchema = z.object({
   hireDate: optionalDate,
   terminationDate: optionalDate,
   active: z.coerce.boolean().default(true),
+  nibExempt: z.coerce.boolean().default(false),
   notes: z.string().max(2000).optional().or(z.literal('')),
 });
 

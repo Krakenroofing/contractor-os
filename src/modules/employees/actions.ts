@@ -40,6 +40,9 @@ function readForm(formData: FormData) {
     terminationDate: formData.get('terminationDate') ?? '',
     // HTML checkboxes only submit when checked — treat missing as false.
     active: formData.get('active') === 'on' || formData.get('active') === 'true',
+    nibExempt:
+      formData.get('nibExempt') === 'on' ||
+      formData.get('nibExempt') === 'true',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -66,7 +69,9 @@ export async function createEmployeeAction(
     const employee = await createEmployee(companyId, {
       firstName: data.firstName,
       lastName: data.lastName,
-      nibNumber: emptyToNull(data.nibNumber ?? null),
+      // If marked NIB-exempt, blank the NIB number — keeps the record
+      // honest and avoids stale data carrying over from a flag flip.
+      nibNumber: data.nibExempt ? null : emptyToNull(data.nibNumber ?? null),
       email: emptyToNull(data.email ?? null),
       phone: emptyToNull(data.phone ?? null),
       employmentType: data.employmentType,
@@ -74,6 +79,7 @@ export async function createEmployeeAction(
       hireDate: emptyToNull(data.hireDate ?? null),
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
+      nibExempt: data.nibExempt,
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = employee.id;
@@ -115,7 +121,7 @@ export async function updateEmployeeAction(
     const updated = await updateEmployee(companyId, id, {
       firstName: data.firstName,
       lastName: data.lastName,
-      nibNumber: emptyToNull(data.nibNumber ?? null),
+      nibNumber: data.nibExempt ? null : emptyToNull(data.nibNumber ?? null),
       email: emptyToNull(data.email ?? null),
       phone: emptyToNull(data.phone ?? null),
       employmentType: data.employmentType,
@@ -123,6 +129,7 @@ export async function updateEmployeeAction(
       hireDate: emptyToNull(data.hireDate ?? null),
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
+      nibExempt: data.nibExempt,
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

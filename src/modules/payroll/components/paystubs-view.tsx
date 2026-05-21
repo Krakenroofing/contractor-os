@@ -67,6 +67,14 @@ export function PaystubsView({ paystubs }: { paystubs: EmployeePaystub[] }) {
 
 function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
   const ceilingHit = p.gross > NIB_RATES.weeklyWageCeiling;
+  // Rate basis label is contextual to employment type. Hourly = /hr,
+  // salaried = /wk, all other types are "per period".
+  const rateBasis =
+    p.employmentType === 'hourly'
+      ? ' / hr'
+      : p.employmentType === 'salaried'
+        ? ' / wk'
+        : ' / period';
   return (
     <Card>
       <CardContent className="p-5 space-y-3">
@@ -75,13 +83,14 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
             <h3 className="text-base font-semibold text-slate-900">
               {p.employeeName}
             </h3>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+            <div className="mt-1 flex items-center flex-wrap gap-2 text-xs text-slate-500">
               <Badge tone={EMPLOYMENT_TYPE_TONE[p.employmentType]}>
                 {EMPLOYMENT_TYPE_LABEL[p.employmentType]}
               </Badge>
+              {p.nibExempt && <Badge tone="slate">NIB exempt</Badge>}
               <span className="tabular-nums">
                 {formatMoney(p.payRate)}
-                {p.employmentType === 'hourly' ? ' / hr' : ' / wk'}
+                {rateBasis}
               </span>
               {p.employmentType === 'hourly' && (
                 <span className="tabular-nums">
@@ -97,23 +106,35 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
 
         <div className="border-t border-slate-200 pt-3 space-y-1.5 text-sm">
           <Line label="Gross pay" amount={p.gross} bold />
-          <Line
-            label={`NIB insurable wage${ceilingHit ? ' (capped at $710)' : ''}`}
-            amount={p.nib.insurableWage}
-            muted
-          />
-          <Line
-            label="NIB — employee (3.9%)"
-            amount={-p.nib.employee}
-            negative
-          />
+          {p.nibExempt ? (
+            <Line
+              label="NIB exempt — no deductions"
+              amount={0}
+              muted
+            />
+          ) : (
+            <>
+              <Line
+                label={`NIB insurable wage${ceilingHit ? ' (capped at $710)' : ''}`}
+                amount={p.nib.insurableWage}
+                muted
+              />
+              <Line
+                label="NIB — employee (3.9%)"
+                amount={-p.nib.employee}
+                negative
+              />
+            </>
+          )}
           <Line label="Net pay" amount={p.net} bold accent="emerald" />
         </div>
 
-        <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 flex items-center justify-between">
-          <span>Employer NIB (5.9%, company-paid)</span>
-          <span className="tabular-nums">{formatMoney(p.nib.employer)}</span>
-        </div>
+        {!p.nibExempt && (
+          <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 flex items-center justify-between">
+            <span>Employer NIB (5.9%, company-paid)</span>
+            <span className="tabular-nums">{formatMoney(p.nib.employer)}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -31,6 +31,7 @@ export default async function EmployeesPage() {
     payRate: e.payRate,
     hireDate: e.hireDate,
     active: e.active,
+    nibExempt: e.nibExempt,
   }));
 
   const activeCount = rows.filter((r) => r.active).length;

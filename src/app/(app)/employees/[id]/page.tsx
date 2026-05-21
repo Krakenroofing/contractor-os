@@ -53,9 +53,14 @@ export default async function EmployeeDetailPage({
             ) : (
               <Badge tone="slate">Inactive</Badge>
             )}
+            {employee.nibExempt && <Badge tone="amber">NIB exempt</Badge>}
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            {employee.nibNumber ? `NIB ${employee.nibNumber}` : 'No NIB number on file'}
+            {employee.nibExempt
+              ? 'NIB exempt — no contributions withheld, excluded from C17.'
+              : employee.nibNumber
+                ? `NIB ${employee.nibNumber}`
+                : 'No NIB number on file'}
           </p>
         </div>
         {allowEdit && (
@@ -77,11 +82,17 @@ export default async function EmployeeDetailPage({
             <p className="text-xl font-semibold tabular-nums text-slate-900">
               {formatMoney(employee.payRate)}
               <span className="text-sm font-normal text-slate-500">
-                {employmentType === 'hourly' ? ' / hour' : ' / week'}
+                {employmentType === 'hourly'
+                  ? ' / hour'
+                  : employmentType === 'salaried'
+                    ? ' / week'
+                    : ' / period'}
               </span>
             </p>
             <p className="text-xs text-slate-500">
-              NIB ceiling $710/week · employee 3.9% · employer 5.9%
+              {employee.nibExempt
+                ? 'NIB exempt — no contributions calculated for this employee.'
+                : 'NIB ceiling $710/week · employee 3.9% · employer 5.9%'}
             </p>
           </CardContent>
         </Card>

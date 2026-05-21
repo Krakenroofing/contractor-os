@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import {
 } from '../actions';
 import {
   EMPLOYMENT_TYPE_LABEL,
+  PAY_RATE_BASIS_LABEL,
+  PAY_RATE_HINT,
   employmentTypeValues,
   type EmploymentType,
 } from '../schema';
@@ -30,6 +32,7 @@ export type EmployeeFormInitialValues = {
   hireDate: string;
   terminationDate: string;
   active: boolean;
+  nibExempt: boolean;
   notes: string;
 };
 
@@ -44,6 +47,7 @@ const blankInitial: EmployeeFormInitialValues = {
   hireDate: '',
   terminationDate: '',
   active: true,
+  nibExempt: false,
   notes: '',
 };
 
@@ -65,6 +69,13 @@ export function EmployeeForm({
     initialState,
   );
   const err = (key: string) => state.errors?.[key]?.[0];
+
+  // Track employment type live so the pay-rate label + hint update as the
+  // user changes the dropdown.
+  const [employmentType, setEmploymentType] = useState<EmploymentType>(
+    values.employmentType,
+  );
+  const [nibExempt, setNibExempt] = useState<boolean>(values.nibExempt);
 
   return (
     <form action={formAction} className="space-y-6">
@@ -100,7 +111,13 @@ export function EmployeeForm({
             name="nibNumber"
             defaultValue={values.nibNumber}
             placeholder="123-4567"
+            disabled={nibExempt}
           />
+          {nibExempt && (
+            <p className="text-[11px] text-slate-500 mt-1">
+              Disabled while NIB-exempt is on.
+            </p>
+          )}
         </Field>
 
         <Field label="Phone" error={err('phone')}>
@@ -127,7 +144,11 @@ export function EmployeeForm({
         </legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Employment type" error={err('employmentType')}>
-            <Select name="employmentType" defaultValue={values.employmentType}>
+            <Select
+              name="employmentType"
+              value={employmentType}
+              onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}
+            >
               {employmentTypeValues.map((t) => (
                 <option key={t} value={t}>
                   {EMPLOYMENT_TYPE_LABEL[t]}
@@ -136,7 +157,11 @@ export function EmployeeForm({
             </Select>
           </Field>
 
-          <Field label="Pay rate" error={err('payRate')} required>
+          <Field
+            label={`Pay rate (${PAY_RATE_BASIS_LABEL[employmentType]})`}
+            error={err('payRate')}
+            required
+          >
             <Input
               name="payRate"
               type="number"
@@ -147,10 +172,31 @@ export function EmployeeForm({
               placeholder="0.00"
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Hourly employees: $/hour. Salaried: $/week. NIB is capped at
-              $710/week regardless.
+              {PAY_RATE_HINT[employmentType]}
             </p>
           </Field>
+        </div>
+
+        <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3 space-y-2">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="nibExempt"
+              checked={nibExempt}
+              onChange={(e) => setNibExempt(e.target.checked)}
+              className="h-4 w-4 mt-0.5 rounded border-slate-300"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-900">
+                NIB exempt
+              </span>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                For expats and others not covered by Bahamas NIB. When on, no
+                NIB is deducted from their paycheck, no employer NIB is owed,
+                and they don't appear on the C17 filing summary.
+              </p>
+            </div>
+          </label>
         </div>
       </fieldset>
 

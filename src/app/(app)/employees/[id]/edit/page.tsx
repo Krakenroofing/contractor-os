@@ -49,6 +49,7 @@ export default async function EditEmployeePage({
           hireDate: employee.hireDate ?? '',
           terminationDate: employee.terminationDate ?? '',
           active: employee.active,
+          nibExempt: employee.nibExempt,
           notes: employee.notes ?? '',
         }}
       />

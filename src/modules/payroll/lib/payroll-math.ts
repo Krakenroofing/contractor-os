@@ -2,17 +2,26 @@
 // Compute a weekly paystub for one employee from their pay rate +
 // employment type + the time entries logged inside a pay period.
 //
-// Rules:
-//   - Hourly: gross = sum(hours) × hourly rate.
-//   - Salaried: gross = weekly salary, regardless of hours logged. (Hours
-//     are still tracked for job-costing but don't change the paycheck.)
-//   - An employee is INCLUDED in payroll for the period unless they were
-//     terminated strictly before the period starts. Termination during
-//     the period: included at full pay; manual proration via notes if
-//     needed (Phase 5 polish item).
-//   - Inactive employees (active=false) are excluded unless they logged
-//     time in the period — protects against accidentally paying someone
-//     who was deactivated but still has open hours.
+// Gross calculation by type:
+//   - Hourly: sum(hours_logged) × hourly rate.
+//   - Salaried: weekly salary, regardless of hours logged.
+//   - Piecework / Contract / Commission / Lump sum: flat pay_rate per
+//     period for now. Per-type math (pieces × rate, % of sales, etc.)
+//     can refine these in a follow-up phase. Edit pay_rate to whatever
+//     the employee is owed this period.
+//
+// NIB exemption (nibExempt = true):
+//   - No employee NIB withheld.
+//   - No employer NIB owed.
+//   - Excluded from the C17 summary entirely (filed return only covers
+//     NIB-eligible employees).
+//
+// Inclusion rules:
+//   - Terminated before period start → never include.
+//   - Inactive AND no entries this period → exclude (don't pay a
+//     deactivated employee who didn't log anything).
+//   - Termination during the period: included at full pay; proration is
+//     a follow-up phase if needed.
 // =====================================================================
 
 import { add, multiply, parseMoney, round2, subtract } from '@/lib/money';
@@ -28,6 +37,8 @@ export type EmployeePaystub = {
   payRate: number;
   gross: number;
   nib: NibBreakdown;
+  /** True if NIB calculations were skipped because nibExempt is set. */
+  nibExempt: boolean;
   /** Net pay = gross - employee NIB. (Employer NIB never reduces net.) */
   net: number;
   /** True if no entries AND the employee wasn't expected to be paid this period. */
@@ -69,6 +80,25 @@ function shouldIncludeEmployee(
   return { include: true };
 }
 
+/**
+ * Compute gross pay for one employee for one weekly period based on
+ * their employment type. Hourly multiplies hours × rate; every other
+ * type pays the stored rate as a flat per-period amount.
+ */
+function computeGross(
+  employmentType: EmploymentType,
+  payRate: number,
+  hoursWorked: number,
+): number {
+  if (employmentType === 'hourly') {
+    return multiply(hoursWorked, payRate);
+  }
+  // Salaried / piecework / contract / commission / lump_sum: pay_rate is
+  // already "amount per period" — return it as the gross. Future phases
+  // can refine per-type math (pieces × rate, % of sales, etc.).
+  return round2(payRate);
+}
+
 /** Compute the paystub for one employee for one weekly period. */
 export function computeEmployeePaystub(
   employee: Employee,
@@ -78,6 +108,7 @@ export function computeEmployeePaystub(
   const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
   const employmentType = employee.employmentType as EmploymentType;
   const payRate = parseMoney(employee.payRate);
+  const nibExempt = employee.nibExempt === true;
 
   const myEntries = entries.filter((e) => e.employeeId === employee.id);
   const hoursWorked = round2(
@@ -94,19 +125,21 @@ export function computeEmployeePaystub(
       payRate,
       gross: 0,
       nib: calculateWeeklyNib(0),
+      nibExempt,
       net: 0,
       skipped: true,
       skipReason: eligibility.reason,
     };
   }
 
-  // Hourly = hours × rate. Salaried = the weekly pay rate, full stop.
-  const gross =
-    employmentType === 'salaried'
-      ? round2(payRate)
-      : multiply(hoursWorked, payRate);
+  const gross = computeGross(employmentType, payRate, hoursWorked);
 
-  const nib = calculateWeeklyNib(gross);
+  // NIB exemption short-circuits the whole NIB block to zero. The C17
+  // summary later filters by !nibExempt so exempt employees don't roll
+  // into the filed totals.
+  const nib = nibExempt
+    ? calculateWeeklyNib(0)
+    : calculateWeeklyNib(gross);
   const net = subtract(gross, nib.employee);
 
   return {
@@ -117,6 +150,7 @@ export function computeEmployeePaystub(
     payRate,
     gross,
     nib,
+    nibExempt,
     net,
     skipped: false,
   };
@@ -133,7 +167,11 @@ export function computePeriodPaystubs(
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 }
 
-/** Aggregate paystubs into the C17-filing summary. */
+/**
+ * Aggregate paystubs into the C17-filing summary. NIB-exempt employees
+ * are excluded entirely — the C17 only covers NIB-eligible workers, so
+ * an exempt employee's gross wouldn't show up on the filed return.
+ */
 export function computeC17Summary(paystubs: EmployeePaystub[]): C17Summary {
   let headcount = 0;
   let totalGross = 0;
@@ -142,6 +180,7 @@ export function computeC17Summary(paystubs: EmployeePaystub[]): C17Summary {
   let totalEmployer = 0;
   for (const p of paystubs) {
     if (p.skipped || p.gross <= 0) continue;
+    if (p.nibExempt) continue;
     headcount += 1;
     totalGross = add(totalGross, p.gross);
     totalInsurableWage = add(totalInsurableWage, p.nib.insurableWage);

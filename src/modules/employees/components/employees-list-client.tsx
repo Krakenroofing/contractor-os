@@ -40,6 +40,7 @@ export type EmployeeRow = {
   payRate: string;
   hireDate: string | null;
   active: boolean;
+  nibExempt: boolean;
 };
 
 type FilterKey = 'employmentType' | 'active';
@@ -229,18 +230,25 @@ export function EmployeesListClient({
                   <TableCell className="text-right tabular-nums font-medium">
                     {formatMoney(e.payRate)}
                     <span className="text-[11px] font-normal text-slate-500">
-                      {e.employmentType === 'hourly' ? ' / hr' : ' / wk'}
+                      {e.employmentType === 'hourly'
+                        ? ' / hr'
+                        : e.employmentType === 'salaried'
+                          ? ' / wk'
+                          : ' / period'}
                     </span>
                   </TableCell>
                   <TableCell className="text-slate-600">
                     {e.hireDate ?? '—'}
                   </TableCell>
                   <TableCell>
-                    {e.active ? (
-                      <Badge tone="green">Active</Badge>
-                    ) : (
-                      <Badge tone="slate">Inactive</Badge>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {e.active ? (
+                        <Badge tone="green">Active</Badge>
+                      ) : (
+                        <Badge tone="slate">Inactive</Badge>
+                      )}
+                      {e.nibExempt && <Badge tone="amber">NIB exempt</Badge>}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/employees/${e.id}`}>

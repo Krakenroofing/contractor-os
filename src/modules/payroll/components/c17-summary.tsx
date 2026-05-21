@@ -98,7 +98,7 @@ export function C17SummaryView({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paystubs
-                  .filter((p) => !p.skipped && p.gross > 0)
+                  .filter((p) => !p.skipped && p.gross > 0 && !p.nibExempt)
                   .map((p) => (
                     <tr key={p.employeeId}>
                       <td className="px-6 py-2 font-medium text-slate-900">
