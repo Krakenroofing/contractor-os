@@ -24,7 +24,7 @@ export default async function NewEmployeePage() {
         <p className="text-sm text-slate-500 mt-1">
           Add a payroll-eligible worker. Pay rate + employment type drive the
           weekly gross. NIB is computed automatically from the gross
-          (3.9% employee / 5.9% employer, capped at $710/week).
+          (4.65% employee / 6.65% employer, capped at $810/week on Form C-10).
         </p>
       </header>
 

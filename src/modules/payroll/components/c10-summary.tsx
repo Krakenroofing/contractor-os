@@ -1,18 +1,19 @@
-// Company-wide aggregate matching what gets filed on the NIB C17 form.
-// One big number block per line item so the person filing can read it
-// straight across to the form fields.
+// Company-wide aggregate matching what gets filed on the NIB C-10 form
+// (Non-Hospitality Form C-10 Entry Sheet — the monthly employer
+// contribution schedule). One big number block per line item so the
+// person filing can read it straight across to the form fields.
 
 import { Card, CardContent } from '@/components/ui/card';
 import { formatMoney } from '@/lib/money';
-import type { C17Summary, EmployeePaystub } from '../lib/payroll-math';
+import type { C10Summary, EmployeePaystub } from '../lib/payroll-math';
 import { NIB_RATES } from '../lib/nib';
 
-export function C17SummaryView({
+export function C10SummaryView({
   summary,
   paystubs,
   periodLabel,
 }: {
-  summary: C17Summary;
+  summary: C10Summary;
   paystubs: EmployeePaystub[];
   periodLabel: string;
 }) {
@@ -22,16 +23,17 @@ export function C17SummaryView({
         <CardContent className="p-6 space-y-4">
           <header>
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              NIB C17 — {periodLabel}
+              NIB C-10 (Non-Hospitality) — {periodLabel}
             </p>
             <h2 className="text-xl font-semibold text-slate-900 mt-0.5">
               Contribution summary
             </h2>
             <p className="text-xs text-slate-500 mt-1">
               Rates as of {NIB_RATES.effectiveAsOf}: employee{' '}
-              {(NIB_RATES.employeeRate * 100).toFixed(1)}% / employer{' '}
-              {(NIB_RATES.employerRate * 100).toFixed(1)}% on insurable wages
-              up to ${NIB_RATES.weeklyWageCeiling}/week.
+              {(NIB_RATES.employeeRate * 100).toFixed(2)}% / employer{' '}
+              {(NIB_RATES.employerRate * 100).toFixed(2)}% on insurable wages
+              up to ${NIB_RATES.weeklyWageCeiling}/week ($
+              {NIB_RATES.monthlyWageCeiling}/month).
             </p>
           </header>
 
@@ -44,7 +46,7 @@ export function C17SummaryView({
             <Stat
               label="Total insurable wages"
               value={formatMoney(summary.totalInsurableWage)}
-              hint="Gross capped at $710/employee/week"
+              hint={`Gross capped at $${NIB_RATES.weeklyWageCeiling}/employee/week`}
             />
             <Stat
               label="Employee NIB withheld"

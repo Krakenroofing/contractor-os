@@ -115,12 +115,12 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
           ) : (
             <>
               <Line
-                label={`NIB insurable wage${ceilingHit ? ' (capped at $710)' : ''}`}
+                label={`NIB insurable wage${ceilingHit ? ` (capped at $${NIB_RATES.weeklyWageCeiling})` : ''}`}
                 amount={p.nib.insurableWage}
                 muted
               />
               <Line
-                label="NIB — employee (3.9%)"
+                label={`NIB — employee (${(NIB_RATES.employeeRate * 100).toFixed(2)}%)`}
                 amount={-p.nib.employee}
                 negative
               />
@@ -131,7 +131,10 @@ function PaystubCard({ paystub: p }: { paystub: EmployeePaystub }) {
 
         {!p.nibExempt && (
           <div className="border-t border-slate-200 pt-3 text-xs text-slate-500 flex items-center justify-between">
-            <span>Employer NIB (5.9%, company-paid)</span>
+            <span>
+              Employer NIB ({(NIB_RATES.employerRate * 100).toFixed(2)}%,
+              company-paid)
+            </span>
             <span className="tabular-nums">{formatMoney(p.nib.employer)}</span>
           </div>
         )}

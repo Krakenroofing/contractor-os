@@ -36,7 +36,7 @@ export const employees = pgTable(
     active: boolean('active').notNull().default(true),
     // Skip NIB calculations for this employee entirely. For expats and
     // anyone not covered by Bahamas NIB. When true, paystub shows no NIB
-    // lines and the C17 summary excludes them.
+    // lines and the C-10 summary excludes them.
     nibExempt: boolean('nib_exempt').notNull().default(false),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),

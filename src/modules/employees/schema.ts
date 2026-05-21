@@ -49,7 +49,7 @@ export const PAY_RATE_BASIS_LABEL: Record<EmploymentType, string> = {
 /** Short hint shown under the pay rate input. */
 export const PAY_RATE_HINT: Record<EmploymentType, string> = {
   hourly: 'Multiplied by hours logged each week to compute gross.',
-  salaried: 'Paid each week regardless of hours logged. NIB capped at $710/week.',
+  salaried: 'Paid each week regardless of hours logged. NIB capped at $810/week.',
   piecework:
     'Flat amount paid each period for now. Per-piece math will come in a later phase.',
   contract:

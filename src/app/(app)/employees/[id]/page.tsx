@@ -57,7 +57,7 @@ export default async function EmployeeDetailPage({
           </div>
           <p className="text-sm text-slate-500 mt-1">
             {employee.nibExempt
-              ? 'NIB exempt — no contributions withheld, excluded from C17.'
+              ? 'NIB exempt — no contributions withheld, excluded from C-10.'
               : employee.nibNumber
                 ? `NIB ${employee.nibNumber}`
                 : 'No NIB number on file'}
@@ -92,7 +92,7 @@ export default async function EmployeeDetailPage({
             <p className="text-xs text-slate-500">
               {employee.nibExempt
                 ? 'NIB exempt — no contributions calculated for this employee.'
-                : 'NIB ceiling $710/week · employee 3.9% · employer 5.9%'}
+                : 'NIB ceiling $810/week · employee 4.65% · employer 6.65%'}
             </p>
           </CardContent>
         </Card>

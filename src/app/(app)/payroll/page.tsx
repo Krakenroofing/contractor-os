@@ -20,7 +20,7 @@ import {
   type ByJobRow,
 } from '@/modules/payroll/components/by-job-view';
 import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
-import { C17SummaryView } from '@/modules/payroll/components/c17-summary';
+import { C10SummaryView } from '@/modules/payroll/components/c10-summary';
 import {
   SubPaymentsListClient,
   type SubPaymentRow,
@@ -35,7 +35,7 @@ import {
   weekDates,
 } from '@/modules/payroll/lib/periods';
 import {
-  computeC17Summary,
+  computeC10Summary,
   computePeriodPaystubs,
 } from '@/modules/payroll/lib/payroll-math';
 
@@ -69,8 +69,8 @@ export default async function PayrollPage({
       ? 'by-job'
       : sp.view === 'paystubs'
         ? 'paystubs'
-        : sp.view === 'c17'
-          ? 'c17'
+        : sp.view === 'c10'
+          ? 'c10'
           : sp.view === 'subs'
             ? 'subs'
             : 'timesheet';
@@ -186,18 +186,18 @@ export default async function PayrollPage({
         />
       )}
 
-      {(view === 'paystubs' || view === 'c17') &&
+      {(view === 'paystubs' || view === 'c10') &&
         (() => {
-          // Paystubs and C17 share the same compute step. Both views derive
-          // from the same paystub array so the totals on C17 always match
-          // the sum of the cards on the Paystubs tab.
+          // Paystubs and C-10 share the same compute step. Both views derive
+          // from the same paystub array so the totals on the C-10 view always
+          // match the sum of the cards on the Paystubs tab.
           const paystubs = computePeriodPaystubs(allEmployees, allEntries, period);
-          const summary = computeC17Summary(paystubs);
+          const summary = computeC10Summary(paystubs);
           if (view === 'paystubs') {
             return <PaystubsView paystubs={paystubs} />;
           }
           return (
-            <C17SummaryView
+            <C10SummaryView
               summary={summary}
               paystubs={paystubs}
               periodLabel={formatPeriodLabel(period.startDate, period.endDate)}

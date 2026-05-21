@@ -13,7 +13,7 @@
 // NIB exemption (nibExempt = true):
 //   - No employee NIB withheld.
 //   - No employer NIB owed.
-//   - Excluded from the C17 summary entirely (filed return only covers
+//   - Excluded from the C10 summary entirely (filed return only covers
 //     NIB-eligible employees).
 //
 // Inclusion rules:
@@ -47,12 +47,12 @@ export type EmployeePaystub = {
   skipReason?: string;
 };
 
-export type C17Summary = {
+export type C10Summary = {
   /** Number of employees represented on this period's filing. */
   headcount: number;
   /** Sum of gross pay across all employees. */
   totalGross: number;
-  /** Sum of insurable wages (per-employee gross capped at $710). */
+  /** Sum of insurable wages (per-employee gross capped at $810). */
   totalInsurableWage: number;
   /** Total employee NIB withheld this period. */
   totalEmployee: number;
@@ -134,7 +134,7 @@ export function computeEmployeePaystub(
 
   const gross = computeGross(employmentType, payRate, hoursWorked);
 
-  // NIB exemption short-circuits the whole NIB block to zero. The C17
+  // NIB exemption short-circuits the whole NIB block to zero. The C10
   // summary later filters by !nibExempt so exempt employees don't roll
   // into the filed totals.
   const nib = nibExempt
@@ -168,11 +168,11 @@ export function computePeriodPaystubs(
 }
 
 /**
- * Aggregate paystubs into the C17-filing summary. NIB-exempt employees
- * are excluded entirely — the C17 only covers NIB-eligible workers, so
+ * Aggregate paystubs into the C10-filing summary. NIB-exempt employees
+ * are excluded entirely — the C10 only covers NIB-eligible workers, so
  * an exempt employee's gross wouldn't show up on the filed return.
  */
-export function computeC17Summary(paystubs: EmployeePaystub[]): C17Summary {
+export function computeC10Summary(paystubs: EmployeePaystub[]): C10Summary {
   let headcount = 0;
   let totalGross = 0;
   let totalInsurableWage = 0;

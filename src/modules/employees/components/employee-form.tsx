@@ -193,7 +193,7 @@ export function EmployeeForm({
               <p className="text-[11px] text-slate-600 mt-0.5">
                 For expats and others not covered by Bahamas NIB. When on, no
                 NIB is deducted from their paycheck, no employer NIB is owed,
-                and they don't appear on the C17 filing summary.
+                and they don't appear on the C-10 filing summary.
               </p>
             </div>
           </label>
