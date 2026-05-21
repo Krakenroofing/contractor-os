@@ -4,12 +4,14 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
-  type SortState,
   compareValues,
-  toggleSort,
+  type SortState,
 } from '@/components/ui/sortable-header';
 import {
   Table,
@@ -23,7 +25,6 @@ import { formatMoney } from '@/lib/money';
 import {
   STATUS_LABEL,
   STATUS_TONE,
-  estimateStatusValues,
 } from '@/modules/estimates/schema';
 import type { Estimate } from '@/db/schema';
 
@@ -39,29 +40,60 @@ export type EstimateRow = {
   total: string;
 };
 
+type FilterKey = 'project' | 'customer' | 'status';
+
 export function EstimatesListClient({
   estimates,
-  projects,
 }: {
   estimates: EstimateRow[];
-  projects: { id: string; label: string }[];
+  projects?: { id: string; label: string }[];
 }) {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    project: new Set(),
+    customer: new Set(),
+    status: new Set(),
+  });
   const [sort, setSort] = useState<SortState>(null);
+
+  const projectOptions = useMemo<FilterOption[]>(() => {
+    const map = new Map<string, string>();
+    for (const e of estimates) map.set(e.projectId, e.projectName);
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [estimates]);
+
+  const customerOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(estimates.map((e) => e.customerName));
+    return Array.from(present)
+      .sort()
+      .map((name) => ({ value: name, label: name }));
+  }, [estimates]);
+
+  const statusOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(estimates.map((e) => e.status));
+    return Array.from(present)
+      .sort()
+      .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+  }, [estimates]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let rows = estimates.filter((e) => {
       const matchesSearch =
         q === '' ||
         e.number.toLowerCase().includes(q) ||
         e.projectName.toLowerCase().includes(q) ||
         e.customerName.toLowerCase().includes(q);
-      const matchesStatus = !statusFilter || e.status === statusFilter;
-      const matchesProject = !projectFilter || e.projectId === projectFilter;
-      return matchesSearch && matchesStatus && matchesProject;
+      return (
+        matchesSearch &&
+        matches(filters.project, e.projectId) &&
+        matches(filters.customer, e.customerName) &&
+        matches(filters.status, e.status)
+      );
     });
 
     if (sort) {
@@ -91,9 +123,10 @@ export function EstimatesListClient({
       });
     }
     return rows;
-  }, [estimates, search, statusFilter, projectFilter, sort]);
+  }, [estimates, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   return (
     <div className="space-y-4">
@@ -101,33 +134,23 @@ export function EstimatesListClient({
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by number, project, or customer…"
-        filters={[
-          {
-            label: 'Project',
-            value: projectFilter,
-            onChange: setProjectFilter,
-            options: projects.map((p) => ({ value: p.id, label: p.label })),
-          },
-          {
-            label: 'Status',
-            value: statusFilter,
-            onChange: setStatusFilter,
-            options: estimateStatusValues.map((s) => ({
-              value: s,
-              label: STATUS_LABEL[s],
-            })),
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setStatusFilter('');
-          setProjectFilter('');
+          setFilters({
+            project: new Set(),
+            customer: new Set(),
+            status: new Set(),
+          });
         }}
       />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No estimates match those filters.</p>
+          <p className="text-slate-600">
+            {estimates.length === 0
+              ? 'No estimates yet.'
+              : 'No estimates match those filters.'}
+          </p>
         </div>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white">
@@ -135,40 +158,69 @@ export function EstimatesListClient({
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortableHeader label="Number" sortKey="number" sort={sort} onSort={onSort} />
-                </TableHead>
-                <TableHead>
-                  <SortableHeader label="Project" sortKey="project" sort={sort} onSort={onSort} />
-                </TableHead>
-                <TableHead>
-                  <SortableHeader
-                    label="Customer"
-                    sortKey="customer"
+                  <ColumnHeader
+                    label="Number"
+                    sortKey="number"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                   />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Status" sortKey="status" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Project"
+                    sortKey="project"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={projectOptions}
+                    filterValues={filters.project}
+                    onFilterChange={setFilter('project')}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Created" sortKey="created" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Customer"
+                    sortKey="customer"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={customerOptions}
+                    filterValues={filters.customer}
+                    onFilterChange={setFilter('customer')}
+                  />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader
+                    label="Status"
+                    sortKey="status"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={statusOptions}
+                    filterValues={filters.status}
+                    onFilterChange={setFilter('status')}
+                  />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader
+                    label="Created"
+                    sortKey="created"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Subtotal"
                     sortKey="subtotal"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Total"
                     sortKey="total"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>

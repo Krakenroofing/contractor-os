@@ -4,12 +4,14 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
-  type SortState,
   compareValues,
-  toggleSort,
+  type SortState,
 } from '@/components/ui/sortable-header';
 import {
   Table,
@@ -34,23 +36,36 @@ export type VendorRow = {
   committed: number;
 };
 
+type FilterKey = 'type';
+
 export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' });
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    type: new Set(),
+  });
+  const [sort, setSort] = useState<SortState>(null);
+
+  const typeOptions = useMemo<FilterOption[]>(() => {
+    const hasSubs = vendors.some((v) => v.isSubcontractor);
+    const hasSuppliers = vendors.some((v) => !v.isSubcontractor);
+    const opts: FilterOption[] = [];
+    if (hasSuppliers) opts.push({ value: 'supplier', label: 'Supplier' });
+    if (hasSubs) opts.push({ value: 'subcontractor', label: 'Subcontractor' });
+    return opts;
+  }, [vendors]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let rows = vendors.filter((v) => {
       const matchesSearch =
         q === '' ||
         v.name.toLowerCase().includes(q) ||
         (v.primaryContactName ?? '').toLowerCase().includes(q) ||
         (v.email ?? '').toLowerCase().includes(q);
-      const matchesType =
-        !typeFilter ||
-        (typeFilter === 'subcontractor' ? v.isSubcontractor : !v.isSubcontractor);
-      return matchesSearch && matchesType;
+      const type = v.isSubcontractor ? 'subcontractor' : 'supplier';
+      return matchesSearch && matches(filters.type, type);
     });
 
     if (sort) {
@@ -76,9 +91,10 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
       });
     }
     return rows;
-  }, [vendors, search, typeFilter, sort]);
+  }, [vendors, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   return (
     <div className="space-y-4">
@@ -86,26 +102,19 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by name, contact, or email…"
-        filters={[
-          {
-            label: 'Type',
-            value: typeFilter,
-            onChange: setTypeFilter,
-            options: [
-              { value: 'supplier', label: 'Supplier' },
-              { value: 'subcontractor', label: 'Subcontractor' },
-            ],
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setTypeFilter('');
+          setFilters({ type: new Set() });
         }}
       />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No vendors match those filters.</p>
+          <p className="text-slate-600">
+            {vendors.length === 0
+              ? 'No vendors yet.'
+              : 'No vendors match those filters.'}
+          </p>
         </div>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white">
@@ -113,32 +122,50 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortableHeader label="Company" sortKey="name" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Company"
+                    sortKey="name"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Type"
+                    sortKey="type"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={typeOptions}
+                    filterValues={filters.type}
+                    onFilterChange={setFilter('type')}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Contact" sortKey="contact" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Contact"
+                    sortKey="contact"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Terms</TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Open POs"
                     sortKey="open"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Committed"
                     sortKey="committed"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>

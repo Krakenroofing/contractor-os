@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
   compareValues,
-  toggleSort,
   type SortState,
 } from '@/components/ui/sortable-header';
 import {
@@ -26,10 +28,7 @@ import {
   DOCUMENT_CATEGORY_LABEL,
 } from '../schema';
 
-const VISIBILITY_OPTIONS = [
-  { value: 'client', label: 'Client visible' },
-  { value: 'internal', label: 'Internal only' },
-];
+type FilterKey = 'category' | 'visibility';
 
 export function DocumentsListClient({
   projectId,
@@ -41,26 +40,44 @@ export function DocumentsListClient({
   allowEdit: boolean;
 }) {
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [visibilityFilter, setVisibilityFilter] = useState('');
-  // Default sort: newest uploaded first. Mirrors the data-layer default.
-  const [sort, setSort] = useState<SortState>({ key: 'uploadedAt', dir: 'desc' });
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    category: new Set(),
+    visibility: new Set(),
+  });
+  const [sort, setSort] = useState<SortState>(null);
+
+  const categoryOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(documents.map((d) => d.category));
+    return documentCategoryValues
+      .filter((c) => present.has(c))
+      .map((c) => ({ value: c, label: DOCUMENT_CATEGORY_LABEL[c] }));
+  }, [documents]);
+
+  const visibilityOptions = useMemo<FilterOption[]>(() => {
+    const hasClient = documents.some((d) => d.visibleToClient);
+    const hasInternal = documents.some((d) => !d.visibleToClient);
+    const opts: FilterOption[] = [];
+    if (hasClient) opts.push({ value: 'client', label: 'Client visible' });
+    if (hasInternal) opts.push({ value: 'internal', label: 'Internal only' });
+    return opts;
+  }, [documents]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let rows = documents.filter((d) => {
       const matchesSearch =
         q === '' ||
         d.fileName.toLowerCase().includes(q) ||
         d.originalFileName.toLowerCase().includes(q) ||
         (d.description ?? '').toLowerCase().includes(q);
-      const matchesCategory =
-        !categoryFilter || d.category === categoryFilter;
-      const matchesVisibility =
-        !visibilityFilter ||
-        (visibilityFilter === 'client' && d.visibleToClient) ||
-        (visibilityFilter === 'internal' && !d.visibleToClient);
-      return matchesSearch && matchesCategory && matchesVisibility;
+      const visibility = d.visibleToClient ? 'client' : 'internal';
+      return (
+        matchesSearch &&
+        matches(filters.category, d.category) &&
+        matches(filters.visibility, visibility)
+      );
     });
 
     if (sort) {
@@ -82,9 +99,10 @@ export function DocumentsListClient({
       });
     }
     return rows;
-  }, [documents, search, categoryFilter, visibilityFilter, sort]);
+  }, [documents, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   const clientCount = documents.filter((d) => d.visibleToClient).length;
   const internalCount = documents.length - clientCount;
@@ -110,27 +128,9 @@ export function DocumentsListClient({
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by file name or description…"
-        filters={[
-          {
-            label: 'Category',
-            value: categoryFilter,
-            onChange: setCategoryFilter,
-            options: documentCategoryValues.map((c) => ({
-              value: c,
-              label: DOCUMENT_CATEGORY_LABEL[c],
-            })),
-          },
-          {
-            label: 'Visibility',
-            value: visibilityFilter,
-            onChange: setVisibilityFilter,
-            options: VISIBILITY_OPTIONS,
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setCategoryFilter('');
-          setVisibilityFilter('');
+          setFilters({ category: new Set(), visibility: new Set() });
         }}
       />
 
@@ -160,29 +160,49 @@ export function DocumentsListClient({
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[40%]">
-                    <SortableHeader
+                    <ColumnHeader
                       label="File"
                       sortKey="fileName"
                       sort={sort}
-                      onSort={onSort}
+                      onSortChange={setSort}
                     />
                   </TableHead>
-                  <TableHead>Category</TableHead>
                   <TableHead>
-                    <SortableHeader
+                    <ColumnHeader
+                      label="Category"
+                      sortKey="category"
+                      sort={sort}
+                      onSortChange={setSort}
+                      filterOptions={categoryOptions}
+                      filterValues={filters.category}
+                      onFilterChange={setFilter('category')}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <ColumnHeader
                       label="Size"
                       sortKey="size"
                       sort={sort}
-                      onSort={onSort}
+                      onSortChange={setSort}
                     />
                   </TableHead>
-                  <TableHead>Visibility</TableHead>
                   <TableHead>
-                    <SortableHeader
+                    <ColumnHeader
+                      label="Visibility"
+                      sortKey="visibility"
+                      sort={sort}
+                      onSortChange={setSort}
+                      filterOptions={visibilityOptions}
+                      filterValues={filters.visibility}
+                      onFilterChange={setFilter('visibility')}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <ColumnHeader
                       label="Uploaded"
                       sortKey="uploadedAt"
                       sort={sort}
-                      onSort={onSort}
+                      onSortChange={setSort}
                     />
                   </TableHead>
                   <TableHead className="text-right" />

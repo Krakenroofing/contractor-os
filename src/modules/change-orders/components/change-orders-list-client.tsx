@@ -25,24 +25,25 @@ import { formatMoney } from '@/lib/money';
 import {
   STATUS_LABEL,
   STATUS_TONE,
-} from '@/modules/proposals/schema';
-import type { Proposal } from '@/db/schema';
+  type ChangeOrderStatus,
+} from '@/modules/change-orders/schema';
 
-export type ProposalRow = {
+export type ChangeOrderRow = {
   id: string;
   number: string;
   projectName: string;
   customerName: string;
-  estimateNumber: string;
-  status: Proposal['status'];
-  proposalDate: string | null;
-  expiryDate: string | null;
+  proposalNumber: string | null;
+  status: ChangeOrderStatus;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  scheduleImpactDays: number;
   total: string;
 };
 
 type FilterKey = 'project' | 'customer' | 'status';
 
-export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] }) {
+export function ChangeOrdersListClient({ rows }: { rows: ChangeOrderRow[] }) {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
     project: new Set(),
@@ -52,72 +53,76 @@ export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] })
   const [sort, setSort] = useState<SortState>(null);
 
   const projectOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(proposals.map((p) => p.projectName));
+    const present = new Set(rows.map((r) => r.projectName));
     return Array.from(present)
       .sort()
       .map((name) => ({ value: name, label: name }));
-  }, [proposals]);
+  }, [rows]);
 
   const customerOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(proposals.map((p) => p.customerName));
+    const present = new Set(rows.map((r) => r.customerName));
     return Array.from(present)
       .sort()
       .map((name) => ({ value: name, label: name }));
-  }, [proposals]);
+  }, [rows]);
 
   const statusOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(proposals.map((p) => p.status));
+    const present = new Set(rows.map((r) => r.status));
     return Array.from(present)
       .sort()
       .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
-  }, [proposals]);
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const matches = (set: Set<string>, value: string) =>
       set.size === 0 || set.has(value);
-    let rows = proposals.filter((p) => {
+    let out = rows.filter((r) => {
       const matchesSearch =
         q === '' ||
-        p.number.toLowerCase().includes(q) ||
-        p.projectName.toLowerCase().includes(q) ||
-        p.customerName.toLowerCase().includes(q);
+        r.number.toLowerCase().includes(q) ||
+        r.projectName.toLowerCase().includes(q) ||
+        r.customerName.toLowerCase().includes(q);
       return (
         matchesSearch &&
-        matches(filters.project, p.projectName) &&
-        matches(filters.customer, p.customerName) &&
-        matches(filters.status, p.status)
+        matches(filters.project, r.projectName) &&
+        matches(filters.customer, r.customerName) &&
+        matches(filters.status, r.status)
       );
     });
 
     if (sort) {
-      const get = (p: ProposalRow): string | number | null => {
+      const get = (r: ChangeOrderRow): string | number | null => {
         switch (sort.key) {
           case 'number':
-            return p.number;
+            return r.number;
           case 'project':
-            return p.projectName;
+            return r.projectName;
           case 'customer':
-            return p.customerName;
+            return r.customerName;
+          case 'proposal':
+            return r.proposalNumber;
           case 'status':
-            return p.status;
-          case 'date':
-            return p.proposalDate;
-          case 'expiry':
-            return p.expiryDate;
-          case 'total':
-            return Number(p.total);
+            return r.status;
+          case 'submitted':
+            return r.submittedAt;
+          case 'approved':
+            return r.approvedAt;
+          case 'days':
+            return r.scheduleImpactDays;
+          case 'amount':
+            return Number(r.total);
           default:
             return null;
         }
       };
-      rows = [...rows].sort((a, b) => {
+      out = [...out].sort((a, b) => {
         const cmp = compareValues(get(a), get(b));
         return sort.dir === 'asc' ? cmp : -cmp;
       });
     }
-    return rows;
-  }, [proposals, search, filters, sort]);
+    return out;
+  }, [rows, search, filters, sort]);
 
   const setFilter = (key: FilterKey) => (next: Set<string>) =>
     setFilters((prev) => ({ ...prev, [key]: next }));
@@ -141,9 +146,9 @@ export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] })
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">
-            {proposals.length === 0
-              ? 'No proposals yet.'
-              : 'No proposals match those filters.'}
+            {rows.length === 0
+              ? 'No change orders yet.'
+              : 'No change orders match those filters.'}
           </p>
         </div>
       ) : (
@@ -181,7 +186,14 @@ export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] })
                     onFilterChange={setFilter('customer')}
                   />
                 </TableHead>
-                <TableHead>Estimate</TableHead>
+                <TableHead>
+                  <ColumnHeader
+                    label="Proposal"
+                    sortKey="proposal"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
+                </TableHead>
                 <TableHead>
                   <ColumnHeader
                     label="Status"
@@ -195,24 +207,33 @@ export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] })
                 </TableHead>
                 <TableHead>
                   <ColumnHeader
-                    label="Proposal date"
-                    sortKey="date"
+                    label="Submitted"
+                    sortKey="submitted"
                     sort={sort}
                     onSortChange={setSort}
                   />
                 </TableHead>
                 <TableHead>
                   <ColumnHeader
-                    label="Valid until"
-                    sortKey="expiry"
+                    label="Approved"
+                    sortKey="approved"
                     sort={sort}
                     onSortChange={setSort}
                   />
                 </TableHead>
                 <TableHead className="text-right">
                   <ColumnHeader
-                    label="Total"
-                    sortKey="total"
+                    label="Days"
+                    sortKey="days"
+                    sort={sort}
+                    onSortChange={setSort}
+                    align="right"
+                  />
+                </TableHead>
+                <TableHead className="text-right">
+                  <ColumnHeader
+                    label="Amount"
+                    sortKey="amount"
                     sort={sort}
                     onSortChange={setSort}
                     align="right"
@@ -222,30 +243,37 @@ export function ProposalsListClient({ proposals }: { proposals: ProposalRow[] })
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
-                <TableRow key={p.id}>
+              {filtered.map((r) => (
+                <TableRow key={r.id}>
                   <TableCell className="font-mono text-xs text-slate-700">
-                    {p.number}
+                    {r.number}
                   </TableCell>
                   <TableCell className="font-medium text-slate-900">
-                    {p.projectName}
+                    {r.projectName}
                   </TableCell>
-                  <TableCell className="text-slate-600">{p.customerName}</TableCell>
+                  <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell className="font-mono text-xs text-slate-600">
-                    {p.estimateNumber}
+                    {r.proposalNumber ?? '—'}
                   </TableCell>
                   <TableCell>
-                    <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                    <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
                   </TableCell>
-                  <TableCell className="text-slate-600">{p.proposalDate ?? '—'}</TableCell>
-                  <TableCell className="text-slate-600">{p.expiryDate ?? '—'}</TableCell>
+                  <TableCell className="text-slate-600">
+                    {r.submittedAt ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-slate-600">
+                    {r.approvedAt ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-slate-600">
+                    {r.scheduleImpactDays}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
-                    {formatMoney(p.total)}
+                    {formatMoney(r.total)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/proposals/${p.id}`}>
+                    <Link href={`/change-orders/${r.id}`}>
                       <Button size="sm" variant="outline">
-                        View Proposal
+                        View Change Order
                       </Button>
                     </Link>
                   </TableCell>

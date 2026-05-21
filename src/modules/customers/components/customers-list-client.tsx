@@ -4,12 +4,14 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
-  type SortState,
   compareValues,
-  toggleSort,
+  type SortState,
 } from '@/components/ui/sortable-header';
 import {
   Table,
@@ -40,21 +42,33 @@ export type CustomerRow = {
   phone: string | null;
 };
 
+type FilterKey = 'type';
+
 export function CustomersListClient({ customers }: { customers: CustomerRow[] }) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' });
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    type: new Set(),
+  });
+  const [sort, setSort] = useState<SortState>(null);
+
+  const typeOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(customers.map((c) => c.customerType));
+    return Array.from(present)
+      .sort()
+      .map((t) => ({ value: t, label: TYPE_LABEL[t] }));
+  }, [customers]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let rows = customers.filter((c) => {
       const matchesSearch =
         q === '' ||
         c.name.toLowerCase().includes(q) ||
         (c.primaryContactName ?? '').toLowerCase().includes(q) ||
         (c.email ?? '').toLowerCase().includes(q);
-      const matchesType = !typeFilter || c.customerType === typeFilter;
-      return matchesSearch && matchesType;
+      return matchesSearch && matches(filters.type, c.customerType);
     });
 
     if (sort) {
@@ -78,9 +92,10 @@ export function CustomersListClient({ customers }: { customers: CustomerRow[] })
       });
     }
     return rows;
-  }, [customers, search, typeFilter, sort]);
+  }, [customers, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   return (
     <div className="space-y-4">
@@ -88,26 +103,19 @@ export function CustomersListClient({ customers }: { customers: CustomerRow[] })
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by company, contact, or email…"
-        filters={[
-          {
-            label: 'Type',
-            value: typeFilter,
-            onChange: setTypeFilter,
-            options: [
-              { value: 'residential', label: 'Residential' },
-              { value: 'commercial', label: 'Commercial' },
-            ],
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setTypeFilter('');
+          setFilters({ type: new Set() });
         }}
       />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No customers match those filters.</p>
+          <p className="text-slate-600">
+            {customers.length === 0
+              ? 'No customers yet.'
+              : 'No customers match those filters.'}
+          </p>
         </div>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white">
@@ -115,16 +123,39 @@ export function CustomersListClient({ customers }: { customers: CustomerRow[] })
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortableHeader label="Company" sortKey="name" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Company"
+                    sortKey="name"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Type"
+                    sortKey="type"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={typeOptions}
+                    filterValues={filters.type}
+                    onFilterChange={setFilter('type')}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Contact" sortKey="contact" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Contact"
+                    sortKey="contact"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Email" sortKey="email" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Email"
+                    sortKey="email"
+                    sort={sort}
+                    onSortChange={setSort}
+                  />
                 </TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead className="text-right" />

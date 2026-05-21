@@ -1,15 +1,6 @@
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
@@ -20,22 +11,17 @@ import { listPayments } from '@/lib/data/invoice-payments';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import {
-  METHOD_LABEL,
-  STATUS_LABEL,
-  STATUS_TONE,
-  type PaymentMethod,
-  type PaymentStatus,
+  PaymentsListClient,
+  type PaymentRow,
+} from '@/modules/payments/components/payments-list-client';
+import type {
+  PaymentMethod,
+  PaymentStatus,
 } from '@/modules/payments/schema';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PaymentsPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ showVoid?: string }>;
-}) {
-  const sp = (await searchParams) ?? {};
-  const showVoid = sp.showVoid === '1';
+export default async function PaymentsPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'payments');
@@ -53,22 +39,32 @@ export default async function PaymentsPage({
       return { p, invoice, project, customer };
     }),
   );
-  const voidPaymentCount = paymentsWithRefs.filter(
-    (row) => row.invoice?.status === 'void',
-  ).length;
-  const visiblePayments = showVoid
-    ? paymentsWithRefs
-    : paymentsWithRefs.filter((row) => row.invoice?.status !== 'void');
+
+  const rows: PaymentRow[] = paymentsWithRefs.map(
+    ({ p, invoice, project, customer }) => ({
+      id: p.id,
+      paymentNumber: p.paymentNumber ?? '',
+      paidDate: p.paidDate,
+      customerId: customer?.id ?? null,
+      customerName: customer?.name ?? '—',
+      projectId: project?.id ?? null,
+      projectName: project?.name ?? '—',
+      invoiceId: invoice?.id ?? null,
+      invoiceNumber: invoice?.number ?? null,
+      method: (p.method ?? 'other') as PaymentMethod,
+      reference: p.reference ?? null,
+      bankAccount: p.bankAccount ?? null,
+      status: p.status as PaymentStatus,
+      amount: p.amount,
+    }),
+  );
 
   // KPIs always exclude payments tied to voided invoices — a void invoice
   // can never have cash that actually hit the bank, so including those rows
-  // would overstate every total regardless of what the visibility toggle says.
+  // would overstate every total.
   const realPayments = paymentsWithRefs.filter(
     (row) => row.invoice?.status !== 'void',
   );
-  // Split every payment into net (revenue) / VAT (liability) using the
-  // parent invoice's tax/total ratio. A payment never has a tax field of
-  // its own — the split is always derived from the invoice it's against.
   function splitPayment(row: (typeof realPayments)[number]): {
     gross: number;
     net: number;
@@ -84,8 +80,8 @@ export default async function PaymentsPage({
     const vat = gross * vatShare;
     return { gross, net: gross - vat, vat };
   }
-  const sumSplit = (rows: typeof realPayments) =>
-    rows.reduce(
+  const sumSplit = (rs: typeof realPayments) =>
+    rs.reduce(
       (acc, row) => {
         const s = splitPayment(row);
         return {
@@ -122,28 +118,10 @@ export default async function PaymentsPage({
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Payments</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {visiblePayments.length}{' '}
-            {visiblePayments.length === 1 ? 'payment' : 'payments'}
-            {!showVoid && voidPaymentCount > 0 && (
-              <>
-                {' '}
-                <span className="text-slate-400">
-                  · {voidPaymentCount} on void invoices hidden
-                </span>
-              </>
-            )}
+            {rows.length} {rows.length === 1 ? 'payment' : 'payments'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {voidPaymentCount > 0 && (
-            <Link
-              href={{ pathname: '/payments', query: showVoid ? {} : { showVoid: '1' } }}
-            >
-              <Button size="sm" variant="outline">
-                {showVoid ? 'Hide void' : 'Show void'}
-              </Button>
-            </Link>
-          )}
           {allowCreate && (
             <Link href="/payments/new">
               <Button>Record Payment</Button>
@@ -178,96 +156,7 @@ export default async function PaymentsPage({
         to the government, not income.
       </p>
 
-      {visiblePayments.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">
-            {payments.length === 0
-              ? 'No payments recorded yet.'
-              : 'No payments to show — all are tied to void invoices.'}
-          </p>
-          {allowCreate && payments.length === 0 && (
-            <div className="mt-4 inline-flex">
-              <Link href="/payments/new">
-                <Button>Record Payment</Button>
-              </Link>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-slate-200 bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Number</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Invoice</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Bank</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visiblePayments.map(({ p, invoice, project, customer }) => {
-                const method = (p.method ?? 'other') as PaymentMethod;
-                const status = p.status as PaymentStatus;
-                return (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      {p.paymentNumber || '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600">{p.paidDate}</TableCell>
-                    <TableCell className="text-slate-600">
-                      {customer?.name ?? '—'}
-                    </TableCell>
-                    <TableCell className="font-medium text-slate-900">
-                      {project?.name ?? '—'}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {invoice ? (
-                        <Link
-                          href={`/invoices/${invoice.id}`}
-                          className="hover:underline text-slate-700"
-                        >
-                          {invoice.number}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {METHOD_LABEL[method] ?? p.method ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600 font-mono text-xs">
-                      {p.reference ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600 text-xs">
-                      {p.bankAccount ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(p.amount)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/payments/${p.id}`}>
-                        <Button size="sm" variant="outline">
-                          View
-                        </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <PaymentsListClient rows={rows} />
     </div>
   );
 }

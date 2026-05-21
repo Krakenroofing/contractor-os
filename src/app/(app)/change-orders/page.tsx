@@ -1,15 +1,5 @@
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
@@ -18,7 +8,10 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
-import { STATUS_LABEL, STATUS_TONE } from '@/modules/change-orders/schema';
+import {
+  ChangeOrdersListClient,
+  type ChangeOrderRow,
+} from '@/modules/change-orders/components/change-orders-list-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +20,7 @@ export default async function ChangeOrdersPage() {
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'change_orders');
   const cos = await listChangeOrders(companyId);
-  const cosWithRefs = await Promise.all(
+  const rows: ChangeOrderRow[] = await Promise.all(
     cos.map(async (c) => {
       const project = await getProject(companyId, c.projectId);
       const customer = project
@@ -36,7 +29,18 @@ export default async function ChangeOrdersPage() {
       const proposal = c.proposalId
         ? await getProposal(companyId, c.proposalId)
         : undefined;
-      return { c, project, customer, proposal };
+      return {
+        id: c.id,
+        number: c.number,
+        projectName: project?.name ?? '—',
+        customerName: customer?.name ?? '—',
+        proposalNumber: proposal?.number ?? null,
+        status: c.status,
+        submittedAt: c.submittedAt ?? null,
+        approvedAt: c.approvedAt ?? null,
+        scheduleImpactDays: c.scheduleImpactDays,
+        total: c.total,
+      };
     }),
   );
 
@@ -54,7 +58,7 @@ export default async function ChangeOrdersPage() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Change Orders</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {cos.length} {cos.length === 1 ? 'change order' : 'change orders'}
+            {rows.length} {rows.length === 1 ? 'change order' : 'change orders'}
           </p>
         </div>
         {allowCreate && (
@@ -64,76 +68,7 @@ export default async function ChangeOrdersPage() {
         )}
       </header>
 
-      {cos.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No change orders yet.</p>
-          <p className="mt-1 text-sm text-slate-500">
-            Document scope changes and adjust contract value in one motion.
-          </p>
-          <div className="mt-4 inline-flex">
-            <Link href="/change-orders/new">
-              <Button>New Change Order</Button>
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-slate-200 bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Number</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Proposal</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Submitted</TableHead>
-                <TableHead>Approved</TableHead>
-                <TableHead className="text-right">Days</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cosWithRefs.map(({ c, project, customer, proposal }) => {
-                return (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      {c.number}
-                    </TableCell>
-                    <TableCell className="font-medium text-slate-900">
-                      {project?.name ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600">{customer?.name ?? '—'}</TableCell>
-                    <TableCell className="font-mono text-xs text-slate-600">
-                      {proposal?.number ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {c.submittedAt ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600">{c.approvedAt ?? '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums text-slate-600">
-                      {c.scheduleImpactDays}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(c.total)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/change-orders/${c.id}`}>
-                        <Button size="sm" variant="outline">
-                          View Change Order
-                        </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <ChangeOrdersListClient rows={rows} />
     </div>
   );
 }

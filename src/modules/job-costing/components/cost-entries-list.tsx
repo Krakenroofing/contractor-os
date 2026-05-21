@@ -3,11 +3,19 @@
 import { useActionState, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import { Select } from '@/components/ui/select';
+import {
+  compareValues,
+  type SortState,
+} from '@/components/ui/sortable-header';
 import {
   Table,
   TableBody,
@@ -52,6 +60,8 @@ export type CostEntryRow = {
   createdByName: string | null;
 };
 
+type FilterKey = 'type' | 'vendor' | 'code';
+
 export function CostEntriesList({
   projectId,
   entries,
@@ -66,20 +76,89 @@ export function CostEntriesList({
   allowEdit: boolean;
 }) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    type: new Set(),
+    vendor: new Set(),
+    code: new Set(),
+  });
+  const [sort, setSort] = useState<SortState>(null);
+
+  const typeOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(entries.map((e) => e.costType));
+    return jobCostTypeValues
+      .filter((t) => present.has(t))
+      .map((t) => ({ value: t, label: JOB_COST_TYPE_LABEL[t] }));
+  }, [entries]);
+
+  const vendorOptions = useMemo<FilterOption[]>(() => {
+    const map = new Map<string, string>();
+    for (const e of entries) {
+      if (e.vendorId && e.vendorName) map.set(e.vendorId, e.vendorName);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [entries]);
+
+  const codeOptions = useMemo<FilterOption[]>(() => {
+    const map = new Map<string, string>();
+    for (const e of entries) map.set(e.costCodeId, e.costCode);
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [entries]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return entries.filter((e) => {
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
+    let out = entries.filter((e) => {
       const matchesSearch =
         q === '' ||
         e.description.toLowerCase().includes(q) ||
         e.costCode.toLowerCase().includes(q) ||
         (e.vendorName ?? '').toLowerCase().includes(q);
-      const matchesType = !typeFilter || e.costType === typeFilter;
-      return matchesSearch && matchesType;
+      return (
+        matchesSearch &&
+        matches(filters.type, e.costType) &&
+        matches(filters.vendor, e.vendorId ?? '') &&
+        matches(filters.code, e.costCodeId)
+      );
     });
-  }, [entries, search, typeFilter]);
+
+    if (sort) {
+      const get = (e: CostEntryRow): string | number | null => {
+        switch (sort.key) {
+          case 'date':
+            return e.entryDate;
+          case 'code':
+            return e.costCode;
+          case 'type':
+            return e.costType;
+          case 'vendor':
+            return e.vendorName;
+          case 'description':
+            return e.description;
+          case 'qty':
+            return Number(e.quantity);
+          case 'unit':
+            return Number(e.unitCost);
+          case 'amount':
+            return Number(e.amount);
+          default:
+            return null;
+        }
+      };
+      out = [...out].sort((a, b) => {
+        const cmp = compareValues(get(a), get(b));
+        return sort.dir === 'asc' ? cmp : -cmp;
+      });
+    }
+    return out;
+  }, [entries, search, filters, sort]);
+
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   if (entries.length === 0) {
     return (
@@ -97,20 +176,9 @@ export function CostEntriesList({
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by description, code, or vendor…"
-        filters={[
-          {
-            label: 'Cost type',
-            value: typeFilter,
-            onChange: setTypeFilter,
-            options: jobCostTypeValues.map((t) => ({
-              value: t,
-              label: JOB_COST_TYPE_LABEL[t],
-            })),
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setTypeFilter('');
+          setFilters({ type: new Set(), vendor: new Set(), code: new Set() });
         }}
       />
 
@@ -118,14 +186,54 @@ export function CostEntriesList({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Cost code</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead className="text-right">Qty</TableHead>
-              <TableHead className="text-right">Unit cost</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
+              <TableHead>
+                <ColumnHeader label="Date" sortKey="date" sort={sort} onSortChange={setSort} />
+              </TableHead>
+              <TableHead>
+                <ColumnHeader
+                  label="Cost code"
+                  sortKey="code"
+                  sort={sort}
+                  onSortChange={setSort}
+                  filterOptions={codeOptions}
+                  filterValues={filters.code}
+                  onFilterChange={setFilter('code')}
+                />
+              </TableHead>
+              <TableHead>
+                <ColumnHeader
+                  label="Type"
+                  sortKey="type"
+                  sort={sort}
+                  onSortChange={setSort}
+                  filterOptions={typeOptions}
+                  filterValues={filters.type}
+                  onFilterChange={setFilter('type')}
+                />
+              </TableHead>
+              <TableHead>
+                <ColumnHeader
+                  label="Vendor"
+                  sortKey="vendor"
+                  sort={sort}
+                  onSortChange={setSort}
+                  filterOptions={vendorOptions}
+                  filterValues={filters.vendor}
+                  onFilterChange={setFilter('vendor')}
+                />
+              </TableHead>
+              <TableHead>
+                <ColumnHeader label="Description" sortKey="description" sort={sort} onSortChange={setSort} />
+              </TableHead>
+              <TableHead className="text-right">
+                <ColumnHeader label="Qty" sortKey="qty" sort={sort} onSortChange={setSort} align="right" />
+              </TableHead>
+              <TableHead className="text-right">
+                <ColumnHeader label="Unit cost" sortKey="unit" sort={sort} onSortChange={setSort} align="right" />
+              </TableHead>
+              <TableHead className="text-right">
+                <ColumnHeader label="Amount" sortKey="amount" sort={sort} onSortChange={setSort} align="right" />
+              </TableHead>
               <TableHead>Billable</TableHead>
               {allowEdit && <TableHead className="text-right" />}
             </TableRow>
@@ -156,8 +264,7 @@ export function CostEntriesList({
 
 // Per-row component holds its own edit-mode state + bound update/delete
 // actions. When editing, the row collapses into a single colSpan cell that
-// renders a compact form. Cleaner than juggling 10 inline inputs across
-// 10 narrow table cells.
+// renders a compact form.
 function CostEntryTableRow({
   projectId,
   entry,
@@ -183,7 +290,6 @@ function CostEntryTableRow({
   );
   const [editing, setEditing] = useState(false);
 
-  // Successful save → exit editing.
   if (editing && updateState.ok && !updateState.formError) {
     setEditing(false);
   }

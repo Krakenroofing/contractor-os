@@ -4,12 +4,14 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
-  type SortState,
   compareValues,
-  toggleSort,
+  type SortState,
 } from '@/components/ui/sortable-header';
 import {
   Table,
@@ -21,12 +23,12 @@ import {
 } from '@/components/ui/table';
 import { formatMoney, formatPercent } from '@/lib/money';
 import {
-  RETAINAGE_STATUSES,
   STATUS_LABEL,
   STATUS_TONE,
   type RetainageRow,
-  type RetainageStatus,
 } from '@/modules/retainage/lib/retainage-shared';
+
+type FilterKey = 'customer' | 'project' | 'status';
 
 export function RetainageListClient({
   rows,
@@ -36,35 +38,52 @@ export function RetainageListClient({
   allowCreate: boolean;
 }) {
   const [search, setSearch] = useState('');
-  const [customerFilter, setCustomerFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'' | RetainageStatus>('');
-  const [sort, setSort] = useState<SortState>({ key: 'status', dir: 'asc' });
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    customer: new Set(),
+    project: new Set(),
+    status: new Set(),
+  });
+  const [sort, setSort] = useState<SortState>(null);
 
-  const customerOptions = useMemo(() => {
+  const customerOptions = useMemo<FilterOption[]>(() => {
     const map = new Map<string, string>();
     for (const r of rows) if (r.customerId) map.set(r.customerId, r.customerName);
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
   }, [rows]);
 
-  const projectOptions = useMemo(() => {
+  const projectOptions = useMemo<FilterOption[]>(() => {
     const map = new Map<string, string>();
     for (const r of rows) map.set(r.projectId, r.projectName);
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [rows]);
+
+  const statusOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(rows.map((r) => r.status));
+    return Array.from(present)
+      .sort()
+      .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
   }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let out = rows.filter((r) => {
       const matchesSearch =
         q === '' ||
         r.invoiceNumber.toLowerCase().includes(q) ||
         r.projectName.toLowerCase().includes(q) ||
         r.customerName.toLowerCase().includes(q);
-      const matchesCustomer = !customerFilter || r.customerId === customerFilter;
-      const matchesProject = !projectFilter || r.projectId === projectFilter;
-      const matchesStatus = !statusFilter || r.status === statusFilter;
-      return matchesSearch && matchesCustomer && matchesProject && matchesStatus;
+      return (
+        matchesSearch &&
+        matches(filters.customer, r.customerId ?? '') &&
+        matches(filters.project, r.projectId) &&
+        matches(filters.status, r.status)
+      );
     });
 
     if (sort) {
@@ -102,9 +121,10 @@ export function RetainageListClient({
       });
     }
     return out;
-  }, [rows, search, customerFilter, projectFilter, statusFilter, sort]);
+  }, [rows, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
   return (
     <div className="space-y-4">
@@ -112,42 +132,22 @@ export function RetainageListClient({
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by invoice #, project, or customer…"
-        filters={[
-          {
-            label: 'Customer',
-            value: customerFilter,
-            onChange: setCustomerFilter,
-            options: customerOptions.map(([id, name]) => ({ value: id, label: name })),
-          },
-          {
-            label: 'Project',
-            value: projectFilter,
-            onChange: setProjectFilter,
-            options: projectOptions.map(([id, name]) => ({ value: id, label: name })),
-          },
-          {
-            label: 'Status',
-            value: statusFilter,
-            onChange: (v) => setStatusFilter(v as '' | RetainageStatus),
-            options: RETAINAGE_STATUSES.map((s) => ({
-              value: s,
-              label: STATUS_LABEL[s],
-            })),
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setCustomerFilter('');
-          setProjectFilter('');
-          setStatusFilter('');
+          setFilters({
+            customer: new Set(),
+            project: new Set(),
+            status: new Set(),
+          });
         }}
       />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">
-            No retainage rows match those filters. Retainage shows up here as soon as
-            an invoice is issued with a retainage % set.
+            {rows.length === 0
+              ? 'No retainage rows yet. Retainage shows up here as soon as an invoice is issued with a retainage % set.'
+              : 'No retainage rows match those filters.'}
           </p>
         </div>
       ) : (
@@ -156,37 +156,61 @@ export function RetainageListClient({
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortableHeader label="Invoice" sortKey="invoice" sort={sort} onSort={onSort} />
+                  <ColumnHeader label="Invoice" sortKey="invoice" sort={sort} onSortChange={setSort} />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Customer" sortKey="customer" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Customer"
+                    sortKey="customer"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={customerOptions}
+                    filterValues={filters.customer}
+                    onFilterChange={setFilter('customer')}
+                  />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Project" sortKey="project" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Project"
+                    sortKey="project"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={projectOptions}
+                    filterValues={filters.project}
+                    onFilterChange={setFilter('project')}
+                  />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="Contract" sortKey="contract" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="Contract" sortKey="contract" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="Invoiced" sortKey="invoiced" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="Invoiced" sortKey="invoiced" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="%" sortKey="pct" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="%" sortKey="pct" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="Held" sortKey="held" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="Held" sortKey="held" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="Released" sortKey="released" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="Released" sortKey="released" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader label="Balance" sortKey="balance" sort={sort} onSort={onSort} align="right" />
+                  <ColumnHeader label="Balance" sortKey="balance" sort={sort} onSortChange={setSort} align="right" />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Expected" sortKey="expected" sort={sort} onSort={onSort} />
+                  <ColumnHeader label="Expected" sortKey="expected" sort={sort} onSortChange={setSort} />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Status" sortKey="status" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Status"
+                    sortKey="status"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={statusOptions}
+                    filterValues={filters.status}
+                    onFilterChange={setFilter('status')}
+                  />
                 </TableHead>
                 <TableHead className="text-right" />
               </TableRow>

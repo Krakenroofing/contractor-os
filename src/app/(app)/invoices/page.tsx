@@ -1,45 +1,29 @@
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
-import { add, formatMoney } from '@/lib/money';
+import { add, formatMoney, parseMoney } from '@/lib/money';
 import { listInvoices } from '@/lib/data/invoices';
 import { listInvoicePaymentsForCompany } from '@/lib/data/invoice-payments';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
-import {
-  BILLING_TYPE_LABEL,
-  STATUS_LABEL,
-  STATUS_TONE,
-} from '@/modules/invoices/schema';
 import {
   computeInvoiceFinancials,
   computeInvoiceVatSplit,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
 import { ReconcileButton } from '@/modules/invoices/components/reconcile-button';
+import {
+  InvoicesListClient,
+  type InvoiceListRow,
+} from '@/modules/invoices/components/invoices-list-client';
 
 export const dynamic = 'force-dynamic';
 
-export default async function InvoicesPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ showVoid?: string }>;
-}) {
-  const sp = (await searchParams) ?? {};
-  const showVoid = sp.showVoid === '1';
+export default async function InvoicesPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'invoices');
@@ -48,15 +32,8 @@ export default async function InvoicesPage({
   const allPayments = await listInvoicePaymentsForCompany(companyId);
   const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
 
-  // Filter out void invoices unless the user explicitly opted in. Void
-  // invoices stay reachable via the toggle so users can still see and
-  // un-void them (un-void is a future feature; for now, voids are read-only).
-  const visibleInvoices = showVoid
-    ? allInvoices
-    : allInvoices.filter((i) => i.status !== 'void');
-
-  const invoicesWithRefs = await Promise.all(
-    visibleInvoices.map(async (inv) => {
+  const rows: InvoiceListRow[] = await Promise.all(
+    allInvoices.map(async (inv) => {
       const project = await getProject(companyId, inv.projectId);
       const customer = project
         ? await getCustomer(companyId, project.customerId)
@@ -65,15 +42,30 @@ export default async function InvoicesPage({
         inv,
         paymentsByInvoice.get(inv.id) ?? [],
       );
-      return { inv, project, customer, fin };
+      return {
+        id: inv.id,
+        number: inv.number,
+        projectId: inv.projectId,
+        projectName: project?.name ?? '—',
+        customerId: project?.customerId ?? null,
+        customerName: customer?.name ?? '—',
+        billingType: inv.billingType,
+        status: inv.status,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate ?? null,
+        total: parseMoney(inv.total),
+        subtotal: parseMoney(inv.subtotal),
+        taxAmount: parseMoney(inv.taxAmount),
+        balance: fin.balance,
+      };
     }),
   );
 
-  // Totals are computed from payment rows so the list, dashboard, and AR
-  // page agree even when the cached `amount_paid` lags briefly. Net/VAT
-  // split: revenue is the invoice subtotal; VAT is a liability collected
-  // on the government's behalf — never income. Paid amounts split
-  // proportionally per invoice's tax/total ratio.
+  // KPIs stay company-wide — they're computed from the full non-void set
+  // and never react to the in-table filters. Net/VAT split: revenue is
+  // subtotal; VAT is a liability collected on the government's behalf —
+  // never income. Paid amounts split proportionally per invoice's tax/total
+  // ratio.
   let totalInvoiced = 0;
   let totalInvoicedNet = 0;
   let totalInvoicedVat = 0;
@@ -100,7 +92,7 @@ export default async function InvoicesPage({
     outstandingVat = add(outstandingVat, split.balanceVat);
   }
 
-  const voidCount = allInvoices.filter((i) => i.status === 'void').length;
+  const totalCount = rows.length;
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
@@ -115,27 +107,11 @@ export default async function InvoicesPage({
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Invoices</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {visibleInvoices.length}{' '}
-            {visibleInvoices.length === 1 ? 'invoice' : 'invoices'}
-            {!showVoid && voidCount > 0 && (
-              <>
-                {' '}
-                <span className="text-slate-400">
-                  · {voidCount} void hidden
-                </span>
-              </>
-            )}
+            {totalCount} {totalCount === 1 ? 'invoice' : 'invoices'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {allowCreate && <ReconcileButton />}
-          <Link
-            href={{ pathname: '/invoices', query: showVoid ? {} : { showVoid: '1' } }}
-          >
-            <Button size="sm" variant="outline">
-              {showVoid ? 'Hide void' : 'Show void'}
-            </Button>
-          </Link>
           {allowCreate && (
             <Link href="/invoices/new">
               <Button>New Invoice</Button>
@@ -164,112 +140,7 @@ export default async function InvoicesPage({
         />
       </div>
 
-      {visibleInvoices.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No invoices yet.</p>
-          {allowCreate && (
-            <div className="mt-4 inline-flex">
-              <Link href="/invoices/new">
-                <Button>New Invoice</Button>
-              </Link>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-slate-200 bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Number</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Invoice date</TableHead>
-                <TableHead>Due</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoicesWithRefs.map(({ inv, project, customer, fin }) => {
-                const balance = fin.balance;
-                const isVoid = inv.status === 'void';
-                const canEditRow = allowCreate && !isVoid;
-                const canRecordPayment =
-                  allowCreate && !isVoid && inv.status !== 'paid';
-                return (
-                  <TableRow key={inv.id} className={isVoid ? 'opacity-60' : ''}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      {inv.number}
-                    </TableCell>
-                    <TableCell className="font-medium text-slate-900">
-                      {project?.name ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {customer?.name ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {BILLING_TYPE_LABEL[inv.billingType]}
-                    </TableCell>
-                    <TableCell>
-                      <Badge tone={STATUS_TONE[inv.status]}>
-                        {STATUS_LABEL[inv.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {inv.invoiceDate}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {inv.dueDate ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      <div>{formatMoney(inv.total)}</div>
-                      {Number(inv.taxAmount) > 0 && (
-                        <div className="text-[11px] font-normal text-slate-500">
-                          net {formatMoney(inv.subtotal)} ·{' '}
-                          VAT {formatMoney(inv.taxAmount)}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${
-                        balance <= 0 ? 'text-emerald-700' : 'text-amber-700'
-                      }`}
-                    >
-                      {formatMoney(balance)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Link href={`/invoices/${inv.id}`}>
-                          <Button size="sm" variant="outline">
-                            View
-                          </Button>
-                        </Link>
-                        {canEditRow && (
-                          <Link href={`/invoices/${inv.id}/edit`}>
-                            <Button size="sm" variant="outline">
-                              Edit
-                            </Button>
-                          </Link>
-                        )}
-                        {canRecordPayment && (
-                          <Link href={`/payments/new?invoiceId=${inv.id}`}>
-                            <Button size="sm" variant="outline">
-                              Pay
-                            </Button>
-                          </Link>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <InvoicesListClient rows={rows} allowCreate={allowCreate} />
     </div>
   );
 }

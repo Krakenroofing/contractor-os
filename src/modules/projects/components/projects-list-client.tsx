@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  ColumnHeader,
+  type FilterOption,
+} from '@/components/ui/column-header';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import {
-  SortableHeader,
-  type SortState,
   compareValues,
-  toggleSort,
+  type SortState,
 } from '@/components/ui/sortable-header';
 import {
   Table,
@@ -54,6 +56,8 @@ export type ProjectRow = {
   totalChangeOrders: string;
 };
 
+type FilterKey = 'customer' | 'status';
+
 export function ProjectsListClient({
   projects,
   canCreate = true,
@@ -62,18 +66,40 @@ export function ProjectsListClient({
   canCreate?: boolean;
 }) {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
+    customer: new Set(),
+    status: new Set(),
+  });
   const [sort, setSort] = useState<SortState>(null);
+
+  const customerOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(projects.map((p) => p.customerName));
+    return Array.from(present)
+      .sort()
+      .map((name) => ({ value: name, label: name }));
+  }, [projects]);
+
+  const statusOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(projects.map((p) => p.status));
+    return Array.from(present)
+      .sort()
+      .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+  }, [projects]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const matches = (set: Set<string>, value: string) =>
+      set.size === 0 || set.has(value);
     let rows = projects.filter((p) => {
       const matchesSearch =
         q === '' ||
         p.name.toLowerCase().includes(q) ||
         p.customerName.toLowerCase().includes(q);
-      const matchesStatus = !statusFilter || p.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      return (
+        matchesSearch &&
+        matches(filters.customer, p.customerName) &&
+        matches(filters.status, p.status)
+      );
     });
 
     if (sort) {
@@ -99,11 +125,12 @@ export function ProjectsListClient({
       });
     }
     return rows;
-  }, [projects, search, statusFilter, sort]);
+  }, [projects, search, filters, sort]);
 
-  const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
+  const setFilter = (key: FilterKey) => (next: Set<string>) =>
+    setFilters((prev) => ({ ...prev, [key]: next }));
 
-  // Summary KPIs (across filtered set so they reflect what the user sees)
+  // Summary KPIs across filtered set so they reflect what the user sees
   const totalContract = filtered.reduce(
     (a, p) => a + parseMoney(p.contractValue),
     0,
@@ -141,26 +168,19 @@ export function ProjectsListClient({
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by name or customer…"
-        filters={[
-          {
-            label: 'Status',
-            value: statusFilter,
-            onChange: setStatusFilter,
-            options: (Object.keys(STATUS_LABEL) as Project['status'][]).map((s) => ({
-              value: s,
-              label: STATUS_LABEL[s],
-            })),
-          },
-        ]}
         onClear={() => {
           setSearch('');
-          setStatusFilter('');
+          setFilters({ customer: new Set(), status: new Set() });
         }}
       />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
-          <p className="text-slate-600">No projects match those filters.</p>
+          <p className="text-slate-600">
+            {projects.length === 0
+              ? 'No projects yet.'
+              : 'No projects match those filters.'}
+          </p>
           {canCreate && projects.length === 0 && (
             <div className="mt-4 inline-flex">
               <Link href="/projects/new">
@@ -175,34 +195,50 @@ export function ProjectsListClient({
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} />
-                </TableHead>
-                <TableHead>
-                  <SortableHeader
-                    label="Customer"
-                    sortKey="customer"
+                  <ColumnHeader
+                    label="Name"
+                    sortKey="name"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                   />
                 </TableHead>
                 <TableHead>
-                  <SortableHeader label="Status" sortKey="status" sort={sort} onSort={onSort} />
+                  <ColumnHeader
+                    label="Customer"
+                    sortKey="customer"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={customerOptions}
+                    filterValues={filters.customer}
+                    onFilterChange={setFilter('customer')}
+                  />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader
+                    label="Status"
+                    sortKey="status"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={statusOptions}
+                    filterValues={filters.status}
+                    onFilterChange={setFilter('status')}
+                  />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Contract"
                     sortKey="contract"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>
                 <TableHead className="text-right">
-                  <SortableHeader
+                  <ColumnHeader
                     label="Projected GP"
                     sortKey="profit"
                     sort={sort}
-                    onSort={onSort}
+                    onSortChange={setSort}
                     align="right"
                   />
                 </TableHead>

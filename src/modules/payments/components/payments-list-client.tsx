@@ -23,59 +23,68 @@ import {
 } from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import {
-  BUCKET_LABEL,
-  BUCKET_TONE,
-  type AgingBucket,
-  type AgingRow,
-} from '@/modules/accounts-receivable/lib/ar-shared';
-import {
+  METHOD_LABEL,
   STATUS_LABEL,
   STATUS_TONE,
-} from '@/modules/invoices/schema';
+  type PaymentMethod,
+  type PaymentStatus,
+} from '@/modules/payments/schema';
 
-type FilterKey = 'customer' | 'project' | 'bucket' | 'status';
+export type PaymentRow = {
+  id: string;
+  paymentNumber: string;
+  paidDate: string;
+  customerId: string | null;
+  customerName: string;
+  projectId: string | null;
+  projectName: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  method: PaymentMethod;
+  reference: string | null;
+  bankAccount: string | null;
+  status: PaymentStatus;
+  amount: string;
+};
 
-export function ARListClient({ rows }: { rows: AgingRow[] }) {
+type FilterKey = 'customer' | 'project' | 'method' | 'status';
+
+export function PaymentsListClient({ rows }: { rows: PaymentRow[] }) {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
     customer: new Set(),
     project: new Set(),
-    bucket: new Set(),
+    method: new Set(),
     status: new Set(),
   });
   const [sort, setSort] = useState<SortState>(null);
 
   const customerOptions = useMemo<FilterOption[]>(() => {
-    const map = new Map<string, string>();
-    for (const r of rows) if (r.customerId) map.set(r.customerId, r.customerName);
-    return Array.from(map.entries())
-      .sort((a, b) => a[1].localeCompare(b[1]))
-      .map(([value, label]) => ({ value, label }));
+    const present = new Set(rows.map((r) => r.customerName));
+    return Array.from(present)
+      .sort()
+      .map((name) => ({ value: name, label: name }));
   }, [rows]);
 
   const projectOptions = useMemo<FilterOption[]>(() => {
-    const map = new Map<string, string>();
-    for (const r of rows) map.set(r.projectId, r.projectName);
-    return Array.from(map.entries())
-      .sort((a, b) => a[1].localeCompare(b[1]))
-      .map(([value, label]) => ({ value, label }));
-  }, [rows]);
-
-  const bucketOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(rows.map((r) => r.bucket));
+    const present = new Set(rows.map((r) => r.projectName));
     return Array.from(present)
       .sort()
-      .map((b) => ({ value: b, label: BUCKET_LABEL[b as AgingBucket] }));
+      .map((name) => ({ value: name, label: name }));
+  }, [rows]);
+
+  const methodOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(rows.map((r) => r.method));
+    return Array.from(present)
+      .sort()
+      .map((m) => ({ value: m, label: METHOD_LABEL[m] }));
   }, [rows]);
 
   const statusOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(rows.map((r) => r.derivedStatus));
+    const present = new Set(rows.map((r) => r.status));
     return Array.from(present)
       .sort()
-      .map((s) => ({
-        value: s,
-        label: s === 'overdue' ? 'Overdue' : (STATUS_LABEL[s] ?? s),
-      }));
+      .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -85,43 +94,43 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
     let out = rows.filter((r) => {
       const matchesSearch =
         q === '' ||
-        r.invoiceNumber.toLowerCase().includes(q) ||
+        r.paymentNumber.toLowerCase().includes(q) ||
+        r.customerName.toLowerCase().includes(q) ||
         r.projectName.toLowerCase().includes(q) ||
-        r.customerName.toLowerCase().includes(q);
+        (r.invoiceNumber ?? '').toLowerCase().includes(q) ||
+        (r.reference ?? '').toLowerCase().includes(q);
       return (
         matchesSearch &&
-        matches(filters.customer, r.customerId ?? '') &&
-        matches(filters.project, r.projectId) &&
-        matches(filters.bucket, r.bucket) &&
-        matches(filters.status, r.derivedStatus)
+        matches(filters.customer, r.customerName) &&
+        matches(filters.project, r.projectName) &&
+        matches(filters.method, r.method) &&
+        matches(filters.status, r.status)
       );
     });
 
     if (sort) {
-      const get = (r: AgingRow): string | number | null => {
+      const get = (r: PaymentRow): string | number | null => {
         switch (sort.key) {
-          case 'invoice':
-            return r.invoiceNumber;
+          case 'number':
+            return r.paymentNumber;
+          case 'date':
+            return r.paidDate;
           case 'customer':
             return r.customerName;
           case 'project':
             return r.projectName;
-          case 'invoiceDate':
-            return r.invoiceDate;
-          case 'dueDate':
-            return r.dueDate;
-          case 'total':
-            return r.total;
-          case 'paid':
-            return r.amountPaid;
-          case 'balance':
-            return r.balance;
-          case 'days':
-            return r.daysOverdue;
-          case 'bucket':
-            return r.bucket;
+          case 'invoice':
+            return r.invoiceNumber;
+          case 'method':
+            return r.method;
+          case 'reference':
+            return r.reference;
+          case 'bank':
+            return r.bankAccount;
           case 'status':
-            return r.derivedStatus;
+            return r.status;
+          case 'amount':
+            return Number(r.amount);
           default:
             return null;
         }
@@ -142,13 +151,13 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
       <ListToolbar
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by invoice #, project, or customer…"
+        searchPlaceholder="Search by number, customer, project, invoice #, or reference…"
         onClear={() => {
           setSearch('');
           setFilters({
             customer: new Set(),
             project: new Set(),
-            bucket: new Set(),
+            method: new Set(),
             status: new Set(),
           });
         }}
@@ -158,8 +167,8 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">
           <p className="text-slate-600">
             {rows.length === 0
-              ? 'No outstanding invoices.'
-              : 'No outstanding invoices match those filters.'}
+              ? 'No payments recorded yet.'
+              : 'No payments match those filters.'}
           </p>
         </div>
       ) : (
@@ -168,7 +177,10 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
             <TableHeader>
               <TableRow>
                 <TableHead>
-                  <ColumnHeader label="Invoice" sortKey="invoice" sort={sort} onSortChange={setSort} />
+                  <ColumnHeader label="Number" sortKey="number" sort={sort} onSortChange={setSort} />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader label="Date" sortKey="date" sort={sort} onSortChange={setSort} />
                 </TableHead>
                 <TableHead>
                   <ColumnHeader
@@ -193,33 +205,24 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
                   />
                 </TableHead>
                 <TableHead>
-                  <ColumnHeader label="Invoice date" sortKey="invoiceDate" sort={sort} onSortChange={setSort} />
-                </TableHead>
-                <TableHead>
-                  <ColumnHeader label="Due" sortKey="dueDate" sort={sort} onSortChange={setSort} />
-                </TableHead>
-                <TableHead className="text-right">
-                  <ColumnHeader label="Total" sortKey="total" sort={sort} onSortChange={setSort} align="right" />
-                </TableHead>
-                <TableHead className="text-right">
-                  <ColumnHeader label="Paid" sortKey="paid" sort={sort} onSortChange={setSort} align="right" />
-                </TableHead>
-                <TableHead className="text-right">
-                  <ColumnHeader label="Balance" sortKey="balance" sort={sort} onSortChange={setSort} align="right" />
-                </TableHead>
-                <TableHead className="text-right">
-                  <ColumnHeader label="Days" sortKey="days" sort={sort} onSortChange={setSort} align="right" />
+                  <ColumnHeader label="Invoice" sortKey="invoice" sort={sort} onSortChange={setSort} />
                 </TableHead>
                 <TableHead>
                   <ColumnHeader
-                    label="Aging"
-                    sortKey="bucket"
+                    label="Method"
+                    sortKey="method"
                     sort={sort}
                     onSortChange={setSort}
-                    filterOptions={bucketOptions}
-                    filterValues={filters.bucket}
-                    onFilterChange={setFilter('bucket')}
+                    filterOptions={methodOptions}
+                    filterValues={filters.method}
+                    onFilterChange={setFilter('method')}
                   />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader label="Reference" sortKey="reference" sort={sort} onSortChange={setSort} />
+                </TableHead>
+                <TableHead>
+                  <ColumnHeader label="Bank" sortKey="bank" sort={sort} onSortChange={setSort} />
                 </TableHead>
                 <TableHead>
                   <ColumnHeader
@@ -232,51 +235,52 @@ export function ARListClient({ rows }: { rows: AgingRow[] }) {
                     onFilterChange={setFilter('status')}
                   />
                 </TableHead>
+                <TableHead className="text-right">
+                  <ColumnHeader label="Amount" sortKey="amount" sort={sort} onSortChange={setSort} align="right" />
+                </TableHead>
                 <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((r) => (
-                <TableRow key={r.invoiceId}>
+                <TableRow key={r.id}>
                   <TableCell className="font-mono text-xs text-slate-700">
-                    <Link href={`/invoices/${r.invoiceId}`} className="hover:underline">
-                      {r.invoiceNumber}
-                    </Link>
+                    {r.paymentNumber || '—'}
                   </TableCell>
+                  <TableCell className="text-slate-600">{r.paidDate}</TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell className="font-medium text-slate-900">
                     {r.projectName}
                   </TableCell>
-                  <TableCell className="text-slate-600">{r.invoiceDate}</TableCell>
-                  <TableCell className="text-slate-600">{r.dueDate ?? '—'}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatMoney(r.total)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-700">
-                    {formatMoney(r.amountPaid)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium text-amber-700">
-                    {formatMoney(r.balance)}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums ${
-                      r.daysOverdue > 0 ? 'text-red-600 font-medium' : 'text-slate-500'
-                    }`}
-                  >
-                    {r.daysOverdue > 0 ? r.daysOverdue : `${r.daysOverdue}`}
-                  </TableCell>
-                  <TableCell>
-                    <Badge tone={BUCKET_TONE[r.bucket]}>{BUCKET_LABEL[r.bucket]}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {r.derivedStatus === 'overdue' ? (
-                      <Badge tone="red">Overdue</Badge>
+                  <TableCell className="font-mono text-xs">
+                    {r.invoiceId && r.invoiceNumber ? (
+                      <Link
+                        href={`/invoices/${r.invoiceId}`}
+                        className="hover:underline text-slate-700"
+                      >
+                        {r.invoiceNumber}
+                      </Link>
                     ) : (
-                      <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                      '—'
                     )}
                   </TableCell>
+                  <TableCell className="text-slate-600">
+                    {METHOD_LABEL[r.method]}
+                  </TableCell>
+                  <TableCell className="text-slate-600 font-mono text-xs">
+                    {r.reference ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-slate-600 text-xs">
+                    {r.bankAccount ?? '—'}
+                  </TableCell>
+                  <TableCell>
+                    <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">
+                    {formatMoney(r.amount)}
+                  </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/invoices/${r.invoiceId}`}>
+                    <Link href={`/payments/${r.id}`}>
                       <Button size="sm" variant="outline">
                         View
                       </Button>
