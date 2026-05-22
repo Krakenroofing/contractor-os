@@ -48,6 +48,12 @@ import {
   type UpsertReceiptLineInput,
 } from './schema';
 import { computeVat, vatQuarterForDate } from './lib/vat';
+import { listVendors } from '@/lib/data/vendors';
+import {
+  extractReceipt,
+  isOcrConfigured,
+  type OcrExtractResult,
+} from '@/lib/ocr/document-ai';
 
 export type ReceiptActionState = {
   formError?: string;
@@ -800,3 +806,242 @@ export async function bulkCreateReceiptDraftsAction(
 // Silence the helper-only import warnings.
 void canView;
 void can;
+
+
+// =====================================================================
+// Multi-receipt PDF splitter (Phase 2.7)
+// =====================================================================
+//
+// Accept ONE PDF that contains multiple receipts (one per page) — common
+// output of a flatbed scan-a-stack workflow. Split with pdf-lib into N
+// single-page PDFs, then for each page:
+//   1. Create a draft receipt with today's date.
+//   2. Run Document AI extract on the page bytes (if OCR is configured).
+//   3. Apply extracted vendor / date / total / VAT to the header + one
+//      receipt line, mirroring applyExtractedToReceiptAction logic.
+//   4. Upload the per-page PDF as the receipt's only attachment.
+//
+// Caps:
+//   - File size cap inherits MAX_RECEIPT_BYTES (25 MB).
+//   - Page cap of 25 per batch keeps runtime under typical platform
+//     timeouts (Document AI ~3-5s per page). Larger PDFs return an
+//     error asking the operator to split the source.
+//
+// Per-page failures don't abort the batch — every page produces a
+// result row so the operator knows which drafts landed and which
+// need a retry.
+
+export type BulkPdfExtractResultRow = {
+  pageNumber: number;
+  receiptId?: string;
+  vendorName?: string;
+  total?: number;
+  receiptDate?: string;
+  error?: string;
+};
+
+export type BulkPdfExtractActionState = {
+  results?: BulkPdfExtractResultRow[];
+  formError?: string;
+  pageCount?: number;
+  ocrEnabled?: boolean;
+};
+
+const MAX_PAGES_PER_BATCH = 25;
+
+export async function bulkExtractMultiReceiptPdfAction(
+  _prev: BulkPdfExtractActionState,
+  formData: FormData,
+): Promise<BulkPdfExtractActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'receipts')) {
+    return { formError: 'No permission to create receipts.' };
+  }
+  const company = await getActiveCompany();
+
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) {
+    return { formError: 'Choose a PDF to upload.' };
+  }
+  if (file.size > MAX_RECEIPT_BYTES) {
+    return { formError: 'PDF too large (max 25 MB).' };
+  }
+  const mime = (file.type || 'application/octet-stream').toLowerCase();
+  if (mime !== 'application/pdf') {
+    return { formError: 'Multi-receipt extraction only supports PDF files.' };
+  }
+
+  const pdfBytes = new Uint8Array(await file.arrayBuffer());
+
+  // Lazy-load pdf-lib to keep the module graph trim — it's only needed
+  // when this action actually fires.
+  const { PDFDocument } = await import('pdf-lib');
+  let sourceDoc;
+  try {
+    sourceDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  } catch (err) {
+    return {
+      formError:
+        err instanceof Error
+          ? `Could not read PDF: ${err.message}`
+          : 'Could not read PDF.',
+    };
+  }
+  const totalPages = sourceDoc.getPageCount();
+  if (totalPages === 0) {
+    return { formError: 'PDF has no pages.' };
+  }
+  if (totalPages > MAX_PAGES_PER_BATCH) {
+    return {
+      formError: `PDF has ${totalPages} pages — split into batches of ${MAX_PAGES_PER_BATCH} or fewer and re-upload.`,
+      pageCount: totalPages,
+    };
+  }
+
+  const ocrEnabled = isOcrConfigured();
+  const today = new Date().toISOString().slice(0, 10);
+  const vendors = ocrEnabled ? await listVendors(company.id) : [];
+  const baseName = file.name.replace(/\.pdf$/i, '');
+
+  const results: BulkPdfExtractResultRow[] = [];
+
+  for (let i = 0; i < totalPages; i++) {
+    const pageNumber = i + 1;
+    const row: BulkPdfExtractResultRow = { pageNumber };
+    try {
+      // Build a single-page PDF for this page so each draft gets a
+      // standalone attachment.
+      const pageDoc = await PDFDocument.create();
+      const [copied] = await pageDoc.copyPages(sourceDoc, [i]);
+      pageDoc.addPage(copied);
+      const pageBytes = await pageDoc.save();
+
+      // OCR first — we want to know vendor/date so the draft lands
+      // pre-filled where possible.
+      let extracted: OcrExtractResult = {};
+      if (ocrEnabled) {
+        try {
+          extracted = await extractReceipt({
+            bytes: pageBytes,
+            mimeType: 'application/pdf',
+          });
+        } catch (err) {
+          // OCR failure shouldn't kill the page — fall through and
+          // still create the draft, just without extraction.
+          row.error =
+            err instanceof Error
+              ? `OCR failed: ${err.message}`
+              : 'OCR failed.';
+        }
+      }
+
+      // Match an existing vendor on name when possible.
+      let matchedVendorId: string | null = null;
+      if (extracted.vendorName && vendors.length > 0) {
+        const needle = extracted.vendorName.toLowerCase().trim();
+        const hit =
+          vendors.find((v) => v.name.toLowerCase() === needle) ??
+          vendors.find((v) => v.name.toLowerCase().includes(needle)) ??
+          vendors.find((v) => needle.includes(v.name.toLowerCase()));
+        matchedVendorId = hit?.id ?? null;
+      }
+
+      const receiptDate = extracted.receiptDate ?? today;
+      const currency = (extracted.currency ?? company.defaultCurrency)
+        .toUpperCase()
+        .slice(0, 3);
+      const vatRate =
+        typeof extracted.vatRate === 'number' && Number.isFinite(extracted.vatRate)
+          ? extracted.vatRate
+          : company.isVatActive
+            ? Number(company.vatRatePercent) || 0
+            : 0;
+
+      const receipt = await createReceipt({
+        companyId: company.id,
+        receiptDate,
+        currency,
+        paymentSourceType: 'cash',
+        vatIncluded: true,
+        vatRecoverable: true,
+        vatRatePercent: vatRate > 0 ? toPercentString(vatRate) : null,
+        vatPeriodQuarter: company.isVatActive
+          ? vatQuarterForDate(receiptDate)
+          : null,
+        vendorId: matchedVendorId,
+        subtotal: '0',
+        vatAmount: '0',
+        total: '0',
+        uploadedByUserId: user.id,
+      });
+
+      // Build the single line. Prefer per-receipt total from OCR; fall
+      // back to subtotal+vat when only those are present; otherwise an
+      // empty $0 line for the operator to edit.
+      const ocrTotal =
+        extracted.total ??
+        (extracted.subtotal !== undefined && extracted.vatAmount !== undefined
+          ? extracted.subtotal + extracted.vatAmount
+          : undefined);
+      const round = (n: number) => Math.round(n * 100) / 100;
+      const lineGross = ocrTotal && ocrTotal > 0 ? round(ocrTotal) : 0;
+      const lineSub =
+        lineGross > 0 && vatRate > 0
+          ? round(lineGross / (1 + vatRate / 100))
+          : lineGross;
+      const lineVat = round(lineGross - lineSub);
+
+      await createReceiptLine({
+        companyId: company.id,
+        receiptId: receipt.id,
+        sortOrder: 0,
+        description: extracted.vendorName
+          ? `${extracted.vendorName} (page ${pageNumber})`
+          : null,
+        subtotal: toMoneyString(lineSub),
+        vatAmount: toMoneyString(lineVat),
+        total: toMoneyString(lineGross),
+        vatRatePercent: vatRate > 0 ? toPercentString(vatRate) : null,
+        isBillable: false,
+        isReimbursable: false,
+      });
+      await recalcReceiptHeaderTotals(company.id, receipt.id);
+
+      // Attach the single-page PDF so the operator can verify what was
+      // extracted against the source page.
+      const upload = await uploadReceiptFile({
+        companyId: company.id,
+        bytes: pageBytes,
+        mimeType: 'application/pdf',
+        originalFileName: `${baseName}-page-${pageNumber}.pdf`,
+      });
+      await createReceiptAttachment({
+        companyId: company.id,
+        receiptId: receipt.id,
+        storagePath: upload.storagePath,
+        mimeType: 'application/pdf',
+        byteSize: pageBytes.byteLength,
+        originalFilename: `${baseName}-page-${pageNumber}.pdf`,
+        kind: 'supplier_invoice',
+        uploadedByUserId: user.id,
+      });
+
+      row.receiptId = receipt.id;
+      row.vendorName = extracted.vendorName;
+      row.total = ocrTotal;
+      row.receiptDate = extracted.receiptDate;
+      // Clear any soft OCR error we noted earlier — the draft still
+      // landed successfully, so don't surface OCR-only failures as
+      // hard errors at the row level.
+      row.error = undefined;
+    } catch (err) {
+      row.error =
+        err instanceof Error ? err.message : 'Failed to process page.';
+    }
+    results.push(row);
+  }
+
+  revalidatePath('/banking/receipts');
+  return { results, pageCount: totalPages, ocrEnabled };
+}
