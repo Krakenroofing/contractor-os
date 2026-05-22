@@ -15,10 +15,6 @@ import {
   TimesheetGrid,
   type TimesheetEmployee,
 } from '@/modules/payroll/components/timesheet-grid';
-import {
-  ByJobView,
-  type ByJobRow,
-} from '@/modules/payroll/components/by-job-view';
 import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
 import { C10SummaryView } from '@/modules/payroll/components/c10-summary';
 import {
@@ -27,6 +23,7 @@ import {
 } from '@/modules/payroll/components/pay-run-table';
 import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
 import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
+import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { parseMoney, multiply, round2 } from '@/lib/money';
 import type { EmploymentType } from '@/modules/employees/schema';
@@ -74,17 +71,15 @@ export default async function PayrollPage({
       ? mondayOf(sp.week)
       : mondayOf(todayISO());
   const view: TabKey =
-    sp.view === 'by-job'
-      ? 'by-job'
-      : sp.view === 'pay-run'
-        ? 'pay-run'
-        : sp.view === 'paystubs'
-          ? 'paystubs'
-          : sp.view === 'c10'
-            ? 'c10'
-            : sp.view === 'subs'
-              ? 'subs'
-              : 'timesheet';
+    sp.view === 'pay-run'
+      ? 'pay-run'
+      : sp.view === 'paystubs'
+        ? 'paystubs'
+        : sp.view === 'c10'
+          ? 'c10'
+          : sp.view === 'subs'
+            ? 'subs'
+            : 'timesheet';
 
   // Find or create the period containing the requested week.
   const period = await getOrCreatePeriodForDate(companyId, requestedWeek);
@@ -97,16 +92,15 @@ export default async function PayrollPage({
     allEntries,
     allOverrides,
     allSnapshots,
+    allAdjustments,
   ] = await Promise.all([
     listEmployees(companyId),
     listProjects(companyId),
     listTimeEntries(companyId, { payPeriodId: period.id }),
     listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
     listPaystubSnapshots(companyId, { payPeriodId: period.id }),
+    listPaystubAdjustments(companyId, { payPeriodId: period.id }),
   ]);
-  const employeeById = new Map(allEmployees.map((e) => [e.id, e]));
-  const projectById = new Map(allProjects.map((p) => [p.id, p]));
-
   // Aggregate per-(employee, date) for the timesheet grid. Hourly /
   // salaried employees show hours; piecework / contract / commission /
   // lump-sum show $ amount instead — both pivot off the same daily roll-up.
@@ -130,34 +124,6 @@ export default async function PayrollPage({
       employmentType,
       valueUnit: isHours ? 'hours' : 'money',
       valueByDate,
-    };
-  });
-
-  // Build by-job rows. Each time entry becomes one row. Three buckets:
-  //   - Real project → grouped by project name.
-  //   - is_overhead=true → "Overhead" group (deliberate non-billable).
-  //   - Neither → "Unassigned" group (needs allocation).
-  const byJobRows: ByJobRow[] = allEntries.map((entry) => {
-    const emp = employeeById.get(entry.employeeId);
-    const proj = entry.projectId ? projectById.get(entry.projectId) : undefined;
-    return {
-      id: entry.id,
-      workDate: entry.workDate,
-      employeeName: emp
-        ? `${emp.firstName} ${emp.lastName}`.trim()
-        : '— deleted —',
-      projectId: entry.projectId,
-      projectName: proj?.name ?? (entry.isOverhead ? 'Overhead' : 'Unassigned'),
-      isOverhead: entry.isOverhead,
-      // We don't carry the cost code label in time_entries — defer that to a
-      // future enrichment if needed. For now we surface the FK presence as a
-      // monospace dash.
-      costCode: entry.costCodeId ? '…' : null,
-      entryType: entry.entryType as 'hours' | 'amount',
-      hours: entry.hours,
-      amount: entry.amount,
-      notes: entry.notes,
-      canEdit: allowEdit && !isLocked,
     };
   });
 
@@ -235,15 +201,6 @@ export default async function PayrollPage({
         />
       )}
 
-      {view === 'by-job' && (
-        <ByJobView
-          rows={byJobRows}
-          allowEdit={allowEdit}
-          locked={isLocked}
-          weekStart={period.startDate}
-        />
-      )}
-
       {view === 'pay-run' &&
         (() => {
           // Pay Run table: one row per active employee with editable gross
@@ -311,10 +268,17 @@ export default async function PayrollPage({
             period,
             allOverrides,
             allSnapshots,
+            allAdjustments,
           );
           const summary = computeC10Summary(paystubs);
           if (view === 'paystubs') {
-            return <PaystubsView paystubs={paystubs} payPeriodId={period.id} />;
+            return (
+              <PaystubsView
+                paystubs={paystubs}
+                payPeriodId={period.id}
+                locked={isLocked}
+              />
+            );
           }
           return (
             <C10SummaryView

@@ -34,10 +34,12 @@ import { add, multiply, parseMoney, round2, subtract } from '@/lib/money';
 import type {
   Employee,
   PayPeriod,
+  PaystubAdjustment,
   PeriodPayOverride,
   PeriodPaystubSnapshot,
   TimeEntry,
 } from '@/db/schema';
+import type { AdjustmentType } from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
 import { calculateWeeklyNib, type NibBreakdown } from './nib';
 
@@ -46,18 +48,43 @@ import { calculateWeeklyNib, type NibBreakdown } from './nib';
  *  wrong. */
 export type GrossSource = 'override' | 'rate' | 'none';
 
+/** A single paystub line item — surfaces on the stub with its
+ *  description and amount, grouped by category. */
+export type PaystubLineItem = {
+  id: string;
+  type: AdjustmentType;
+  amount: number;
+  description: string | null;
+};
+
 export type EmployeePaystub = {
   employeeId: string;
   employeeName: string;
   employmentType: EmploymentType;
   hoursWorked: number;
   payRate: number;
+  /** Pre-deduction gross (rate × hours, weekly salary, or override). */
   gross: number;
   grossSource: GrossSource;
+  /** Optional pay-description text for this period (from the override
+   *  row's notes column). Prints on the stub like a slip / check memo
+   *  line so contract employees can see what they were paid for. */
+  payDescription: string | null;
+  /** Deductions reduce gross BEFORE NIB. See
+   *  [[project-payroll-deductions-pre-nib]]. */
+  deductions: PaystubLineItem[];
+  /** Additions (reimbursement / per_diem / expense) added to net post-NIB. */
+  additions: PaystubLineItem[];
+  /** Adjusted gross = gross − sum(deductions). NIB calculates off this. */
+  adjustedGross: number;
+  /** Sum of deduction line items. */
+  deductionsTotal: number;
+  /** Sum of addition line items (reimbursement + per_diem + expense). */
+  additionsTotal: number;
   nib: NibBreakdown;
   /** True if NIB calculations were skipped because nibExempt is set. */
   nibExempt: boolean;
-  /** Net pay = gross - employee NIB. (Employer NIB never reduces net.) */
+  /** Net pay = adjusted_gross − employee NIB + additions. */
   net: number;
   /** True if no entries AND the employee wasn't expected to be paid this period. */
   skipped: boolean;
@@ -68,9 +95,10 @@ export type EmployeePaystub = {
 export type C10Summary = {
   /** Number of employees represented on this period's filing. */
   headcount: number;
-  /** Sum of gross pay across all employees. */
+  /** Sum of adjusted (post-deduction) gross pay across all employees —
+   *  this is what NIB applies to and what gets filed on the C-10. */
   totalGross: number;
-  /** Sum of insurable wages (per-employee gross capped at $810). */
+  /** Sum of insurable wages (per-employee adjusted gross capped at $810). */
   totalInsurableWage: number;
   /** Total employee NIB withheld this period. */
   totalEmployee: number;
@@ -129,12 +157,34 @@ function computeRateGross(
   };
 }
 
+/** Sum a subset of adjustments by type predicate. */
+function sumAdjustments(
+  adjustments: PaystubAdjustment[],
+  predicate: (a: PaystubAdjustment) => boolean,
+): number {
+  return round2(
+    adjustments
+      .filter(predicate)
+      .reduce((sum, a) => sum + parseMoney(a.amount), 0),
+  );
+}
+
+function adjustmentToLineItem(a: PaystubAdjustment): PaystubLineItem {
+  return {
+    id: a.id,
+    type: a.type as AdjustmentType,
+    amount: parseMoney(a.amount),
+    description: a.description,
+  };
+}
+
 /** Compute the paystub for one employee for one weekly period. */
 export function computeEmployeePaystub(
   employee: Employee,
   entries: TimeEntry[],
   period: PayPeriod,
   overrides: PeriodPayOverride[],
+  adjustments: PaystubAdjustment[] = [],
 ): EmployeePaystub {
   const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
   const employmentType = employee.employmentType as EmploymentType;
@@ -158,12 +208,28 @@ export function computeEmployeePaystub(
     (o) => o.employeeId === employee.id && o.payPeriodId === period.id,
   );
   const hasOverride = myOverride !== undefined;
+  const myAdjustments = adjustments
+    .filter((a) => a.employeeId === employee.id && a.payPeriodId === period.id)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-  const eligibility = shouldIncludeEmployee(
-    employee,
-    period,
-    myEntries.length > 0 || hasOverride,
+  const deductions = myAdjustments
+    .filter((a) => a.type === 'deduction')
+    .map(adjustmentToLineItem);
+  const additions = myAdjustments
+    .filter((a) => a.type !== 'deduction')
+    .map(adjustmentToLineItem);
+  const deductionsTotal = sumAdjustments(
+    myAdjustments,
+    (a) => a.type === 'deduction',
   );
+  const additionsTotal = sumAdjustments(
+    myAdjustments,
+    (a) => a.type !== 'deduction',
+  );
+
+  const hasAnyActivity =
+    myEntries.length > 0 || hasOverride || myAdjustments.length > 0;
+  const eligibility = shouldIncludeEmployee(employee, period, hasAnyActivity);
   if (!eligibility.include) {
     return {
       employeeId: employee.id,
@@ -173,6 +239,12 @@ export function computeEmployeePaystub(
       payRate,
       gross: 0,
       grossSource: 'none',
+      payDescription: null,
+      deductions: [],
+      additions: [],
+      adjustedGross: 0,
+      deductionsTotal: 0,
+      additionsTotal: 0,
       nib: calculateWeeklyNib(0),
       nibExempt,
       net: 0,
@@ -198,13 +270,20 @@ export function computeEmployeePaystub(
     grossSource = computed.source;
   }
 
+  // Deductions reduce gross BEFORE NIB. NIB then calculates off the
+  // adjusted (post-deduction) gross. Reimbursements / per_diem / expenses
+  // bypass NIB entirely and are added to net after withholding.
+  const adjustedGross = Math.max(0, round2(subtract(gross, deductionsTotal)));
+
   // NIB exemption short-circuits the whole NIB block to zero. The C10
   // summary later filters by !nibExempt so exempt employees don't roll
   // into the filed totals.
   const nib = nibExempt
     ? calculateWeeklyNib(0)
-    : calculateWeeklyNib(gross);
-  const net = subtract(gross, nib.employee);
+    : calculateWeeklyNib(adjustedGross);
+  const net = round2(
+    subtract(adjustedGross, nib.employee) + additionsTotal,
+  );
 
   return {
     employeeId: employee.id,
@@ -214,6 +293,12 @@ export function computeEmployeePaystub(
     payRate,
     gross,
     grossSource,
+    payDescription: myOverride?.notes ?? null,
+    deductions,
+    additions,
+    adjustedGross,
+    deductionsTotal,
+    additionsTotal,
     nib,
     nibExempt,
     net,
@@ -224,12 +309,47 @@ export function computeEmployeePaystub(
 /**
  * Reconstruct a paystub from a frozen snapshot row. Used for locked
  * periods so rate changes after lock-time don't rewrite history.
+ *
+ * Line items (deductions / additions) aren't snapshotted as rows — they
+ * live in paystub_adjustments and are filtered to the locked period.
+ * The data layer prevents mutating adjustments on a locked period, so
+ * the snapshot totals stay in sync with the live rows.
  */
-function paystubFromSnapshot(snap: PeriodPaystubSnapshot): EmployeePaystub {
+function paystubFromSnapshot(
+  snap: PeriodPaystubSnapshot,
+  overrides: PeriodPayOverride[],
+  adjustments: PaystubAdjustment[],
+): EmployeePaystub {
   const gross = parseMoney(snap.gross);
+  // adjustedGross / deductionsTotal / additionsTotal default to '0' from
+  // the migration. Pre-Phase-4.10 snapshots will read deductionsTotal=0
+  // and adjustedGross = gross (set by the migration's UPDATE).
+  const adjustedGross =
+    parseMoney(snap.adjustedGross) > 0
+      ? parseMoney(snap.adjustedGross)
+      : gross;
+  const deductionsTotal = parseMoney(snap.deductionsTotal);
+  const additionsTotal = parseMoney(snap.additionsTotal);
   const insurableWage = parseMoney(snap.insurableWage);
   const employeeNib = parseMoney(snap.employeeNib);
   const employerNib = parseMoney(snap.employerNib);
+
+  const myOverride = overrides.find(
+    (o) => o.employeeId === snap.employeeId && o.payPeriodId === snap.payPeriodId,
+  );
+  const myAdjustments = adjustments
+    .filter(
+      (a) =>
+        a.employeeId === snap.employeeId && a.payPeriodId === snap.payPeriodId,
+    )
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const deductions = myAdjustments
+    .filter((a) => a.type === 'deduction')
+    .map(adjustmentToLineItem);
+  const additions = myAdjustments
+    .filter((a) => a.type !== 'deduction')
+    .map(adjustmentToLineItem);
+
   return {
     employeeId: snap.employeeId,
     employeeName: snap.employeeName,
@@ -238,8 +358,14 @@ function paystubFromSnapshot(snap: PeriodPaystubSnapshot): EmployeePaystub {
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',
+    payDescription: myOverride?.notes ?? null,
+    deductions,
+    additions,
+    adjustedGross,
+    deductionsTotal,
+    additionsTotal,
     nib: {
-      gross,
+      gross: adjustedGross,
       insurableWage,
       employee: employeeNib,
       employer: employerNib,
@@ -266,14 +392,17 @@ export function computePeriodPaystubs(
   period: PayPeriod,
   overrides: PeriodPayOverride[],
   snapshots: PeriodPaystubSnapshot[] = [],
+  adjustments: PaystubAdjustment[] = [],
 ): EmployeePaystub[] {
   if (period.status === 'locked' && snapshots.length > 0) {
     return snapshots
-      .map(paystubFromSnapshot)
+      .map((s) => paystubFromSnapshot(s, overrides, adjustments))
       .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
   }
   return employees
-    .map((e) => computeEmployeePaystub(e, entries, period, overrides))
+    .map((e) =>
+      computeEmployeePaystub(e, entries, period, overrides, adjustments),
+    )
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 }
 
@@ -289,10 +418,13 @@ export function computeC10Summary(paystubs: EmployeePaystub[]): C10Summary {
   let totalEmployee = 0;
   let totalEmployer = 0;
   for (const p of paystubs) {
-    if (p.skipped || p.gross <= 0) continue;
+    // Filed wages are POST-deduction (adjusted gross). Skip rows that
+    // come out to zero after deductions — they wouldn't appear on the
+    // C-10. See [[project-payroll-deductions-pre-nib]].
+    if (p.skipped || p.adjustedGross <= 0) continue;
     if (p.nibExempt) continue;
     headcount += 1;
-    totalGross = add(totalGross, p.gross);
+    totalGross = add(totalGross, p.adjustedGross);
     totalInsurableWage = add(totalInsurableWage, p.nib.insurableWage);
     totalEmployee = add(totalEmployee, p.nib.employee);
     totalEmployer = add(totalEmployer, p.nib.employer);

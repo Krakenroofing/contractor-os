@@ -1,7 +1,8 @@
 // Per-employee paystub for one weekly period. Each card shows:
-// hours, gross, employee NIB (deducted), employer NIB (company-paid),
-// net. Skipped employees (terminated / inactive without time) are
-// surfaced separately so it's obvious they were intentionally omitted.
+// gross, optional deductions (pre-NIB), NIB withholding, optional
+// reimbursement / per_diem / expense additions (post-NIB), and net.
+// Skipped employees (terminated / inactive without time) are surfaced
+// separately so it's obvious they were intentionally omitted.
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,13 +14,16 @@ import {
 import type { EmployeePaystub } from '../lib/payroll-math';
 import { NIB_RATES } from '../lib/nib';
 import { PaystubOverrideEditor } from './paystub-override-editor';
+import { PaystubAdjustmentsEditor } from './paystub-adjustments-editor';
 
 export function PaystubsView({
   paystubs,
   payPeriodId,
+  locked,
 }: {
   paystubs: EmployeePaystub[];
   payPeriodId: string;
+  locked: boolean;
 }) {
   const paid = paystubs.filter((p) => !p.skipped);
   const skipped = paystubs.filter((p) => p.skipped);
@@ -47,6 +51,7 @@ export function PaystubsView({
               key={p.employeeId}
               paystub={p}
               payPeriodId={payPeriodId}
+              locked={locked}
             />
           ))}
         </div>
@@ -79,11 +84,13 @@ export function PaystubsView({
 function PaystubCard({
   paystub: p,
   payPeriodId,
+  locked,
 }: {
   paystub: EmployeePaystub;
   payPeriodId: string;
+  locked: boolean;
 }) {
-  const ceilingHit = p.gross > NIB_RATES.weeklyWageCeiling;
+  const ceilingHit = p.adjustedGross > NIB_RATES.weeklyWageCeiling;
   // Rate basis label is contextual to employment type. Hourly = /hr,
   // salaried = /wk, all other types are "per period".
   const rateBasis =
@@ -92,6 +99,7 @@ function PaystubCard({
       : p.employmentType === 'salaried'
         ? ' / wk'
         : ' / period';
+  const hasDeductions = p.deductions.length > 0;
   return (
     <Card>
       <CardContent className="p-5 space-y-3">
@@ -124,14 +132,45 @@ function PaystubCard({
           </span>
         </header>
 
+        {p.payDescription && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">
+              Pay description
+            </p>
+            <p className="mt-0.5 text-sm text-slate-800 whitespace-pre-wrap">
+              {p.payDescription}
+            </p>
+          </div>
+        )}
+
         <div className="border-t border-slate-200 pt-3 space-y-1.5 text-sm">
           <Line label="Gross pay" amount={p.gross} bold />
+
+          {hasDeductions && (
+            <>
+              {p.deductions.map((d) => (
+                <Line
+                  key={d.id}
+                  label={
+                    d.description
+                      ? `Deduction — ${d.description}`
+                      : 'Deduction'
+                  }
+                  amount={-d.amount}
+                  negative
+                />
+              ))}
+              <Line
+                label="Adjusted gross (post-deduction)"
+                amount={p.adjustedGross}
+                bold
+                muted
+              />
+            </>
+          )}
+
           {p.nibExempt ? (
-            <Line
-              label="NIB exempt — no deductions"
-              amount={0}
-              muted
-            />
+            <Line label="NIB exempt — no deductions" amount={0} muted />
           ) : (
             <>
               <Line
@@ -146,6 +185,20 @@ function PaystubCard({
               />
             </>
           )}
+
+          {p.additions.map((a) => (
+            <Line
+              key={a.id}
+              label={
+                a.description
+                  ? `${labelForAdditionType(a.type)} — ${a.description}`
+                  : labelForAdditionType(a.type)
+              }
+              amount={a.amount}
+              accent="emerald"
+            />
+          ))}
+
           <Line label="Net pay" amount={p.net} bold accent="emerald" />
         </div>
 
@@ -159,17 +212,34 @@ function PaystubCard({
           </div>
         )}
 
-        <div className="border-t border-slate-200 pt-3">
-          <PaystubOverrideEditor
+        <div className="border-t border-slate-200 pt-3 space-y-2">
+          <PaystubAdjustmentsEditor
             employeeId={p.employeeId}
             payPeriodId={payPeriodId}
-            currentGross={p.gross}
-            hasOverride={p.grossSource === 'override'}
+            deductions={p.deductions}
+            additions={p.additions}
+            locked={locked}
           />
+          {!locked && (
+            <PaystubOverrideEditor
+              employeeId={p.employeeId}
+              payPeriodId={payPeriodId}
+              currentGross={p.gross}
+              currentNotes={p.payDescription}
+              hasOverride={p.grossSource === 'override'}
+            />
+          )}
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function labelForAdditionType(type: 'reimbursement' | 'per_diem' | 'expense' | 'deduction'): string {
+  if (type === 'reimbursement') return 'Reimbursement';
+  if (type === 'per_diem') return 'Per diem';
+  if (type === 'expense') return 'Expense';
+  return 'Adjustment';
 }
 
 function Line({
@@ -188,19 +258,19 @@ function Line({
   accent?: 'emerald';
 }) {
   const cn = [
-    'flex items-center justify-between tabular-nums',
+    'flex items-center justify-between tabular-nums gap-3',
     bold ? 'font-semibold' : '',
     muted ? 'text-slate-500' : 'text-slate-700',
     negative ? 'text-red-600' : '',
-    accent === 'emerald' ? 'text-emerald-700' : '',
+    accent === 'emerald' && !negative ? 'text-emerald-700' : '',
   ]
     .filter(Boolean)
     .join(' ');
   return (
     <div className={cn}>
-      <span>{label}</span>
-      <span>
-        {negative && amount !== 0 ? '−' : ''}
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="whitespace-nowrap">
+        {negative && amount !== 0 ? '−' : accent === 'emerald' && amount > 0 && !bold ? '+' : ''}
         {formatMoney(Math.abs(amount))}
       </span>
     </div>

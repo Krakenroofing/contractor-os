@@ -17,6 +17,11 @@ const moneyString = z
     message: 'Enter a non-negative number',
   });
 
+// Hours validation — non-negative only. No 24/day cap (some days exceed
+// 24 in practice — multi-shift entries, salaried-employee weekly rollups,
+// etc.) and zero hours are allowed (a pure allocation row, e.g. a
+// salaried employee tagging a project for cost-tracking without any
+// hour-driven pay).
 const hoursString = z
   .string()
   .trim()
@@ -24,9 +29,6 @@ const hoursString = z
   .transform((v) => (v === '' ? '0' : v))
   .refine((v) => !Number.isNaN(Number(v)) && Number(v) >= 0, {
     message: 'Enter a non-negative number',
-  })
-  .refine((v) => Number(v) <= 24, {
-    message: 'Hours cannot exceed 24 per day',
   });
 
 const isoDate = z
@@ -101,10 +103,9 @@ export const timeEntryCreateSchema = z
       .array(timeEntryAllocationSchema)
       .min(1, 'Add at least one allocation'),
   })
-  .refine(
-    (d) => d.entryType !== 'hours' || Number(d.hours) > 0,
-    { path: ['hours'], message: 'Hours must be greater than zero' },
-  )
+  // Amount entries must be > 0 (a $0 pay slip is meaningless).
+  // Hours entries can be 0 — salaried employees often log entries purely
+  // for project allocation, without contributing hour-driven pay.
   .refine(
     (d) => d.entryType !== 'amount' || Number(d.amount) > 0,
     { path: ['amount'], message: 'Amount must be greater than zero' },
@@ -136,10 +137,7 @@ export const timeEntryEditSchema = z
     costCodeId: nullableUuid,
     notes: z.string().max(2000).optional().or(z.literal('')),
   })
-  .refine(
-    (d) => d.entryType !== 'hours' || Number(d.hours) > 0,
-    { path: ['hours'], message: 'Hours must be greater than zero' },
-  )
+  // See create-schema for why 0-hour entries are allowed.
   .refine(
     (d) => d.entryType !== 'amount' || Number(d.amount) > 0,
     { path: ['amount'], message: 'Amount must be greater than zero' },

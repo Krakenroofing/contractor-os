@@ -42,6 +42,7 @@ export function C10SummaryView({
             <Stat
               label="Total gross wages"
               value={formatMoney(summary.totalGross)}
+              hint="Post-deduction wages — what NIB applies to"
             />
             <Stat
               label="Total insurable wages"
@@ -100,14 +101,16 @@ export function C10SummaryView({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paystubs
-                  .filter((p) => !p.skipped && p.gross > 0 && !p.nibExempt)
+                  .filter(
+                    (p) => !p.skipped && p.adjustedGross > 0 && !p.nibExempt,
+                  )
                   .map((p) => (
                     <tr key={p.employeeId}>
                       <td className="px-6 py-2 font-medium text-slate-900">
                         {p.employeeName}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700">
-                        {formatMoney(p.gross)}
+                        {formatMoney(p.adjustedGross)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                         {formatMoney(p.nib.insurableWage)}

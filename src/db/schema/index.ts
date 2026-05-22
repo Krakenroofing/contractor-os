@@ -32,3 +32,4 @@ export * from './time-entries';
 export * from './subcontractor-payments';
 export * from './period-pay-overrides';
 export * from './period-paystub-snapshots';
+export * from './paystub-adjustments';

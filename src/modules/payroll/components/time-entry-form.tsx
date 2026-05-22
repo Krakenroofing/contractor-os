@@ -189,19 +189,28 @@ export function TimeEntryForm({
         </Field>
 
         {entryType === 'hours' ? (
-          <Field label="Hours" error={err('hours')} required>
+          <Field
+            label="Hours"
+            error={err('hours')}
+            required={selectedEmployee?.employmentType !== 'salaried'}
+          >
             <Input
               name="hours"
               type="number"
               step="0.25"
               min="0"
-              max="24"
-              required
+              required={selectedEmployee?.employmentType !== 'salaried'}
               defaultValue={values.hours}
-              placeholder="8.00"
+              placeholder={
+                selectedEmployee?.employmentType === 'salaried'
+                  ? '0.00 (optional)'
+                  : '8.00'
+              }
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              0.25 hour resolution (15 min). Max 24/day.
+              {selectedEmployee?.employmentType === 'salaried'
+                ? 'Optional for salaried. Pay comes from the weekly salary; hours are informational and used for project allocation.'
+                : '0.25 hour resolution (15 min).'}
             </p>
           </Field>
         ) : (

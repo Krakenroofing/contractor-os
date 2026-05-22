@@ -11,19 +11,22 @@ import {
 
 /**
  * Inline editor surfaced on each paystub card. Closed state is just a
- * link; open state expands into a small form with a gross input + Save /
- * Clear. Save upserts the (employee, period) override; Clear deletes it
- * so the employee reverts to their rate-based gross.
+ * link; open state expands into a small form with a gross input + a
+ * pay-description textarea + Save / Clear. The description prints on
+ * the paystub like a check memo / slip line so contract employees can
+ * see exactly what they were paid for.
  */
 export function PaystubOverrideEditor({
   employeeId,
   payPeriodId,
   currentGross,
+  currentNotes,
   hasOverride,
 }: {
   employeeId: string;
   payPeriodId: string;
   currentGross: number;
+  currentNotes: string | null;
   hasOverride: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -43,7 +46,7 @@ export function PaystubOverrideEditor({
         onClick={() => setOpen(true)}
         className="text-xs text-blue-600 hover:underline"
       >
-        {hasOverride ? 'Edit override' : 'Override gross'}
+        {hasOverride ? 'Edit override / description' : 'Override gross / add description'}
       </button>
     );
   }
@@ -70,10 +73,22 @@ export function PaystubOverrideEditor({
             className="text-right tabular-nums max-w-[120px]"
             required
           />
-          <Button type="submit" size="sm" disabled={savePending}>
-            {savePending ? 'Saving…' : 'Save'}
-          </Button>
         </div>
+        <div className="space-y-1">
+          <label className="text-xs text-slate-600">
+            Pay description (prints on the paystub)
+          </label>
+          <textarea
+            name="notes"
+            rows={2}
+            defaultValue={currentNotes ?? ''}
+            placeholder="e.g. Roof repair at 123 Main St — labor only"
+            className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={savePending}>
+          {savePending ? 'Saving…' : 'Save'}
+        </Button>
         {fieldErr && <p className="text-xs text-red-600">{fieldErr}</p>}
       </form>
 

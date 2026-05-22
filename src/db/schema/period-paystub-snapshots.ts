@@ -47,6 +47,19 @@ export const periodPaystubSnapshots = pgTable(
       .notNull()
       .default('0'),
     gross: numeric('gross', { precision: 12, scale: 2 }).notNull().default('0'),
+    // Phase 4.10: adjusted_gross = raw gross − deductions. NIB is
+    // calculated off adjusted_gross. additions_total is the sum of
+    // reimbursements + per_diem + expenses for this period (added to
+    // net after NIB).
+    adjustedGross: numeric('adjusted_gross', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
+    deductionsTotal: numeric('deductions_total', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
+    additionsTotal: numeric('additions_total', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
     insurableWage: numeric('insurable_wage', { precision: 12, scale: 2 })
       .notNull()
       .default('0'),

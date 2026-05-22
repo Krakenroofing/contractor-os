@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils';
 
 export type TabKey =
   | 'timesheet'
-  | 'by-job'
   | 'pay-run'
   | 'paystubs'
   | 'c10'
@@ -23,11 +22,6 @@ export function PayrollTabs({
           label="Timesheet"
           active={active === 'timesheet'}
           href={{ pathname: '/payroll', query: { week: weekStart, view: 'timesheet' } }}
-        />
-        <Tab
-          label="By job"
-          active={active === 'by-job'}
-          href={{ pathname: '/payroll', query: { week: weekStart, view: 'by-job' } }}
         />
         <Tab
           label="Pay run"

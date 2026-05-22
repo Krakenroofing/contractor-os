@@ -20,6 +20,13 @@ import {
   upsertPeriodPayOverride,
 } from '@/lib/data/period-pay-overrides';
 import {
+  createPaystubAdjustment,
+  deletePaystubAdjustment as deletePaystubAdjustmentRow,
+  getPaystubAdjustment,
+  listPaystubAdjustments,
+} from '@/lib/data/paystub-adjustments';
+import { adjustmentTypeValues } from '@/db/schema';
+import {
   deletePaystubSnapshotsForPeriod,
   replacePaystubSnapshotsForPeriod,
 } from '@/lib/data/period-paystub-snapshots';
@@ -528,6 +535,9 @@ function paystubToSnapshot(
   payRate: string;
   hoursWorked: string;
   gross: string;
+  adjustedGross: string;
+  deductionsTotal: string;
+  additionsTotal: string;
   insurableWage: string;
   employeeNib: string;
   employerNib: string;
@@ -543,6 +553,9 @@ function paystubToSnapshot(
     payRate: toMoneyString(paystub.payRate),
     hoursWorked: paystub.hoursWorked.toFixed(2),
     gross: toMoneyString(paystub.gross),
+    adjustedGross: toMoneyString(paystub.adjustedGross),
+    deductionsTotal: toMoneyString(paystub.deductionsTotal),
+    additionsTotal: toMoneyString(paystub.additionsTotal),
     insurableWage: toMoneyString(paystub.nib.insurableWage),
     employeeNib: toMoneyString(paystub.nib.employee),
     employerNib: toMoneyString(paystub.nib.employer),
@@ -577,11 +590,12 @@ export async function lockPeriodAction(
   }
 
   // Compute paystubs live ONE LAST TIME using the current rates +
-  // entries + overrides, then freeze them.
-  const [employees, entries, overrides] = await Promise.all([
+  // entries + overrides + adjustments, then freeze them.
+  const [employees, entries, overrides, adjustments] = await Promise.all([
     listEmployees(companyId),
     listTimeEntries(companyId, { payPeriodId }),
     listPeriodPayOverrides(companyId, { payPeriodId }),
+    listPaystubAdjustments(companyId, { payPeriodId }),
   ]);
   // Pass empty snapshots so this compute runs live (we're about to
   // become the snapshot source).
@@ -591,6 +605,7 @@ export async function lockPeriodAction(
     period,
     overrides,
     [],
+    adjustments,
   );
   // Only snapshot rows that actually got paid (gross > 0) and weren't
   // skipped (terminated / inactive without entries). Skipped employees
@@ -608,6 +623,96 @@ export async function lockPeriodAction(
     return { formError: `Failed to lock period: ${message}` };
   }
 
+  revalidatePath('/payroll');
+  return {};
+}
+
+// =====================================================================
+// Paystub adjustments (Phase 4.10) — line-item deductions / additions
+// =====================================================================
+
+export type PaystubAdjustmentState = {
+  formError?: string;
+  fieldError?: string;
+};
+
+const adjustmentCreateSchema = z.object({
+  employeeId: idSchema,
+  payPeriodId: idSchema,
+  type: z.enum(adjustmentTypeValues),
+  amount: z
+    .string()
+    .trim()
+    .refine((v) => v !== '' && !Number.isNaN(Number(v)) && Number(v) > 0, {
+      message: 'Amount must be greater than zero',
+    }),
+  description: z.string().max(500).optional().default(''),
+});
+
+export async function addPaystubAdjustmentAction(
+  _prev: PaystubAdjustmentState,
+  formData: FormData,
+): Promise<PaystubAdjustmentState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { formError: 'You do not have permission to edit paystub adjustments.' };
+  }
+
+  const parsed = adjustmentCreateSchema.safeParse({
+    employeeId: formData.get('employeeId') ?? '',
+    payPeriodId: formData.get('payPeriodId') ?? '',
+    type: formData.get('type') ?? '',
+    amount: formData.get('amount') ?? '',
+    description: formData.get('description') ?? '',
+  });
+  if (!parsed.success) {
+    return { fieldError: parsed.error.errors[0]?.message ?? 'Invalid input.' };
+  }
+  const data = parsed.data;
+  const companyId = await getActiveCompanyId();
+
+  const periodCheck = await assertPeriodEditable(companyId, data.payPeriodId);
+  if (!periodCheck.ok) return { formError: periodCheck.reason };
+
+  try {
+    await createPaystubAdjustment(companyId, {
+      employeeId: data.employeeId,
+      payPeriodId: data.payPeriodId,
+      type: data.type,
+      amount: toMoneyString(Number(data.amount)),
+      description: data.description.trim() === '' ? null : data.description.trim(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to add adjustment: ${message}` };
+  }
+
+  revalidatePath('/payroll');
+  return {};
+}
+
+export async function deletePaystubAdjustmentAction(
+  _prev: PaystubAdjustmentState,
+  formData: FormData,
+): Promise<PaystubAdjustmentState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { formError: 'You do not have permission to edit paystub adjustments.' };
+  }
+
+  const idResult = idSchema.safeParse(formData.get('id'));
+  if (!idResult.success) return { formError: 'Missing adjustment id.' };
+  const companyId = await getActiveCompanyId();
+
+  const existing = await getPaystubAdjustment(companyId, idResult.data);
+  if (!existing) return { formError: 'Adjustment not found.' };
+
+  const periodCheck = await assertPeriodEditable(companyId, existing.payPeriodId);
+  if (!periodCheck.ok) return { formError: periodCheck.reason };
+
+  await deletePaystubAdjustmentRow(companyId, idResult.data);
   revalidatePath('/payroll');
   return {};
 }

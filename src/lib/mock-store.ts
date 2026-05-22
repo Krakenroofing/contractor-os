@@ -15,6 +15,7 @@ import type {
   Employee,
   PayPeriod,
   TimeEntry,
+  PaystubAdjustment,
   PeriodPayOverride,
   PeriodPaystubSnapshot,
   SubcontractorPayment,
@@ -70,6 +71,7 @@ type Store = {
   timeEntries: TimeEntry[];
   periodPayOverrides: PeriodPayOverride[];
   periodPaystubSnapshots: PeriodPaystubSnapshot[];
+  paystubAdjustments: PaystubAdjustment[];
   subcontractorPayments: SubcontractorPayment[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderLines: PurchaseOrderLine[];
@@ -1855,6 +1857,7 @@ function seed(): Store {
     timeEntries: [],
     periodPayOverrides: [],
     periodPaystubSnapshots: [],
+    paystubAdjustments: [],
     subcontractorPayments: [],
     purchaseOrders: [smithPO1.po, smithPO2.po, sunsetPO.po],
     purchaseOrderLines: [...smithPO1.lines, ...smithPO2.lines, ...sunsetPO.lines],
@@ -4490,6 +4493,64 @@ export function deleteMockPeriodPayOverride(
   );
   if (idx === -1) return undefined;
   const [removed] = store.periodPayOverrides.splice(idx, 1);
+  return removed;
+}
+
+// =====================================================================
+// Paystub adjustments (payroll Phase 4.10) — per-employee, per-period
+// line items: deductions / reimbursements / per-diem / expenses.
+// =====================================================================
+
+export type CreatePaystubAdjustmentInput = {
+  employeeId: string;
+  payPeriodId: string;
+  type: string;
+  amount: string;
+  description: string | null;
+};
+
+export function listMockPaystubAdjustments(
+  companyId: string,
+  filters?: { payPeriodId?: string; employeeId?: string },
+): PaystubAdjustment[] {
+  return getStore().paystubAdjustments.filter((a) => {
+    if (a.companyId !== companyId) return false;
+    if (filters?.payPeriodId && a.payPeriodId !== filters.payPeriodId) return false;
+    if (filters?.employeeId && a.employeeId !== filters.employeeId) return false;
+    return true;
+  });
+}
+
+export function createMockPaystubAdjustment(
+  companyId: string,
+  input: CreatePaystubAdjustmentInput,
+): PaystubAdjustment {
+  const now = new Date();
+  const row: PaystubAdjustment = {
+    id: randomUUID(),
+    companyId,
+    employeeId: input.employeeId,
+    payPeriodId: input.payPeriodId,
+    type: input.type,
+    amount: input.amount,
+    description: input.description,
+    createdAt: now,
+    updatedAt: now,
+  };
+  getStore().paystubAdjustments.push(row);
+  return row;
+}
+
+export function deleteMockPaystubAdjustment(
+  companyId: string,
+  id: string,
+): PaystubAdjustment | undefined {
+  const store = getStore();
+  const idx = store.paystubAdjustments.findIndex(
+    (a) => a.companyId === companyId && a.id === id,
+  );
+  if (idx === -1) return undefined;
+  const [removed] = store.paystubAdjustments.splice(idx, 1);
   return removed;
 }
 
