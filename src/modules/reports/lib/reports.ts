@@ -5,7 +5,19 @@
 
 import 'server-only';
 import { listCustomers } from '@/lib/data/customers';
+import { getCompany } from '@/lib/data/companies';
 import { listProjects } from '@/lib/data/projects';
+import { listPayPeriods } from '@/lib/data/pay-periods';
+import { listEmployees } from '@/lib/data/employees';
+import { listTimeEntries } from '@/lib/data/time-entries';
+import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
+import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
+import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
+import {
+  computePeriodPaystubs,
+  computeC10Summary,
+} from '@/modules/payroll/lib/payroll-math';
+import type { EmploymentType } from '@/modules/employees/schema';
 import {
   computeProjectInvoicesByContractSource,
   getInvoiceLineItems,
@@ -1468,6 +1480,252 @@ export async function buildCustomerSummaryReport(
     customer: { id: customer.id, name: customer.name },
     projectRows,
     invoiceRows,
+    totals,
+  };
+}
+
+// ===== NIB Monthly Report (Phase 5.0) =====
+//
+// Bahamas employers file Form C-10 monthly. This report aggregates all
+// weekly pay periods whose end_date falls in the selected month and
+// rolls the per-employee paystubs up into the monthly-form shape.
+//
+// Per-employee monthly totals:
+//   - gross               sum of weekly raw gross
+//   - adjusted gross      sum of weekly adjusted gross (post-deduction)
+//   - insurable wage      sum of weekly insurable wages (each capped at $810)
+//                         — this is the cumulative monthly cap, not a
+//                         single $3,510 cap on the month's total
+//   - employee NIB        sum of weekly employee NIB withheld
+//   - employer NIB        sum of weekly employer NIB owed
+//   - net pay             sum of weekly net pay
+//
+// NIB-exempt employees are excluded entirely from the C-10 (and from
+// this report) — same rule as the weekly Payroll → C-10 view.
+//
+// Default month: filters.from/to are interpreted as the [first day,
+// last day] of a month. If empty, the current month is used.
+
+export type NibMonthlyEmployeeRow = {
+  employeeId: string;
+  employeeName: string;
+  employmentType: EmploymentType;
+  weekCount: number;
+  gross: number;
+  adjustedGross: number;
+  insurableWage: number;
+  employeeNib: number;
+  employerNib: number;
+  net: number;
+};
+
+export type NibMonthlyWeekRow = {
+  payPeriodId: string;
+  startDate: string;
+  endDate: string;
+  status: 'open' | 'locked';
+  headcount: number;
+  totalGross: number;
+  totalInsurableWage: number;
+  totalEmployee: number;
+  totalEmployer: number;
+  totalRemittance: number;
+};
+
+export type NibMonthlyReport = {
+  companyName: string;
+  monthKey: string;
+  monthLabel: string;
+  monthStart: string;
+  monthEnd: string;
+  weeks: NibMonthlyWeekRow[];
+  employees: NibMonthlyEmployeeRow[];
+  totals: {
+    headcount: number;
+    weeksInMonth: number;
+    totalGross: number;
+    totalInsurableWage: number;
+    totalEmployee: number;
+    totalEmployer: number;
+    totalRemittance: number;
+  };
+};
+
+/** Last day of the calendar month containing `iso` (YYYY-MM-DD). */
+function lastDayOfMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m, 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/** First day of the calendar month containing `iso`. */
+function firstDayOfMonth(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+/** Format a 'YYYY-MM' key as 'May 2026'. */
+function formatMonthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  return d.toLocaleString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Today as YYYY-MM-DD in UTC — avoids local-timezone drift. */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Resolve month boundaries from filters. If both from/to are set we use
+ * them as-is; if either is missing we snap to the calendar month of the
+ * one that IS set (or the current month if both are blank).
+ */
+function resolveMonthBounds(filters: ReportFilters): {
+  monthKey: string;
+  monthStart: string;
+  monthEnd: string;
+} {
+  const anchor = filters.from || filters.to || todayUtc();
+  const monthStart = filters.from || firstDayOfMonth(anchor);
+  const monthEnd = filters.to || lastDayOfMonth(anchor);
+  const monthKey = monthStart.slice(0, 7);
+  return { monthKey, monthStart, monthEnd };
+}
+
+export async function buildNibMonthlyReport(
+  companyId: string,
+  filters: ReportFilters,
+): Promise<NibMonthlyReport> {
+  const { monthKey, monthStart, monthEnd } = resolveMonthBounds(filters);
+
+  const [company, allPeriods, allEmployees] = await Promise.all([
+    getCompany(companyId),
+    listPayPeriods(companyId),
+    listEmployees(companyId),
+  ]);
+
+  // Bucket pay periods into the month by end_date — the standard
+  // "this is what got paid for the month" rule for NIB filings. A
+  // period whose week straddles the month boundary lands in the month
+  // its END date sits in.
+  const periodsInMonth = allPeriods
+    .filter((p) => p.endDate >= monthStart && p.endDate <= monthEnd)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  // Pull every per-period dataset in parallel — paystub compute needs
+  // entries + overrides + snapshots + adjustments per period.
+  const perPeriodData = await Promise.all(
+    periodsInMonth.map(async (period) => {
+      const [entries, overrides, snapshots, adjustments] = await Promise.all([
+        listTimeEntries(companyId, { payPeriodId: period.id }),
+        listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
+        listPaystubSnapshots(companyId, { payPeriodId: period.id }),
+        listPaystubAdjustments(companyId, { payPeriodId: period.id }),
+      ]);
+      const paystubs = computePeriodPaystubs(
+        allEmployees,
+        entries,
+        period,
+        overrides,
+        snapshots,
+        adjustments,
+      );
+      const summary = computeC10Summary(paystubs);
+      return { period, paystubs, summary };
+    }),
+  );
+
+  // Aggregate per-employee across all periods in the month. Only
+  // include employees who actually got paid (gross > 0) and are
+  // NOT NIB-exempt — same rule as the weekly C-10 view.
+  const employeeAgg = new Map<string, NibMonthlyEmployeeRow>();
+  for (const { paystubs } of perPeriodData) {
+    for (const p of paystubs) {
+      if (p.skipped || p.adjustedGross <= 0 || p.nibExempt) continue;
+      const existing = employeeAgg.get(p.employeeId);
+      if (existing) {
+        existing.weekCount += 1;
+        existing.gross = add(existing.gross, p.gross);
+        existing.adjustedGross = add(existing.adjustedGross, p.adjustedGross);
+        existing.insurableWage = add(
+          existing.insurableWage,
+          p.nib.insurableWage,
+        );
+        existing.employeeNib = add(existing.employeeNib, p.nib.employee);
+        existing.employerNib = add(existing.employerNib, p.nib.employer);
+        existing.net = add(existing.net, p.net);
+      } else {
+        employeeAgg.set(p.employeeId, {
+          employeeId: p.employeeId,
+          employeeName: p.employeeName,
+          employmentType: p.employmentType,
+          weekCount: 1,
+          gross: p.gross,
+          adjustedGross: p.adjustedGross,
+          insurableWage: p.nib.insurableWage,
+          employeeNib: p.nib.employee,
+          employerNib: p.nib.employer,
+          net: p.net,
+        });
+      }
+    }
+  }
+
+  const employees = Array.from(employeeAgg.values()).sort((a, b) =>
+    a.employeeName.localeCompare(b.employeeName),
+  );
+
+  const weeks: NibMonthlyWeekRow[] = perPeriodData.map(
+    ({ period, summary }) => ({
+      payPeriodId: period.id,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      status: period.status as 'open' | 'locked',
+      headcount: summary.headcount,
+      totalGross: summary.totalGross,
+      totalInsurableWage: summary.totalInsurableWage,
+      totalEmployee: summary.totalEmployee,
+      totalEmployer: summary.totalEmployer,
+      totalRemittance: summary.totalRemittance,
+    }),
+  );
+
+  const totals = employees.reduce(
+    (acc, e) => ({
+      headcount: acc.headcount + 1,
+      weeksInMonth: perPeriodData.length,
+      totalGross: add(acc.totalGross, e.adjustedGross),
+      totalInsurableWage: add(acc.totalInsurableWage, e.insurableWage),
+      totalEmployee: add(acc.totalEmployee, e.employeeNib),
+      totalEmployer: add(acc.totalEmployer, e.employerNib),
+      totalRemittance: add(
+        acc.totalRemittance,
+        add(e.employeeNib, e.employerNib),
+      ),
+    }),
+    {
+      headcount: 0,
+      weeksInMonth: perPeriodData.length,
+      totalGross: 0,
+      totalInsurableWage: 0,
+      totalEmployee: 0,
+      totalEmployer: 0,
+      totalRemittance: 0,
+    },
+  );
+
+  return {
+    companyName: company?.name ?? '',
+    monthKey,
+    monthLabel: formatMonthLabel(monthKey),
+    monthStart,
+    monthEnd,
+    weeks,
+    employees,
     totals,
   };
 }
