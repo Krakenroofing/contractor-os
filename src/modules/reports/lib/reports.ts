@@ -1729,3 +1729,281 @@ export async function buildNibMonthlyReport(
     totals,
   };
 }
+
+// ===== Payroll Summary Report (Phase 5.1) =====
+//
+// Per-employee payroll roll-up across a date range. Unlike the NIB
+// Monthly Report which excludes NIB-exempt employees, this one shows
+// EVERY employee with pay activity so the operator can see total
+// labor cost. The date range buckets pay periods by their end_date.
+//
+// Per-employee aggregates:
+//   - weekCount        weeks they were paid in this range
+//   - hoursWorked      sum of weekly hoursWorked (for hourly employees)
+//   - gross            raw gross (pre-deduction)
+//   - deductionsTotal  sum of all deduction line items (pre-NIB)
+//   - adjustedGross    gross minus deductions
+//   - employeeNib      sum of withheld NIB (0 if NIB-exempt)
+//   - employerNib      sum of company-paid NIB (info only)
+//   - reimbursements   sum of type='reimbursement' line items
+//   - perDiem          sum of type='per_diem' line items
+//   - expenses         sum of type='expense' line items
+//   - additionsTotal   reimbursements + perDiem + expenses
+//   - net              adjusted_gross minus employee_nib plus additions
+
+export type PayrollSummaryEmployeeRow = {
+  employeeId: string;
+  employeeName: string;
+  employmentType: EmploymentType;
+  nibExempt: boolean;
+  weekCount: number;
+  hoursWorked: number;
+  gross: number;
+  deductionsTotal: number;
+  adjustedGross: number;
+  employeeNib: number;
+  employerNib: number;
+  reimbursements: number;
+  perDiem: number;
+  expenses: number;
+  additionsTotal: number;
+  net: number;
+};
+
+/** One line item that contributed to the period — used by the detail
+ *  card so the user can see every individual deduction / addition with
+ *  its description and which employee/week it landed on. */
+export type PayrollSummaryAdjustmentRow = {
+  employeeId: string;
+  employeeName: string;
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  type: 'deduction' | 'reimbursement' | 'per_diem' | 'expense';
+  amount: number;
+  description: string | null;
+};
+
+export type PayrollSummaryReport = {
+  companyName: string;
+  windowStart: string;
+  windowEnd: string;
+  weekCount: number;
+  employees: PayrollSummaryEmployeeRow[];
+  adjustments: PayrollSummaryAdjustmentRow[];
+  totals: {
+    headcount: number;
+    hoursWorked: number;
+    gross: number;
+    deductionsTotal: number;
+    adjustedGross: number;
+    employeeNib: number;
+    employerNib: number;
+    reimbursements: number;
+    perDiem: number;
+    expenses: number;
+    additionsTotal: number;
+    net: number;
+    /** Fully-loaded cost to the company: adjusted gross + employer NIB
+     *  + additions reimbursed. The "what this period cost the company"
+     *  number. */
+    totalLaborCost: number;
+  };
+};
+
+export async function buildPayrollSummaryReport(
+  companyId: string,
+  filters: ReportFilters,
+): Promise<PayrollSummaryReport> {
+  // Default to current month bounds when both ends are blank.
+  const today = new Date().toISOString().slice(0, 10);
+  const anchor = filters.from || filters.to || today;
+  const windowStart = filters.from || `${anchor.slice(0, 7)}-01`;
+  const windowEnd =
+    filters.to ||
+    new Date(
+      Date.UTC(Number(anchor.slice(0, 4)), Number(anchor.slice(5, 7)), 0),
+    )
+      .toISOString()
+      .slice(0, 10);
+
+  const [company, allPeriods, allEmployees] = await Promise.all([
+    getCompany(companyId),
+    listPayPeriods(companyId),
+    listEmployees(companyId),
+  ]);
+
+  const periodsInRange = allPeriods
+    .filter((p) => p.endDate >= windowStart && p.endDate <= windowEnd)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  const perPeriodData = await Promise.all(
+    periodsInRange.map(async (period) => {
+      const [entries, overrides, snapshots, periodAdjustments] = await Promise.all([
+        listTimeEntries(companyId, { payPeriodId: period.id }),
+        listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
+        listPaystubSnapshots(companyId, { payPeriodId: period.id }),
+        listPaystubAdjustments(companyId, { payPeriodId: period.id }),
+      ]);
+      const paystubs = computePeriodPaystubs(
+        allEmployees,
+        entries,
+        period,
+        overrides,
+        snapshots,
+        periodAdjustments,
+      );
+      return { period, paystubs };
+    }),
+  );
+
+  // Aggregate per-employee across all periods in the range. Include
+  // NIB-exempt employees too — they're real labor cost even if NIB
+  // doesn't apply. Skip rows where there was no pay activity at all.
+  const empAgg = new Map<string, PayrollSummaryEmployeeRow>();
+  const adjustments: PayrollSummaryAdjustmentRow[] = [];
+
+  for (const { period, paystubs } of perPeriodData) {
+    for (const p of paystubs) {
+      if (
+        p.skipped ||
+        (p.gross === 0 && p.deductionsTotal === 0 && p.additionsTotal === 0)
+      ) {
+        continue;
+      }
+
+      // Collect line items for the detail card.
+      for (const d of p.deductions) {
+        adjustments.push({
+          employeeId: p.employeeId,
+          employeeName: p.employeeName,
+          payPeriodStart: period.startDate,
+          payPeriodEnd: period.endDate,
+          type: 'deduction',
+          amount: d.amount,
+          description: d.description,
+        });
+      }
+      for (const a of p.additions) {
+        adjustments.push({
+          employeeId: p.employeeId,
+          employeeName: p.employeeName,
+          payPeriodStart: period.startDate,
+          payPeriodEnd: period.endDate,
+          type: a.type as 'reimbursement' | 'per_diem' | 'expense',
+          amount: a.amount,
+          description: a.description,
+        });
+      }
+
+      const reimbursementsThisWeek = p.additions
+        .filter((a) => a.type === 'reimbursement')
+        .reduce((s, a) => s + a.amount, 0);
+      const perDiemThisWeek = p.additions
+        .filter((a) => a.type === 'per_diem')
+        .reduce((s, a) => s + a.amount, 0);
+      const expensesThisWeek = p.additions
+        .filter((a) => a.type === 'expense')
+        .reduce((s, a) => s + a.amount, 0);
+
+      const existing = empAgg.get(p.employeeId);
+      if (existing) {
+        existing.weekCount += 1;
+        existing.hoursWorked = add(existing.hoursWorked, p.hoursWorked);
+        existing.gross = add(existing.gross, p.gross);
+        existing.deductionsTotal = add(
+          existing.deductionsTotal,
+          p.deductionsTotal,
+        );
+        existing.adjustedGross = add(existing.adjustedGross, p.adjustedGross);
+        existing.employeeNib = add(existing.employeeNib, p.nib.employee);
+        existing.employerNib = add(existing.employerNib, p.nib.employer);
+        existing.reimbursements = add(
+          existing.reimbursements,
+          round2(reimbursementsThisWeek),
+        );
+        existing.perDiem = add(existing.perDiem, round2(perDiemThisWeek));
+        existing.expenses = add(existing.expenses, round2(expensesThisWeek));
+        existing.additionsTotal = add(existing.additionsTotal, p.additionsTotal);
+        existing.net = add(existing.net, p.net);
+      } else {
+        empAgg.set(p.employeeId, {
+          employeeId: p.employeeId,
+          employeeName: p.employeeName,
+          employmentType: p.employmentType,
+          nibExempt: p.nibExempt,
+          weekCount: 1,
+          hoursWorked: p.hoursWorked,
+          gross: p.gross,
+          deductionsTotal: p.deductionsTotal,
+          adjustedGross: p.adjustedGross,
+          employeeNib: p.nib.employee,
+          employerNib: p.nib.employer,
+          reimbursements: round2(reimbursementsThisWeek),
+          perDiem: round2(perDiemThisWeek),
+          expenses: round2(expensesThisWeek),
+          additionsTotal: p.additionsTotal,
+          net: p.net,
+        });
+      }
+    }
+  }
+
+  const employees = Array.from(empAgg.values()).sort((a, b) =>
+    a.employeeName.localeCompare(b.employeeName),
+  );
+
+  const totals = employees.reduce(
+    (acc, e) => ({
+      headcount: acc.headcount + 1,
+      hoursWorked: add(acc.hoursWorked, e.hoursWorked),
+      gross: add(acc.gross, e.gross),
+      deductionsTotal: add(acc.deductionsTotal, e.deductionsTotal),
+      adjustedGross: add(acc.adjustedGross, e.adjustedGross),
+      employeeNib: add(acc.employeeNib, e.employeeNib),
+      employerNib: add(acc.employerNib, e.employerNib),
+      reimbursements: add(acc.reimbursements, e.reimbursements),
+      perDiem: add(acc.perDiem, e.perDiem),
+      expenses: add(acc.expenses, e.expenses),
+      additionsTotal: add(acc.additionsTotal, e.additionsTotal),
+      net: add(acc.net, e.net),
+      totalLaborCost: add(
+        acc.totalLaborCost,
+        add(add(e.adjustedGross, e.employerNib), e.additionsTotal),
+      ),
+    }),
+    {
+      headcount: 0,
+      hoursWorked: 0,
+      gross: 0,
+      deductionsTotal: 0,
+      adjustedGross: 0,
+      employeeNib: 0,
+      employerNib: 0,
+      reimbursements: 0,
+      perDiem: 0,
+      expenses: 0,
+      additionsTotal: 0,
+      net: 0,
+      totalLaborCost: 0,
+    },
+  );
+
+  // Sort adjustments newest period first, then by employee name —
+  // newest activity surfaces at the top of the detail card.
+  adjustments.sort((a, b) => {
+    if (a.payPeriodEnd !== b.payPeriodEnd) {
+      return b.payPeriodEnd.localeCompare(a.payPeriodEnd);
+    }
+    return a.employeeName.localeCompare(b.employeeName);
+  });
+
+  return {
+    companyName: company?.name ?? '',
+    windowStart,
+    windowEnd,
+    weekCount: perPeriodData.length,
+    employees,
+    adjustments,
+    totals,
+  };
+}

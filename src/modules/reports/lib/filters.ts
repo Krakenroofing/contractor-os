@@ -24,6 +24,7 @@ export const REPORT_TYPES = [
   'vat-quarterly',
   'customer-summary',
   'nib-monthly',
+  'payroll-summary',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
@@ -38,6 +39,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'vat-quarterly': 'VAT Quarterly Report',
   'customer-summary': 'Customer Summary Report',
   'nib-monthly': 'NIB Monthly Report (C-10)',
+  'payroll-summary': 'Payroll Summary Report',
 };
 
 export const REPORT_DESCRIPTION: Record<ReportType, string> = {
@@ -61,6 +63,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Pick a customer — see every project they own with contract, billed, still billable, collected, and a list of their invoices.',
   'nib-monthly':
     'Bahamas C-10 monthly filing: pick a month, see per-employee gross / insurable / employee NIB / employer NIB / remittance. Read straight onto the C-10 form.',
+  'payroll-summary':
+    'Per-employee payroll roll-up across any date range: hours, gross, deductions, NIB, reimbursements / per diem / expenses, net, and fully-loaded labor cost. Includes NIB-exempt staff.',
 };
 
 /**
@@ -78,6 +82,7 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   'vat-quarterly': false,
   'customer-summary': false,
   'nib-monthly': false,
+  'payroll-summary': false,
 };
 
 /**
@@ -96,6 +101,7 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'vat-quarterly': false,
   'customer-summary': true,
   'nib-monthly': false,
+  'payroll-summary': false,
 };
 
 export function parseReportFilters(
