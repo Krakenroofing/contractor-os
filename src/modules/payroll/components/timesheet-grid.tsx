@@ -100,24 +100,45 @@ export function TimesheetGrid({
                 </TableCell>
                 {days.map((d) => {
                   const v = emp.valueByDate[d] ?? 0;
-                  return (
-                    <TableCell key={d} className="text-right">
-                      {allowEdit && !locked ? (
+                  // Populated cells → day-detail breakdown (works even when
+                  // the period is locked, since it's read-only inspection).
+                  // Empty cells → quick-add entry form, but only when the
+                  // user can edit and the week isn't locked.
+                  const cellContent =
+                    v > 0 ? (
+                      renderValue(v)
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    );
+                  if (v > 0) {
+                    return (
+                      <TableCell key={d} className="text-right">
+                        <Link
+                          href={`/payroll/day?employeeId=${emp.id}&workDate=${d}`}
+                          className="block w-full text-right tabular-nums hover:text-blue-700"
+                        >
+                          {cellContent}
+                        </Link>
+                      </TableCell>
+                    );
+                  }
+                  if (allowEdit && !locked) {
+                    return (
+                      <TableCell key={d} className="text-right">
                         <Link
                           href={`/payroll/entries/new?employeeId=${emp.id}&workDate=${d}`}
                           className="block w-full text-right tabular-nums hover:text-blue-700"
                         >
-                          {v > 0 ? (
-                            renderValue(v)
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
+                          {cellContent}
                         </Link>
-                      ) : (
-                        <span className="tabular-nums text-slate-600">
-                          {v > 0 ? renderValue(v) : '—'}
-                        </span>
-                      )}
+                      </TableCell>
+                    );
+                  }
+                  return (
+                    <TableCell key={d} className="text-right">
+                      <span className="tabular-nums text-slate-600">
+                        {v > 0 ? renderValue(v) : '—'}
+                      </span>
                     </TableCell>
                   );
                 })}
