@@ -37,6 +37,7 @@ const numericString = z
 
 export const poLineSchema = z.object({
   costCodeId: z.string().uuid('Pick a cost code'),
+  inventoryItemId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
   quantity: numericString,

@@ -15,6 +15,7 @@ import { proposals } from './proposals';
 import { changeOrders } from './change-orders';
 import { invoiceTemplates } from './invoice-templates';
 import { costCodes } from './cost-codes';
+import { inventoryItems } from './inventory-items';
 import {
   invoiceStatusEnum,
   invoiceBillingTypeEnum,
@@ -97,6 +98,9 @@ export const invoiceLineItems = pgTable(
       .notNull()
       .references(() => invoices.id, { onDelete: 'cascade' }),
     costCodeId: uuid('cost_code_id').references(() => costCodes.id, {
+      onDelete: 'set null',
+    }),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, {
       onDelete: 'set null',
     }),
     description: text('description').notNull(),

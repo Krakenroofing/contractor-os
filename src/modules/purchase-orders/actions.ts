@@ -81,6 +81,7 @@ export async function createPurchaseOrderAction(
 
   const persistLines = data.lines.map((l, i) => ({
     costCodeId: l.costCodeId,
+    inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
     description: l.description,
     unit: emptyToNull(l.unit ?? null),
     quantityOrdered: toQuantityString(numericLines[i].quantityOrdered),

@@ -10,6 +10,7 @@ import { getInvoice, getInvoiceLineItems } from '@/lib/data/invoices';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { listChangeOrdersForProject } from '@/lib/data/change-orders';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,14 @@ export default async function EditInvoicePage({
   // Load every CO on the project so the operator can retroactively tag this
   // invoice as billing against a specific CO (or null = base contract).
   const projectChangeOrders = await listChangeOrdersForProject(invoice.projectId);
+  const products = (await listInventoryItems(companyId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    sku: p.sku,
+    unit: p.unit,
+    defaultCost: Number(p.defaultCost),
+  }));
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -90,6 +99,7 @@ export default async function EditInvoicePage({
           purchaseOrderNumber: invoice.purchaseOrderNumber ?? '',
           billingLabel: invoice.billingLabel ?? '',
           lines: lines.map((l) => ({
+            inventoryItemId: l.inventoryItemId,
             description: l.description,
             unit: l.unit ?? '',
             quantity: Number(l.quantity).toString(),
@@ -100,6 +110,7 @@ export default async function EditInvoicePage({
           id: co.id,
           label: `${co.number} — ${co.description.slice(0, 60)}`,
         }))}
+        products={products}
       />
     </div>
   );

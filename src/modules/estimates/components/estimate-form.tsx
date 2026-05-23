@@ -10,12 +10,17 @@ import { formatMoney } from '@/lib/money';
 import { calcEstimateTotals, lineTotal } from '../lib/calc';
 import { createEstimateAction, type CreateEstimateState } from '../actions';
 import { estimateStatusValues, STATUS_LABEL } from '../schema';
+import {
+  ProductPicker,
+  type ProductPickerOption,
+} from '@/modules/inventory/components/product-picker';
 
 const initialState: CreateEstimateState = {};
 
 type LineDraft = {
   rowId: string;
   costCodeId: string;
+  inventoryItemId: string;
   description: string;
   unit: string;
   quantity: string;
@@ -30,6 +35,7 @@ function newEmptyLine(): LineDraft {
   return {
     rowId: crypto.randomUUID(),
     costCodeId: '',
+    inventoryItemId: '',
     description: '',
     unit: '',
     quantity: '0',
@@ -41,10 +47,12 @@ function newEmptyLine(): LineDraft {
 export function EstimateForm({
   projects,
   costCodes,
+  products,
   defaultNumber,
 }: {
   projects: ProjectOption[];
   costCodes: CostCodeOption[];
+  products: ProductPickerOption[];
   defaultNumber: string;
 }) {
   const [state, formAction, pending] = useActionState(createEstimateAction, initialState);
@@ -64,6 +72,7 @@ export function EstimateForm({
 
   const linesPayload = lines.map((l) => ({
     costCodeId: l.costCodeId,
+    inventoryItemId: l.inventoryItemId,
     description: l.description,
     unit: l.unit,
     quantity: l.quantity,
@@ -143,7 +152,8 @@ export function EstimateForm({
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
 
         <div className="space-y-2">
-          <div className="hidden md:grid grid-cols-[1.4fr_2fr_0.7fr_0.6fr_0.9fr_0.7fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+          <div className="hidden md:grid grid-cols-[1.6fr_1.4fr_2fr_0.7fr_0.6fr_0.9fr_0.7fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+            <span>Product</span>
             <span>Cost code</span>
             <span>Description</span>
             <span>Qty</span>
@@ -163,8 +173,31 @@ export function EstimateForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[1.4fr_2fr_0.7fr_0.6fr_0.9fr_0.7fr_1fr_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1.6fr_1.4fr_2fr_0.7fr_0.6fr_0.9fr_0.7fr_1fr_auto] gap-2 items-start"
               >
+                <ProductPicker
+                  value={line.inventoryItemId}
+                  options={products}
+                  onItemSelected={(picked) => {
+                    if (!picked) {
+                      updateLine(line.rowId, { inventoryItemId: '' });
+                      return;
+                    }
+                    updateLine(line.rowId, {
+                      inventoryItemId: picked.id,
+                      description:
+                        line.description.trim() === '' ? picked.name : line.description,
+                      unit:
+                        line.unit.trim() === '' && picked.unit
+                          ? picked.unit
+                          : line.unit,
+                      unitCost:
+                        (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
+                          ? picked.defaultCost.toString()
+                          : line.unitCost,
+                    });
+                  }}
+                />
                 <Select
                   value={line.costCodeId}
                   onChange={(e) => onCostCodeChange(line.rowId, e.target.value)}

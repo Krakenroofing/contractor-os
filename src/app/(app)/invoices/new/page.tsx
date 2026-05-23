@@ -6,6 +6,7 @@ import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listInvoiceTemplates } from '@/lib/data/invoice-templates';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 import {
   listInvoices,
   listInvoicesForProject,
@@ -120,6 +121,15 @@ export default async function NewInvoicePage() {
     billingNumberLabel: t.billingNumberLabel ?? '',
   }));
 
+  const products = (await listInventoryItems(companyId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    sku: p.sku,
+    unit: p.unit,
+    defaultCost: Number(p.defaultCost),
+  }));
+
   const today = new Date().toISOString().slice(0, 10);
   const due = (() => {
     const d = new Date();
@@ -155,6 +165,7 @@ export default async function NewInvoicePage() {
         proposals={proposals}
         changeOrders={changeOrders}
         templates={templates}
+        products={products}
         defaultNumber={await nextInvoiceNumber(companyId)}
         defaultInvoiceDate={today}
         defaultDueDate={due}

@@ -112,6 +112,7 @@ export async function createInvoiceAction(
     subtotal = add(subtotal, lineTotal);
     return {
       costCodeId: null,
+      inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
       description: l.description,
       unit: emptyToNull(l.unit ?? null),
       quantity: toQuantityString(qty),
@@ -349,6 +350,7 @@ export async function updateInvoiceFullAction(
     subtotal = add(subtotal, lineTotal);
     return {
       costCodeId: null as string | null,
+      inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
       description: l.description,
       unit: l.unit && l.unit.trim() !== '' ? l.unit : null,
       quantity: toQuantityString(qty),

@@ -400,6 +400,7 @@ function buildPurchaseOrder(
       id: randomUUID(),
       purchaseOrderId: poId,
       costCodeId: code.id,
+      inventoryItemId: null,
       description: sl.description ?? code.description,
       unit: sl.unit,
       quantityOrdered: sl.quantityOrdered.toFixed(4),
@@ -627,6 +628,7 @@ function buildEstimateAndLines(
       sectionId: null,
       costCodeId: code.id,
       assemblyId: null,
+      inventoryItemId: null,
       description: sl.description ?? code.description,
       unit: sl.unit,
       quantity: sl.quantity.toFixed(4),
@@ -864,6 +866,7 @@ function buildInvoice(input: SeedInvoice): {
       id: randomUUID(),
       invoiceId,
       costCodeId: sl.costCodeId ?? null,
+      inventoryItemId: null,
       description: sl.description,
       unit: sl.unit ?? null,
       quantity: sl.quantity.toFixed(4),
@@ -2606,6 +2609,7 @@ export type CreateInvoiceInput = {
   percentOfContract?: string | null;
   lines: Array<{
     costCodeId: string | null;
+    inventoryItemId?: string | null;
     description: string;
     unit: string | null;
     quantity: string;
@@ -2666,6 +2670,7 @@ export function createMockInvoice(
       id: randomUUID(),
       invoiceId,
       costCodeId: l.costCodeId,
+      inventoryItemId: l.inventoryItemId ?? null,
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,
@@ -3061,6 +3066,7 @@ export function createMockEstimate(
       sectionId: null,
       costCodeId: l.costCodeId,
       assemblyId: null,
+      inventoryItemId: null,
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,
@@ -3274,6 +3280,7 @@ export type CreatePurchaseOrderInput = {
   total: string;
   lines: Array<{
     costCodeId: string;
+    inventoryItemId?: string | null;
     description: string;
     unit: string | null;
     quantityOrdered: string;
@@ -3328,6 +3335,7 @@ export function createMockPurchaseOrder(
       id: randomUUID(),
       purchaseOrderId: poId,
       costCodeId: l.costCodeId,
+      inventoryItemId: l.inventoryItemId ?? null,
       description: l.description,
       unit: l.unit,
       quantityOrdered: l.quantityOrdered,
@@ -4098,6 +4106,7 @@ export function updateMockInvoiceFull(
       id: randomUUID(),
       invoiceId: id,
       costCodeId: l.costCodeId,
+      inventoryItemId: null,
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,

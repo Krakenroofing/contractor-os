@@ -38,6 +38,7 @@ export type CreatePurchaseOrderInput = {
   total: string;
   lines: Array<{
     costCodeId: string;
+    inventoryItemId: string | null;
     description: string;
     unit: string | null;
     quantityOrdered: string;
@@ -207,6 +208,7 @@ export async function createPurchaseOrder(
         input.lines.map((l, i) => ({
           purchaseOrderId: po.id,
           costCodeId: l.costCodeId,
+          inventoryItemId: l.inventoryItemId,
           description: l.description,
           unit: l.unit,
           quantityOrdered: l.quantityOrdered,

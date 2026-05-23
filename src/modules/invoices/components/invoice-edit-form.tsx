@@ -26,9 +26,14 @@ import {
   billingTypeValues,
   type BillingType,
 } from '../schema';
+import {
+  ProductPicker,
+  type ProductPickerOption,
+} from '@/modules/inventory/components/product-picker';
 
 type LineDraft = {
   rowId: string;
+  inventoryItemId: string;
   description: string;
   unit: string;
   quantity: string;
@@ -59,6 +64,7 @@ export type InvoiceEditFormInitial = {
   purchaseOrderNumber: string;
   billingLabel: string;
   lines: Array<{
+    inventoryItemId: string | null;
     description: string;
     unit: string;
     quantity: string;
@@ -74,9 +80,11 @@ export type InvoiceEditFormChangeOrderOption = {
 export function InvoiceEditForm({
   initial,
   changeOrderOptions,
+  products = [],
 }: {
   initial: InvoiceEditFormInitial;
   changeOrderOptions: InvoiceEditFormChangeOrderOption[];
+  products?: ProductPickerOption[];
 }) {
   const [state, formAction, pending] = useActionState(
     updateInvoiceFullAction,
@@ -86,6 +94,7 @@ export function InvoiceEditForm({
   const [lines, setLines] = useState<LineDraft[]>(
     initial.lines.map((l) => ({
       rowId: crypto.randomUUID(),
+      inventoryItemId: l.inventoryItemId ?? '',
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,
@@ -142,6 +151,7 @@ export function InvoiceEditForm({
     : totals.retainage.toFixed(2);
 
   const linesPayload = lines.map((l) => ({
+    inventoryItemId: l.inventoryItemId,
     description: l.description,
     unit: l.unit,
     quantity: l.quantity,
@@ -153,6 +163,7 @@ export function InvoiceEditForm({
 
   const newEmptyLine = (): LineDraft => ({
     rowId: crypto.randomUUID(),
+    inventoryItemId: '',
     description: '',
     unit: '',
     quantity: '1',
@@ -275,7 +286,8 @@ export function InvoiceEditForm({
         </legend>
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
         <div className="space-y-2">
-          <div className="hidden md:grid grid-cols-[2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+          <div className="hidden md:grid grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+            <span>Product</span>
             <span>Description</span>
             <span>Qty</span>
             <span>Unit</span>
@@ -291,8 +303,31 @@ export function InvoiceEditForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
               >
+                <ProductPicker
+                  value={line.inventoryItemId}
+                  options={products}
+                  onItemSelected={(picked) => {
+                    if (!picked) {
+                      updateLine(line.rowId, { inventoryItemId: '' });
+                      return;
+                    }
+                    updateLine(line.rowId, {
+                      inventoryItemId: picked.id,
+                      description:
+                        line.description.trim() === '' ? picked.name : line.description,
+                      unit:
+                        line.unit.trim() === '' && picked.unit
+                          ? picked.unit
+                          : line.unit,
+                      unitCost:
+                        (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
+                          ? picked.defaultCost.toString()
+                          : line.unitCost,
+                    });
+                  }}
+                />
                 <Input
                   value={line.description}
                   onChange={(e) =>

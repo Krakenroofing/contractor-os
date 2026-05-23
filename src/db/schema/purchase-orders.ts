@@ -15,6 +15,7 @@ import { vendors } from './vendors';
 import { users } from './users';
 import { costCodes } from './cost-codes';
 import { landedCosts } from './landed-costs';
+import { inventoryItems } from './inventory-items';
 import { purchaseOrderStatusEnum } from './_enums';
 
 export const purchaseOrders = pgTable(
@@ -71,6 +72,9 @@ export const purchaseOrderLines = pgTable(
     costCodeId: uuid('cost_code_id')
       .notNull()
       .references(() => costCodes.id, { onDelete: 'restrict' }),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, {
+      onDelete: 'set null',
+    }),
     description: text('description').notNull(),
     unit: text('unit'),
     quantityOrdered: numeric('quantity_ordered', { precision: 14, scale: 4 })

@@ -64,6 +64,8 @@ export const RESOURCES = [
   'employees',
   // Payroll Phase 2: weekly timesheet + by-job allocation.
   'payroll',
+  // Inventory Phase 6.0: product/material catalog feeding PO/Invoice/Estimate lines.
+  'inventory',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -106,6 +108,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: RW,
     employees: RW,
     payroll: RW,
+    inventory: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -146,6 +149,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // PMs don't see payroll — pay info stays with owner + accounting.
     employees: NONE,
     payroll: NONE,
+    // PMs can browse the catalog (for PO/invoice line picking) but
+    // not edit it. Catalog management is owner/estimator/accounting.
+    inventory: READ,
   },
   estimator: {
     dashboard: READ,
@@ -179,6 +185,8 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: NONE,
     employees: NONE,
     payroll: NONE,
+    // Estimators pick products and add new ones as they encounter them.
+    inventory: RW,
   },
   accounting: {
     dashboard: READ,
@@ -212,6 +220,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: RW,
     employees: RW,
     payroll: RW,
+    inventory: RW,
   },
   field_user: {
     dashboard: READ,
@@ -250,6 +259,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // Field users never see colleagues' pay info.
     employees: NONE,
     payroll: NONE,
+    inventory: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -283,6 +293,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     exports: READ,
     employees: READ,
     payroll: READ,
+    inventory: READ,
   },
 };
 

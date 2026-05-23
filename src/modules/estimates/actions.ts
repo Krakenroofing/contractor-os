@@ -83,6 +83,7 @@ export async function createEstimateAction(
         });
         return {
           costCodeId: l.costCodeId,
+          inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
           description: l.description,
           unit: emptyToNull(l.unit ?? null),
           quantity: Number(l.quantity).toFixed(4),

@@ -13,6 +13,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
 import { costCodes } from './cost-codes';
+import { inventoryItems } from './inventory-items';
 import { estimateStatusEnum } from './_enums';
 
 export const assemblies = pgTable('assemblies', {
@@ -108,6 +109,9 @@ export const estimateLineItems = pgTable(
       .notNull()
       .references(() => costCodes.id, { onDelete: 'restrict' }),
     assemblyId: uuid('assembly_id').references(() => assemblies.id, { onDelete: 'set null' }),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, {
+      onDelete: 'set null',
+    }),
     description: text('description').notNull(),
     unit: text('unit'),
     quantity: numeric('quantity', { precision: 14, scale: 4 }).notNull().default('0'),

@@ -261,6 +261,7 @@ export async function backfillProposalAction(
       lines: [
         {
           costCodeId: '',
+          inventoryItemId: null,
           description: `Backfilled scope (lump sum) — proposal ${data.proposalNumber}`,
           unit: 'lot',
           quantity: '1',
@@ -643,6 +644,7 @@ export async function backfillPurchaseOrderAction(
       lines: [
         {
           costCodeId: '',
+          inventoryItemId: null,
           description:
             (data.description && data.description !== ''
               ? data.description

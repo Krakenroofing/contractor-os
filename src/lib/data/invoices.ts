@@ -145,6 +145,7 @@ export async function createInvoice(
         input.lines.map((l, i) => ({
           invoiceId: inv.id,
           costCodeId: l.costCodeId,
+          inventoryItemId: l.inventoryItemId ?? null,
           description: l.description,
           unit: l.unit,
           quantity: l.quantity,
@@ -221,6 +222,7 @@ export type UpdateInvoiceFullInput = {
   percentOfContract: string | null;
   lines: Array<{
     costCodeId: string | null;
+    inventoryItemId?: string | null;
     description: string;
     unit: string | null;
     quantity: string;
@@ -252,6 +254,7 @@ export async function updateInvoiceFull(
         patch.lines.map((l, i) => ({
           invoiceId: id,
           costCodeId: l.costCodeId,
+          inventoryItemId: l.inventoryItemId ?? null,
           description: l.description,
           unit: l.unit,
           quantity: l.quantity,

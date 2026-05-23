@@ -34,6 +34,7 @@ export type CreateEstimateInput = {
   validUntil: string | null;
   lines: Array<{
     costCodeId: string;
+    inventoryItemId: string | null;
     description: string;
     unit: string | null;
     quantity: string;
@@ -164,6 +165,7 @@ export async function createEstimate(
           sectionId: null,
           costCodeId: l.costCodeId,
           assemblyId: null,
+          inventoryItemId: l.inventoryItemId,
           description: l.description,
           unit: l.unit,
           quantity: l.quantity,

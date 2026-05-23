@@ -8,6 +8,7 @@ import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listEstimates } from '@/lib/data/estimates';
 import { getCustomer } from '@/lib/data/customers';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 import { listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,14 @@ export default async function NewEstimatePage() {
     code: c.code,
     description: c.description,
   }));
+  const products = (await listInventoryItems(companyId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    sku: p.sku,
+    unit: p.unit,
+    defaultCost: Number(p.defaultCost),
+  }));
 
   return (
     <div className="p-8 max-w-6xl space-y-6">
@@ -61,6 +70,7 @@ export default async function NewEstimatePage() {
       <EstimateForm
         projects={projects}
         costCodes={costCodes}
+        products={products}
         defaultNumber={await nextEstimateNumber(companyId)}
       />
     </div>

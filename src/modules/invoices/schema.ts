@@ -58,6 +58,7 @@ const numericString = z
   });
 
 export const invoiceLineSchema = z.object({
+  inventoryItemId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: optionalString,
   quantity: numericString,

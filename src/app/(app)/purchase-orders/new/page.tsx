@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listCostCodes } from '@/lib/data/cost-codes';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { getCustomer } from '@/lib/data/customers';
@@ -51,6 +52,14 @@ export default async function NewPurchaseOrderPage() {
     projectId: l.projectId,
     label: `${l.name} · ${formatMoney(l.totalLandedCost)} total`,
   }));
+  const products = (await listInventoryItems(companyId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    sku: p.sku,
+    unit: p.unit,
+    defaultCost: Number(p.defaultCost),
+  }));
 
   return (
     <div className="p-8 max-w-6xl space-y-6">
@@ -73,6 +82,7 @@ export default async function NewPurchaseOrderPage() {
         vendors={vendors}
         costCodes={costCodes}
         landedCosts={landedCosts}
+        products={products}
         defaultNumber={await nextPONumber(companyId)}
       />
     </div>

@@ -14,11 +14,16 @@ import {
   billingTypeValues,
   invoiceStatusValues,
 } from '../schema';
+import {
+  ProductPicker,
+  type ProductPickerOption,
+} from '@/modules/inventory/components/product-picker';
 
 const initialState: CreateInvoiceState = {};
 
 type LineDraft = {
   rowId: string;
+  inventoryItemId: string;
   description: string;
   unit: string;
   quantity: string;
@@ -28,6 +33,7 @@ type LineDraft = {
 function newEmptyLine(): LineDraft {
   return {
     rowId: crypto.randomUUID(),
+    inventoryItemId: '',
     description: '',
     unit: '',
     quantity: '1',
@@ -128,6 +134,7 @@ export function InvoiceForm({
   proposals,
   changeOrders,
   templates,
+  products = [],
   defaultNumber,
   defaultInvoiceDate,
   defaultDueDate,
@@ -137,6 +144,7 @@ export function InvoiceForm({
   proposals: InvoiceFormProposalOption[];
   changeOrders: InvoiceFormChangeOrderOption[];
   templates: InvoiceFormTemplateOption[];
+  products?: ProductPickerOption[];
   defaultNumber: string;
   defaultInvoiceDate: string;
   defaultDueDate: string;
@@ -379,6 +387,7 @@ export function InvoiceForm({
         },
       ]
     : lines.map((l) => ({
+        inventoryItemId: l.inventoryItemId,
         description: l.description,
         unit: l.unit,
         quantity: l.quantity,
@@ -628,7 +637,8 @@ export function InvoiceForm({
         </legend>
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
         <div className="space-y-2">
-          <div className="hidden md:grid grid-cols-[2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+          <div className="hidden md:grid grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+            <span>Product</span>
             <span>Description</span>
             <span>Qty</span>
             <span>Unit</span>
@@ -644,8 +654,31 @@ export function InvoiceForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
               >
+                <ProductPicker
+                  value={line.inventoryItemId}
+                  options={products}
+                  onItemSelected={(picked) => {
+                    if (!picked) {
+                      updateLine(line.rowId, { inventoryItemId: '' });
+                      return;
+                    }
+                    updateLine(line.rowId, {
+                      inventoryItemId: picked.id,
+                      description:
+                        line.description.trim() === '' ? picked.name : line.description,
+                      unit:
+                        line.unit.trim() === '' && picked.unit
+                          ? picked.unit
+                          : line.unit,
+                      unitCost:
+                        (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
+                          ? picked.defaultCost.toString()
+                          : line.unitCost,
+                    });
+                  }}
+                />
                 <Input
                   value={line.description}
                   onChange={(e) => updateLine(line.rowId, { description: e.target.value })}
