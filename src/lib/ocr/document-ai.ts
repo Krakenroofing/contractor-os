@@ -365,6 +365,20 @@ export type DocumentAiDiagnosis = {
     targetPresent?: boolean;
     error?: string;
   };
+  // Identity check — what Google says our access token represents.
+  // If tokenIdentity.email doesn't match info.serviceAccountEmail, then
+  // the auth library is somehow minting tokens for a different identity
+  // than the credentials JSON declares, which explains "permission denied
+  // even with Owner role" because the role was granted to a different SA.
+  tokenIdentity?: {
+    ok: boolean;
+    email?: string;
+    issuedTo?: string;
+    audience?: string;
+    scope?: string;
+    expiresIn?: string;
+    error?: string;
+  };
 };
 
 /**
@@ -440,6 +454,7 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
   // instead of the "undefined undefined: undefined" gRPC wrapping. If
   // token acquisition succeeds, we know the bug is in the gRPC layer
   // (processor, network, SDK).
+  let tokenIdentity: DocumentAiDiagnosis['tokenIdentity'];
   try {
     const { GoogleAuth } = await import('google-auth-library');
     const auth = new GoogleAuth({
@@ -455,6 +470,42 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
         detail:
           'OAuth2 token endpoint returned no token (but no error either). This is unusual — likely an auth library version issue. Try again or rotate the key.',
         info,
+      };
+    }
+    // Verify what identity this token actually represents. Critical when
+    // permissions appear correctly bound but the API still says
+    // PERMISSION_DENIED — confirms whether the auth flow minted a token
+    // for the SA we expect, or somehow swapped to a different identity.
+    try {
+      const tokenInfoResp = await fetch(
+        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(tokenResp.token)}`,
+      );
+      if (tokenInfoResp.ok) {
+        const ti = (await tokenInfoResp.json()) as {
+          email?: string;
+          azp?: string;
+          aud?: string;
+          scope?: string;
+          expires_in?: string;
+        };
+        tokenIdentity = {
+          ok: true,
+          email: ti.email,
+          issuedTo: ti.azp,
+          audience: ti.aud,
+          scope: ti.scope,
+          expiresIn: ti.expires_in,
+        };
+      } else {
+        tokenIdentity = {
+          ok: false,
+          error: `tokeninfo HTTP ${tokenInfoResp.status}: ${(await tokenInfoResp.text()).slice(0, 200)}`,
+        };
+      }
+    } catch (tiErr) {
+      tokenIdentity = {
+        ok: false,
+        error: tiErr instanceof Error ? tiErr.message : 'tokeninfo call threw',
       };
     }
     // Token acquired — fall through to the gRPC call below.
@@ -496,6 +547,7 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
       processorCount: processors.length,
       processorIdsFound: ids,
       targetProcessorPresent: ids.includes(cfg.processorId),
+      tokenIdentity,
     };
   } catch (err) {
     let rawError: string;
@@ -522,6 +574,7 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
       info,
       rawError,
       rest: restResult,
+      tokenIdentity,
     };
   }
 }

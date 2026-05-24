@@ -242,6 +242,52 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
           )}
         </div>
       )}
+      {result.tokenIdentity && (
+        <div
+          className={`rounded border px-2 py-1 ${
+            result.tokenIdentity.ok &&
+            result.tokenIdentity.email === result.info.serviceAccountEmail
+              ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
+              : 'bg-amber-100 border-amber-300 text-amber-900'
+          }`}
+        >
+          <div className="font-medium">
+            Token identity check (what Google says we are):
+          </div>
+          {result.tokenIdentity.ok ? (
+            <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1 font-mono text-[11px] mt-1">
+              <dt>Token email</dt>
+              <dd className="break-all">
+                {result.tokenIdentity.email ?? '(missing)'}
+              </dd>
+              <dt>Matches SA?</dt>
+              <dd>
+                {result.tokenIdentity.email === result.info.serviceAccountEmail ? (
+                  <span className="text-emerald-700 font-bold">
+                    ✓ YES — token represents the SA we expect
+                  </span>
+                ) : (
+                  <span className="text-red-700 font-bold">
+                    ✗ NO — token is for a DIFFERENT identity. This is the bug.
+                  </span>
+                )}
+              </dd>
+              <dt>Authorized to</dt>
+              <dd className="break-all">{result.tokenIdentity.issuedTo ?? '—'}</dd>
+              <dt>Audience</dt>
+              <dd className="break-all">{result.tokenIdentity.audience ?? '—'}</dd>
+              <dt>Scope</dt>
+              <dd className="break-all">{result.tokenIdentity.scope ?? '—'}</dd>
+              <dt>Expires in</dt>
+              <dd>{result.tokenIdentity.expiresIn ?? '—'}s</dd>
+            </dl>
+          ) : (
+            <div className="text-amber-800 mt-1">
+              tokeninfo call failed: {result.tokenIdentity.error}
+            </div>
+          )}
+        </div>
+      )}
       {!ok && result.rest && (
         <div
           className={`rounded border px-2 py-1 ${
