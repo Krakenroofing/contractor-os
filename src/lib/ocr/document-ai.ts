@@ -425,7 +425,53 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
     };
   }
 
-  // Try listProcessors — a simple API call that exercises auth + transport
+  // Pre-flight: hit the OAuth2 token endpoint directly. This bypasses gRPC
+  // entirely so if auth itself is broken (service account disabled, key
+  // revoked, clock skew, project suspended), we get a readable HTTP error
+  // instead of the "undefined undefined: undefined" gRPC wrapping. If
+  // token acquisition succeeds, we know the bug is in the gRPC layer
+  // (processor, network, SDK).
+  try {
+    const { GoogleAuth } = await import('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: { client_email: parsed.client_email, private_key: parsed.private_key },
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const authClient = await auth.getClient();
+    const tokenResp = await authClient.getAccessToken();
+    if (!tokenResp || !tokenResp.token) {
+      return {
+        ok: false,
+        step: 'listProcessors',
+        detail:
+          'OAuth2 token endpoint returned no token (but no error either). This is unusual — likely an auth library version issue. Try again or rotate the key.',
+        info,
+      };
+    }
+    // Token acquired — fall through to the gRPC call below.
+  } catch (err) {
+    let rawError: string;
+    try {
+      const util = await import('node:util');
+      rawError = util.inspect(err, { depth: 6, showHidden: true, colors: false });
+    } catch {
+      rawError = String(err);
+    }
+    console.error('[document-ai] diagnose token acquisition failed:', rawError);
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : 'Token acquisition threw without a message';
+    return {
+      ok: false,
+      step: 'listProcessors',
+      detail: `OAuth2 token exchange failed (BEFORE gRPC): ${message}. Most common causes when credentials look valid: service account is DISABLED (different from deleted — check the Status column on the Service Accounts page), GCP project is suspended or being deleted, or system clock skew on the Vercel function is too large for JWT validation.`,
+      info,
+      rawError,
+    };
+  }
+
+  // Token works. Try listProcessors — exercises gRPC + the API itself
   // without invoking the document-processing layer.
   try {
     const client = getClient(cfg.location, cfg.credentialsJson);
