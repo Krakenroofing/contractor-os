@@ -87,7 +87,7 @@ export default async function ProductDetailPage({
     <div className="p-8 max-w-5xl space-y-6">
       <Breadcrumbs
         items={[
-          { href: '/inventory', label: 'Products' },
+          { href: '/inventory', label: 'Inventory' },
           { label: item.name },
         ]}
       />

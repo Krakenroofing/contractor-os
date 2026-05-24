@@ -18,7 +18,7 @@ export default async function NewProductPage() {
     <div className="p-8 max-w-3xl space-y-6">
       <Link href="/inventory">
         <Button variant="outline" size="sm">
-          ← Back to Products
+          ← Back to Inventory
         </Button>
       </Link>
       <header>

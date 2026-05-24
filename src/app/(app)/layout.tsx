@@ -15,7 +15,7 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/projects', label: 'Projects', resource: 'projects' },
   { href: '/customers', label: 'Customers', resource: 'customers' },
   { href: '/vendors', label: 'Vendors', resource: 'vendors' },
-  { href: '/inventory', label: 'Products', resource: 'inventory' },
+  { href: '/inventory', label: 'Inventory', resource: 'inventory' },
   { href: '/cost-codes', label: 'Cost Codes', resource: 'cost_codes' },
   { href: '/estimates', label: 'Estimates', resource: 'estimates' },
   { href: '/proposals', label: 'Proposals', resource: 'proposals' },

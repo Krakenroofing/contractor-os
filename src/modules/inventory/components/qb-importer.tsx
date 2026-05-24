@@ -87,7 +87,7 @@ export function QbImporter() {
             onClick={() => router.push('/inventory')}
             className="mt-2"
           >
-            Back to Products
+            Back to Inventory
           </Button>
         </div>
       ) : (

@@ -14,7 +14,7 @@ export default async function ImportProductsPage() {
     <div className="p-8 max-w-5xl space-y-6">
       <Link href="/inventory">
         <Button variant="outline" size="sm">
-          ← Back to Products
+          ← Back to Inventory
         </Button>
       </Link>
       <header>

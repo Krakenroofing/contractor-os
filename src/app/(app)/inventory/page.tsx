@@ -36,7 +36,7 @@ export default async function InventoryPage() {
     <div className="p-8 space-y-6 max-w-7xl">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Products</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Inventory</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {activeCount} active {activeCount === 1 ? 'product' : 'products'}
             {rows.length !== activeCount && ` • ${rows.length - activeCount} archived`}
