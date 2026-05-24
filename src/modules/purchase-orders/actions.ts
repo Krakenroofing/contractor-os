@@ -433,7 +433,21 @@ export async function extractPoPdfAction(
     // Best-effort cleanup so a failed extraction doesn't leave the temp
     // file behind.
     await deleteReceiptBlob(upload.storagePath).catch(() => {});
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    // Surface the full error to server logs (Vercel) so we can diagnose
+    // SDK / network / config issues that don't formatter-out cleanly.
+    console.error('[po-upload] extractPurchaseOrderFromPdf failed', err);
+    let message: string;
+    if (err instanceof Error && err.message && err.message.trim() !== '') {
+      message = err.message;
+    } else if (err && typeof err === 'object') {
+      try {
+        message = JSON.stringify(err, Object.getOwnPropertyNames(err));
+      } catch {
+        message = 'Unknown error (non-serializable)';
+      }
+    } else {
+      message = String(err ?? 'Unknown error');
+    }
     return { formError: `Extraction failed: ${message}` };
   }
 

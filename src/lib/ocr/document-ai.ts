@@ -64,10 +64,26 @@ export function isOcrConfigured(): boolean {
 let cachedClient: DocumentProcessorServiceClient | null = null;
 function getClient(location: string, credentialsJson: string) {
   if (cachedClient) return cachedClient;
-  const credentials = JSON.parse(credentialsJson) as {
-    client_email: string;
-    private_key: string;
-  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(credentialsJson);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'unknown parse error';
+    throw new Error(
+      `GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON (${detail}). Paste the full service-account JSON file contents — verbatim, no extra escaping.`,
+    );
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { client_email?: unknown }).client_email !== 'string' ||
+    typeof (parsed as { private_key?: unknown }).private_key !== 'string'
+  ) {
+    throw new Error(
+      'GOOGLE_APPLICATION_CREDENTIALS_JSON parsed but is missing client_email or private_key. Use the full Google Cloud service-account JSON, not just a key id.',
+    );
+  }
+  const credentials = parsed as { client_email: string; private_key: string };
   cachedClient = new DocumentProcessorServiceClient({
     credentials,
     apiEndpoint: `${location}-documentai.googleapis.com`,
@@ -86,15 +102,53 @@ export async function extractReceipt(input: {
   const cfg = readConfig();
   if (!cfg) throw new OcrNotConfiguredError();
   const client = getClient(cfg.location, cfg.credentialsJson);
+
+  // A common misconfiguration: pasting the full resource path
+  // (`projects/.../locations/.../processors/<uuid>`) into the env var
+  // instead of just the `<uuid>` tail. That double-prefixes below into
+  // garbage and the SDK throws an opaque error. Catch it here with a
+  // clear message instead.
+  if (cfg.processorId.includes('/')) {
+    throw new Error(
+      'GOOGLE_DOCUMENT_AI_PROCESSOR_ID must be the bare processor UUID (e.g. "abc123def456"), not the full "projects/.../processors/..." path.',
+    );
+  }
+
   const name = `projects/${cfg.projectId}/locations/${cfg.location}/processors/${cfg.processorId}`;
 
-  const [response] = await client.processDocument({
-    name,
-    rawDocument: {
-      content: Buffer.from(input.bytes),
-      mimeType: input.mimeType,
-    },
-  });
+  let response;
+  try {
+    [response] = await client.processDocument({
+      name,
+      rawDocument: {
+        content: Buffer.from(input.bytes),
+        mimeType: input.mimeType,
+      },
+    });
+  } catch (err) {
+    // The Google SDK wraps gRPC failures in GoogleError with .code / .details.
+    // When those are missing the default .message renders as
+    // "undefined undefined: undefined" which is useless to the operator.
+    // Pull whatever fields exist into a readable string and rethrow.
+    const e = err as {
+      code?: number | string;
+      details?: string;
+      message?: string;
+      reason?: string;
+    } | null;
+    const parts: string[] = [];
+    if (e?.code !== undefined && e.code !== null) parts.push(`code=${e.code}`);
+    if (e?.reason) parts.push(`reason=${e.reason}`);
+    if (e?.details) parts.push(e.details);
+    else if (e?.message && e.message !== 'undefined undefined: undefined') {
+      parts.push(e.message);
+    }
+    const detail =
+      parts.length > 0
+        ? parts.join(' · ')
+        : `Document AI did not return a usable error. Most common cause: the configured processor (GOOGLE_DOCUMENT_AI_PROCESSOR_ID=${cfg.processorId.slice(0, 6)}…) is not a Receipt/Expense/Invoice parser in the ${cfg.location} region of project ${cfg.projectId}, or the service account lacks the "Document AI API User" role.`;
+    throw new Error(`Document AI call failed: ${detail}`);
+  }
 
   const doc = response.document;
   if (!doc) return {};
