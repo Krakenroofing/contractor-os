@@ -179,21 +179,36 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
       </div>
     );
   }
-  const ok = result.ok;
+  // Effective status is driven by REST (what production uses), not by gRPC
+  // (which is permanently broken in this Next.js/Vercel bundle — kept only
+  // as a regression detector). If the gRPC path happens to succeed (it
+  // shouldn't, but if the SDK is ever fixed), that's fine too.
+  const restWorks = result.rest?.ok === true;
+  const grpcWorks = result.ok === true;
+  const effectiveOk = grpcWorks || restWorks;
+  const productionPath = grpcWorks ? 'gRPC + REST' : restWorks ? 'REST' : 'neither';
   return (
     <div
       className={`rounded-md border px-3 py-2 text-xs space-y-2 ${
-        ok
+        effectiveOk
           ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
           : 'bg-red-50 border-red-200 text-red-900'
       }`}
     >
       <div className="font-medium">
-        {ok
-          ? `✓ Connectivity OK — found ${result.processorCount ?? 0} processor(s) in this project/location.`
-          : `✗ Failed at step: ${result.step}`}
+        {effectiveOk
+          ? `✓ Document AI reachable via ${productionPath}. Production extraction will work.`
+          : `✗ Document AI unreachable via every path tested.`}
       </div>
-      {!ok && result.detail && <div className="text-red-800">{result.detail}</div>}
+      {!effectiveOk && result.detail && (
+        <div className="text-red-800">{result.detail}</div>
+      )}
+      {effectiveOk && !grpcWorks && (
+        <div className="text-emerald-800 text-[11px]">
+          (gRPC SDK still fails opaquely — known Next.js/Vercel bundling
+          quirk. Production calls go through REST, which works fine.)
+        </div>
+      )}
       <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
         <dt>Project ID</dt>
         <dd className="break-all">{result.info.projectId ?? '—'}</dd>
@@ -216,9 +231,9 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
         <dt>Raw JSON length</dt>
         <dd>{result.info.credentialsRawLength ?? '—'}</dd>
       </dl>
-      {ok && result.processorIdsFound && (
+      {grpcWorks && result.processorIdsFound && (
         <div>
-          <div className="font-medium">Processor IDs found in project:</div>
+          <div className="font-medium">Processor IDs found in project (via gRPC):</div>
           <ul className="list-disc list-inside font-mono text-[11px]">
             {result.processorIdsFound.map((id) => (
               <li
@@ -242,13 +257,30 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
           )}
         </div>
       )}
-      {result.tokenIdentity && (
+      {result.tokenIdentity && (() => {
+        // Token email matching is only conclusive when Google actually
+        // populates the email field. For SA tokens, tokeninfo often omits
+        // email — the token still represents the SA (azp is the numeric
+        // UID) but we can't verify by email comparison. Don't scream "BUG"
+        // in that case; just say "couldn't verify".
+        const emailMatch =
+          result.tokenIdentity.ok &&
+          typeof result.tokenIdentity.email === 'string' &&
+          result.tokenIdentity.email === result.info.serviceAccountEmail;
+        const emailMismatch =
+          result.tokenIdentity.ok &&
+          typeof result.tokenIdentity.email === 'string' &&
+          result.tokenIdentity.email !== result.info.serviceAccountEmail;
+        const emailMissing =
+          result.tokenIdentity.ok && !result.tokenIdentity.email;
+        return (
         <div
           className={`rounded border px-2 py-1 ${
-            result.tokenIdentity.ok &&
-            result.tokenIdentity.email === result.info.serviceAccountEmail
+            emailMatch
               ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
-              : 'bg-amber-100 border-amber-300 text-amber-900'
+              : emailMismatch
+                ? 'bg-red-100 border-red-300 text-red-900'
+                : 'bg-slate-100 border-slate-300 text-slate-800'
           }`}
         >
           <div className="font-medium">
@@ -258,23 +290,30 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
             <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1 font-mono text-[11px] mt-1">
               <dt>Token email</dt>
               <dd className="break-all">
-                {result.tokenIdentity.email ?? '(missing)'}
+                {result.tokenIdentity.email ?? '(not included — normal for SA tokens)'}
               </dd>
-              <dt>Matches SA?</dt>
+              <dt>Identity</dt>
               <dd>
-                {result.tokenIdentity.email === result.info.serviceAccountEmail ? (
+                {emailMatch ? (
                   <span className="text-emerald-700 font-bold">
-                    ✓ YES — token represents the SA we expect
+                    ✓ token email matches the SA in our credentials
+                  </span>
+                ) : emailMismatch ? (
+                  <span className="text-red-700 font-bold">
+                    ✗ token is for a DIFFERENT email — investigate which SA is actually being used
                   </span>
                 ) : (
-                  <span className="text-red-700 font-bold">
-                    ✗ NO — token is for a DIFFERENT identity. This is the bug.
+                  <span className="text-slate-700">
+                    ⓘ email not populated by Google&apos;s tokeninfo (typical
+                    for SA tokens). Identity verified indirectly via{' '}
+                    <code>azp</code> below — that numeric ID is the
+                    SA&apos;s unique UID.
                   </span>
                 )}
               </dd>
-              <dt>Authorized to</dt>
+              <dt>Authorized to (azp)</dt>
               <dd className="break-all">{result.tokenIdentity.issuedTo ?? '—'}</dd>
-              <dt>Audience</dt>
+              <dt>Audience (aud)</dt>
               <dd className="break-all">{result.tokenIdentity.audience ?? '—'}</dd>
               <dt>Scope</dt>
               <dd className="break-all">{result.tokenIdentity.scope ?? '—'}</dd>
@@ -287,8 +326,9 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
             </div>
           )}
         </div>
-      )}
-      {!ok && result.rest && (
+        );
+      })()}
+      {result.rest && (
         <div
           className={`rounded border px-2 py-1 ${
             result.rest.ok
@@ -326,9 +366,11 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
           )}
         </div>
       )}
-      {!ok && result.rawError && (
+      {!grpcWorks && result.rawError && (
         <details>
-          <summary className="cursor-pointer">Raw gRPC error</summary>
+          <summary className="cursor-pointer">
+            Raw gRPC error (informational — gRPC is not the production path)
+          </summary>
           <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] bg-white/50 p-2 rounded">
             {result.rawError}
           </pre>
