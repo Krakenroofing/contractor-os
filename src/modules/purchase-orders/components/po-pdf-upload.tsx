@@ -34,7 +34,9 @@ import {
 import {
   createPoFromExtractedAction,
   extractPoPdfAction,
+  runDocumentAiDiagnosisAction,
   type CreatePoFromExtractedState,
+  type DocumentAiDiagnosisState,
   type ExtractPoPdfState,
 } from '../actions';
 
@@ -101,43 +103,154 @@ function UploadPhase({
   formAction: (formData: FormData) => void;
   pending: boolean;
 }) {
+  const [diag, diagAction, diagPending] = useActionState<
+    DocumentAiDiagnosisState | null,
+    FormData
+  >(async () => runDocumentAiDiagnosisAction(null), null);
+
   return (
-    <form action={formAction} className="space-y-4">
-      {state.formError && (
-        <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {state.formError}
-        </div>
-      )}
-      <div className="rounded-md border-2 border-dashed border-slate-300 p-10 text-center">
-        <label className="block cursor-pointer">
-          <span className="text-sm text-slate-700 block">
-            Drop a vendor estimate or quote (PDF / JPG / PNG / HEIC, max 25
-            MB).
-          </span>
-          <span className="text-xs text-slate-500 block mt-1">
-            Pick a single document — multi-page PDFs are read as one estimate.
-          </span>
-          <input
-            type="file"
-            name="file"
-            required
-            accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.gif,application/pdf,image/*"
-            className="mt-4 block mx-auto text-sm"
-            onChange={(e) => {
-              if (e.target.files?.[0]) {
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-            disabled={pending}
-          />
-        </label>
-        {pending && (
-          <div className="mt-4 text-sm text-slate-600">
-            Reading the document… this usually takes 5–15 seconds.
+    <div className="space-y-4">
+      <form action={formAction} className="space-y-4">
+        {state.formError && (
+          <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            {state.formError}
           </div>
         )}
+        <div className="rounded-md border-2 border-dashed border-slate-300 p-10 text-center">
+          <label className="block cursor-pointer">
+            <span className="text-sm text-slate-700 block">
+              Drop a vendor estimate or quote (PDF / JPG / PNG / HEIC, max 25
+              MB).
+            </span>
+            <span className="text-xs text-slate-500 block mt-1">
+              Pick a single document — multi-page PDFs are read as one estimate.
+            </span>
+            <input
+              type="file"
+              name="file"
+              required
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.gif,application/pdf,image/*"
+              className="mt-4 block mx-auto text-sm"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              disabled={pending}
+            />
+          </label>
+          {pending && (
+            <div className="mt-4 text-sm text-slate-600">
+              Reading the document… this usually takes 5–15 seconds.
+            </div>
+          )}
+        </div>
+      </form>
+
+      <details className="rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm">
+        <summary className="cursor-pointer text-slate-700 font-medium">
+          Troubleshooting — test Document AI connection
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-slate-600">
+            If uploads keep failing with &quot;Document AI did not return a usable
+            error&quot;, click this to test auth + connectivity without sending
+            a document. The test calls <code>listProcessors</code>, which
+            exercises credentials + transport but skips the
+            document-processing layer.
+          </p>
+          <form action={diagAction}>
+            <Button type="submit" size="sm" variant="outline" disabled={diagPending}>
+              {diagPending ? 'Testing…' : 'Run diagnostic'}
+            </Button>
+          </form>
+          {diag && <DiagnosticResult result={diag} />}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
+  if ('formError' in result) {
+    return (
+      <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+        {result.formError}
       </div>
-    </form>
+    );
+  }
+  const ok = result.ok;
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 text-xs space-y-2 ${
+        ok
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+          : 'bg-red-50 border-red-200 text-red-900'
+      }`}
+    >
+      <div className="font-medium">
+        {ok
+          ? `✓ Connectivity OK — found ${result.processorCount ?? 0} processor(s) in this project/location.`
+          : `✗ Failed at step: ${result.step}`}
+      </div>
+      {!ok && result.detail && <div className="text-red-800">{result.detail}</div>}
+      <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
+        <dt>Project ID</dt>
+        <dd className="break-all">{result.info.projectId ?? '—'}</dd>
+        <dt>Location</dt>
+        <dd>{result.info.location ?? '—'}</dd>
+        <dt>Processor ID (env)</dt>
+        <dd className="break-all">{result.info.processorId ?? '—'}</dd>
+        <dt>Service account</dt>
+        <dd className="break-all">{result.info.serviceAccountEmail ?? '—'}</dd>
+        <dt>Private key ID</dt>
+        <dd className="break-all">{result.info.privateKeyId ?? '—'}</dd>
+        <dt>Key starts with</dt>
+        <dd className="break-all">{result.info.privateKeyStartsWith ?? '—'}</dd>
+        <dt>Key ends with</dt>
+        <dd className="break-all">{result.info.privateKeyEndsWith ?? '—'}</dd>
+        <dt>Key length</dt>
+        <dd>{result.info.privateKeyLength ?? '—'}</dd>
+        <dt>Has real newlines</dt>
+        <dd>{String(result.info.privateKeyHasRealNewlines ?? false)}</dd>
+        <dt>Raw JSON length</dt>
+        <dd>{result.info.credentialsRawLength ?? '—'}</dd>
+      </dl>
+      {ok && result.processorIdsFound && (
+        <div>
+          <div className="font-medium">Processor IDs found in project:</div>
+          <ul className="list-disc list-inside font-mono text-[11px]">
+            {result.processorIdsFound.map((id) => (
+              <li
+                key={id}
+                className={
+                  id === result.info.processorId
+                    ? 'text-emerald-700 font-bold'
+                    : ''
+                }
+              >
+                {id}
+                {id === result.info.processorId && ' ← matches env var ✓'}
+              </li>
+            ))}
+          </ul>
+          {result.targetProcessorPresent === false && (
+            <div className="text-red-700 font-medium mt-1">
+              ⚠ Env var processor ID is NOT in this project/location — that&apos;s
+              the bug.
+            </div>
+          )}
+        </div>
+      )}
+      {!ok && result.rawError && (
+        <details>
+          <summary className="cursor-pointer">Raw error</summary>
+          <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] bg-white/50 p-2 rounded">
+            {result.rawError}
+          </pre>
+        </details>
+      )}
+    </div>
   );
 }
 

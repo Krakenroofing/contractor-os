@@ -334,6 +334,136 @@ function parseMoney(v: EntityValue): number | undefined {
   return undefined;
 }
 
+// ===== Diagnostic helpers (Phase 6.2 troubleshooting) =====
+
+export type DocumentAiDiagnosis = {
+  ok: boolean;
+  info: {
+    projectId?: string;
+    location?: string;
+    processorId?: string;
+    serviceAccountEmail?: string;
+    privateKeyId?: string;
+    privateKeyStartsWith?: string;
+    privateKeyEndsWith?: string;
+    privateKeyLength?: number;
+    privateKeyHasRealNewlines?: boolean;
+    credentialsRawLength?: number;
+  };
+  step: 'config' | 'parse' | 'shape' | 'listProcessors' | 'ok';
+  detail?: string;
+  processorCount?: number;
+  processorIdsFound?: string[];
+  targetProcessorPresent?: boolean;
+  rawError?: string;
+};
+
+/**
+ * End-to-end connectivity test for Document AI. Bypasses processDocument
+ * (which can fail opaquely) and just calls listProcessors — a simpler API
+ * that exercises auth + transport without the document-processing layer.
+ *
+ * Reports every relevant config field so we can sanity-check the JSON
+ * pasted into Vercel against what GCP says.
+ */
+export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
+  const cfg = readConfig();
+  if (!cfg) {
+    return {
+      ok: false,
+      step: 'config',
+      detail:
+        'One or more env vars missing: GOOGLE_DOCUMENT_AI_PROJECT_ID, _LOCATION, _PROCESSOR_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON.',
+      info: {},
+    };
+  }
+
+  let parsed: {
+    client_email?: string;
+    private_key?: string;
+    private_key_id?: string;
+    project_id?: string;
+  };
+  try {
+    parsed = JSON.parse(cfg.credentialsJson);
+  } catch (err) {
+    return {
+      ok: false,
+      step: 'parse',
+      detail: err instanceof Error ? err.message : 'JSON parse failed',
+      info: {
+        projectId: cfg.projectId,
+        location: cfg.location,
+        processorId: cfg.processorId,
+        credentialsRawLength: cfg.credentialsJson.length,
+      },
+    };
+  }
+
+  const info: DocumentAiDiagnosis['info'] = {
+    projectId: cfg.projectId,
+    location: cfg.location,
+    processorId: cfg.processorId,
+    serviceAccountEmail: parsed.client_email,
+    privateKeyId: parsed.private_key_id,
+    privateKeyStartsWith: parsed.private_key?.slice(0, 28),
+    privateKeyEndsWith: parsed.private_key?.slice(-26),
+    privateKeyLength: parsed.private_key?.length,
+    // After JSON.parse, escape sequences like \n become real newlines.
+    // If this is false, the private key was pasted in a way that lost
+    // its newlines — auth will fail at JWT signing.
+    privateKeyHasRealNewlines: parsed.private_key?.includes('\n') ?? false,
+    credentialsRawLength: cfg.credentialsJson.length,
+  };
+
+  if (!parsed.client_email || !parsed.private_key) {
+    return {
+      ok: false,
+      step: 'shape',
+      detail: 'Parsed JSON is missing client_email or private_key.',
+      info,
+    };
+  }
+
+  // Try listProcessors — a simple API call that exercises auth + transport
+  // without invoking the document-processing layer.
+  try {
+    const client = getClient(cfg.location, cfg.credentialsJson);
+    const parent = `projects/${cfg.projectId}/locations/${cfg.location}`;
+    const [processors] = await client.listProcessors({ parent });
+    const ids = processors
+      .map((p) => p.name?.split('/').pop())
+      .filter((v): v is string => typeof v === 'string');
+    return {
+      ok: true,
+      step: 'ok',
+      info,
+      processorCount: processors.length,
+      processorIdsFound: ids,
+      targetProcessorPresent: ids.includes(cfg.processorId),
+    };
+  } catch (err) {
+    let rawError: string;
+    try {
+      const util = await import('node:util');
+      rawError = util.inspect(err, { depth: 6, showHidden: true, colors: false });
+    } catch {
+      rawError = String(err);
+    }
+    console.error('[document-ai] diagnose listProcessors failed:', rawError);
+    return {
+      ok: false,
+      step: 'listProcessors',
+      detail:
+        err instanceof Error && err.message && err.message !== 'undefined undefined: undefined'
+          ? err.message
+          : 'listProcessors threw an unparseable error (see Vercel logs for [document-ai] diagnose listProcessors failed).',
+      info,
+      rawError,
+    };
+  }
+}
+
 function normalizeDate(v: EntityValue): string | undefined {
   if (v.date && v.date.year && v.date.month && v.date.day) {
     const y = v.date.year.toString().padStart(4, '0');

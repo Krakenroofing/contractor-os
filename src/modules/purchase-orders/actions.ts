@@ -33,6 +33,10 @@ import {
   type ExtractedPo,
 } from '@/lib/ocr/po-extract';
 import {
+  diagnoseDocumentAi,
+  type DocumentAiDiagnosis,
+} from '@/lib/ocr/document-ai';
+import {
   ALLOWED_RECEIPT_MIME,
   MAX_RECEIPT_BYTES,
   deleteReceiptBlob,
@@ -662,4 +666,22 @@ export async function createPoFromExtractedAction(
   revalidatePath('/dashboard');
   revalidatePath(`/projects/${data.projectId}`);
   redirect(`/purchase-orders/${createdId}`);
+}
+
+// ===== Diagnostic: connectivity test for Document AI =====
+// Bypasses processDocument and calls listProcessors instead — isolates auth
+// / transport / API-enabled issues from the document-processing path so we
+// can tell whether an extraction failure is a credentials problem or a
+// processor-specific one.
+
+export type DocumentAiDiagnosisState = DocumentAiDiagnosis | { ok: false; formError: string };
+
+export async function runDocumentAiDiagnosisAction(
+  _prev: DocumentAiDiagnosisState | null,
+): Promise<DocumentAiDiagnosisState> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { ok: false, formError: 'No permission.' };
+  }
+  return await diagnoseDocumentAi();
 }
