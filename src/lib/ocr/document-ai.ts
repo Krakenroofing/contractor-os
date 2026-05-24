@@ -126,6 +126,26 @@ export async function extractReceipt(input: {
       },
     });
   } catch (err) {
+    // Dump the raw error before we wrap it so the underlying SDK / gRPC
+    // shape lands in Vercel logs verbatim, even when the SDK's own
+    // formatter produces nothing useful. inspect() handles non-enumerable
+    // props and circular refs that JSON.stringify can't.
+    try {
+      const util = await import('node:util');
+      console.error(
+        '[document-ai] processDocument raw error:',
+        util.inspect(err, { depth: 6, showHidden: true, colors: false }),
+        '\n[document-ai] typeof:',
+        typeof err,
+        '\n[document-ai] ownPropertyNames:',
+        err && typeof err === 'object'
+          ? Object.getOwnPropertyNames(err as object)
+          : '(non-object)',
+      );
+    } catch (logErr) {
+      console.error('[document-ai] failed to dump raw error', logErr);
+    }
+
     // The Google SDK wraps gRPC failures in GoogleError with .code / .details.
     // When those are missing the default .message renders as
     // "undefined undefined: undefined" which is useless to the operator.
@@ -135,6 +155,8 @@ export async function extractReceipt(input: {
       details?: string;
       message?: string;
       reason?: string;
+      statusDetails?: unknown;
+      metadata?: unknown;
     } | null;
     const parts: string[] = [];
     if (e?.code !== undefined && e.code !== null) parts.push(`code=${e.code}`);
@@ -146,7 +168,7 @@ export async function extractReceipt(input: {
     const detail =
       parts.length > 0
         ? parts.join(' · ')
-        : `Document AI did not return a usable error. Most common cause: the configured processor (GOOGLE_DOCUMENT_AI_PROCESSOR_ID=${cfg.processorId.slice(0, 6)}…) is not a Receipt/Expense/Invoice parser in the ${cfg.location} region of project ${cfg.projectId}, or the service account lacks the "Document AI API User" role.`;
+        : `Document AI did not return a usable error. Check the Vercel logs for "[document-ai] processDocument raw error" — that line has the full SDK error object. Most common causes: the configured processor (GOOGLE_DOCUMENT_AI_PROCESSOR_ID=${cfg.processorId.slice(0, 6)}…) is not a Receipt/Expense/Invoice parser in the ${cfg.location} region of project ${cfg.projectId}, the service account lacks the "Document AI API User" role, or the PDF exceeds the processor's sync size/page limit.`;
     throw new Error(`Document AI call failed: ${detail}`);
   }
 
