@@ -11,10 +11,12 @@ import {
   archiveInventoryItem,
   bulkInsertInventoryItems,
   createInventoryItem,
+  getInventoryItem,
   unarchiveInventoryItem,
   updateInventoryItem,
   type CreateInventoryItemInput,
 } from '@/lib/data/inventory-items';
+import { recordInventoryMovement } from '@/lib/data/inventory-movements';
 import { inventoryItemFormSchema } from './schema';
 
 export type InventoryItemState = {
@@ -229,4 +231,72 @@ export async function importInventoryItemsAction(
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to import: ${message}` };
   }
+}
+
+// ===== Phase 6.3: manual inventory adjustments =====
+
+const adjustmentSchema = z.object({
+  inventoryItemId: z.string().uuid('Invalid product id'),
+  delta: z
+    .string()
+    .refine(
+      (v) => v.trim() !== '' && !Number.isNaN(Number(v)) && Number(v) !== 0,
+      { message: 'Enter a non-zero number (use a leading minus for write-offs)' },
+    ),
+  reason: z.string().min(1, 'Add a short reason').max(500),
+});
+
+export type RecordAdjustmentState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+export async function recordInventoryAdjustmentAction(
+  _prev: RecordAdjustmentState,
+  formData: FormData,
+): Promise<RecordAdjustmentState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { formError: 'You do not have permission to adjust inventory.' };
+  }
+
+  const parsed = adjustmentSchema.safeParse({
+    inventoryItemId: formData.get('inventoryItemId'),
+    delta: formData.get('delta'),
+    reason: formData.get('reason'),
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const item = await getInventoryItem(companyId, parsed.data.inventoryItemId);
+  if (!item) {
+    return { formError: 'Product not found in the active company.' };
+  }
+
+  const delta = Number(parsed.data.delta);
+
+  try {
+    await recordInventoryMovement({
+      companyId,
+      inventoryItemId: item.id,
+      quantity: delta.toFixed(4),
+      movementType: 'adjustment',
+      occurredAt: new Date(),
+      createdByUserId: user.id,
+      notes: parsed.data.reason.trim(),
+      poReceiptLineId: null,
+      projectId: null,
+      reversalOfId: null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to record adjustment: ${message}` };
+  }
+
+  revalidatePath('/inventory');
+  revalidatePath(`/inventory/${item.id}`);
+  return {};
 }

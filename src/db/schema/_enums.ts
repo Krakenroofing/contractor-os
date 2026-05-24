@@ -254,3 +254,15 @@ export const documentCategoryEnum = pgEnum('document_category', [
   'financial',
   'other',
 ]);
+
+// Phase 6.3: types of inventory_movements ledger rows. Signed quantity
+// convention: 'received' / 'adjustment' / 'transfer_in' are positive,
+// 'issued_to_job' / 'transfer_out' are negative. 'adjustment' is the
+// only one that can be either sign (over-count vs short-count).
+export const inventoryMovementTypeEnum = pgEnum('inventory_movement_type', [
+  'received',
+  'issued_to_job',
+  'adjustment',
+  'transfer_in',
+  'transfer_out',
+]);

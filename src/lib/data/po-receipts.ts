@@ -20,8 +20,9 @@
 // than cost recognition.
 
 import 'server-only';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import {
+  inventoryMovements,
   poReceipts,
   poReceiptLines,
   purchaseOrderLines,
@@ -136,13 +137,16 @@ export async function createPoReceipt(
     const nonZeroLines = input.lines.filter((l) => l.quantityReceived > 0);
 
     if (nonZeroLines.length > 0) {
-      await tx.insert(poReceiptLines).values(
-        nonZeroLines.map((l) => ({
-          receiptId,
-          poLineId: l.poLineId,
-          quantityReceived: l.quantityReceived.toFixed(4),
-        })),
-      );
+      const insertedReceiptLines = await tx
+        .insert(poReceiptLines)
+        .values(
+          nonZeroLines.map((l) => ({
+            receiptId,
+            poLineId: l.poLineId,
+            quantityReceived: l.quantityReceived.toFixed(4),
+          })),
+        )
+        .returning({ id: poReceiptLines.id, poLineId: poReceiptLines.poLineId });
 
       // Bump per-line quantity_received in one statement each. Small N
       // (lines per PO), so the per-row update is fine.
@@ -153,6 +157,52 @@ export async function createPoReceipt(
             quantityReceived: sql`${purchaseOrderLines.quantityReceived} + ${l.quantityReceived.toFixed(4)}`,
           })
           .where(eq(purchaseOrderLines.id, l.poLineId));
+      }
+
+      // Phase 6.3: write inventory ledger movements for the subset of
+      // received lines whose PO line references an inventory item. Free-text
+      // PO lines (no inventory_item_id) don't generate stock movements —
+      // they're cost-only.
+      const poLineIds = nonZeroLines.map((l) => l.poLineId);
+      const linkedPoLines = await tx
+        .select({
+          id: purchaseOrderLines.id,
+          inventoryItemId: purchaseOrderLines.inventoryItemId,
+        })
+        .from(purchaseOrderLines)
+        .where(
+          and(
+            inArray(purchaseOrderLines.id, poLineIds),
+            isNotNull(purchaseOrderLines.inventoryItemId),
+          ),
+        );
+      const itemByPoLine = new Map<string, string>();
+      for (const pl of linkedPoLines) {
+        if (pl.inventoryItemId) itemByPoLine.set(pl.id, pl.inventoryItemId);
+      }
+
+      const movementRows = [];
+      for (const rl of insertedReceiptLines) {
+        const itemId = itemByPoLine.get(rl.poLineId);
+        if (!itemId) continue;
+        const qty = nonZeroLines.find((n) => n.poLineId === rl.poLineId)
+          ?.quantityReceived;
+        if (qty === undefined || qty <= 0) continue;
+        movementRows.push({
+          companyId,
+          inventoryItemId: itemId,
+          quantity: qty.toFixed(4),
+          movementType: 'received' as const,
+          occurredAt: input.receivedAt,
+          createdByUserId: input.receivedByUserId,
+          notes: null,
+          poReceiptLineId: rl.id,
+          projectId: null,
+          reversalOfId: null,
+        });
+      }
+      if (movementRows.length > 0) {
+        await tx.insert(inventoryMovements).values(movementRows);
       }
     }
 
@@ -259,7 +309,42 @@ export async function deletePoReceipt(
         .where(eq(purchaseOrderLines.id, l.poLineId));
     }
 
-    // Cascading delete on receipt_lines via FK ON DELETE CASCADE.
+    // Phase 6.3: write reversal movements BEFORE the cascade fires, so the
+    // ledger SUM goes back to zero (original +qty + reversal -qty) and the
+    // history shows both rows. The ON DELETE SET NULL on po_receipt_line_id
+    // means the original row stays in the ledger after the cascade, with its
+    // source link nulled out — reversal_of_id still points at it.
+    if (lineRows.length > 0) {
+      const originals = await tx
+        .select()
+        .from(inventoryMovements)
+        .where(
+          inArray(
+            inventoryMovements.poReceiptLineId,
+            lineRows.map((l) => l.id),
+          ),
+        );
+      if (originals.length > 0) {
+        await tx.insert(inventoryMovements).values(
+          originals.map((m) => ({
+            companyId: m.companyId,
+            inventoryItemId: m.inventoryItemId,
+            quantity: `-${m.quantity}`,
+            movementType: m.movementType,
+            occurredAt: new Date(),
+            createdByUserId: null,
+            notes: 'Reversal — receipt undone',
+            poReceiptLineId: null,
+            projectId: null,
+            reversalOfId: m.id,
+          })),
+        );
+      }
+    }
+
+    // Cascading delete on receipt_lines via FK ON DELETE CASCADE; the
+    // inventory_movements.po_receipt_line_id FK is SET NULL so originals
+    // survive with a null source link (see Phase 6.3 reversal above).
     await tx.delete(poReceipts).where(eq(poReceipts.id, receiptId));
 
     const refreshedLines = await tx

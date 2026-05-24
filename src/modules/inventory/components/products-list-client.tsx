@@ -23,6 +23,10 @@ export type ProductRow = {
   defaultCost: number;
   isTaxable: boolean;
   archived: boolean;
+  // Phase 6.3: on-hand quantity rolled up from inventory_movements.
+  // 0 when there have been no movements (item still in catalog but never
+  // received or adjusted).
+  onHand: number;
 };
 
 export function ProductsListClient({ products }: { products: ProductRow[] }) {
@@ -93,6 +97,7 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
               <TableHead>Category</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>Unit</TableHead>
+              <TableHead className="text-right">On hand</TableHead>
               <TableHead className="text-right">Default cost</TableHead>
               <TableHead>Tax</TableHead>
             </TableRow>
@@ -100,7 +105,7 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-slate-500 py-8">
+                <TableCell colSpan={7} className="text-center text-slate-500 py-8">
                   No products match your search.
                 </TableCell>
               </TableRow>
@@ -123,6 +128,17 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
                   <TableCell className="text-slate-600">{p.category ?? '—'}</TableCell>
                   <TableCell className="text-slate-600">{p.sku ?? '—'}</TableCell>
                   <TableCell className="text-slate-600">{p.unit ?? '—'}</TableCell>
+                  <TableCell
+                    className={`text-right tabular-nums ${
+                      p.onHand < 0
+                        ? 'text-red-700 font-medium'
+                        : p.onHand === 0
+                          ? 'text-slate-400'
+                          : 'text-slate-900'
+                    }`}
+                  >
+                    {p.onHand.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatMoney(p.defaultCost)}
                   </TableCell>

@@ -4,6 +4,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listInventoryItems } from '@/lib/data/inventory-items';
+import { getOnHandMap } from '@/lib/data/inventory-movements';
 import { ProductsListClient } from '@/modules/inventory/components/products-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,10 @@ export default async function InventoryPage() {
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'inventory');
   const items = await listInventoryItems(companyId, { includeArchived: true });
+  const onHandMap = await getOnHandMap(
+    companyId,
+    items.map((i) => i.id),
+  );
   const rows = items.map((p) => ({
     id: p.id,
     name: p.name,
@@ -22,6 +27,7 @@ export default async function InventoryPage() {
     defaultCost: Number(p.defaultCost),
     isTaxable: p.isTaxable,
     archived: p.archivedAt !== null,
+    onHand: onHandMap.get(p.id) ?? 0,
   }));
 
   const activeCount = rows.filter((r) => !r.archived).length;
