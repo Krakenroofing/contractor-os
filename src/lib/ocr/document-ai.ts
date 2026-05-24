@@ -132,6 +132,36 @@ export async function extractReceipt(input: {
     // props and circular refs that JSON.stringify can't.
     try {
       const util = await import('node:util');
+      // The metadata field is a gRPC Metadata instance whose contents are
+      // the actual server-side error info (often grpc-status-details-bin
+      // with a binary protobuf, or text headers like google-cloud-resource-prefix).
+      // Extract it explicitly so we don't have to read minified inspect output.
+      let metadataDump: unknown = '(none)';
+      const meta = (err as { metadata?: { getMap?: () => unknown; internalRepr?: unknown } } | null)
+        ?.metadata;
+      if (meta) {
+        if (typeof meta.getMap === 'function') {
+          try {
+            metadataDump = meta.getMap();
+          } catch {
+            metadataDump = '(getMap threw)';
+          }
+        } else if (meta.internalRepr) {
+          try {
+            // internalRepr is a Map<string, Buffer[]> on @grpc/grpc-js
+            const m = meta.internalRepr as Map<string, unknown[]>;
+            const out: Record<string, string[]> = {};
+            for (const [k, v] of m.entries()) {
+              out[k] = v.map((b) =>
+                Buffer.isBuffer(b) ? `<Buffer ${b.length}B>` : String(b),
+              );
+            }
+            metadataDump = out;
+          } catch {
+            metadataDump = '(internalRepr parse failed)';
+          }
+        }
+      }
       console.error(
         '[document-ai] processDocument raw error:',
         util.inspect(err, { depth: 6, showHidden: true, colors: false }),
@@ -141,6 +171,8 @@ export async function extractReceipt(input: {
         err && typeof err === 'object'
           ? Object.getOwnPropertyNames(err as object)
           : '(non-object)',
+        '\n[document-ai] metadata:',
+        util.inspect(metadataDump, { depth: 4, colors: false }),
       );
     } catch (logErr) {
       console.error('[document-ai] failed to dump raw error', logErr);

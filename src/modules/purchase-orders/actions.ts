@@ -407,7 +407,44 @@ export async function extractPoPdfAction(
     };
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bytes = new Uint8Array(await file.arrayBuffer());
+
+  // Document AI's processor backend can return a malformed gRPC status
+  // when the source PDF has structural quirks (encryption-with-empty-
+  // password, linearization / Fast Web View, PDF/A export, trailing
+  // bytes past %%EOF, vendor "form-fillable" templates, etc.). The
+  // receipts pipeline avoids this by re-creating a fresh single-page
+  // PDF via pdf-lib before extraction. Do the same here for PDF
+  // uploads so we get the same reliability. Images pass through
+  // unchanged — Document AI handles JPG/PNG/HEIC directly.
+  if (mime === 'application/pdf') {
+    try {
+      const { PDFDocument } = await import('pdf-lib');
+      const source = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const totalPages = source.getPageCount();
+      if (totalPages === 0) {
+        return { formError: 'PDF has no pages.' };
+      }
+      // Document AI sync processors typically cap at 10 pages. Vendor
+      // estimates are almost always 1–3 pages; if the user uploads a
+      // long PDF, take the first 10 pages so the extraction can still
+      // run on the cover/line-item content.
+      const pageCount = Math.min(totalPages, 10);
+      const clean = await PDFDocument.create();
+      const copied = await clean.copyPages(
+        source,
+        Array.from({ length: pageCount }, (_, i) => i),
+      );
+      for (const p of copied) clean.addPage(p);
+      const cleanBytes = await clean.save();
+      bytes = new Uint8Array(cleanBytes);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'unknown error';
+      return {
+        formError: `Could not parse the PDF before extraction: ${detail}. Try re-exporting it from the original app, or take a phone photo of each page and upload those instead.`,
+      };
+    }
+  }
 
   const companyId = await getActiveCompanyId();
   // Park the source in the receipt-files bucket while the user reviews the
