@@ -24,7 +24,27 @@ import {
   createPoReceipt,
   deletePoReceipt,
 } from '@/lib/data/po-receipts';
-import { poReceiptFormSchema, purchaseOrderFormSchema } from './schema';
+import { createProjectDocument } from '@/lib/data/project-documents';
+import { getProject } from '@/lib/data/projects';
+import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import {
+  extractPurchaseOrderFromPdf,
+  isOcrConfigured,
+  type ExtractedPo,
+} from '@/lib/ocr/po-extract';
+import {
+  ALLOWED_RECEIPT_MIME,
+  MAX_RECEIPT_BYTES,
+  deleteReceiptBlob,
+  downloadReceiptBlob,
+  uploadReceiptFile,
+} from '@/lib/storage/receipt-files';
+import { uploadProjectDocument } from '@/lib/storage/project-documents';
+import {
+  createPoFromExtractedSchema,
+  poReceiptFormSchema,
+  purchaseOrderFormSchema,
+} from './schema';
 
 export type CreatePurchaseOrderState = {
   errors?: Record<string, string[]>;
@@ -342,4 +362,253 @@ export async function deletePoReceiptAction(
 
   revalidatePOPaths(po.id, po.projectId);
   return {};
+}
+
+// ===== PDF upload + create-from-extracted (Phase 6.2) =====
+
+export type ExtractPoPdfState = {
+  formError?: string;
+  extracted?: ExtractedPo;
+  source?: {
+    storagePath: string;
+    fileName: string;
+    mimeType: string;
+    byteSize: number;
+  };
+};
+
+export async function extractPoPdfAction(
+  _prev: ExtractPoPdfState,
+  formData: FormData,
+): Promise<ExtractPoPdfState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { formError: 'You do not have permission to create purchase orders.' };
+  }
+  if (!isOcrConfigured()) {
+    return {
+      formError:
+        'PDF extraction is not configured on this environment. Use the manual or Excel-upload flow instead.',
+    };
+  }
+
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) {
+    return { formError: 'Choose a PDF (or image) of the estimate to upload.' };
+  }
+  if (file.size > MAX_RECEIPT_BYTES) {
+    return { formError: 'File too large (max 25 MB).' };
+  }
+  const mime = (file.type || 'application/octet-stream').toLowerCase();
+  if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+    return {
+      formError: `Unsupported file type ${mime}. Use PDF or a phone photo (JPG/PNG/HEIC).`,
+    };
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+
+  const companyId = await getActiveCompanyId();
+  // Park the source in the receipt-files bucket while the user reviews the
+  // extracted preview. On PO creation we re-upload to project-documents
+  // (tied to the chosen project) and delete this temp copy.
+  let upload: { storagePath: string };
+  try {
+    upload = await uploadReceiptFile({
+      companyId,
+      bytes,
+      mimeType: mime,
+      originalFileName: file.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Could not stash the file for processing: ${message}` };
+  }
+
+  let extracted: ExtractedPo;
+  try {
+    extracted = await extractPurchaseOrderFromPdf({ bytes, mimeType: mime });
+  } catch (err) {
+    // Best-effort cleanup so a failed extraction doesn't leave the temp
+    // file behind.
+    await deleteReceiptBlob(upload.storagePath).catch(() => {});
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Extraction failed: ${message}` };
+  }
+
+  return {
+    extracted,
+    source: {
+      storagePath: upload.storagePath,
+      fileName: file.name,
+      mimeType: mime,
+      byteSize: bytes.byteLength,
+    },
+  };
+}
+
+export type CreatePoFromExtractedState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+async function nextPoNumberForCompany(companyId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const existing = await listPurchaseOrders(companyId);
+  const matching = existing
+    .map((p) => p.number)
+    .filter((n) => n.startsWith(`PO-${year}-`))
+    .map((n) => Number(n.slice(`PO-${year}-`.length)))
+    .filter((n) => Number.isFinite(n));
+  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
+  return `PO-${year}-${String(next).padStart(3, '0')}`;
+}
+
+export async function createPoFromExtractedAction(
+  _prev: CreatePoFromExtractedState,
+  formData: FormData,
+): Promise<CreatePoFromExtractedState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { formError: 'You do not have permission to create purchase orders.' };
+  }
+
+  let parsedLines: unknown;
+  try {
+    const linesJson = formData.get('lines');
+    parsedLines = typeof linesJson === 'string' ? JSON.parse(linesJson) : [];
+  } catch {
+    return { formError: 'Could not read line items.' };
+  }
+
+  const parsed = createPoFromExtractedSchema.safeParse({
+    number: formData.get('number'),
+    vendorId: formData.get('vendorId'),
+    projectId: formData.get('projectId'),
+    issueDate: formData.get('issueDate') ?? '',
+    expectedDeliveryDate: formData.get('expectedDeliveryDate') ?? '',
+    taxAmount: formData.get('taxAmount') ?? '0',
+    shipping: formData.get('shipping') ?? '0',
+    notes: formData.get('notes') ?? '',
+    lines: parsedLines,
+    sourceStoragePath: formData.get('sourceStoragePath'),
+    sourceFileName: formData.get('sourceFileName'),
+    sourceMimeType: formData.get('sourceMimeType'),
+    sourceByteSize: formData.get('sourceByteSize'),
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+  const data = parsed.data;
+
+  const companyId = await getActiveCompanyId();
+  const project = await getProject(companyId, data.projectId);
+  if (!project) {
+    return { formError: 'Selected project not found in this company.' };
+  }
+
+  // Compute money totals from the parsed lines.
+  const numericLines = data.lines.map((l) => ({
+    quantityOrdered: Number(l.quantity),
+    unitCost: Number(l.unitCost),
+  }));
+  const totals = calcPOTotals({
+    lines: numericLines,
+    taxAmount: Number(data.taxAmount),
+    shipping: Number(data.shipping),
+  });
+  const persistLines = data.lines.map((l, i) => ({
+    costCodeId: l.costCodeId,
+    inventoryItemId: l.inventoryItemId && l.inventoryItemId !== '' ? l.inventoryItemId : null,
+    description: l.description,
+    unit: l.unit && l.unit !== '' ? l.unit : null,
+    quantityOrdered: toQuantityString(numericLines[i].quantityOrdered),
+    unitCost: toQuantityString(numericLines[i].unitCost),
+    lineTotal: toMoneyString(multiply(numericLines[i].quantityOrdered, numericLines[i].unitCost)),
+  }));
+
+  // Resolve final PO number — caller may submit blank, fall through to the
+  // server-generated next-in-sequence to avoid collisions.
+  const requestedNumber = data.number.trim();
+  const finalNumber =
+    requestedNumber !== '' ? requestedNumber : await nextPoNumberForCompany(companyId);
+
+  let createdId: string;
+  try {
+    const po = await createPurchaseOrder(companyId, {
+      number: finalNumber,
+      projectId: data.projectId,
+      vendorId: data.vendorId,
+      landedCostEntryId: null,
+      status: 'draft',
+      issueDate: data.issueDate?.trim() || null,
+      expectedDeliveryDate: data.expectedDeliveryDate?.trim() || null,
+      notes: data.notes?.trim() || null,
+      subtotal: toMoneyString(totals.subtotal),
+      taxAmount: toMoneyString(totals.taxAmount),
+      shipping: toMoneyString(totals.shipping),
+      total: toMoneyString(totals.total),
+      lines: persistLines,
+    });
+    createdId = po.id;
+  } catch (err) {
+    if (err instanceof DuplicatePONumberError) {
+      return { errors: { number: ['That PO number is already used'] } };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to create purchase order: ${message}` };
+  }
+
+  // Move the source PDF from the receipt-files temp bucket to the
+  // project-documents bucket, then record a project_documents row so the
+  // user can re-open the original estimate later. Failures here don't roll
+  // back the PO — log the issue but keep the PO around.
+  try {
+    const blob = await downloadReceiptBlob(data.sourceStoragePath);
+    if (blob) {
+      const docUpload = await uploadProjectDocument({
+        companyId,
+        projectId: data.projectId,
+        bytes: blob.bytes,
+        mimeType: data.sourceMimeType,
+        originalFileName: data.sourceFileName,
+      });
+      await createProjectDocument({
+        companyId,
+        projectId: data.projectId,
+        uploadedBy: user.id,
+        fileName: data.sourceFileName,
+        originalFileName: data.sourceFileName,
+        storagePath: docUpload.storagePath,
+        mimeType: data.sourceMimeType,
+        byteSize: data.sourceByteSize,
+        category: 'estimate',
+        description: `Source PDF for PO ${finalNumber}`,
+        visibleToClient: false,
+        parentDocumentId: null,
+        versionNumber: 1,
+        isCurrentVersion: true,
+        sortOrder: 0,
+      });
+      await deleteReceiptBlob(data.sourceStoragePath).catch(() => {});
+    }
+  } catch {
+    // Storage hiccup shouldn't take the PO down with it — the user can
+    // re-upload the source manually in the project documents view.
+  }
+
+  appendActivity(companyId, {
+    entityType: 'purchase_order',
+    entityId: createdId,
+    kind: 'po_created_from_pdf',
+    summary: `Draft PO ${finalNumber} created from uploaded estimate (${data.sourceFileName})`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePath('/purchase-orders');
+  revalidatePath('/dashboard');
+  revalidatePath(`/projects/${data.projectId}`);
+  redirect(`/purchase-orders/${createdId}`);
 }

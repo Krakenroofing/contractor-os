@@ -103,6 +103,15 @@ export default async function PurchaseOrderDetailPage({
               </Button>
             </Link>
           )}
+          {allowCreate && po.status !== 'void' && (
+            <Link
+              href={{ pathname: '/purchase-orders/new', query: { cloneFrom: po.id } }}
+            >
+              <Button size="sm" variant="outline">
+                Duplicate
+              </Button>
+            </Link>
+          )}
           {allowCreate && (
             <Link href="/purchase-orders/new">
               <Button size="sm">New Purchase Order</Button>

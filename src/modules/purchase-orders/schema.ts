@@ -81,3 +81,37 @@ export const poReceiptFormSchema = z.object({
 });
 
 export type PoReceiptFormParsed = z.output<typeof poReceiptFormSchema>;
+
+// ===== PDF upload + create-from-extracted (Phase 6.2) =====
+
+export const extractedPoLineSchema = z.object({
+  inventoryItemId: z.string().uuid().optional().or(z.literal('')),
+  costCodeId: z.string().uuid('Pick a cost code'),
+  description: z.string().min(1, 'Description is required').max(500),
+  unit: z.string().max(20).optional().or(z.literal('')),
+  quantity: numericString,
+  unitCost: numericString,
+});
+
+export const createPoFromExtractedSchema = z.object({
+  // PO header
+  number: z.string().min(1, 'PO number is required').max(50),
+  vendorId: z.string().uuid('Pick a vendor'),
+  projectId: z.string().uuid('Pick a project'),
+  issueDate: z.string().optional().or(z.literal('')),
+  expectedDeliveryDate: z.string().optional().or(z.literal('')),
+  taxAmount: numericString,
+  shipping: numericString,
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  lines: z.array(extractedPoLineSchema).min(1, 'At least one line item is required'),
+
+  // Source PDF info — produced by extractPoPdfAction and round-tripped via
+  // hidden inputs so we can re-upload it as a project document after the
+  // PO exists (and clean up the temp file).
+  sourceStoragePath: z.string().min(1),
+  sourceFileName: z.string().min(1),
+  sourceMimeType: z.string().min(1),
+  sourceByteSize: z.coerce.number().int().nonnegative(),
+});
+
+export type CreatePoFromExtractedParsed = z.output<typeof createPoFromExtractedSchema>;

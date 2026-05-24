@@ -7,6 +7,7 @@ import { canCreate } from '@/lib/permissions';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { getProject } from '@/lib/data/projects';
 import { getVendor, listVendors } from '@/lib/data/vendors';
+import { isOcrConfigured } from '@/lib/ocr/po-extract';
 import { PurchaseOrdersListClient } from '@/modules/purchase-orders/components/purchase-orders-list-client';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,7 @@ export default async function PurchaseOrdersPage() {
   );
 
   const vendors = (await listVendors(companyId)).map((v) => ({ id: v.id, label: v.name }));
+  const ocrEnabled = isOcrConfigured();
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
@@ -54,9 +56,16 @@ export default async function PurchaseOrdersPage() {
           </p>
         </div>
         {allowCreate && (
-          <Link href="/purchase-orders/new">
-            <Button>New Purchase Order</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            {ocrEnabled && (
+              <Link href="/purchase-orders/upload">
+                <Button variant="outline">Create from PDF</Button>
+              </Link>
+            )}
+            <Link href="/purchase-orders/new">
+              <Button>New Purchase Order</Button>
+            </Link>
+          </div>
         )}
       </header>
 

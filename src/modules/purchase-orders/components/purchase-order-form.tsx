@@ -16,6 +16,10 @@ import {
   ProductPicker,
   type ProductPickerOption,
 } from '@/modules/inventory/components/product-picker';
+import {
+  PoLinesExcelImportDialog,
+  type ImportedLine,
+} from './po-lines-excel-import-dialog';
 
 const initialState: CreatePurchaseOrderState = {};
 
@@ -46,6 +50,23 @@ function newEmptyLine(): LineDraft {
   };
 }
 
+export type PurchaseOrderFormDefaults = {
+  vendorId?: string;
+  projectId?: string;
+  landedCostEntryId?: string;
+  notes?: string;
+  taxAmount?: string;
+  shipping?: string;
+  lines?: Array<{
+    inventoryItemId: string;
+    costCodeId: string;
+    description: string;
+    unit: string;
+    quantity: string;
+    unitCost: string;
+  }>;
+};
+
 export function PurchaseOrderForm({
   projects,
   vendors,
@@ -53,6 +74,7 @@ export function PurchaseOrderForm({
   landedCosts,
   products,
   defaultNumber,
+  defaults,
 }: {
   projects: ProjectOption[];
   vendors: VendorOption[];
@@ -60,15 +82,56 @@ export function PurchaseOrderForm({
   landedCosts: LandedCostOption[];
   products: ProductPickerOption[];
   defaultNumber: string;
+  defaults?: PurchaseOrderFormDefaults;
 }) {
   const [state, formAction, pending] = useActionState(
     createPurchaseOrderAction,
     initialState,
   );
-  const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
-  const [taxAmount, setTaxAmount] = useState('0');
-  const [shipping, setShipping] = useState('0');
-  const [projectId, setProjectId] = useState<string>('');
+  const [lines, setLines] = useState<LineDraft[]>(() => {
+    if (defaults?.lines && defaults.lines.length > 0) {
+      return defaults.lines.map((l) => ({
+        rowId: crypto.randomUUID(),
+        inventoryItemId: l.inventoryItemId,
+        costCodeId: l.costCodeId,
+        description: l.description,
+        unit: l.unit,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+      }));
+    }
+    return [newEmptyLine()];
+  });
+  const [taxAmount, setTaxAmount] = useState(defaults?.taxAmount ?? '0');
+  const [shipping, setShipping] = useState(defaults?.shipping ?? '0');
+  const [projectId, setProjectId] = useState<string>(defaults?.projectId ?? '');
+  const [excelOpen, setExcelOpen] = useState(false);
+
+  // A line is "empty" if the user hasn't touched it — no product, no cost
+  // code, no description, no qty/cost. When importing from Excel we replace
+  // the placeholder line if it's still empty, else append.
+  const isEmptyLine = (l: LineDraft) =>
+    l.inventoryItemId === '' &&
+    l.costCodeId === '' &&
+    l.description.trim() === '' &&
+    (Number(l.quantity) || 0) === 0 &&
+    (Number(l.unitCost) || 0) === 0;
+
+  function appendImported(imported: ImportedLine[]) {
+    const newRows: LineDraft[] = imported.map((l) => ({
+      rowId: crypto.randomUUID(),
+      inventoryItemId: l.inventoryItemId,
+      costCodeId: l.costCodeId,
+      description: l.description,
+      unit: l.unit,
+      quantity: l.quantity,
+      unitCost: l.unitCost,
+    }));
+    setLines((prev) => {
+      const kept = prev.filter((l) => !isEmptyLine(l));
+      return [...kept, ...newRows];
+    });
+  }
 
   const filteredLandedCosts = projectId
     ? landedCosts.filter((l) => l.projectId === projectId || l.projectId === null)
@@ -155,7 +218,7 @@ export function PurchaseOrderForm({
         </Field>
 
         <Field label="Vendor" error={err('vendorId')} required>
-          <Select name="vendorId" required defaultValue="">
+          <Select name="vendorId" required defaultValue={defaults?.vendorId ?? ''}>
             <option value="" disabled>
               {vendors.length === 0 ? 'No vendors yet' : 'Select a vendor'}
             </option>
@@ -189,7 +252,7 @@ export function PurchaseOrderForm({
           label="Linked landed-cost entry (optional)"
           error={err('landedCostEntryId')}
         >
-          <Select name="landedCostEntryId" defaultValue="">
+          <Select name="landedCostEntryId" defaultValue={defaults?.landedCostEntryId ?? ''}>
             <option value="">— None —</option>
             {filteredLandedCosts.map((l) => (
               <option key={l.id} value={l.id}>
@@ -313,7 +376,7 @@ export function PurchaseOrderForm({
           })}
         </div>
 
-        <div>
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -322,8 +385,24 @@ export function PurchaseOrderForm({
           >
             + Add line
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setExcelOpen(true)}
+          >
+            Upload from Excel
+          </Button>
         </div>
       </fieldset>
+
+      <PoLinesExcelImportDialog
+        open={excelOpen}
+        onClose={() => setExcelOpen(false)}
+        products={products}
+        costCodes={costCodes}
+        onInsert={appendImported}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Tax" error={err('taxAmount')}>
@@ -377,6 +456,7 @@ export function PurchaseOrderForm({
           rows={3}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Delivery instructions, ship-to override, etc."
+          defaultValue={defaults?.notes ?? ''}
         />
       </Field>
 

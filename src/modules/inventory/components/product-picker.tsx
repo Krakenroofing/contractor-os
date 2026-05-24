@@ -9,6 +9,9 @@ export type ProductPickerOption = {
   sku: string | null;
   unit: string | null;
   defaultCost: number;
+  // Phase 6.2: surfaced so the Excel/PDF upload dialogs can pre-fill the
+  // matched line's cost code. The picker itself ignores this field.
+  defaultCostCodeId?: string | null;
 };
 
 export type SelectedProduct = {
