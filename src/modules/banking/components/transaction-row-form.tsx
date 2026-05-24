@@ -8,6 +8,10 @@ import {
   updateImportedTransactionAction,
   type BankingActionState,
 } from '../actions';
+import {
+  AccountingAccountPicker,
+  type AccountingAccountOption,
+} from '@/modules/accounting/components/accounting-account-picker';
 
 type Option = { id: string; label: string };
 
@@ -21,7 +25,7 @@ export type TransactionRowFormProps = {
     isIgnored: boolean;
     notes: string | null;
   };
-  categories: Option[];
+  categories: AccountingAccountOption[];
   projects: Option[];
   costCodes: Option[];
   canEdit: boolean;
@@ -55,18 +59,13 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
     <form action={action} className="grid grid-cols-1 md:grid-cols-12 gap-2">
       <input type="hidden" name="id" value={props.id} />
       <div className="md:col-span-3">
-        <Select
+        <AccountingAccountPicker
           name="accountingAccountId"
           value={accountingAccountId}
-          onChange={(e) => setAccountingAccountId(e.target.value)}
-        >
-          <option value="">— uncategorized —</option>
-          {props.categories.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
+          onChange={(id) => setAccountingAccountId(id)}
+          accounts={props.categories}
+          placeholder="— uncategorized —"
+        />
       </div>
       <div className="md:col-span-3">
         <Select

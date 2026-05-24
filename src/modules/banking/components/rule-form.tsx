@@ -25,6 +25,11 @@ import {
 
 type Option = { id: string; label: string };
 
+import {
+  AccountingAccountPicker,
+  type AccountingAccountOption,
+} from '@/modules/accounting/components/accounting-account-picker';
+
 export type RuleFormProps = {
   initial?: {
     id?: string;
@@ -39,7 +44,7 @@ export type RuleFormProps = {
     actions: RuleActionPayload;
   };
   bankAccounts: Option[];
-  categories: Option[];
+  categories: AccountingAccountOption[];
   projects: Option[];
   costCodes: Option[];
 };
@@ -348,24 +353,19 @@ export function RuleForm(props: RuleFormProps) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <Label htmlFor="action_accountingAccountId">Category</Label>
-            <Select
+            <AccountingAccountPicker
               id="action_accountingAccountId"
               name="action_accountingAccountId"
               value={actions.accountingAccountId ?? ''}
-              onChange={(e) =>
+              onChange={(id) =>
                 setActions((a) => ({
                   ...a,
-                  accountingAccountId: e.target.value || null,
+                  accountingAccountId: id || null,
                 }))
               }
-            >
-              <option value="">— none —</option>
-              {props.categories.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
+              accounts={props.categories}
+              placeholder="— none —"
+            />
           </div>
           <div>
             <Label htmlFor="action_projectId">Project</Label>

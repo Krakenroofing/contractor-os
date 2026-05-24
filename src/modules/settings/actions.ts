@@ -13,6 +13,10 @@ import {
   deleteCompanyLogoBlob,
   uploadCompanyLogo,
 } from '@/lib/storage/company-logos';
+import {
+  seedContractorCategoriesForCompany,
+  type SeedContractorCategoriesResult,
+} from '@/lib/seeds/contractor-accounting-categories';
 import { companySettingsFormSchema } from './schema';
 
 export type CompanySettingsState = {
@@ -202,4 +206,37 @@ export async function removeCompanyLogoAction(
   }
   revalidatePath('/', 'layout');
   return { ok: true };
+}
+
+// ===== Phase 1 operational accounting: seed contractor categories =====
+
+export type SeedContractorCategoriesState = {
+  formError?: string;
+  result?: SeedContractorCategoriesResult;
+};
+
+export async function seedContractorCategoriesAction(
+  _prev: SeedContractorCategoriesState,
+  _formData: FormData,
+): Promise<SeedContractorCategoriesState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  // Reuse the 'settings' resource for permissions — anyone who can edit
+  // company settings can install the category structure.
+  if (!canCreate(role, 'settings')) {
+    return { formError: 'You do not have permission to seed accounting categories.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const result = await seedContractorCategoriesForCompany(companyId);
+    revalidatePath('/settings');
+    // Also invalidate any page that renders the category picker so the
+    // new options show up immediately.
+    revalidatePath('/banking/receipts');
+    revalidatePath('/banking/rules');
+    return { result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to seed categories: ${message}` };
+  }
 }

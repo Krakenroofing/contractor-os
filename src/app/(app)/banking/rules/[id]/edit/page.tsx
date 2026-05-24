@@ -10,6 +10,7 @@ import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { RuleForm } from '@/modules/banking/components/rule-form';
+import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
 import { RulePreviewPanel } from '@/modules/banking/components/rule-preview-panel';
 import { toRuleForMatching } from '@/modules/banking/lib/rules';
 
@@ -102,23 +103,11 @@ export default async function EditBankingRulePage({
               id: a.id,
               label: `${a.name} (${a.type === 'credit_card' ? 'CC' : 'Bank'})`,
             }))}
-            categories={accountingAccounts
-              .filter((a) => !a.isArchived)
-              .filter(
-                (a) =>
-                  a.type === 'expense' ||
-                  a.type === 'income' ||
-                  a.type === 'cogs_job_cost' ||
-                  a.type === 'vat_payable' ||
-                  a.type === 'vat_input' ||
-                  a.type === 'owner_equity' ||
-                  a.type === 'uncategorized_income' ||
-                  a.type === 'uncategorized_expense',
-              )
-              .map((a) => ({
-                id: a.id,
-                label: a.code ? `${a.code} — ${a.name}` : a.name,
-              }))}
+            categories={toAccountingAccountOptions(
+              accountingAccounts.filter(
+                (a) => a.type !== 'bank' && a.type !== 'credit_card',
+              ),
+            )}
             projects={projects.map((p) => ({
               id: p.id,
               label: p.name,

@@ -35,6 +35,7 @@ import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
+import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
 import { MatchPanel } from '@/modules/banking/components/match-panel';
 import type { ActiveMatchInfo } from '@/modules/banking/components/match-panel';
@@ -261,23 +262,9 @@ export default async function BankAccountDetailPage({
     }
   }
 
-  const categories = accounts
-    .filter((a) => !a.isArchived)
-    .filter(
-      (a) =>
-        a.type === 'expense' ||
-        a.type === 'income' ||
-        a.type === 'cogs_job_cost' ||
-        a.type === 'vat_payable' ||
-        a.type === 'vat_input' ||
-        a.type === 'owner_equity' ||
-        a.type === 'uncategorized_income' ||
-        a.type === 'uncategorized_expense',
-    )
-    .map((a) => ({
-      id: a.id,
-      label: a.code ? `${a.code} — ${a.name}` : a.name,
-    }));
+  const categories = toAccountingAccountOptions(
+    accounts.filter((a) => a.type !== 'bank' && a.type !== 'credit_card'),
+  );
 
   const projectOptions = projects.map((p) => ({
     id: p.id,

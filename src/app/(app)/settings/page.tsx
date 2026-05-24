@@ -7,6 +7,7 @@ import { getCalcDebug } from '@/lib/calc-debug';
 import { canView, ROLE_LABELS } from '@/lib/permissions';
 import { CompanySettingsForm } from '@/modules/settings/components/company-settings-form';
 import { CompanyLogoUploader } from '@/modules/settings/components/company-logo-uploader';
+import { SeedContractorCategoriesCard } from '@/modules/settings/components/seed-contractor-categories-card';
 import { createSignedLogoUrl } from '@/lib/storage/company-logos';
 
 export const dynamic = 'force-dynamic';
@@ -85,6 +86,8 @@ export default async function SettingsPage() {
           <CompanySettingsForm company={company} />
         </CardContent>
       </Card>
+
+      <SeedContractorCategoriesCard />
 
       <Card>
         <CardHeader>

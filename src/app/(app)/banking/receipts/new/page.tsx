@@ -12,6 +12,7 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listMembersForCompany } from '@/lib/data/memberships';
 import { requireAuth } from '@/lib/auth';
 import { ReceiptForm } from '@/modules/receipts/components/receipt-form';
+import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,12 +76,11 @@ export default async function NewReceiptPage() {
               id: c.id,
               label: `${c.code} — ${c.description}`,
             }))}
-            accountingAccounts={accountingAccounts
-              .filter((a) => !a.isArchived)
-              .map((a) => ({
-                id: a.id,
-                label: a.code ? `${a.code} — ${a.name}` : a.name,
-              }))}
+            accountingAccounts={toAccountingAccountOptions(
+              accountingAccounts.filter(
+                (a) => a.type !== 'bank' && a.type !== 'credit_card',
+              ),
+            )}
             bankAccounts={bankAccounts.map((b) => ({
               id: b.id,
               label: `${b.name} (${b.type === 'credit_card' ? 'CC' : 'Bank'})`,

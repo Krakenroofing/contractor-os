@@ -203,6 +203,20 @@ export const accountingAccountTypeEnum = pgEnum('accounting_account_type', [
   'uncategorized_expense',
 ]);
 
+// Phase 1 operational accounting: every account also belongs to one of the
+// standard financial-statement groups so P&L, dashboards, and reports can
+// aggregate without walking the parent_id tree. Distinct from `type`
+// (which is about usage); see the rollup_group migration for the mapping.
+export const accountRollupGroupEnum = pgEnum('account_rollup_group', [
+  'income',
+  'cogs',
+  'opex',
+  'asset',
+  'liability',
+  'equity',
+  'vat_tax',
+]);
+
 export const bankAccountTypeEnum = pgEnum('bank_account_type', [
   'bank',
   'credit_card',

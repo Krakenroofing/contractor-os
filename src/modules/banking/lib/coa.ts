@@ -16,23 +16,24 @@ type SeedRow = {
   code: string;
   name: string;
   type: AccountingAccount['type'];
+  rollupGroup: AccountingAccount['rollupGroup'];
 };
 
 function baseCoa(): SeedRow[] {
   return [
-    { code: '4000', name: 'Sales / Income', type: 'income' },
-    { code: '4990', name: 'Uncategorized Income', type: 'uncategorized_income' },
-    { code: '5000', name: 'Cost of Goods Sold (Job Cost)', type: 'cogs_job_cost' },
-    { code: '6000', name: 'Operating Expense', type: 'expense' },
-    { code: '6990', name: 'Uncategorized Expense', type: 'uncategorized_expense' },
-    { code: '3000', name: "Owner's Equity", type: 'owner_equity' },
+    { code: '4000', name: 'Sales / Income', type: 'income', rollupGroup: 'income' },
+    { code: '4990', name: 'Uncategorized Income', type: 'uncategorized_income', rollupGroup: 'income' },
+    { code: '5000', name: 'Cost of Goods Sold (Job Cost)', type: 'cogs_job_cost', rollupGroup: 'cogs' },
+    { code: '6000', name: 'Operating Expense', type: 'expense', rollupGroup: 'opex' },
+    { code: '6990', name: 'Uncategorized Expense', type: 'uncategorized_expense', rollupGroup: 'opex' },
+    { code: '3000', name: "Owner's Equity", type: 'owner_equity', rollupGroup: 'equity' },
   ];
 }
 
 function vatCoa(): SeedRow[] {
   return [
-    { code: '2200', name: 'VAT Payable', type: 'vat_payable' },
-    { code: '1300', name: 'VAT Input (Recoverable)', type: 'vat_input' },
+    { code: '2200', name: 'VAT Payable', type: 'vat_payable', rollupGroup: 'vat_tax' },
+    { code: '1300', name: 'VAT Input (Recoverable)', type: 'vat_input', rollupGroup: 'vat_tax' },
   ];
 }
 
@@ -67,6 +68,7 @@ export async function ensureDefaultCoaForCompany(
       code: s.code,
       name: s.name,
       type: s.type,
+      rollupGroup: s.rollupGroup,
       currency,
     }));
   if (toInsert.length > 0) {
@@ -103,6 +105,8 @@ export async function createPairedAccountingAccount(input: {
       code: null,
       name: input.name,
       type: input.type,
+      // Bank accounts are an asset; credit-card balances are a liability.
+      rollupGroup: input.type === 'bank' ? 'asset' : 'liability',
       currency: input.currency,
     })
     .returning();

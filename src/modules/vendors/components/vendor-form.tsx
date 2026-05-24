@@ -1,11 +1,15 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import {
+  AccountingAccountPicker,
+  type AccountingAccountOption,
+} from '@/modules/accounting/components/accounting-account-picker';
 import {
   createVendorAction,
   updateVendorAction,
@@ -87,7 +91,7 @@ export function VendorForm({
   mode?: Mode;
   initial?: VendorFormInitialValues;
   costCodes?: Option[];
-  accountingAccounts?: Option[];
+  accountingAccounts?: AccountingAccountOption[];
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -235,17 +239,10 @@ export function VendorForm({
             label="Default accounting category"
             error={err('defaultAccountingAccountId')}
           >
-            <Select
-              name="defaultAccountingAccountId"
-              defaultValue={values.defaultAccountingAccountId}
-            >
-              <option value="">— none —</option>
-              {accountingAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
-              ))}
-            </Select>
+            <VendorAccountingPickerField
+              initial={values.defaultAccountingAccountId}
+              accounts={accountingAccounts}
+            />
           </Field>
         </div>
       </fieldset>
@@ -292,5 +289,26 @@ function Field({
       {children}
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
+  );
+}
+
+// Small wrapper so the grouped picker can be a controlled component and
+// still submit via the existing form action (hidden mirror of value).
+function VendorAccountingPickerField({
+  initial,
+  accounts,
+}: {
+  initial: string;
+  accounts: AccountingAccountOption[];
+}) {
+  const [value, setValue] = useState(initial);
+  return (
+    <AccountingAccountPicker
+      name="defaultAccountingAccountId"
+      value={value}
+      onChange={setValue}
+      accounts={accounts}
+      placeholder="— none —"
+    />
   );
 }

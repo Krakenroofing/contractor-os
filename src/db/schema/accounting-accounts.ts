@@ -10,7 +10,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { companies } from './companies';
-import { accountingAccountTypeEnum } from './_enums';
+import { accountingAccountTypeEnum, accountRollupGroupEnum } from './_enums';
 
 // Phase 1 lightweight Chart of Accounts. Not a full GL — used only as the
 // "category" target for imported transactions and (Phase 2) receipts. A
@@ -29,6 +29,12 @@ export const accountingAccounts = pgTable(
     code: text('code'),
     name: text('name').notNull(),
     type: accountingAccountTypeEnum('type').notNull(),
+    // Phase 1 operational accounting: financial-statement classification.
+    // Section-header accounts (parent_id IS NULL) use this to label the
+    // group ("Cost of Goods Sold" → cogs); operational lines inherit
+    // semantically from their parent but carry it explicitly for fast
+    // GROUP BY aggregation without tree-walking.
+    rollupGroup: accountRollupGroupEnum('rollup_group').notNull(),
     parentId: uuid('parent_id').references(
       (): AnyPgColumn => accountingAccounts.id,
       { onDelete: 'set null' },
@@ -47,6 +53,10 @@ export const accountingAccounts = pgTable(
     companyTypeIdx: index('accounting_accounts_company_type_idx').on(
       t.companyId,
       t.type,
+    ),
+    companyRollupIdx: index('accounting_accounts_company_rollup_idx').on(
+      t.companyId,
+      t.rollupGroup,
     ),
     companyCodeUniq: uniqueIndex('accounting_accounts_company_code_uniq')
       .on(t.companyId, t.code)

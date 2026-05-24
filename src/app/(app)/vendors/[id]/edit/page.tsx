@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { VendorForm } from '@/modules/vendors/components/vendor-form';
+import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -75,12 +76,11 @@ export default async function EditVendorPage({
           id: c.id,
           label: `${c.code} — ${c.description}`,
         }))}
-        accountingAccounts={accountingAccounts
-          .filter((a) => !a.isArchived)
-          .map((a) => ({
-            id: a.id,
-            label: a.code ? `${a.code} — ${a.name}` : a.name,
-          }))}
+        accountingAccounts={toAccountingAccountOptions(
+          accountingAccounts.filter(
+            (a) => a.type !== 'bank' && a.type !== 'credit_card',
+          ),
+        )}
       />
     </div>
   );

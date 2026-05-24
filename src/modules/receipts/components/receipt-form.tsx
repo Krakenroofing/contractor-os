@@ -18,6 +18,10 @@ import {
   paymentSourceValues,
 } from '../schema';
 import { computeVat } from '../lib/vat';
+import {
+  AccountingAccountPicker,
+  type AccountingAccountOption,
+} from '@/modules/accounting/components/accounting-account-picker';
 
 type Option = { id: string; label: string };
 
@@ -71,7 +75,7 @@ export type ReceiptFormProps = {
   vendors: VendorOption[];
   projects: Option[];
   costCodes: Option[];
-  accountingAccounts: Option[];
+  accountingAccounts: AccountingAccountOption[];
   bankAccounts: Option[];
   /** Members of the active company, for the "Paid by" dropdown. */
   members: Array<{ id: string; label: string }>;
@@ -562,7 +566,7 @@ function LineEditor(props: {
   vatActive: boolean;
   projects: Option[];
   costCodes: Option[];
-  accountingAccounts: Option[];
+  accountingAccounts: AccountingAccountOption[];
   members: Array<{ id: string; label: string }>;
   currentUserId?: string;
   onChange: (patch: Partial<LineState>) => void;
@@ -633,19 +637,12 @@ function LineEditor(props: {
         </div>
         <div>
           <Label>Accounting category</Label>
-          <Select
+          <AccountingAccountPicker
             value={l.accountingAccountId}
-            onChange={(e) =>
-              props.onChange({ accountingAccountId: e.target.value })
-            }
-          >
-            <option value="">— none —</option>
-            {props.accountingAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
-            ))}
-          </Select>
+            onChange={(id) => props.onChange({ accountingAccountId: id })}
+            accounts={props.accountingAccounts}
+            placeholder="— none —"
+          />
         </div>
         <div>
           <Label>Cost type</Label>
