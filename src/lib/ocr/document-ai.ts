@@ -101,12 +101,11 @@ export async function extractReceipt(input: {
 }): Promise<OcrExtractResult> {
   const cfg = readConfig();
   if (!cfg) throw new OcrNotConfiguredError();
-  const client = getClient(cfg.location, cfg.credentialsJson);
 
   // A common misconfiguration: pasting the full resource path
   // (`projects/.../locations/.../processors/<uuid>`) into the env var
   // instead of just the `<uuid>` tail. That double-prefixes below into
-  // garbage and the SDK throws an opaque error. Catch it here with a
+  // garbage and the API throws an opaque error. Catch it here with a
   // clear message instead.
   if (cfg.processorId.includes('/')) {
     throw new Error(
@@ -114,97 +113,97 @@ export async function extractReceipt(input: {
     );
   }
 
-  const name = `projects/${cfg.projectId}/locations/${cfg.location}/processors/${cfg.processorId}`;
-
-  let response;
+  // Use the v1 REST endpoint instead of the @google-cloud/documentai gRPC
+  // client. The gRPC client (via @grpc/grpc-js) does not survive Next.js's
+  // Webpack bundling on Vercel cleanly — every call returns an empty status
+  // ("undefined undefined: undefined") regardless of auth or processor
+  // state. REST works fine with the same credentials and the same API.
+  // See diagnoseDocumentAi() for the test that proved this.
+  let parsed: { client_email?: unknown; private_key?: unknown };
   try {
-    [response] = await client.processDocument({
-      name,
-      rawDocument: {
-        content: Buffer.from(input.bytes),
-        mimeType: input.mimeType,
-      },
-    });
+    parsed = JSON.parse(cfg.credentialsJson) as typeof parsed;
   } catch (err) {
-    // Dump the raw error before we wrap it so the underlying SDK / gRPC
-    // shape lands in Vercel logs verbatim, even when the SDK's own
-    // formatter produces nothing useful. inspect() handles non-enumerable
-    // props and circular refs that JSON.stringify can't.
-    try {
-      const util = await import('node:util');
-      // The metadata field is a gRPC Metadata instance whose contents are
-      // the actual server-side error info (often grpc-status-details-bin
-      // with a binary protobuf, or text headers like google-cloud-resource-prefix).
-      // Extract it explicitly so we don't have to read minified inspect output.
-      let metadataDump: unknown = '(none)';
-      const meta = (err as { metadata?: { getMap?: () => unknown; internalRepr?: unknown } } | null)
-        ?.metadata;
-      if (meta) {
-        if (typeof meta.getMap === 'function') {
-          try {
-            metadataDump = meta.getMap();
-          } catch {
-            metadataDump = '(getMap threw)';
-          }
-        } else if (meta.internalRepr) {
-          try {
-            // internalRepr is a Map<string, Buffer[]> on @grpc/grpc-js
-            const m = meta.internalRepr as Map<string, unknown[]>;
-            const out: Record<string, string[]> = {};
-            for (const [k, v] of m.entries()) {
-              out[k] = v.map((b) =>
-                Buffer.isBuffer(b) ? `<Buffer ${b.length}B>` : String(b),
-              );
-            }
-            metadataDump = out;
-          } catch {
-            metadataDump = '(internalRepr parse failed)';
-          }
-        }
-      }
-      console.error(
-        '[document-ai] processDocument raw error:',
-        util.inspect(err, { depth: 6, showHidden: true, colors: false }),
-        '\n[document-ai] typeof:',
-        typeof err,
-        '\n[document-ai] ownPropertyNames:',
-        err && typeof err === 'object'
-          ? Object.getOwnPropertyNames(err as object)
-          : '(non-object)',
-        '\n[document-ai] metadata:',
-        util.inspect(metadataDump, { depth: 4, colors: false }),
-      );
-    } catch (logErr) {
-      console.error('[document-ai] failed to dump raw error', logErr);
-    }
-
-    // The Google SDK wraps gRPC failures in GoogleError with .code / .details.
-    // When those are missing the default .message renders as
-    // "undefined undefined: undefined" which is useless to the operator.
-    // Pull whatever fields exist into a readable string and rethrow.
-    const e = err as {
-      code?: number | string;
-      details?: string;
-      message?: string;
-      reason?: string;
-      statusDetails?: unknown;
-      metadata?: unknown;
-    } | null;
-    const parts: string[] = [];
-    if (e?.code !== undefined && e.code !== null) parts.push(`code=${e.code}`);
-    if (e?.reason) parts.push(`reason=${e.reason}`);
-    if (e?.details) parts.push(e.details);
-    else if (e?.message && e.message !== 'undefined undefined: undefined') {
-      parts.push(e.message);
-    }
-    const detail =
-      parts.length > 0
-        ? parts.join(' · ')
-        : `Document AI did not return a usable error. Check the Vercel logs for "[document-ai] processDocument raw error" — that line has the full SDK error object. Most common causes: the configured processor (GOOGLE_DOCUMENT_AI_PROCESSOR_ID=${cfg.processorId.slice(0, 6)}…) is not a Receipt/Expense/Invoice parser in the ${cfg.location} region of project ${cfg.projectId}, the service account lacks the "Document AI API User" role, or the PDF exceeds the processor's sync size/page limit.`;
-    throw new Error(`Document AI call failed: ${detail}`);
+    const detail = err instanceof Error ? err.message : 'unknown parse error';
+    throw new Error(
+      `GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON (${detail}).`,
+    );
+  }
+  if (
+    typeof parsed.client_email !== 'string' ||
+    typeof parsed.private_key !== 'string'
+  ) {
+    throw new Error(
+      'GOOGLE_APPLICATION_CREDENTIALS_JSON is missing client_email or private_key.',
+    );
   }
 
-  const doc = response.document;
+  const { GoogleAuth } = await import('google-auth-library');
+  const auth = new GoogleAuth({
+    credentials: {
+      client_email: parsed.client_email,
+      private_key: parsed.private_key,
+    },
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+  let token: string;
+  try {
+    const authClient = await auth.getClient();
+    const tokenResp = await authClient.getAccessToken();
+    if (!tokenResp?.token) {
+      throw new Error('Auth library returned no access token.');
+    }
+    token = tokenResp.token;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Document AI auth failed: ${detail}`);
+  }
+
+  const url = `https://${cfg.location}-documentai.googleapis.com/v1/projects/${cfg.projectId}/locations/${cfg.location}/processors/${cfg.processorId}:process`;
+  const requestBody = JSON.stringify({
+    rawDocument: {
+      content: Buffer.from(input.bytes).toString('base64'),
+      mimeType: input.mimeType,
+    },
+  });
+
+  let httpResponse: Response;
+  try {
+    httpResponse = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: requestBody,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[document-ai] fetch threw before reaching the API:', err);
+    throw new Error(
+      `Document AI network call failed before reaching the API: ${detail}. This is usually a DNS or TLS issue from the Vercel function — retry, and if it persists check the Vercel function region.`,
+    );
+  }
+
+  if (!httpResponse.ok) {
+    const bodyText = await httpResponse.text();
+    console.error(
+      `[document-ai] HTTP ${httpResponse.status}:`,
+      bodyText.slice(0, 1000),
+    );
+    throw new Error(
+      `Document AI returned HTTP ${httpResponse.status}: ${bodyText.slice(0, 500)}`,
+    );
+  }
+
+  let payload: { document?: RestDocument };
+  try {
+    payload = (await httpResponse.json()) as { document?: RestDocument };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Document AI returned non-JSON response: ${detail}`);
+  }
+
+  const doc = payload.document;
   if (!doc) return {};
 
   const result: OcrExtractResult = {};
@@ -276,6 +275,38 @@ export async function extractReceipt(input: {
 }
 
 // ---- helpers ----
+
+// Minimal shape of the Document AI v1 REST processDocument response — only
+// the fields we actually read. Real response carries far more.
+type RestDocument = {
+  entities?: Array<{
+    type?: string;
+    mentionText?: string | null;
+    normalizedValue?: {
+      text?: string | null;
+      moneyValue?: {
+        units?: number | string | null;
+        nanos?: number | null;
+      } | null;
+      dateValue?: {
+        year?: number | null;
+        month?: number | null;
+        day?: number | null;
+      } | null;
+    } | null;
+    properties?: Array<{
+      type?: string;
+      mentionText?: string | null;
+      normalizedValue?: {
+        text?: string | null;
+        moneyValue?: {
+          units?: number | string | null;
+          nanos?: number | null;
+        } | null;
+      } | null;
+    }>;
+  }>;
+};
 
 type EntityValue = {
   text: string | null;
