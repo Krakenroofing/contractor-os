@@ -17,6 +17,7 @@ export const REPORT_TYPES = [
   'project-financial',
   'job-cost',
   'accounts-receivable',
+  'accounts-payable',
   'invoice-summary',
   'payment-summary',
   'purchase-orders',
@@ -32,6 +33,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'project-financial': 'Project Financial Report',
   'job-cost': 'Job Cost Report',
   'accounts-receivable': 'Accounts Receivable Report',
+  'accounts-payable': 'Accounts Payable Report',
   'invoice-summary': 'Invoice Summary Report',
   'payment-summary': 'Payment Summary Report',
   'purchase-orders': 'Purchase Order Summary',
@@ -49,6 +51,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Estimated vs. committed vs. actual cost across projects, with category breakdown.',
   'accounts-receivable':
     'Aging buckets per customer with overdue invoices flagged.',
+  'accounts-payable':
+    'Open commitments aged by vendor: open POs (not closed/void) + approved-but-unpaid subcontractor payments. Choose a default Net term for vendors without one on file.',
   'invoice-summary':
     'List of invoices with line totals, status, balance due, and rolled-up totals.',
   'payment-summary':
@@ -75,6 +79,10 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   'project-financial': true,
   'job-cost': true,
   'accounts-receivable': false,
+  // AP is vendor-oriented and cross-project — POs and sub payments roll up
+  // by vendor regardless of which project they hit. Project filter would
+  // confuse the "what do I owe whom" workflow.
+  'accounts-payable': false,
   'invoice-summary': true,
   'payment-summary': true,
   'purchase-orders': true,
@@ -94,6 +102,7 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'project-financial': false,
   'job-cost': false,
   'accounts-receivable': false,
+  'accounts-payable': false,
   'invoice-summary': false,
   'payment-summary': false,
   'purchase-orders': false,
@@ -139,14 +148,55 @@ export function describeRange(filters: ReportFilters): string {
 
 /**
  * Build an export.csv URL for a given report + filters. Includes only
- * non-empty filter params.
+ * non-empty filter params. Optional `extras` lets reports pass their own
+ * params (AP Aging uses this for `defaultTermsDays`).
  */
-export function buildCsvUrl(type: ReportType, filters: ReportFilters): string {
+export function buildCsvUrl(
+  type: ReportType,
+  filters: ReportFilters,
+  extras?: Record<string, string>,
+): string {
   const params = new URLSearchParams();
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   if (filters.projectId) params.set('projectId', filters.projectId);
   if (filters.customerId) params.set('customerId', filters.customerId);
+  if (extras) {
+    for (const [k, v] of Object.entries(extras)) {
+      if (v) params.set(k, v);
+    }
+  }
   const qs = params.toString();
   return `/reports/${type}/export.csv${qs ? `?${qs}` : ''}`;
+}
+
+// ===== AP-aging-specific helpers =====
+
+/** Allowed default-net-terms values when a vendor's defaultTerms field is
+ *  blank or unparseable. Surfaced as a dropdown on the AP Aging report. */
+export const AP_DEFAULT_TERMS_DAYS = [0, 15, 30] as const;
+export type ApDefaultTermsDays = (typeof AP_DEFAULT_TERMS_DAYS)[number];
+
+export function parseApDefaultTermsDays(
+  raw: string | undefined,
+): ApDefaultTermsDays {
+  const n = Number(raw);
+  if (n === 0 || n === 15 || n === 30) return n;
+  return 30;
+}
+
+/** Parse "Net 30" / "net15" / "NET 45" / "Due on receipt" from the free-text
+ *  vendors.defaultTerms column. Returns days, or null if unparseable. */
+export function parseNetTerms(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const t = text.toLowerCase().trim();
+  if (t === '' || t === 'due on receipt' || t === 'cod' || t === 'cash') {
+    return 0;
+  }
+  const m = /net\s*(\d{1,3})/i.exec(text);
+  if (m) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= 0 && n <= 365) return n;
+  }
+  return null;
 }

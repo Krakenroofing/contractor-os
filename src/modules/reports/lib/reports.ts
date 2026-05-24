@@ -52,7 +52,9 @@ import {
 import { add, parseMoney, round2, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import type { ReportFilters } from './filters';
-import { isInRange } from './filters';
+import { isInRange, parseNetTerms } from './filters';
+import { listSubcontractorPayments } from '@/lib/data/subcontractor-payments';
+import { getProject } from '@/lib/data/projects';
 
 // ===== VAT Quarterly Report =====
 //
@@ -785,6 +787,260 @@ export async function buildARReport(
 
 export { AGING_BUCKETS, BUCKET_LABEL };
 export type { AgingBucket };
+
+// ===== Accounts Payable Report =====
+//
+// "Open commitments aged by vendor": every PO that's been issued / partially
+// received / received (i.e. not draft, closed, void) + every subcontractor
+// payment in draft / approved status (i.e. owe the sub but haven't paid).
+//
+// Due date is computed from the source date (PO issue date, or sub payment
+// work period end) plus the vendor's defaultTerms parsed into days. When
+// the vendor field is blank/unparseable, the user's "Default terms"
+// dropdown supplies the fallback (Net 0 / 15 / 30).
+//
+// This is COMMITMENT aging, not invoice aging — receipts (vendor bills)
+// don't carry payment status today, so the report won't catch a PO that
+// the vendor billed and was paid for unless the operator has also closed
+// the PO. Documented in REPORT_DESCRIPTION so operators know the caveat.
+
+export type ApSourceType = 'po' | 'sub_payment';
+
+export type ApAgingRow = {
+  /** Synthetic id: `${ApSourceType}:${sourceId}` */
+  id: string;
+  sourceType: ApSourceType;
+  sourceId: string;
+  /** Human-readable identifier (PO number or sub-pmt short id). */
+  sourceLabel: string;
+  vendorId: string;
+  vendorName: string;
+  projectId: string | null;
+  projectName: string | null;
+  /** ISO date the commitment was incurred (PO issueDate, sub workPeriodEnd). */
+  issueDate: string;
+  /** Computed: issueDate + termsDays. Always set. */
+  dueDate: string;
+  /** Days past dueDate as of asOf. Negative when not yet due. */
+  daysOverdue: number;
+  bucket: AgingBucket;
+  amount: number;
+  /** "Net 30" / "Net 15" / etc, or "Default (Net X)" when fallback used. */
+  termsLabel: string;
+};
+
+export type ApVendorRow = {
+  vendorId: string;
+  vendorName: string;
+  itemCount: number;
+  totalAP: number;
+  current: number;
+  b1_30: number;
+  b31_60: number;
+  b61_90: number;
+  b90_plus: number;
+  overdueCount: number;
+};
+
+export type ApReportSummary = {
+  totalAP: number;
+  current: number;
+  b1_30: number;
+  b31_60: number;
+  b61_90: number;
+  b90_plus: number;
+  itemCount: number;
+  overdueCount: number;
+  poItemCount: number;
+  subItemCount: number;
+};
+
+export type APReport = {
+  asOf: Date;
+  defaultTermsDays: number;
+  vendorRows: ApVendorRow[];
+  agingRows: ApAgingRow[];
+  summary: ApReportSummary;
+};
+
+export async function buildAPReport(
+  companyId: string,
+  filters: ReportFilters,
+  defaultTermsDays: number,
+): Promise<APReport> {
+  const asOf = filters.to
+    ? new Date(`${filters.to}T00:00:00Z`)
+    : new Date();
+  const today = new Date(
+    Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()),
+  );
+
+  const [pos, subPayments, vendors] = await Promise.all([
+    listPurchaseOrders(companyId),
+    listSubcontractorPayments(companyId),
+    listVendors(companyId),
+  ]);
+  const vendorById = new Map(vendors.map((v) => [v.id, v]));
+  const projectCache = new Map<string, string | null>();
+  async function projectName(projectId: string | null): Promise<string | null> {
+    if (!projectId) return null;
+    if (projectCache.has(projectId)) return projectCache.get(projectId) ?? null;
+    const p = await getProject(companyId, projectId);
+    const name = p?.name ?? null;
+    projectCache.set(projectId, name);
+    return name;
+  }
+
+  function resolveTerms(vendorId: string): { days: number; label: string } {
+    const vendor = vendorById.get(vendorId);
+    const parsed = parseNetTerms(vendor?.defaultTerms ?? null);
+    if (parsed !== null) {
+      return { days: parsed, label: parsed === 0 ? 'Due on receipt' : `Net ${parsed}` };
+    }
+    return {
+      days: defaultTermsDays,
+      label: `Default (${defaultTermsDays === 0 ? 'Due on receipt' : `Net ${defaultTermsDays}`})`,
+    };
+  }
+
+  function addDays(iso: string, days: number): string {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function daysBetween(fromIso: string, asOfDate: Date): number {
+    const from = new Date(`${fromIso}T00:00:00Z`);
+    return Math.floor((asOfDate.getTime() - from.getTime()) / 86_400_000);
+  }
+
+  function bucketize(days: number): AgingBucket {
+    if (days <= 0) return 'current';
+    if (days <= 30) return 'b1_30';
+    if (days <= 60) return 'b31_60';
+    if (days <= 90) return 'b61_90';
+    return 'b90_plus';
+  }
+
+  const agingRows: ApAgingRow[] = [];
+
+  // POs — open = status NOT IN (draft, closed, void).
+  for (const po of pos) {
+    if (po.status === 'draft' || po.status === 'closed' || po.status === 'void') {
+      continue;
+    }
+    const issueIso = po.issueDate ?? po.createdAt.toISOString().slice(0, 10);
+    if (filters.from && issueIso < filters.from) continue;
+    const terms = resolveTerms(po.vendorId);
+    const dueIso = addDays(issueIso, terms.days);
+    const days = daysBetween(dueIso, today);
+    const amount = Number(po.total);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    agingRows.push({
+      id: `po:${po.id}`,
+      sourceType: 'po',
+      sourceId: po.id,
+      sourceLabel: po.number,
+      vendorId: po.vendorId,
+      vendorName: vendorById.get(po.vendorId)?.name ?? 'Unknown vendor',
+      projectId: po.projectId,
+      projectName: await projectName(po.projectId),
+      issueDate: issueIso,
+      dueDate: dueIso,
+      daysOverdue: days,
+      bucket: bucketize(days),
+      amount,
+      termsLabel: terms.label,
+    });
+  }
+
+  // Sub payments — open = status IN (draft, approved). Use the work period
+  // END as the "issue date" anchor — that's when the work was completed
+  // and the obligation incurred.
+  for (const sp of subPayments) {
+    if (sp.status !== 'draft' && sp.status !== 'approved') continue;
+    const issueIso = sp.workPeriodEnd;
+    if (filters.from && issueIso < filters.from) continue;
+    const terms = resolveTerms(sp.vendorId);
+    const dueIso = addDays(issueIso, terms.days);
+    const days = daysBetween(dueIso, today);
+    const gross = Number(sp.grossAmount);
+    const retainage = Number(sp.retainageHeld);
+    // "Owed right now" = gross - retainage_held - net_paid. Retainage we
+    // intentionally hold doesn't show as AP; it's a separate liability.
+    const netPaid = Number(sp.netPaid);
+    const owed = Math.max(0, gross - retainage - netPaid);
+    if (owed <= 0) continue;
+    agingRows.push({
+      id: `sub_payment:${sp.id}`,
+      sourceType: 'sub_payment',
+      sourceId: sp.id,
+      sourceLabel: `Sub ${sp.id.slice(0, 8)}`,
+      vendorId: sp.vendorId,
+      vendorName: vendorById.get(sp.vendorId)?.name ?? 'Unknown vendor',
+      projectId: sp.projectId,
+      projectName: await projectName(sp.projectId),
+      issueDate: issueIso,
+      dueDate: dueIso,
+      daysOverdue: days,
+      bucket: bucketize(days),
+      amount: owed,
+      termsLabel: terms.label,
+    });
+  }
+
+  agingRows.sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+  const byVendor = new Map<string, ApVendorRow>();
+  const summary: ApReportSummary = {
+    totalAP: 0,
+    current: 0,
+    b1_30: 0,
+    b31_60: 0,
+    b61_90: 0,
+    b90_plus: 0,
+    itemCount: agingRows.length,
+    overdueCount: 0,
+    poItemCount: 0,
+    subItemCount: 0,
+  };
+  for (const r of agingRows) {
+    const existing = byVendor.get(r.vendorId) ?? {
+      vendorId: r.vendorId,
+      vendorName: r.vendorName,
+      itemCount: 0,
+      totalAP: 0,
+      current: 0,
+      b1_30: 0,
+      b31_60: 0,
+      b61_90: 0,
+      b90_plus: 0,
+      overdueCount: 0,
+    };
+    existing.itemCount += 1;
+    existing.totalAP = add(existing.totalAP, r.amount);
+    existing[r.bucket] = add(existing[r.bucket], r.amount);
+    if (r.daysOverdue > 0) existing.overdueCount += 1;
+    byVendor.set(r.vendorId, existing);
+
+    summary.totalAP = add(summary.totalAP, r.amount);
+    summary[r.bucket] = add(summary[r.bucket], r.amount);
+    if (r.daysOverdue > 0) summary.overdueCount += 1;
+    if (r.sourceType === 'po') summary.poItemCount += 1;
+    else summary.subItemCount += 1;
+  }
+  const vendorRows = Array.from(byVendor.values()).sort(
+    (a, b) => b.totalAP - a.totalAP,
+  );
+
+  return {
+    asOf,
+    defaultTermsDays,
+    vendorRows,
+    agingRows,
+    summary,
+  };
+}
 
 // ===== Invoice Summary Report =====
 
