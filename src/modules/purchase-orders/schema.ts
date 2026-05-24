@@ -59,3 +59,25 @@ export const purchaseOrderFormSchema = z.object({
 });
 
 export type PurchaseOrderFormParsed = z.output<typeof purchaseOrderFormSchema>;
+
+// ===== Receiving (Phase 6.1) =====
+
+export const poReceiptLineFormSchema = z.object({
+  poLineId: z.string().uuid('Invalid line id'),
+  quantityReceived: z
+    .string()
+    .refine((v) => v.trim() === '' || (!Number.isNaN(Number(v)) && Number(v) >= 0), {
+      message: 'Must be a non-negative number',
+    }),
+});
+
+export const poReceiptFormSchema = z.object({
+  purchaseOrderId: z.string().uuid('Invalid purchase order id'),
+  receivedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date'),
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  lines: z.array(poReceiptLineFormSchema).min(1, 'No lines to receive'),
+});
+
+export type PoReceiptFormParsed = z.output<typeof poReceiptFormSchema>;

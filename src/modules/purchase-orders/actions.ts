@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, ROLE_LABELS } from '@/lib/permissions';
+import { appendActivity } from '@/lib/mock-store';
 import {
   calcPOTotals,
   multiply,
@@ -19,7 +20,11 @@ import {
   getPurchaseOrder,
   updatePurchaseOrderHeader,
 } from '@/lib/data/purchase-orders';
-import { purchaseOrderFormSchema } from './schema';
+import {
+  createPoReceipt,
+  deletePoReceipt,
+} from '@/lib/data/po-receipts';
+import { poReceiptFormSchema, purchaseOrderFormSchema } from './schema';
 
 export type CreatePurchaseOrderState = {
   errors?: Record<string, string[]>;
@@ -191,4 +196,150 @@ export async function updatePurchaseOrderHeaderAction(
   revalidatePath(`/purchase-orders/${parsed.data.id}`);
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
   redirect(`/purchase-orders/${parsed.data.id}`);
+}
+
+// ===== Receiving (Phase 6.1) =====
+
+export type RecordPoReceiptState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+function revalidatePOPaths(poId: string, projectId: string | null) {
+  revalidatePath('/purchase-orders');
+  revalidatePath(`/purchase-orders/${poId}`);
+  revalidatePath(`/purchase-orders/${poId}/receive`);
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/dashboard');
+}
+
+export async function recordPoReceiptAction(
+  _prev: RecordPoReceiptState,
+  formData: FormData,
+): Promise<RecordPoReceiptState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { formError: 'You do not have permission to receive purchase orders.' };
+  }
+
+  let parsedLines: unknown;
+  try {
+    const linesJson = formData.get('lines');
+    parsedLines = typeof linesJson === 'string' ? JSON.parse(linesJson) : [];
+  } catch {
+    return { formError: 'Could not read receipt lines.' };
+  }
+
+  const parsed = poReceiptFormSchema.safeParse({
+    purchaseOrderId: formData.get('purchaseOrderId'),
+    receivedDate: formData.get('receivedDate'),
+    notes: formData.get('notes') ?? '',
+    lines: parsedLines,
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const lines = parsed.data.lines
+    .map((l) => ({
+      poLineId: l.poLineId,
+      quantityReceived: Number(l.quantityReceived || '0'),
+    }))
+    .filter((l) => l.quantityReceived > 0);
+
+  if (lines.length === 0) {
+    return { formError: 'Enter a quantity received on at least one line.' };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const po = await getPurchaseOrder(companyId, parsed.data.purchaseOrderId);
+  if (!po) {
+    return { formError: 'Purchase order not found.' };
+  }
+
+  // Treat the entered date as noon local time so it sits inside the chosen
+  // day regardless of which timezone the row is later rendered in.
+  const receivedAt = new Date(`${parsed.data.receivedDate}T12:00:00`);
+
+  let resultingStatus: string;
+  try {
+    const result = await createPoReceipt(companyId, po.id, {
+      receivedAt,
+      receivedByUserId: user.id,
+      notes: parsed.data.notes?.trim() || null,
+      lines,
+    });
+    resultingStatus = result.resultingStatus;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to record receipt: ${message}` };
+  }
+
+  const totalQty = lines.reduce((acc, l) => acc + l.quantityReceived, 0);
+  appendActivity(companyId, {
+    entityType: 'purchase_order',
+    entityId: po.id,
+    kind: 'po_receipt_recorded',
+    summary: `Received ${totalQty.toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    })} unit${totalQty === 1 ? '' : 's'} across ${lines.length} line${
+      lines.length === 1 ? '' : 's'
+    } — PO now ${resultingStatus.replace('_', ' ')}`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePOPaths(po.id, po.projectId);
+  redirect(`/purchase-orders/${po.id}`);
+}
+
+const deleteReceiptSchema = z.object({
+  receiptId: z.string().uuid('Invalid receipt id'),
+  purchaseOrderId: z.string().uuid('Invalid PO id'),
+});
+
+export type DeletePoReceiptState = {
+  formError?: string;
+};
+
+export async function deletePoReceiptAction(
+  _prev: DeletePoReceiptState,
+  formData: FormData,
+): Promise<DeletePoReceiptState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { formError: 'You do not have permission to undo receipts.' };
+  }
+
+  const parsed = deleteReceiptSchema.safeParse({
+    receiptId: formData.get('receiptId'),
+    purchaseOrderId: formData.get('purchaseOrderId'),
+  });
+  if (!parsed.success) {
+    return { formError: 'Invalid receipt reference.' };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const po = await getPurchaseOrder(companyId, parsed.data.purchaseOrderId);
+  if (!po) {
+    return { formError: 'Purchase order not found.' };
+  }
+
+  try {
+    const result = await deletePoReceipt(companyId, parsed.data.receiptId);
+    appendActivity(companyId, {
+      entityType: 'purchase_order',
+      entityId: po.id,
+      kind: 'po_receipt_deleted',
+      summary: `Receipt reversed — PO now ${result.resultingStatus.replace('_', ' ')}`,
+      actorRole: ROLE_LABELS[role],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to undo receipt: ${message}` };
+  }
+
+  revalidatePOPaths(po.id, po.projectId);
+  return {};
 }

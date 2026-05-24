@@ -21,9 +21,11 @@ import { canCreate } from '@/lib/permissions';
 import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { getLandedCost } from '@/lib/data/landed-costs';
 import { getPurchaseOrder, getPurchaseOrderLines } from '@/lib/data/purchase-orders';
+import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
+import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
 import { StatusPanel } from '@/modules/status/components/status-panel';
@@ -50,6 +52,17 @@ export default async function PurchaseOrderDetailPage({
   const landedCost = po.landedCostEntryId
     ? await getLandedCost(companyId, po.landedCostEntryId)
     : undefined;
+  const receipts = await listPoReceiptsForPO(po.id);
+
+  // Receiving is meaningful for any non-draft, non-closed, non-void PO.
+  // Per the Phase 6.1 decisions, the button stays visible even when the PO
+  // is fully received so a late shipment or correction can be logged until
+  // the PO is explicitly closed.
+  const canReceive =
+    allowCreate &&
+    po.status !== 'draft' &&
+    po.status !== 'closed' &&
+    po.status !== 'void';
 
   const subtotal = Number(po.subtotal);
   const tax = Number(po.taxAmount);
@@ -80,6 +93,13 @@ export default async function PurchaseOrderDetailPage({
             <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
               <Button size="sm" variant="outline">
                 Edit
+              </Button>
+            </Link>
+          )}
+          {canReceive && (
+            <Link href={{ pathname: `/purchase-orders/${po.id}/receive` }}>
+              <Button size="sm" variant="outline">
+                Receive shipment
               </Button>
             </Link>
           )}
@@ -298,6 +318,43 @@ export default async function PurchaseOrderDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {(receipts.length > 0 || canReceive) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Receiving history ({receipts.length})</CardTitle>
+              {canReceive && (
+                <Link href={{ pathname: `/purchase-orders/${po.id}/receive` }}>
+                  <Button size="sm" variant="outline">
+                    Receive shipment
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <PoReceiptHistory
+              poId={po.id}
+              receipts={receipts.map((r) => {
+                const totalQty = r.lines.reduce(
+                  (acc, l) => acc + Number(l.quantityReceived),
+                  0,
+                );
+                return {
+                  id: r.id,
+                  receivedAt: r.receivedAt
+                    .toISOString()
+                    .slice(0, 10),
+                  notes: r.notes,
+                  totalQty,
+                  lineCount: r.lines.length,
+                };
+              })}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
