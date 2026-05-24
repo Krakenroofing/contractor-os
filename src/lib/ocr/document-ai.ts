@@ -350,12 +350,21 @@ export type DocumentAiDiagnosis = {
     privateKeyHasRealNewlines?: boolean;
     credentialsRawLength?: number;
   };
-  step: 'config' | 'parse' | 'shape' | 'listProcessors' | 'ok';
+  step: 'config' | 'parse' | 'shape' | 'listProcessors' | 'restList' | 'ok';
   detail?: string;
   processorCount?: number;
   processorIdsFound?: string[];
   targetProcessorPresent?: boolean;
   rawError?: string;
+  // REST fallback results — populated when the gRPC path fails. If REST
+  // succeeds where gRPC fails, the bundling / SDK theory is confirmed.
+  rest?: {
+    ok: boolean;
+    processorCount?: number;
+    processorIds?: string[];
+    targetPresent?: boolean;
+    error?: string;
+  };
 };
 
 /**
@@ -497,15 +506,81 @@ export async function diagnoseDocumentAi(): Promise<DocumentAiDiagnosis> {
       rawError = String(err);
     }
     console.error('[document-ai] diagnose listProcessors failed:', rawError);
+
+    // gRPC failed. Try the REST endpoint instead — same auth, same API,
+    // just plain HTTP. If this works, the SDK / bundling is the bug and
+    // we should refactor extractReceipt to use REST.
+    const restResult = await tryRestListProcessors(cfg, parsed);
+
     return {
       ok: false,
       step: 'listProcessors',
       detail:
         err instanceof Error && err.message && err.message !== 'undefined undefined: undefined'
           ? err.message
-          : 'listProcessors threw an unparseable error (see Vercel logs for [document-ai] diagnose listProcessors failed).',
+          : 'listProcessors (gRPC) threw an unparseable error. Check the REST result below — if REST succeeds, the bug is in @grpc/grpc-js bundling inside Next.js and we should refactor to REST.',
       info,
       rawError,
+      rest: restResult,
+    };
+  }
+}
+
+/**
+ * Plain-HTTP fallback for listProcessors. Uses google-auth-library to get
+ * an access token, then fetch() to call the v1 REST endpoint. Bypasses
+ * @grpc/grpc-js entirely.
+ */
+async function tryRestListProcessors(
+  cfg: { projectId: string; location: string; processorId: string },
+  parsed: { client_email?: string; private_key?: string },
+): Promise<NonNullable<DocumentAiDiagnosis['rest']>> {
+  if (!parsed.client_email || !parsed.private_key) {
+    return { ok: false, error: 'No credentials available for REST fallback.' };
+  }
+  try {
+    const { GoogleAuth } = await import('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: { client_email: parsed.client_email, private_key: parsed.private_key },
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const authClient = await auth.getClient();
+    const tokenResp = await authClient.getAccessToken();
+    if (!tokenResp || !tokenResp.token) {
+      return { ok: false, error: 'REST: failed to get OAuth2 token.' };
+    }
+
+    const url = `https://${cfg.location}-documentai.googleapis.com/v1/projects/${cfg.projectId}/locations/${cfg.location}/processors`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${tokenResp.token}` },
+    });
+    const body = await resp.text();
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: `REST HTTP ${resp.status}: ${body.slice(0, 500)}`,
+      };
+    }
+    let json: { processors?: Array<{ name?: string }> };
+    try {
+      json = JSON.parse(body);
+    } catch {
+      return { ok: false, error: `REST returned non-JSON: ${body.slice(0, 200)}` };
+    }
+    const ids = (json.processors ?? [])
+      .map((p) => p.name?.split('/').pop())
+      .filter((v): v is string => typeof v === 'string');
+    return {
+      ok: true,
+      processorCount: ids.length,
+      processorIds: ids,
+      targetPresent: ids.includes(cfg.processorId),
+    };
+  } catch (err) {
+    console.error('[document-ai] REST listProcessors failed:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'REST call threw without message',
     };
   }
 }

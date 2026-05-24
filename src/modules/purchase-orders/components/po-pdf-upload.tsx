@@ -242,9 +242,47 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
           )}
         </div>
       )}
+      {!ok && result.rest && (
+        <div
+          className={`rounded border px-2 py-1 ${
+            result.rest.ok
+              ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
+              : 'bg-white border-slate-200 text-slate-700'
+          }`}
+        >
+          <div className="font-medium">
+            REST fallback:{' '}
+            {result.rest.ok
+              ? `✓ works (${result.rest.processorCount ?? 0} processors)`
+              : '✗ also failed'}
+          </div>
+          {result.rest.ok && (
+            <>
+              {result.rest.targetPresent ? (
+                <div className="text-emerald-800 mt-1">
+                  ✓ Your processor IS reachable via REST. Bug is gRPC-only —
+                  refactoring extractReceipt to use REST will fix it.
+                </div>
+              ) : (
+                <div className="text-amber-800 mt-1">
+                  ⚠ REST works but your env-var processor ID isn&apos;t in the
+                  list — the processor is in a different project/location, or
+                  the env var has a typo. Found IDs:{' '}
+                  {result.rest.processorIds?.join(', ') || '(none)'}
+                </div>
+              )}
+            </>
+          )}
+          {!result.rest.ok && result.rest.error && (
+            <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] bg-white/50 p-2 rounded">
+              {result.rest.error}
+            </pre>
+          )}
+        </div>
+      )}
       {!ok && result.rawError && (
         <details>
-          <summary className="cursor-pointer">Raw error</summary>
+          <summary className="cursor-pointer">Raw gRPC error</summary>
           <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] bg-white/50 p-2 rounded">
             {result.rawError}
           </pre>
