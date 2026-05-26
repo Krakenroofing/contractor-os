@@ -35,7 +35,7 @@ import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
 import { MatchPanel } from '@/modules/banking/components/match-panel';
 import type { ActiveMatchInfo } from '@/modules/banking/components/match-panel';

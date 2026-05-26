@@ -10,7 +10,7 @@ import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { RuleForm } from '@/modules/banking/components/rule-form';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { RulePreviewPanel } from '@/modules/banking/components/rule-preview-panel';
 import { toRuleForMatching } from '@/modules/banking/lib/rules';
 

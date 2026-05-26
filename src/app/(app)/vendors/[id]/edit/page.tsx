@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { VendorForm } from '@/modules/vendors/components/vendor-form';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';

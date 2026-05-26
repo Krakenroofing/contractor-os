@@ -18,16 +18,13 @@
 // Same option shape works everywhere: { id, name, rollupGroup, isHeader }.
 
 import { Select } from '@/components/ui/select';
+import type { AccountingAccountOption } from '@/modules/accounting/lib/account-options';
 
-export type AccountingAccountOption = {
-  id: string;
-  name: string;
-  rollupGroup: 'income' | 'cogs' | 'opex' | 'asset' | 'liability' | 'equity' | 'vat_tax';
-  /** True for section-header accounts (parent_id IS NULL). Rendered as a
-   *  disabled <option> so the operator sees the hierarchy but can't post
-   *  to it directly. */
-  isHeader?: boolean;
-};
+// Re-export type for back-compat with callsites that import it from the
+// picker file. The adapter helper `toAccountingAccountOptions` MUST be
+// imported from the lib path directly (it's server-safe and can't be
+// re-exported through this 'use client' module).
+export type { AccountingAccountOption };
 
 // Display order matches a standard P&L / balance-sheet flow. VAT/Tax goes
 // last because it's a flow-through pool, not an operational bucket.
@@ -123,32 +120,4 @@ export function AccountingAccountPicker({
   );
 }
 
-/**
- * Helper to adapt raw `listAccountingAccounts(companyId)` rows into the
- * option shape this picker expects. Sorts alphabetically within each
- * rollup group; headers float to the top of their group.
- */
-export function toAccountingAccountOptions(
-  rows: Array<{
-    id: string;
-    name: string;
-    rollupGroup: AccountingAccountOption['rollupGroup'];
-    parentId: string | null;
-    isArchived?: boolean;
-  }>,
-): AccountingAccountOption[] {
-  return rows
-    .filter((r) => !r.isArchived)
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      rollupGroup: r.rollupGroup,
-      isHeader: r.parentId === null,
-    }))
-    .sort((a, b) => {
-      if (a.rollupGroup !== b.rollupGroup) return 0; // group ordering handled by picker
-      if (a.isHeader && !b.isHeader) return -1;
-      if (!a.isHeader && b.isHeader) return 1;
-      return a.name.localeCompare(b.name);
-    });
-}
+// toAccountingAccountOptions moved to ../lib/account-options.ts (server-safe).

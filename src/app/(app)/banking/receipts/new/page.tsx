@@ -12,7 +12,7 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listMembersForCompany } from '@/lib/data/memberships';
 import { requireAuth } from '@/lib/auth';
 import { ReceiptForm } from '@/modules/receipts/components/receipt-form';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 
 export const dynamic = 'force-dynamic';
 

@@ -10,7 +10,7 @@ import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { getImportedTransaction } from '@/lib/data/statement-imports';
 import { RuleForm } from '@/modules/banking/components/rule-form';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import type {
   AppliesTo,
   Matcher,

@@ -20,7 +20,7 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { listMembersForCompany } from '@/lib/data/memberships';
 import { requireAuth } from '@/lib/auth';
-import { toAccountingAccountOptions } from '@/modules/accounting/components/accounting-account-picker';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import {
   ReceiptForm,
   type LineInitial,
