@@ -22,6 +22,7 @@ import {
   buildARReport,
 } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
+import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,10 +35,18 @@ export default async function ARReportPage({
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
   const filters = parseReportFilters(await searchParams);
-  const [report, projects] = await Promise.all([
+  const [report, projects, openCreditMap] = await Promise.all([
     buildARReport(company.id, filters),
     listProjects(company.id),
+    getOpenCreditByCustomerMap(company.id),
   ]);
+  // Total open customer credits across all customers — netted against
+  // gross AR to show the operator's true exposure.
+  const totalOpenCredits = Array.from(openCreditMap.values()).reduce(
+    (acc, n) => acc + n,
+    0,
+  );
+  const netAR = report.summary.totalAR - totalOpenCredits;
 
   return (
     <ReportShell
@@ -81,6 +90,20 @@ export default async function ARReportPage({
           : ' · all current'}
         · as of {report.asOf.toISOString().slice(0, 10)}
       </p>
+
+      {totalOpenCredits > 0 && (
+        <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+          <span className="font-medium">{formatMoney(totalOpenCredits)}</span>{' '}
+          in open customer credit memos sits against this AR
+          {openCreditMap.size === 1
+            ? ' for 1 customer'
+            : ` across ${openCreditMap.size} customers`}
+          . Net AR after credits:{' '}
+          <span className="font-semibold tabular-nums">{formatMoney(netAR)}</span>.
+          Credits apply automatically to a customer&apos;s next invoice (or
+          can be refunded via the credit-memo detail).
+        </div>
+      )}
 
       <Card>
         <CardHeader>

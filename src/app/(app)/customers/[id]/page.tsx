@@ -15,6 +15,12 @@ import {
   computeProjectInvoicesByContractSource,
   listInvoicesForProject,
 } from '@/lib/data/invoices';
+import {
+  computeCustomerOpenCredit,
+  listCreditMemosForCustomer,
+} from '@/lib/data/credit-memos';
+import { IssueCreditMemoDialog } from '@/modules/credit-memos/components/issue-credit-memo-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import type { Customer } from '@/db/schema';
 
@@ -58,6 +64,11 @@ export default async function CustomerDetailPage({
   const linkedProjects = (await listProjects(companyId)).filter(
     (p) => p.customerId === customer.id,
   );
+
+  // Customer-level credit memos: full list (for the table) + open
+  // balance (sum of amount − applied across non-void credits).
+  const creditMemos = await listCreditMemosForCustomer(companyId, customer.id);
+  const openCredit = await computeCustomerOpenCredit(companyId, customer.id);
 
   // Roll up invoice activity across every project for this customer.
   // computeProjectInvoiceSummary already sums payment rows (not the cached
@@ -433,6 +444,87 @@ export default async function CustomerDetailPage({
                 </li>
               ))}
             </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Credit memos for this customer */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle>
+              Credit memos ({creditMemos.length})
+              {openCredit > 0 && (
+                <span className="ml-2 text-xs font-normal text-amber-700">
+                  · {formatMoney(openCredit)} open balance
+                </span>
+              )}
+            </CardTitle>
+            {allowCreate && (
+              <IssueCreditMemoDialog
+                scope={{
+                  customerId: customer.id,
+                  customerName: customer.name,
+                  projectId: null,
+                  projectName: null,
+                  invoiceId: null,
+                  invoiceNumber: null,
+                  suggestDeductCO: false,
+                }}
+                triggerLabel="Issue credit memo"
+              />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {creditMemos.length === 0 ? (
+            <p className="p-6 text-sm text-slate-500">
+              No credit memos for this customer.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Number</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Open</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {creditMemos.map((cm) => {
+                  const open = Number(cm.amount) - Number(cm.appliedAmount);
+                  return (
+                    <TableRow key={cm.id}>
+                      <TableCell className="font-mono text-xs text-slate-700">
+                        {cm.number}
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {cm.issueDate}
+                      </TableCell>
+                      <TableCell className="text-slate-700 text-xs capitalize">
+                        {cm.status.replace('_', ' ')}
+                      </TableCell>
+                      <TableCell className="text-slate-700 text-xs">
+                        {cm.reason}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(cm.amount)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${
+                          open > 0 ? 'text-amber-700 font-medium' : 'text-slate-400'
+                        }`}
+                      >
+                        {formatMoney(open)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

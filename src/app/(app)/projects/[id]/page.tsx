@@ -26,6 +26,8 @@ import {
 } from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
 import { listChangeOrdersForProject } from '@/lib/data/change-orders';
+import { listCreditMemosForProject } from '@/lib/data/credit-memos';
+import { IssueCreditMemoDialog } from '@/modules/credit-memos/components/issue-credit-memo-dialog';
 import { listEstimatesForProject } from '@/lib/data/estimates';
 import { listLandedCostsForProject } from '@/lib/data/landed-costs';
 import { listProposalsForProject } from '@/lib/data/proposals';
@@ -124,6 +126,15 @@ export default async function ProjectDetailPage({
   const projectDocuments = await listProjectDocuments(companyId, project.id);
   const recentDocuments = projectDocuments.slice(0, 5);
   const invoices = await listInvoicesForProject(project.id);
+  const creditMemos = await listCreditMemosForProject(companyId, project.id);
+  const totalCreditAmount = creditMemos.reduce(
+    (acc, cm) => acc + Number(cm.amount),
+    0,
+  );
+  const openCreditAmount = creditMemos.reduce(
+    (acc, cm) => acc + (Number(cm.amount) - Number(cm.appliedAmount)),
+    0,
+  );
   const voidInvoiceCount = invoices.filter((i) => i.status === 'void').length;
   const visibleInvoices = showVoid
     ? invoices
@@ -986,6 +997,89 @@ export default async function ProjectDetailPage({
                             View
                           </Button>
                         </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Credit memos for this project */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle>
+              Credit memos ({creditMemos.length})
+              {openCreditAmount > 0 && (
+                <span className="ml-2 text-xs font-normal text-amber-700">
+                  · {formatMoney(openCreditAmount)} open
+                </span>
+              )}
+            </CardTitle>
+            {allowCreateInvoice && (
+              <IssueCreditMemoDialog
+                scope={{
+                  customerId: customer.id,
+                  customerName: customer.name,
+                  projectId: project.id,
+                  projectName: project.name,
+                  invoiceId: null,
+                  invoiceNumber: null,
+                  suggestDeductCO: true,
+                }}
+                triggerLabel="Issue credit memo"
+              />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {creditMemos.length === 0 ? (
+            <Empty>No credit memos on this project.</Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Number</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Applied</TableHead>
+                  <TableHead className="text-right">Open</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {creditMemos.map((cm) => {
+                  const open = Number(cm.amount) - Number(cm.appliedAmount);
+                  return (
+                    <TableRow key={cm.id}>
+                      <TableCell className="font-mono text-xs text-slate-700">
+                        {cm.number}
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {cm.issueDate}
+                      </TableCell>
+                      <TableCell className="text-slate-700 text-xs capitalize">
+                        {cm.status.replace('_', ' ')}
+                      </TableCell>
+                      <TableCell className="text-slate-700 text-xs">
+                        {cm.reason}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatMoney(cm.amount)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-600">
+                        {formatMoney(cm.appliedAmount)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${
+                          open > 0 ? 'text-amber-700 font-medium' : 'text-slate-400'
+                        }`}
+                      >
+                        {formatMoney(open)}
                       </TableCell>
                     </TableRow>
                   );

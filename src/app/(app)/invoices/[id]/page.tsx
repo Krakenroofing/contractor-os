@@ -29,6 +29,11 @@ import { getChangeOrder } from '@/lib/data/change-orders';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
+import {
+  listCreditMemosForInvoice,
+  getInvoiceCreditApplicationsMap,
+} from '@/lib/data/credit-memos';
+import { IssueCreditMemoDialog } from '@/modules/credit-memos/components/issue-credit-memo-dialog';
 import { BILLING_TYPE_LABEL } from '@/modules/invoices/schema';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -94,6 +99,18 @@ export default async function InvoiceDetailPage({
 
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
 
+  // Phase: credit memos. Pull any credits linked to this invoice + the
+  // running total of credit-applications netted against it.
+  const creditMemos = await listCreditMemosForInvoice(companyId, invoice.id);
+  const creditAppsMap = await getInvoiceCreditApplicationsMap(companyId, [
+    invoice.id,
+  ]);
+  const creditAppliedToInvoice = creditAppsMap.get(invoice.id) ?? 0;
+  const netBilledAfterCredits = subtract(
+    parseMoney(invoice.total),
+    creditAppliedToInvoice,
+  );
+
   // VAT pulled straight from the stored row — the form computes it on
   // the post-retainage base at create time, so the stored value is
   // authoritative. Recomputing on view would diverge from invoice.total
@@ -140,6 +157,21 @@ export default async function InvoiceDetailPage({
             hasPayments={payments.length > 0}
             allowEdit={allowCreate}
           />
+          {allowCreate && customer && invoice.status !== 'void' && (
+            <IssueCreditMemoDialog
+              scope={{
+                customerId: customer.id,
+                customerName: customer.name,
+                projectId: invoice.projectId,
+                projectName: project?.name ?? null,
+                invoiceId: invoice.id,
+                invoiceNumber: invoice.number,
+                defaultAmount: Math.max(balance > 0 ? balance : Number(invoice.total) - creditAppliedToInvoice, 0),
+                suggestDeductCO: !!invoice.projectId,
+              }}
+              triggerLabel="Issue credit memo"
+            />
+          )}
           {allowCreate && (
             <Link href="/invoices/new">
               <Button size="sm" variant="outline">
@@ -669,6 +701,66 @@ export default async function InvoiceDetailPage({
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {formatMoney(p.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Credit memos ({creditMemos.length})</CardTitle>
+            {creditAppliedToInvoice > 0 && (
+              <div className="text-xs text-slate-500 tabular-nums">
+                {formatMoney(creditAppliedToInvoice)} applied · net billed{' '}
+                <span className="font-medium text-slate-900">
+                  {formatMoney(netBilledAfterCredits)}
+                </span>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {creditMemos.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">
+              No credit memos issued against this invoice.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Number</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Applied</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {creditMemos.map((cm) => (
+                  <TableRow key={cm.id}>
+                    <TableCell className="font-mono text-xs text-slate-700">
+                      {cm.number}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {cm.issueDate}
+                    </TableCell>
+                    <TableCell className="text-slate-700 text-xs capitalize">
+                      {cm.status.replace('_', ' ')}
+                    </TableCell>
+                    <TableCell className="text-slate-700 text-xs">
+                      {cm.reason}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {formatMoney(cm.amount)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {formatMoney(cm.appliedAmount)}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -280,3 +280,24 @@ export const inventoryMovementTypeEnum = pgEnum('inventory_movement_type', [
   'transfer_in',
   'transfer_out',
 ]);
+
+// Credit memo lifecycle. Status flows:
+//   draft → issued → (partially_applied → applied) | refunded | void
+// 'partially_applied' = some but not all of the credit has been consumed.
+// 'refunded' = fully consumed via one or more cash_refund applications.
+// 'applied' = fully consumed via invoice applications (or a mix).
+export const creditMemoStatusEnum = pgEnum('credit_memo_status', [
+  'draft',
+  'issued',
+  'partially_applied',
+  'applied',
+  'refunded',
+  'void',
+]);
+
+// How a credit memo gets consumed: against an invoice's net billed value,
+// or as a cash refund out the door.
+export const creditMemoApplicationKindEnum = pgEnum('credit_memo_application_kind', [
+  'invoice_application',
+  'cash_refund',
+]);
