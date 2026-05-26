@@ -37,3 +37,4 @@ export * from './inventory-items';
 export * from './inventory-movements';
 export * from './inventory-locations';
 export * from './credit-memos';
+export * from './clock-events';

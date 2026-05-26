@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getActiveEmployee } from '@/lib/active-employee';
 import { getCurrentUser } from '@/lib/auth';
+import { getLatestClockEvent } from '@/lib/data/clock-events';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,11 @@ export default async function FieldHomePage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login' as never);
   const employee = await getActiveEmployee();
+  // Drive the clock card's wording by current state. Skip the lookup
+  // when there's no linked employee — the unlinked-warning banner
+  // already explains nothing will work.
+  const latest = employee ? await getLatestClockEvent(employee.id) : null;
+  const isClockedIn = latest?.kind === 'in';
 
   const greetingName = employee
     ? employee.firstName
@@ -51,14 +57,19 @@ export default async function FieldHomePage() {
         </div>
       )}
 
-      {/* Phase M2 placeholder — Clock in/out card. Sized as the primary
-          action on the screen (big, top-of-stack) because it's what a
-          field worker opens the app to do most days. */}
+      {/* Clock in/out card. Sized as the primary action on the screen
+          (big, top-of-stack) because it's what a field worker opens the
+          app to do most days. Wording flips to reflect current state. */}
       <ActionCard
-        title="Clock in"
-        subtitle="Coming in next update"
+        title={isClockedIn ? 'Clock out' : 'Clock in'}
+        subtitle={
+          isClockedIn
+            ? `On the clock since ${latest!.occurredAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+            : 'Start your work session'
+        }
         tone="primary"
-        disabled
+        href={employee ? '/field/clock' : undefined}
+        disabled={!employee}
       />
 
       {/* Phase M3 placeholder — Today's jobs. Smaller card. */}
