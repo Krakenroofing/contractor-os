@@ -25,6 +25,11 @@ import {
   updateInvoiceHeader,
 } from '@/lib/data/invoices';
 import { reconcileAllInvoices } from '@/lib/data/invoice-reconcile';
+import {
+  applyCreditMemoToInvoice,
+  listCreditMemosForCustomer,
+} from '@/lib/data/credit-memos';
+import { getProject } from '@/lib/data/projects';
 import { billingTypeValues, invoiceFormSchema } from './schema';
 
 export type CreateInvoiceState = {
@@ -180,6 +185,47 @@ export async function createInvoiceAction(
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to create invoice: ${message}` };
+  }
+
+  // Phase 1.5: optional open-credit auto-apply. The form prompt below
+  // the project picker lets the operator opt in to consuming the
+  // customer's open credit balance against this new invoice. We apply
+  // FIFO (oldest credits first) until the requested amount is
+  // exhausted. Best-effort — credit failures don't roll back the
+  // already-created invoice.
+  const applyCreditAmountRaw = formData.get('applyCreditAmount');
+  const applyCreditAmount =
+    typeof applyCreditAmountRaw === 'string' ? Number(applyCreditAmountRaw) : 0;
+  if (Number.isFinite(applyCreditAmount) && applyCreditAmount > 0) {
+    try {
+      const project = await getProject(companyId, data.projectId);
+      if (project) {
+        const credits = await listCreditMemosForCustomer(companyId, project.customerId);
+        // Sort oldest-first by issue_date, exclude fully consumed.
+        const eligible = credits
+          .filter((c) => Number(c.amount) - Number(c.appliedAmount) > 0.005)
+          .sort((a, b) => a.issueDate.localeCompare(b.issueDate));
+        let remaining = applyCreditAmount;
+        const user = await requireAuth();
+        for (const cm of eligible) {
+          if (remaining <= 0.005) break;
+          const open = Number(cm.amount) - Number(cm.appliedAmount);
+          const take = Math.min(open, remaining);
+          await applyCreditMemoToInvoice(companyId, cm.id, {
+            appliedAt: data.invoiceDate,
+            amount: take,
+            invoiceId: createdId,
+            notes: `Auto-applied at invoice creation`,
+            createdByUserId: user.id,
+          });
+          remaining = Math.round((remaining - take) * 100) / 100;
+        }
+      }
+    } catch (err) {
+      // Don't block the redirect on credit-application failure — the
+      // operator can apply manually from /credit-memos/[id] later.
+      console.error('[invoice-create] credit auto-apply failed:', err);
+    }
   }
 
   revalidatePath('/invoices');

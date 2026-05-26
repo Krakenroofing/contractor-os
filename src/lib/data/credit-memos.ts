@@ -421,9 +421,75 @@ export async function refundCreditMemo(
 }
 
 /**
+ * Reverse a single credit-memo application. Used when an operator
+ * accidentally applied a credit to the wrong invoice (or cut a refund
+ * check that wasn't sent). In one transaction: delete the application
+ * row, decrement applied_amount on the parent credit memo, recompute
+ * status (back to issued if no apps remain, partially_applied otherwise).
+ *
+ * Works for both invoice_application and cash_refund kinds — caller
+ * decides which is appropriate.
+ */
+export async function unapplyCreditMemoApplication(
+  companyId: string,
+  applicationId: string,
+): Promise<{ creditMemoId: string }> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const [app] = await tx
+      .select()
+      .from(creditMemoApplications)
+      .where(
+        and(
+          eq(creditMemoApplications.id, applicationId),
+          eq(creditMemoApplications.companyId, companyId),
+        ),
+      )
+      .limit(1);
+    if (!app) throw new Error('Application not found.');
+
+    const [cm] = await tx
+      .select()
+      .from(creditMemos)
+      .where(
+        and(
+          eq(creditMemos.id, app.creditMemoId),
+          eq(creditMemos.companyId, companyId),
+        ),
+      )
+      .limit(1);
+    if (!cm) throw new Error('Parent credit memo not found.');
+
+    await tx
+      .delete(creditMemoApplications)
+      .where(eq(creditMemoApplications.id, applicationId));
+
+    const newApplied = Math.max(
+      Number(cm.appliedAmount) - Number(app.amount),
+      0,
+    );
+    // Status recomputation: if nothing applied → 'issued'; if some still
+    // applied → 'partially_applied'. Never reverts to 'applied' / 'refunded'
+    // since we just removed at least one row.
+    const newStatus: 'issued' | 'partially_applied' =
+      newApplied <= 0.005 ? 'issued' : 'partially_applied';
+    await tx
+      .update(creditMemos)
+      .set({
+        appliedAmount: newApplied.toFixed(2),
+        status: newStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(creditMemos.id, cm.id));
+
+    return { creditMemoId: cm.id };
+  });
+}
+
+/**
  * Soft-void a credit memo that has zero applications. Rejects voids on
  * credits with any application history — operator must unwind those
- * first (Phase 1.5).
+ * first via unapplyCreditMemoApplication.
  */
 export async function voidCreditMemo(
   companyId: string,

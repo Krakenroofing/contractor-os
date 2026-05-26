@@ -15,6 +15,7 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
+import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
@@ -44,6 +45,10 @@ export default async function NewInvoicePage() {
   // the progress-billing breakdown when the operator enters a % of contract
   // — auto-computing this invoice's subtotal as `cum - prior_billed_gross`,
   // and showing the "Less previously paid" / "Less retention" rollups.
+  // Bulk-load open credits per customer once; index by project's
+  // customer_id when assembling the option list below. Saves N+1.
+  const openCreditByCustomer = await getOpenCreditByCustomerMap(companyId);
+
   const projects = await Promise.all(
     (await listProjects(companyId)).map(async (p) => {
       const customer = await getCustomer(companyId, p.customerId);
@@ -72,6 +77,9 @@ export default async function NewInvoicePage() {
       return {
         id: p.id,
         label: `${p.name}${customer ? ` (${customer.name})` : ''}`,
+        customerId: p.customerId,
+        customerName: customer?.name,
+        customerOpenCredit: openCreditByCustomer.get(p.customerId) ?? 0,
         contractValue: parseMoney(p.contractValue),
         priorBilledGross: Math.round(priorBilledGross * 100) / 100,
         priorBilledNet: Math.round(priorBilledNet * 100) / 100,

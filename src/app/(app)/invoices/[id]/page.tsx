@@ -744,8 +744,13 @@ export default async function InvoiceDetailPage({
               <TableBody>
                 {creditMemos.map((cm) => (
                   <TableRow key={cm.id}>
-                    <TableCell className="font-mono text-xs text-slate-700">
-                      {cm.number}
+                    <TableCell className="font-mono text-xs">
+                      <Link
+                        href={{ pathname: `/credit-memos/${cm.id}` }}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {cm.number}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-slate-600">
                       {cm.issueDate}

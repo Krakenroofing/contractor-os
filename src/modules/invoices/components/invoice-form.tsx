@@ -44,6 +44,15 @@ function newEmptyLine(): LineDraft {
 export type InvoiceFormProjectOption = {
   id: string;
   label: string;
+  /** Customer that owns this project. Used to look up open-credit balance
+   *  so the form can prompt to auto-apply when issuing a new invoice. */
+  customerId?: string;
+  /** Sum of open credit-memo balances for this project's customer at form
+   *  render time. When > 0 and a project is selected, the form shows an
+   *  auto-apply prompt below the project picker. */
+  customerOpenCredit?: number;
+  /** Display name for the customer — used in the prompt copy. */
+  customerName?: string;
   /** Contract value at the time the form was rendered. Powers the
    *  progress-billing breakdown when the operator enters a % of contract. */
   contractValue?: number;
@@ -161,6 +170,12 @@ export function InvoiceForm({
   const [projectId, setProjectId] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [billingType, setBillingType] = useState<string>('progress');
+  // Phase 1.5: when the selected project's customer has open credit, the
+  // operator can opt in to apply some/all of it to this new invoice.
+  // FIFO consumption (oldest credits first) happens server-side after
+  // the invoice is created.
+  const [applyCreditAmount, setApplyCreditAmount] = useState<string>('0');
+  const [applyCreditEnabled, setApplyCreditEnabled] = useState(false);
 
   // Look up the currently selected template so we can hide/show sections
   // based on its show* flags. When `templateId === ''` (i.e. user left the
@@ -460,6 +475,67 @@ export function InvoiceForm({
                 </option>
               ))}
             </Select>
+            {/* Phase 1.5: customer-credit auto-apply prompt. Appears only
+                when the picked project's customer has unconsumed credit. */}
+            {(() => {
+              const proj = projects.find((p) => p.id === projectId);
+              const openCredit = proj?.customerOpenCredit ?? 0;
+              if (!proj || openCredit <= 0) return null;
+              return (
+                <div className="mt-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyCreditEnabled}
+                      onChange={(e) => {
+                        setApplyCreditEnabled(e.target.checked);
+                        if (e.target.checked && applyCreditAmount === '0') {
+                          // Default to full open credit; operator can shrink.
+                          setApplyCreditAmount(openCredit.toFixed(2));
+                        }
+                      }}
+                    />
+                    <span className="flex-1">
+                      <strong>{proj.customerName ?? 'This customer'}</strong>{' '}
+                      has{' '}
+                      <strong>
+                        {openCredit.toLocaleString(undefined, {
+                          style: 'currency',
+                          currency: 'USD',
+                        })}
+                      </strong>{' '}
+                      in open credit memos. Apply some / all to this new
+                      invoice on save (FIFO across credits — oldest first).
+                    </span>
+                  </label>
+                  {applyCreditEnabled && (
+                    <div className="flex items-center gap-2 pl-6">
+                      <span>Apply $</span>
+                      <Input
+                        name="applyCreditAmount"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={openCredit}
+                        value={applyCreditAmount}
+                        onChange={(e) => setApplyCreditAmount(e.target.value)}
+                        className="w-32 h-7 text-xs"
+                      />
+                      <span className="text-amber-800">
+                        (up to {openCredit.toFixed(2)})
+                      </span>
+                    </div>
+                  )}
+                  {!applyCreditEnabled && (
+                    <input
+                      type="hidden"
+                      name="applyCreditAmount"
+                      value="0"
+                    />
+                  )}
+                </div>
+              );
+            })()}
           </Field>
           <Field label="Linked proposal (optional)" error={err('proposalId')}>
             <Select name="proposalId" defaultValue="">

@@ -11,6 +11,7 @@ import {
   applyCreditMemoToInvoice,
   createCreditMemo,
   refundCreditMemo,
+  unapplyCreditMemoApplication,
   voidCreditMemo,
 } from '@/lib/data/credit-memos';
 
@@ -241,6 +242,43 @@ export async function refundCreditMemoAction(
   revalidatePath('/invoices');
   revalidatePath('/customers');
   revalidatePath('/dashboard');
+  return { ok: true };
+}
+
+// ---------- Unapply a single application ----------
+
+const unapplySchema = z.object({
+  applicationId: z.string().uuid('Invalid application id'),
+});
+
+export async function unapplyCreditMemoApplicationAction(
+  _prev: ApplyCreditState,
+  formData: FormData,
+): Promise<ApplyCreditState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { formError: 'No permission to unapply credits.' };
+  }
+  const parsed = unapplySchema.safeParse({
+    applicationId: formData.get('applicationId'),
+  });
+  if (!parsed.success) return { formError: 'Invalid id.' };
+  const companyId = await getActiveCompanyId();
+  try {
+    const { creditMemoId } = await unapplyCreditMemoApplication(
+      companyId,
+      parsed.data.applicationId,
+    );
+    revalidatePath(`/credit-memos/${creditMemoId}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: message };
+  }
+  revalidatePath('/invoices');
+  revalidatePath('/customers');
+  revalidatePath('/dashboard');
+  revalidatePath('/reports/accounts-receivable');
   return { ok: true };
 }
 
