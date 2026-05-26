@@ -19,6 +19,7 @@ export const REPORT_TYPES = [
   'accounts-receivable',
   'accounts-payable',
   'profit-loss',
+  'wip',
   'invoice-summary',
   'payment-summary',
   'purchase-orders',
@@ -36,6 +37,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'accounts-receivable': 'Accounts Receivable Report',
   'accounts-payable': 'Accounts Payable Report',
   'profit-loss': 'Profit & Loss (Income Statement)',
+  'wip': 'Work in Progress (WIP)',
   'invoice-summary': 'Invoice Summary Report',
   'payment-summary': 'Payment Summary Report',
   'purchase-orders': 'Purchase Order Summary',
@@ -57,6 +59,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Open commitments aged by vendor: open POs (not closed/void) + approved-but-unpaid subcontractor payments. Choose a default Net term for vendors without one on file.',
   'profit-loss':
     'Income statement: revenue (invoiced ex-VAT), cost of goods sold by operational category, gross profit, operating expenses by category, and net income. Accrual basis — invoices count when sent, costs when posted.',
+  'wip':
+    'Work in Progress — per-project contract value, cost-to-date, % complete (cost basis), revenue earned, billed-to-date, over/(under) billing, and projected gross profit. The classic surety/banker report for active contracts.',
   'invoice-summary':
     'List of invoices with line totals, status, balance due, and rolled-up totals.',
   'payment-summary':
@@ -91,6 +95,9 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   // A future per-project P&L would live as a section in the project-financial
   // report, not as a filter here.
   'profit-loss': false,
+  // WIP supports project filter so a PM can pull a single-project view
+  // for a banker / surety meeting.
+  'wip': true,
   'invoice-summary': true,
   'payment-summary': true,
   'purchase-orders': true,
@@ -112,6 +119,7 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'accounts-receivable': false,
   'accounts-payable': false,
   'profit-loss': false,
+  'wip': false,
   'invoice-summary': false,
   'payment-summary': false,
   'purchase-orders': false,
