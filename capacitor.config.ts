@@ -33,9 +33,8 @@ const config: CapacitorConfig = {
   appName: 'KrakenOps Pro',
   webDir: 'public',
   server: {
-    // Production URL. Update this when the deployment domain changes.
-    // The current Vercel domain — replace if you wire a custom domain.
-    url: 'https://contractor-os.vercel.app',
+    // Production URL — KrakenOps Pro's custom domain on Vercel.
+    url: 'https://krakenopspro.com',
     // cleartext=false enforces HTTPS-only loads (no plain HTTP), which
     // matches Vercel's posture and avoids App Store / Play Store
     // warnings about mixed content.
@@ -43,7 +42,13 @@ const config: CapacitorConfig = {
     // Allow the WebView to forward navigations / requests to the same
     // host. Without this, Android's WebView intercepts links and tries
     // to open them in the system browser, breaking client navigation.
-    allowNavigation: ['contractor-os.vercel.app', '*.vercel.app'],
+    // Both the apex domain and the Vercel preview/branch aliases are
+    // whitelisted so QA links from PR previews also load in-app.
+    allowNavigation: [
+      'krakenopspro.com',
+      '*.krakenopspro.com',
+      '*.vercel.app',
+    ],
   },
   plugins: {
     // Camera permission strings — surface to the worker the FIRST time

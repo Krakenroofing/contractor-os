@@ -84,7 +84,7 @@ In Xcode:
 2. Top bar → select your iPhone as the run target.
 3. Click ▶︎ (or Cmd-R). First run, Xcode will ask you to trust the developer certificate; on your phone, go to **Settings → General → VPN & Device Management → trust your Apple ID**.
 
-The app launches. It immediately loads the production URL (https://contractor-os.vercel.app — change in `capacitor.config.ts` if you wire a custom domain).
+The app launches. It immediately loads the production URL (https://krakenopspro.com — change in `capacitor.config.ts` if the domain changes).
 
 ### Android
 
