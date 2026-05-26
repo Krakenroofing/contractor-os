@@ -195,6 +195,21 @@ export async function middleware(req: NextRequest) {
   if (user) {
     req.headers.set(SUPABASE_USER_ID_HEADER, user.id);
     req.headers.set(SUPABASE_USER_EMAIL_HEADER, user.email ?? '');
+
+    // /field/* override: pin the active company to FIELD_DEFAULT_COMPANY_ID
+    // for the field shell only. Request-scoped — we mutate req.cookies so
+    // getActiveCompanyId() resolves to this value during this render, but
+    // we do NOT write response.cookies, so the user's persistent desktop
+    // preference is untouched. Remove the env var to revert.
+    // getActiveCompanyId still validates against the user's memberships,
+    // so a user without membership in the target company silently falls
+    // back to their own first membership.
+    const fieldDefaultCompanyId =
+      process.env.FIELD_DEFAULT_COMPANY_ID?.trim();
+    if (fieldDefaultCompanyId && pathname.startsWith('/field')) {
+      req.cookies.set('cos_company_id', fieldDefaultCompanyId);
+    }
+
     // Re-issue the response so the modified request headers are forwarded
     // to the destination route. Carry over any Set-Cookie headers setAll
     // wrote above.
