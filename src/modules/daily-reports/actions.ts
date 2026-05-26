@@ -221,7 +221,19 @@ export async function createDailyReportAction(
 
   revalidatePath(`/projects/${project.id}`);
   revalidatePath(`/projects/${project.id}/daily-reports`);
-  redirect(`/projects/${project.id}/daily-reports/${createdId}`);
+  // Mobile flow (Phase M4): when the form was submitted from /field/*,
+  // redirect back into the field route group so the worker stays in
+  // their phone-sized layout and can immediately add photos. Desktop
+  // submitters get the original detail URL.
+  const from = (formData.get('from') ?? '').toString();
+  if (from === 'field') {
+    revalidatePath(`/field/reports/${createdId}`);
+    // Cast through `never` to bypass typed-routes literal narrowing —
+    // /field/reports/[id] is a fresh route the registry hasn't caught
+    // up to yet. The runtime accepts the templated string fine.
+    redirect(`/field/reports/${createdId}` as never);
+  }
+  redirect(`/projects/${project.id}/daily-reports/${createdId}` as never);
 }
 
 export async function updateDailyReportAction(

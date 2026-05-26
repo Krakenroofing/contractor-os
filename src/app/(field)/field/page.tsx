@@ -96,12 +96,13 @@ export default async function FieldHomePage() {
         disabled={!employee}
       />
 
-      {/* Phase M4 placeholder — Daily report. Schema already exists; the
-          mobile-friendly form is the M4 deliverable. */}
+      {/* Submit daily report — jumps to the project picker. After save,
+          the mobile detail page lets you add photos with the camera. */}
       <ActionCard
         title="Submit daily report"
         subtitle="Crew, scope, photos, work done"
-        disabled
+        href={employee ? '/field/reports/new' : undefined}
+        disabled={!employee}
       />
     </div>
   );

@@ -62,6 +62,32 @@ const ITEMS: Item[] = [
     ),
   },
   {
+    href: '/field/reports',
+    label: 'Reports',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+        <path
+          d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M14 3v5h5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M9 13h6M9 17h6"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: '/field/profile',
     label: 'Profile',
     icon: (
@@ -87,7 +113,7 @@ export function FieldBottomNav({ role: _role }: { role: Role }) {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {ITEMS.map((item) => {
           const active = pathname === item.href;
           return (

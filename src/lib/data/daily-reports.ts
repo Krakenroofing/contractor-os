@@ -88,6 +88,33 @@ export async function listDailyReportsForProject(
     .orderBy(desc(dailyReports.reportDate), desc(dailyReports.createdAt));
 }
 
+/**
+ * Reports created by a specific user across all of their projects.
+ * Powers /field/reports — the "my recent reports" view in the mobile
+ * field app. Returns soft-deleted rows excluded; void rows included so
+ * the worker sees what they voided.
+ */
+export async function listDailyReportsForUser(
+  companyId: string,
+  userId: string,
+  limit = 50,
+): Promise<DailyReport[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(dailyReports)
+    .where(
+      and(
+        eq(dailyReports.companyId, companyId),
+        eq(dailyReports.createdBy, userId),
+        isNull(dailyReports.deletedAt),
+      ),
+    )
+    .orderBy(desc(dailyReports.reportDate), desc(dailyReports.createdAt))
+    .limit(limit);
+}
+
 export async function countDailyReportsForProject(
   companyId: string,
   projectId: string,
