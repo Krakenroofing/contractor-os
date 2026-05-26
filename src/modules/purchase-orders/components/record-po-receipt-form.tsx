@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -50,14 +51,20 @@ function fmtQty(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+type LocationOption = { id: string; name: string; isDefault: boolean };
+
 export function RecordPoReceiptForm({
   poId,
   poNumber,
   lines,
+  locations,
+  defaultLocationId,
 }: {
   poId: string;
   poNumber: string;
   lines: LineRow[];
+  locations: LocationOption[];
+  defaultLocationId: string | null;
 }) {
   const [state, formAction, pending] = useActionState(
     recordPoReceiptAction,
@@ -112,7 +119,7 @@ export function RecordPoReceiptForm({
       <input type="hidden" name="purchaseOrderId" value={poId} />
       <input type="hidden" name="lines" value={linesJson} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Field label="Received date" error={state.errors?.receivedDate?.[0]}>
           <Input
             name="receivedDate"
@@ -120,6 +127,28 @@ export function RecordPoReceiptForm({
             defaultValue={todayLocalISO()}
             required
           />
+        </Field>
+        <Field
+          label="Stock location"
+          error={state.errors?.locationId?.[0]}
+        >
+          <Select
+            name="locationId"
+            defaultValue={defaultLocationId ?? ''}
+            required
+          >
+            {locations.length === 0 && (
+              <option value="" disabled>
+                No locations — create one at /inventory/locations
+              </option>
+            )}
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+                {l.isDefault ? ' (default)' : ''}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field
           label="Notes (optional)"

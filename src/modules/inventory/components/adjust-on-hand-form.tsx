@@ -9,6 +9,7 @@ import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import {
   recordInventoryAdjustmentAction,
   type RecordAdjustmentState,
@@ -16,14 +17,25 @@ import {
 
 const initial: RecordAdjustmentState = {};
 
+export type AdjustLocationOption = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+};
+
 export function AdjustOnHandForm({
   itemId,
   unit,
   onHand,
+  locations,
+  defaultLocationId,
 }: {
   itemId: string;
   unit: string | null;
+  /** Aggregate on-hand across every location, used for the projection hint. */
   onHand: number;
+  locations: AdjustLocationOption[];
+  defaultLocationId: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(
@@ -119,6 +131,34 @@ export function AdjustOnHandForm({
               </span>
               {projected < 0 && ' (negative — allowed, but check your numbers)'}
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>
+              Stock location <span className="text-red-600">*</span>
+            </Label>
+            <Select
+              name="locationId"
+              defaultValue={defaultLocationId ?? ''}
+              required
+            >
+              {locations.length === 0 && (
+                <option value="" disabled>
+                  No locations — create one at /inventory/locations first
+                </option>
+              )}
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                  {l.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </Select>
+            {state.errors?.locationId?.[0] && (
+              <p className="text-xs text-red-600">
+                {state.errors.locationId[0]}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

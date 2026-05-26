@@ -43,38 +43,48 @@ export async function recordInventoryMovement(
 
 /**
  * Sum on-hand for one item. Returns 0 if no movements exist.
+ * When locationId is provided, sums only movements at that location.
+ * Otherwise aggregates across every location.
  */
 export async function getOnHandForItem(
   companyId: string,
   inventoryItemId: string,
+  locationId?: string,
 ): Promise<number> {
   const db = requireDb();
+  const filters = [
+    eq(inventoryMovements.companyId, companyId),
+    eq(inventoryMovements.inventoryItemId, inventoryItemId),
+  ];
+  if (locationId) {
+    filters.push(eq(inventoryMovements.locationId, locationId));
+  }
   const rows = await db
     .select({
       total: sql<string>`COALESCE(SUM(${inventoryMovements.quantity}), 0)`,
     })
     .from(inventoryMovements)
-    .where(
-      and(
-        eq(inventoryMovements.companyId, companyId),
-        eq(inventoryMovements.inventoryItemId, inventoryItemId),
-      ),
-    );
+    .where(and(...filters));
   return Number(rows[0]?.total ?? '0');
 }
 
 /**
  * Bulk on-hand fetch: one row per item with any movement. Used by the
  * /inventory index page to show on-hand columns without N+1.
+ * When locationId is provided, restricts to movements at that location.
  */
 export async function getOnHandMap(
   companyId: string,
   inventoryItemIds?: string[],
+  locationId?: string,
 ): Promise<Map<string, number>> {
   const db = requireDb();
   const filters = [eq(inventoryMovements.companyId, companyId)];
   if (inventoryItemIds && inventoryItemIds.length > 0) {
     filters.push(inArray(inventoryMovements.inventoryItemId, inventoryItemIds));
+  }
+  if (locationId) {
+    filters.push(eq(inventoryMovements.locationId, locationId));
   }
   const rows = await db
     .select({
@@ -88,6 +98,42 @@ export async function getOnHandMap(
   const map = new Map<string, number>();
   for (const r of rows) {
     map.set(r.itemId, Number(r.total));
+  }
+  return map;
+}
+
+/**
+ * Per-location breakdown for one item: Map<locationId, qty>. Used by the
+ * inventory item detail page to render the "on-hand by location" panel.
+ * Skips locations with zero net qty so the UI doesn't render empty rows.
+ * Returns rows for movements that have a location_id set; legacy rows
+ * with NULL locationId (pre-backfill anomaly) are grouped under a
+ * synthetic 'unassigned' key.
+ */
+export async function getOnHandByItemAndLocation(
+  companyId: string,
+  inventoryItemId: string,
+): Promise<Map<string | null, number>> {
+  const db = requireDb();
+  const rows = await db
+    .select({
+      locationId: inventoryMovements.locationId,
+      total: sql<string>`COALESCE(SUM(${inventoryMovements.quantity}), 0)`,
+    })
+    .from(inventoryMovements)
+    .where(
+      and(
+        eq(inventoryMovements.companyId, companyId),
+        eq(inventoryMovements.inventoryItemId, inventoryItemId),
+      ),
+    )
+    .groupBy(inventoryMovements.locationId);
+
+  const map = new Map<string | null, number>();
+  for (const r of rows) {
+    const qty = Number(r.total);
+    if (qty === 0) continue;
+    map.set(r.locationId, qty);
   }
   return map;
 }

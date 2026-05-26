@@ -44,6 +44,11 @@ export default async function InventoryPage() {
         </div>
         <div className="flex items-center gap-2">
           {allowCreate && (
+            <Link href="/inventory/locations">
+              <Button variant="outline">Manage locations</Button>
+            </Link>
+          )}
+          {allowCreate && (
             <Link href="/inventory/import">
               <Button variant="outline">Import from QuickBooks</Button>
             </Link>

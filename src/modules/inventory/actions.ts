@@ -17,6 +17,13 @@ import {
   type CreateInventoryItemInput,
 } from '@/lib/data/inventory-items';
 import { recordInventoryMovement } from '@/lib/data/inventory-movements';
+import {
+  archiveInventoryLocation,
+  createInventoryLocation,
+  getDefaultLocation,
+  setDefaultLocation,
+  unarchiveInventoryLocation,
+} from '@/lib/data/inventory-locations';
 import { inventoryItemFormSchema } from './schema';
 
 export type InventoryItemState = {
@@ -237,6 +244,10 @@ export async function importInventoryItemsAction(
 
 const adjustmentSchema = z.object({
   inventoryItemId: z.string().uuid('Invalid product id'),
+  // Optional — when empty, the action resolves to the company default
+  // location. Required at the UI level via the picker; this leniency is
+  // only for legacy callers and migration tooling.
+  locationId: z.string().uuid('Invalid location id').optional().or(z.literal('')),
   delta: z
     .string()
     .refine(
@@ -263,6 +274,7 @@ export async function recordInventoryAdjustmentAction(
 
   const parsed = adjustmentSchema.safeParse({
     inventoryItemId: formData.get('inventoryItemId'),
+    locationId: formData.get('locationId') ?? '',
     delta: formData.get('delta'),
     reason: formData.get('reason'),
   });
@@ -274,6 +286,25 @@ export async function recordInventoryAdjustmentAction(
   const item = await getInventoryItem(companyId, parsed.data.inventoryItemId);
   if (!item) {
     return { formError: 'Product not found in the active company.' };
+  }
+
+  // Resolve location: prefer the explicit pick, fall back to the company
+  // default. If the company has no default (operator archived all
+  // locations and didn't pick one), surface a clear error instead of
+  // writing a NULL-located movement that won't appear in per-location
+  // on-hand queries.
+  let locationId: string | null = parsed.data.locationId && parsed.data.locationId !== ''
+    ? parsed.data.locationId
+    : null;
+  if (!locationId) {
+    const def = await getDefaultLocation(companyId);
+    if (!def) {
+      return {
+        formError:
+          'No default stock location is configured. Visit /inventory/locations to create one before recording adjustments.',
+      };
+    }
+    locationId = def.id;
   }
 
   const delta = Number(parsed.data.delta);
@@ -290,6 +321,7 @@ export async function recordInventoryAdjustmentAction(
       poReceiptLineId: null,
       projectId: null,
       reversalOfId: null,
+      locationId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -298,5 +330,111 @@ export async function recordInventoryAdjustmentAction(
 
   revalidatePath('/inventory');
   revalidatePath(`/inventory/${item.id}`);
+  return {};
+}
+
+// ===== Phase 6.4: stock locations management =====
+
+const locationCreateSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(120),
+  notes: z.string().max(500).optional().or(z.literal('')),
+  isDefault: z.coerce.boolean().optional(),
+});
+
+export type LocationActionState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+export async function createInventoryLocationAction(
+  _prev: LocationActionState,
+  formData: FormData,
+): Promise<LocationActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { formError: 'You do not have permission to manage stock locations.' };
+  }
+  const parsed = locationCreateSchema.safeParse({
+    name: formData.get('name'),
+    notes: formData.get('notes') ?? '',
+    isDefault: formData.get('isDefault') === 'on',
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    await createInventoryLocation(companyId, {
+      name: parsed.data.name.trim(),
+      notes:
+        parsed.data.notes && parsed.data.notes.trim() !== ''
+          ? parsed.data.notes.trim()
+          : null,
+      isDefault: parsed.data.isDefault,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Could not create location: ${message}` };
+  }
+  revalidatePath('/inventory/locations');
+  return {};
+}
+
+const locationIdSchema = z.object({ id: z.string().uuid('Invalid location id') });
+
+export async function setDefaultLocationAction(
+  _prev: LocationActionState,
+  formData: FormData,
+): Promise<LocationActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { formError: 'No permission.' };
+  }
+  const parsed = locationIdSchema.safeParse({ id: formData.get('id') });
+  if (!parsed.success) return { formError: 'Missing or invalid id.' };
+  const companyId = await getActiveCompanyId();
+  await setDefaultLocation(companyId, parsed.data.id);
+  revalidatePath('/inventory/locations');
+  return {};
+}
+
+export async function archiveInventoryLocationAction(
+  _prev: LocationActionState,
+  formData: FormData,
+): Promise<LocationActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { formError: 'No permission.' };
+  }
+  const parsed = locationIdSchema.safeParse({ id: formData.get('id') });
+  if (!parsed.success) return { formError: 'Missing or invalid id.' };
+  const companyId = await getActiveCompanyId();
+  try {
+    await archiveInventoryLocation(companyId, parsed.data.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: message };
+  }
+  revalidatePath('/inventory/locations');
+  return {};
+}
+
+export async function unarchiveInventoryLocationAction(
+  _prev: LocationActionState,
+  formData: FormData,
+): Promise<LocationActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { formError: 'No permission.' };
+  }
+  const parsed = locationIdSchema.safeParse({ id: formData.get('id') });
+  if (!parsed.success) return { formError: 'Missing or invalid id.' };
+  const companyId = await getActiveCompanyId();
+  await unarchiveInventoryLocation(companyId, parsed.data.id);
+  revalidatePath('/inventory/locations');
   return {};
 }

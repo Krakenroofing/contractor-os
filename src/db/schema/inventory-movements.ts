@@ -9,6 +9,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { inventoryItems } from './inventory-items';
+import { inventoryLocations } from './inventory-locations';
 import { users } from './users';
 import { poReceiptLines } from './purchase-orders';
 import { projects } from './projects';
@@ -51,6 +52,12 @@ export const inventoryMovements = pgTable(
       () => poReceiptLines.id,
       { onDelete: 'set null' },
     ),
+    // Phase 6.4: physical location. Nullable for legacy rows before the
+    // location dimension existed; backfilled to the company default in
+    // the migration. New writes always populate it.
+    locationId: uuid('location_id').references(() => inventoryLocations.id, {
+      onDelete: 'set null',
+    }),
     projectId: uuid('project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),
@@ -71,6 +78,10 @@ export const inventoryMovements = pgTable(
     poReceiptLineIdx: index('inventory_movements_po_receipt_line_idx').on(
       t.poReceiptLineId,
     ),
+    // Phase 6.4: per (company × item × location) on-hand SUMs use this.
+    companyItemLocationIdx: index(
+      'inventory_movements_company_item_location_idx',
+    ).on(t.companyId, t.inventoryItemId, t.locationId),
   }),
 );
 

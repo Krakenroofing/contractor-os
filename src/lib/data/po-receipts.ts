@@ -35,6 +35,10 @@ export type CreatePoReceiptInput = {
   receivedAt: Date;
   receivedByUserId: string | null;
   notes: string | null;
+  // Phase 6.4: which physical location received this shipment. All
+  // inventory_movements written by this receipt inherit this value.
+  // Nullable in the schema for legacy data; new writes always pass it.
+  locationId: string | null;
   lines: Array<{
     poLineId: string;
     quantityReceived: number;
@@ -128,6 +132,7 @@ export async function createPoReceipt(
         receivedAt: input.receivedAt,
         receivedByUserId: input.receivedByUserId,
         notes: input.notes,
+        locationId: input.locationId,
       })
       .returning({ id: poReceipts.id });
     const receiptId = insertedReceipt[0].id;
@@ -199,6 +204,7 @@ export async function createPoReceipt(
           poReceiptLineId: rl.id,
           projectId: null,
           reversalOfId: null,
+          locationId: input.locationId,
         });
       }
       if (movementRows.length > 0) {
@@ -337,6 +343,9 @@ export async function deletePoReceipt(
             poReceiptLineId: null,
             projectId: null,
             reversalOfId: m.id,
+            // Inherit the original location so per-location SUM stays
+            // balanced (original +qty + reversal -qty = 0 at that location).
+            locationId: m.locationId,
           })),
         );
       }

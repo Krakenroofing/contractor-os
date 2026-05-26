@@ -24,6 +24,7 @@ import {
   createPoReceipt,
   deletePoReceipt,
 } from '@/lib/data/po-receipts';
+import { getDefaultLocation } from '@/lib/data/inventory-locations';
 import { createProjectDocument } from '@/lib/data/project-documents';
 import { getProject } from '@/lib/data/projects';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
@@ -259,6 +260,7 @@ export async function recordPoReceiptAction(
     purchaseOrderId: formData.get('purchaseOrderId'),
     receivedDate: formData.get('receivedDate'),
     notes: formData.get('notes') ?? '',
+    locationId: formData.get('locationId') ?? '',
     lines: parsedLines,
   });
   if (!parsed.success) {
@@ -286,12 +288,31 @@ export async function recordPoReceiptAction(
   // day regardless of which timezone the row is later rendered in.
   const receivedAt = new Date(`${parsed.data.receivedDate}T12:00:00`);
 
+  // Resolve location: prefer explicit pick, fall back to company default.
+  // Mirrors the adjustment action's resolution path so the two flows
+  // behave consistently when the form leaves it blank.
+  let locationId: string | null =
+    parsed.data.locationId && parsed.data.locationId !== ''
+      ? parsed.data.locationId
+      : null;
+  if (!locationId) {
+    const def = await getDefaultLocation(companyId);
+    if (!def) {
+      return {
+        formError:
+          'No default stock location is configured. Visit /inventory/locations to create one before receiving against this PO.',
+      };
+    }
+    locationId = def.id;
+  }
+
   let resultingStatus: string;
   try {
     const result = await createPoReceipt(companyId, po.id, {
       receivedAt,
       receivedByUserId: user.id,
       notes: parsed.data.notes?.trim() || null,
+      locationId,
       lines,
     });
     resultingStatus = result.resultingStatus;

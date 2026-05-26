@@ -18,9 +18,11 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getInventoryItem } from '@/lib/data/inventory-items';
 import {
+  getOnHandByItemAndLocation,
   getOnHandForItem,
   listMovementsForItem,
 } from '@/lib/data/inventory-movements';
+import { listInventoryLocations } from '@/lib/data/inventory-locations';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { poReceiptLines, poReceipts, purchaseOrders } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
@@ -82,6 +84,11 @@ export default async function ProductDetailPage({
     .map((m) => m.poReceiptLineId)
     .filter((v): v is string => v !== null);
   const poSources = await loadPoSourcesForReceiptLines(receiptLineIds);
+  // Phase 6.4: per-location breakdown + locations list for the adjustment modal.
+  const locations = await listInventoryLocations(companyId);
+  const defaultLocation = locations.find((l) => l.isDefault);
+  const locationMap = new Map(locations.map((l) => [l.id, l.name] as const));
+  const onHandByLocation = await getOnHandByItemAndLocation(companyId, item.id);
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -128,6 +135,12 @@ export default async function ProductDetailPage({
                 itemId={item.id}
                 unit={item.unit}
                 onHand={onHand}
+                locations={locations.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  isDefault: l.isDefault,
+                }))}
+                defaultLocationId={defaultLocation?.id ?? null}
               />
             )}
           </div>
@@ -155,6 +168,54 @@ export default async function ProductDetailPage({
               inbound — usually a missing receipt or a stale adjustment. Worth
               reviewing the history below.
             </p>
+          )}
+
+          {onHandByLocation.size > 0 && (
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500 mb-2">
+                By location
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Location</TableHead>
+                    <TableHead className="text-right">On hand</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from(onHandByLocation.entries())
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([locId, qty]) => {
+                      const name = locId
+                        ? (locationMap.get(locId) ?? 'Unknown location')
+                        : 'Unassigned';
+                      return (
+                        <TableRow key={locId ?? 'unassigned'}>
+                          <TableCell className="text-slate-900">
+                            {name}
+                            {locId === null && (
+                              <span className="ml-2 text-xs text-amber-700">
+                                (legacy, not tied to a location)
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right tabular-nums ${
+                              qty < 0
+                                ? 'text-red-700'
+                                : qty === 0
+                                  ? 'text-slate-400'
+                                  : 'text-slate-900'
+                            }`}
+                          >
+                            {qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -200,6 +261,7 @@ export default async function ProductDetailPage({
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
+                  <TableHead>Location</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Notes</TableHead>
                 </TableRow>
@@ -230,6 +292,11 @@ export default async function ProductDetailPage({
                       >
                         {qty > 0 ? '+' : ''}
                         {qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </TableCell>
+                      <TableCell className="text-slate-600 text-xs">
+                        {m.locationId
+                          ? (locationMap.get(m.locationId) ?? '—')
+                          : '—'}
                       </TableCell>
                       <TableCell className="text-slate-600">
                         {poSource ? (

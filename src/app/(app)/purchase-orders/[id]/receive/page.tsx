@@ -10,6 +10,7 @@ import {
   getPurchaseOrderLines,
 } from '@/lib/data/purchase-orders';
 import { getVendor } from '@/lib/data/vendors';
+import { listInventoryLocations } from '@/lib/data/inventory-locations';
 import { RecordPoReceiptForm } from '@/modules/purchase-orders/components/record-po-receipt-form';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,8 @@ export default async function ReceivePurchaseOrderPage({
 
   const lines = await getPurchaseOrderLines(po.id);
   const vendor = await getVendor(companyId, po.vendorId);
+  const locations = await listInventoryLocations(companyId);
+  const defaultLocation = locations.find((l) => l.isDefault);
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -79,6 +82,12 @@ export default async function ReceivePurchaseOrderPage({
           quantityOrdered: Number(l.quantityOrdered),
           quantityReceivedAlready: Number(l.quantityReceived),
         }))}
+        locations={locations.map((l) => ({
+          id: l.id,
+          name: l.name,
+          isDefault: l.isDefault,
+        }))}
+        defaultLocationId={defaultLocation?.id ?? null}
       />
     </div>
   );

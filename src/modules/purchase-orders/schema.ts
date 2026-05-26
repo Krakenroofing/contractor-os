@@ -77,6 +77,10 @@ export const poReceiptFormSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date'),
   notes: z.string().max(2000).optional().or(z.literal('')),
+  // Phase 6.4: location is optional at parse-time so legacy callers /
+  // tooling don't break; the action resolves to the company default
+  // when not provided.
+  locationId: z.string().uuid('Pick a stock location').optional().or(z.literal('')),
   lines: z.array(poReceiptLineFormSchema).min(1, 'No lines to receive'),
 });
 

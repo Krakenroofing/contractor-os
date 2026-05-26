@@ -35,3 +35,4 @@ export * from './period-paystub-snapshots';
 export * from './paystub-adjustments';
 export * from './inventory-items';
 export * from './inventory-movements';
+export * from './inventory-locations';

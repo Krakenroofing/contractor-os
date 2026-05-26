@@ -16,6 +16,7 @@ import { users } from './users';
 import { costCodes } from './cost-codes';
 import { landedCosts } from './landed-costs';
 import { inventoryItems } from './inventory-items';
+import { inventoryLocations } from './inventory-locations';
 import { purchaseOrderStatusEnum } from './_enums';
 
 export const purchaseOrders = pgTable(
@@ -102,6 +103,13 @@ export const poReceipts = pgTable('po_receipts', {
     onDelete: 'set null',
   }),
   notes: text('notes'),
+  // Phase 6.4: which physical location received this shipment. One
+  // location per whole receipt — every inventory_movement written for
+  // its lines inherits it. Nullable for legacy rows; new writes always
+  // populate via the receive form's location picker.
+  locationId: uuid('location_id').references(() => inventoryLocations.id, {
+    onDelete: 'set null',
+  }),
 });
 
 export const poReceiptLines = pgTable('po_receipt_lines', {
