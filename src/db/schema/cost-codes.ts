@@ -50,6 +50,11 @@ export const costCodes = pgTable(
     parentId: uuid('parent_id').references((): AnyPgColumn => costCodes.id, {
       onDelete: 'set null',
     }),
+    // Optional default unit cost. Used as a fallback on PO lines when the
+    // linked inventory item has no defaultCost (or no inventory item is
+    // linked at all — e.g. labor / equipment rental / services). Null when
+    // the code doesn't carry a standing rate.
+    defaultCost: numeric('default_cost', { precision: 14, scale: 2 }),
     isActive: boolean('is_active').notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     notes: text('notes'),

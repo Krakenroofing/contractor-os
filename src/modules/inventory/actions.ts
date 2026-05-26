@@ -333,6 +333,39 @@ export async function recordInventoryAdjustmentAction(
   return {};
 }
 
+// Single-field update for inventory_item.default_cost. Used by the PO line
+// "Update defaults" dialog so the operator can push a one-time PO unit
+// cost back onto the product without leaving the PO form.
+export async function updateInventoryItemDefaultCostAction(input: {
+  id: string;
+  defaultCost: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { ok: false, error: 'No permission to edit products.' };
+  }
+  const n = Number(input.defaultCost);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, error: 'Default cost must be a non-negative number.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const updated = await updateInventoryItem(companyId, input.id, {
+      defaultCost: (Math.round(n * 10000) / 10000).toFixed(4),
+    });
+    if (!updated) {
+      return { ok: false, error: 'Product not found in the active company.' };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: message };
+  }
+  revalidatePath('/inventory');
+  revalidatePath(`/inventory/${input.id}`);
+  revalidatePath('/purchase-orders/new');
+  return { ok: true };
+}
+
 // ===== Phase 6.4: stock locations management =====
 
 const locationCreateSchema = z.object({

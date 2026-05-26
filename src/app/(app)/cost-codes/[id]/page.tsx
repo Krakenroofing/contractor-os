@@ -109,6 +109,7 @@ export default async function CostCodeDetailPage({
                 division: code.division,
                 sortOrder: code.sortOrder,
                 notes: code.notes,
+                defaultCost: code.defaultCost,
               }}
             />
           </CardContent>

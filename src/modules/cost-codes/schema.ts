@@ -58,6 +58,19 @@ export const costCodeFormSchema = z.object({
       const n = typeof v === 'number' ? v : Number(v);
       return Number.isFinite(n) ? Math.trunc(n) : 0;
     }),
+  // Optional default unit cost. Used as a price fallback on PO lines when
+  // the picked inventory item has no defaultCost (or none is linked).
+  // Empty string → null (no standing rate).
+  defaultCost: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === '' || v === null) return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) && n >= 0
+        ? (Math.round(n * 100) / 100).toFixed(2)
+        : null;
+    }),
   notes: optionalTrimmed,
 });
 

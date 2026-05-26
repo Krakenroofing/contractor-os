@@ -69,6 +69,20 @@ export function CostCodeForm() {
           />
         </Field>
 
+        <Field
+          label="Default cost (optional)"
+          error={err('defaultCost')}
+        >
+          <Input
+            name="defaultCost"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            placeholder="e.g. 12.50 — leave blank when no standing rate"
+          />
+        </Field>
+
         <Field label="Notes" error={err('notes')} className="md:col-span-2">
           <Input name="notes" placeholder="Optional notes for estimators" />
         </Field>

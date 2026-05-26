@@ -28,6 +28,7 @@ export async function createCostCodeAction(
     category: formData.get('category'),
     division: formData.get('division'),
     sortOrder: formData.get('sortOrder'),
+    defaultCost: formData.get('defaultCost'),
     notes: formData.get('notes'),
   });
 
@@ -46,6 +47,7 @@ export async function createCostCodeAction(
       category: data.category,
       division: data.division ?? null,
       sortOrder: data.sortOrder,
+      defaultCost: data.defaultCost,
       notes: data.notes ?? null,
     });
     createdId = created.id;
@@ -84,6 +86,7 @@ export async function updateCostCodeAction(
       category: formData.get('category'),
       division: formData.get('division'),
       sortOrder: formData.get('sortOrder'),
+      defaultCost: formData.get('defaultCost'),
       notes: formData.get('notes'),
     });
 
@@ -97,6 +100,7 @@ export async function updateCostCodeAction(
     category: parsed.data.category,
     division: parsed.data.division ?? null,
     sortOrder: parsed.data.sortOrder,
+    defaultCost: parsed.data.defaultCost,
     notes: parsed.data.notes ?? null,
   });
 
@@ -116,4 +120,79 @@ export async function toggleCostCodeActiveAction(id: string, nextValue: boolean)
   await setCostCodeActive(companyId, id, nextValue);
   revalidatePath('/cost-codes');
   revalidatePath(`/cost-codes/${id}`);
+}
+
+// Phase 2 cost-codes: update default_cost from elsewhere (PO line "Update
+// defaults" dialog). Tiny single-field write — separate action keeps the
+// surface small and the permission check explicit.
+export async function updateCostCodeDefaultCostAction(input: {
+  id: string;
+  defaultCost: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'cost_codes')) {
+    return { ok: false, error: 'No permission to edit cost codes.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  // Validate and normalize the value: empty / null clears the standing
+  // rate; otherwise round to 2dp and reject negatives.
+  let value: string | null = null;
+  if (input.defaultCost !== null && input.defaultCost !== '') {
+    const n = Number(input.defaultCost);
+    if (!Number.isFinite(n) || n < 0) {
+      return { ok: false, error: 'Default cost must be a non-negative number.' };
+    }
+    value = (Math.round(n * 100) / 100).toFixed(2);
+  }
+
+  const updated = await updateCostCode(companyId, input.id, {
+    defaultCost: value,
+  });
+  if (!updated) {
+    return {
+      ok: false,
+      error:
+        'Cost code not found — or it lives in the read-only global library.',
+    };
+  }
+  revalidatePath('/cost-codes');
+  revalidatePath(`/cost-codes/${input.id}`);
+  // PO and estimate forms read costCodes; revalidating them too so the
+  // next render picks up the new default.
+  revalidatePath('/purchase-orders/new');
+  revalidatePath('/estimates');
+  return { ok: true };
+}
+
+// ===== Roofing cost-code bulk-install =====
+
+import { installRoofingCostCodes } from '@/lib/seeds/roofing-cost-codes';
+
+export type InstallRoofingCostCodesState = {
+  formError?: string;
+  result?: {
+    inserted: number;
+    skipped: number;
+    skippedCodes: string[];
+  };
+};
+
+export async function installRoofingCostCodesAction(
+  _prev: InstallRoofingCostCodesState,
+  _formData: FormData,
+): Promise<InstallRoofingCostCodesState> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'cost_codes')) {
+    return { formError: 'You do not have permission to manage cost codes.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const result = await installRoofingCostCodes(companyId);
+    revalidatePath('/cost-codes');
+    return { result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to install roofing codes: ${message}` };
+  }
 }

@@ -48,10 +48,19 @@ import { GLOBAL_COST_CODE_LIBRARY_ID } from '@/lib/data/cost-code-defaults';
 export { DuplicateCostCodeError, GLOBAL_COST_CODE_LIBRARY_ID };
 
 export type CreateCostCodeInput = Pick<CostCode, 'code' | 'description' | 'category'> &
-  Partial<Pick<CostCode, 'division' | 'sortOrder' | 'notes'>>;
+  Partial<Pick<CostCode, 'division' | 'sortOrder' | 'notes' | 'defaultCost'>>;
 
 export type UpdateCostCodeInput = Partial<
-  Pick<CostCode, 'description' | 'category' | 'division' | 'sortOrder' | 'isActive' | 'notes'>
+  Pick<
+    CostCode,
+    | 'description'
+    | 'category'
+    | 'division'
+    | 'sortOrder'
+    | 'isActive'
+    | 'notes'
+    | 'defaultCost'
+  >
 >;
 
 /**
@@ -244,6 +253,7 @@ export async function createCostCode(
         division: input.division ?? null,
         sortOrder: input.sortOrder ?? 0,
         notes: input.notes ?? null,
+        defaultCost: input.defaultCost ?? null,
       })
       .returning();
     return rows[0];

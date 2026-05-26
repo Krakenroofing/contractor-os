@@ -6,6 +6,7 @@ import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { CostCodesExplorer } from '@/modules/cost-codes/components/cost-codes-explorer';
+import { InstallRoofingCodesCard } from '@/modules/cost-codes/components/install-roofing-codes-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,8 @@ export default async function CostCodesPage() {
           </Link>
         )}
       </header>
+
+      {allowCreate && <InstallRoofingCodesCard />}
 
       {codes.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-12 text-center">

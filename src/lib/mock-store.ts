@@ -210,7 +210,12 @@ function makeProject(
 function makeCostCode(
   libraryId: string,
   over: Pick<CostCode, 'code' | 'description' | 'category'> &
-    Partial<Pick<CostCode, 'division' | 'parentId' | 'isActive' | 'sortOrder' | 'notes'>>,
+    Partial<
+      Pick<
+        CostCode,
+        'division' | 'parentId' | 'isActive' | 'sortOrder' | 'notes' | 'defaultCost'
+      >
+    >,
 ): CostCode {
   const now = new Date();
   return {
@@ -224,6 +229,7 @@ function makeCostCode(
     isActive: over.isActive ?? true,
     sortOrder: over.sortOrder ?? 0,
     notes: over.notes ?? null,
+    defaultCost: over.defaultCost ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -2934,7 +2940,7 @@ export function setProjectVerifiedInMemory(
 export function createMockCostCode(
   companyId: string,
   input: Pick<CostCode, 'code' | 'description' | 'category'> &
-    Partial<Pick<CostCode, 'division' | 'sortOrder' | 'notes'>>,
+    Partial<Pick<CostCode, 'division' | 'sortOrder' | 'notes' | 'defaultCost'>>,
 ): CostCode {
   const store = getStore();
   const libraryId = LIBRARY_BY_COMPANY[companyId];
@@ -2963,6 +2969,7 @@ export function createMockCostCode(
     isActive: true,
     sortOrder: input.sortOrder ?? 0,
     notes: input.notes ?? null,
+    defaultCost: input.defaultCost ?? null,
     createdAt: now,
     updatedAt: now,
   };

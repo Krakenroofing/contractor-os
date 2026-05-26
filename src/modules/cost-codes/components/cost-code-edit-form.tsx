@@ -22,6 +22,8 @@ export function CostCodeEditForm({
     division: string | null;
     sortOrder: number;
     notes: string | null;
+    /** Existing default cost as a string (e.g. "12.50") or null. */
+    defaultCost: string | null;
   };
 }) {
   const action = updateCostCodeAction.bind(null, id);
@@ -73,6 +75,21 @@ export function CostCodeEditForm({
             type="number"
             inputMode="numeric"
             defaultValue={defaults.sortOrder}
+          />
+        </Field>
+
+        <Field
+          label="Default cost (optional)"
+          error={err('defaultCost')}
+        >
+          <Input
+            name="defaultCost"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            defaultValue={defaults.defaultCost ?? ''}
+            placeholder="e.g. 12.50 — leave blank when no standing rate"
           />
         </Field>
 

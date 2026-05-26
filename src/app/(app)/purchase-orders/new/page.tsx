@@ -88,6 +88,7 @@ export default async function NewPurchaseOrderPage({
     id: c.id,
     code: c.code,
     description: c.description,
+    defaultCost: c.defaultCost != null ? Number(c.defaultCost) : null,
   }));
   const landedCosts = (await listLandedCosts(companyId)).map((l) => ({
     id: l.id,

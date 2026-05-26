@@ -20,6 +20,7 @@ import {
   PoLinesExcelImportDialog,
   type ImportedLine,
 } from './po-lines-excel-import-dialog';
+import { UpdateDefaultsDialog } from './update-defaults-dialog';
 
 const initialState: CreatePurchaseOrderState = {};
 
@@ -35,7 +36,15 @@ type LineDraft = {
 
 type ProjectOption = { id: string; label: string };
 type VendorOption = { id: string; label: string };
-type CostCodeOption = { id: string; code: string; description: string };
+// Phase 2 cost-code defaultCost: surface here so the line picker can fall
+// back to it when the linked inventory item has no defaultCost (or no
+// inventory item is linked at all — labor / one-off / services).
+type CostCodeOption = {
+  id: string;
+  code: string;
+  description: string;
+  defaultCost: number | null;
+};
 export type LandedCostOption = { id: string; label: string; projectId: string | null };
 
 function newEmptyLine(): LineDraft {
@@ -170,16 +179,26 @@ export function PurchaseOrderForm({
   const onCostCodeChange = (rowId: string, costCodeId: string) => {
     const code = costCodes.find((c) => c.id === costCodeId);
     setLines((prev) =>
-      prev.map((l) =>
-        l.rowId === rowId
-          ? {
-              ...l,
-              costCodeId,
-              description:
-                l.description.trim() === '' && code ? code.description : l.description,
-            }
-          : l,
-      ),
+      prev.map((l) => {
+        if (l.rowId !== rowId) return l;
+        // Inheritance: if this line still has no unitCost set, fall back to
+        // the cost code's defaultCost. Only when the line is also unlinked
+        // from an inventory item (so we don't override an item-driven price).
+        const nextUnitCost =
+          (Number(l.unitCost) || 0) === 0 &&
+          l.inventoryItemId === '' &&
+          code?.defaultCost != null &&
+          code.defaultCost > 0
+            ? String(code.defaultCost)
+            : l.unitCost;
+        return {
+          ...l,
+          costCodeId,
+          description:
+            l.description.trim() === '' && code ? code.description : l.description,
+          unitCost: nextUnitCost,
+        };
+      }),
     );
   };
 
@@ -306,6 +325,21 @@ export function PurchaseOrderForm({
                       updateLine(line.rowId, { inventoryItemId: '' });
                       return;
                     }
+                    // Inheritance chain for unitCost when the line is still
+                    // empty: inventory item > cost code > leave zero.
+                    const costCodeRow = costCodes.find(
+                      (c) => c.id === line.costCodeId,
+                    );
+                    const fallbackFromCostCode =
+                      costCodeRow?.defaultCost != null && costCodeRow.defaultCost > 0
+                        ? String(costCodeRow.defaultCost)
+                        : '';
+                    const nextUnitCost =
+                      (Number(line.unitCost) || 0) === 0
+                        ? picked.defaultCost > 0
+                          ? picked.defaultCost.toString()
+                          : fallbackFromCostCode || line.unitCost
+                        : line.unitCost;
                     updateLine(line.rowId, {
                       inventoryItemId: picked.id,
                       description:
@@ -314,10 +348,7 @@ export function PurchaseOrderForm({
                         line.unit.trim() === '' && picked.unit
                           ? picked.unit
                           : line.unit,
-                      unitCost:
-                        (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
-                          ? picked.defaultCost.toString()
-                          : line.unitCost,
+                      unitCost: nextUnitCost,
                     });
                   }}
                 />
@@ -351,11 +382,45 @@ export function PurchaseOrderForm({
                   onChange={(e) => updateLine(line.rowId, { unit: e.target.value })}
                   placeholder="ea"
                 />
-                <Input
-                  value={line.unitCost}
-                  onChange={(e) => updateLine(line.rowId, { unitCost: e.target.value })}
-                  inputMode="decimal"
-                />
+                <div className="space-y-1">
+                  <Input
+                    value={line.unitCost}
+                    onChange={(e) =>
+                      updateLine(line.rowId, { unitCost: e.target.value })
+                    }
+                    inputMode="decimal"
+                  />
+                  {/* "Update defaults" link appears only when the entered cost
+                      differs from the linked product / cost code's standing
+                      default. Two-checkbox confirm dialog requires explicit
+                      consent for each target. */}
+                  {(() => {
+                    const product = products.find((p) => p.id === line.inventoryItemId);
+                    const code = costCodes.find((c) => c.id === line.costCodeId);
+                    const itemForDialog = product
+                      ? {
+                          id: product.id,
+                          name: product.name,
+                          currentDefaultCost: product.defaultCost,
+                        }
+                      : null;
+                    const codeForDialog = code
+                      ? {
+                          id: code.id,
+                          code: code.code,
+                          description: code.description,
+                          currentDefaultCost: code.defaultCost,
+                        }
+                      : null;
+                    return (
+                      <UpdateDefaultsDialog
+                        unitCost={line.unitCost}
+                        inventoryItem={itemForDialog}
+                        costCode={codeForDialog}
+                      />
+                    );
+                  })()}
+                </div>
                 <div className="flex items-center justify-end h-10 px-2 text-sm tabular-nums text-slate-900">
                   {formatMoney(lineTotal)}
                 </div>

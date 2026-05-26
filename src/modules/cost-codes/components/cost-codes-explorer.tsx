@@ -210,6 +210,7 @@ function DivisionSection({
             <TableHead className="w-[230px]">Code</TableHead>
             <TableHead>Name</TableHead>
             <TableHead className="w-[120px]">Category</TableHead>
+            <TableHead className="w-[110px] text-right">Default cost</TableHead>
             <TableHead className="w-[120px]">Source</TableHead>
             <TableHead className="w-[120px]">Status</TableHead>
             <TableHead className="text-right w-[180px]" />
@@ -242,6 +243,17 @@ function CostCodeRow({ code, canEdit }: { code: CostCode; canEdit: boolean }) {
       <TableCell className="font-medium text-slate-900">{code.description}</TableCell>
       <TableCell>
         <Badge tone={categoryTone(code.category)}>{categoryLabel(code.category)}</Badge>
+      </TableCell>
+      <TableCell className="text-right tabular-nums text-slate-700">
+        {code.defaultCost && Number(code.defaultCost) > 0 ? (
+          new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: 'USD',
+            minimumFractionDigits: 2,
+          }).format(Number(code.defaultCost))
+        ) : (
+          <span className="text-slate-400">—</span>
+        )}
       </TableCell>
       <TableCell>
         {isGlobal ? (
