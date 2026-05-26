@@ -167,7 +167,7 @@ export async function updateCostCodeDefaultCostAction(input: {
 
 // ===== Roofing cost-code bulk-install =====
 
-import { installRoofingCostCodes } from '@/lib/seeds/roofing-cost-codes';
+import { installRoofingCostCodes } from '@/lib/seeds/roofing-cost-codes.install';
 
 export type InstallRoofingCostCodesState = {
   formError?: string;

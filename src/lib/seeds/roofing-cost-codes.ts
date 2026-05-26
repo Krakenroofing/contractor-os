@@ -1,21 +1,12 @@
-// Roofing-industry cost-code seed.
+// Roofing-industry cost-code seed — DATA ONLY.
 //
-// Bulk-install set tailored to commercial roofing contractor workflow
-// (Kraken Roofing in Bahamas). Codes are flat (no parent hierarchy) and
-// grouped by category. Division text "Roofing" anchors them visually in
-// the cost-code explorer, but the existing cost_codes.category enum
-// (labor / material / equipment / subcontract / other) governs reporting.
-//
-// All codes are idempotent on (libraryId, code). Re-running the install
-// skips any code already present in either the company or global library
-// and reports the count.
+// This file is intentionally NOT 'server-only' so the install card on
+// /cost-codes (a client component) can import ROOFING_COST_CODE_SEED to
+// render the preview list. The actual install function (server-only,
+// uses createCostCode) lives in roofing-cost-codes.install.ts so the
+// server-only import stays out of the client bundle.
 
-import 'server-only';
-import {
-  createCostCode,
-  DuplicateCostCodeError,
-  type CreateCostCodeInput,
-} from '@/lib/data/cost-codes';
+import type { CreateCostCodeInput } from '@/lib/data/cost-codes';
 
 type Seed = CreateCostCodeInput & { code: string };
 
@@ -28,9 +19,8 @@ type Seed = CreateCostCodeInput & { code: string };
  * walk pads, drains, sealants).
  *
  * Default cost is intentionally left null on most codes — Chris fills
- * those in over time. Where a contractor-standard rate exists (labor /
- * crane day rate / safety harness day), we pre-seed a reasonable Bahamas
- * value as a starting point; they're easy to edit later.
+ * those in over time. The PO line "Update defaults" dialog is the
+ * fastest way to set them.
  */
 export const ROOFING_COST_CODE_SEED: Seed[] = [
   // --- TPO membrane system ---
@@ -269,31 +259,3 @@ export type RoofingSeedResult = {
   skipped: number;
   skippedCodes: string[];
 };
-
-/**
- * Install the roofing seed for a company. Idempotent — duplicate-code
- * errors are caught and counted as skipped rather than aborting the run.
- */
-export async function installRoofingCostCodes(
-  companyId: string,
-): Promise<RoofingSeedResult> {
-  const skippedCodes: string[] = [];
-  let inserted = 0;
-  for (const row of ROOFING_COST_CODE_SEED) {
-    try {
-      await createCostCode(companyId, row);
-      inserted += 1;
-    } catch (err) {
-      if (err instanceof DuplicateCostCodeError) {
-        skippedCodes.push(row.code);
-        continue;
-      }
-      throw err;
-    }
-  }
-  return {
-    inserted,
-    skipped: skippedCodes.length,
-    skippedCodes,
-  };
-}
