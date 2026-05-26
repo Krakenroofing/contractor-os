@@ -37,6 +37,9 @@ import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { listDailyReportsForProject } from '@/lib/data/daily-reports';
 import { listProjectDocuments } from '@/lib/data/project-documents';
+import { listAssignmentsForProject } from '@/lib/data/project-assignments';
+import { listEmployees } from '@/lib/data/employees';
+import { CrewAssignmentsPanel } from '@/modules/project-assignments/components/crew-assignments-panel';
 import { DOCUMENT_CATEGORY_LABEL } from '@/modules/project-documents/schema';
 import {
   STATUS_LABEL as DR_STATUS_LABEL,
@@ -123,6 +126,17 @@ export default async function ProjectDetailPage({
   const landedCosts = await listLandedCostsForProject(project.id);
   const dailyReports = await listDailyReportsForProject(companyId, project.id);
   const recentDailyReports = dailyReports.slice(0, 5);
+  // Crew assignments + active employees for the assignment picker. Both
+  // small lookups so we fetch unconditionally — gated visually below by
+  // role.
+  const [crewAssignments, allEmployees] = await Promise.all([
+    listAssignmentsForProject(project.id),
+    listEmployees(companyId),
+  ]);
+  const activeEmployees = allEmployees.filter((e) => e.active);
+  // Bucket assignments into today / upcoming / past so the admin sees
+  // the most relevant first.
+  const todayIso = new Date().toISOString().slice(0, 10);
   const projectDocuments = await listProjectDocuments(companyId, project.id);
   const recentDocuments = projectDocuments.slice(0, 5);
   const invoices = await listInvoicesForProject(project.id);
@@ -1211,6 +1225,25 @@ export default async function ProjectDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Crew assignments — who's on this job which day. Feeds the
+          field app's /field/jobs "today's assignments" view. */}
+      <CrewAssignmentsPanel
+        projectId={project.id}
+        assignments={crewAssignments.map((a) => ({
+          id: a.id,
+          employeeId: a.employeeId,
+          assignedDate: a.assignedDate,
+          roleLabel: a.roleLabel,
+          notes: a.notes,
+        }))}
+        employees={activeEmployees.map((e) => ({
+          id: e.id,
+          label: `${e.firstName} ${e.lastName}`.trim(),
+        }))}
+        defaultDate={todayIso}
+        canManage={allowCreate}
+      />
 
       {/* Daily Reports */}
       <Card>

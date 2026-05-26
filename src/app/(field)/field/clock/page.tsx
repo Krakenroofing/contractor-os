@@ -22,7 +22,15 @@ import { ClockForm } from '@/modules/field/components/clock-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function FieldClockPage() {
+export default async function FieldClockPage({
+  searchParams,
+}: {
+  // `?project=<uuid>` — set when the worker taps a job from /field/jobs.
+  // Used as the picker default only when they're NOT already clocked in
+  // (so a deep-link can't accidentally switch the open session's
+  // project without an explicit punch-out first).
+  searchParams: Promise<{ project?: string }>;
+}) {
   const employee = await getActiveEmployee();
   if (!employee) {
     // No employee link → can't clock. Send back home where the unlinked
@@ -127,7 +135,15 @@ export default async function FieldClockPage() {
       <ClockForm
         isClockedIn={isClockedIn}
         projects={projectOptions}
-        defaultProjectId={isClockedIn ? latest?.projectId ?? null : null}
+        defaultProjectId={
+          // Open session's project always wins (you don't want a stale
+          // deep-link to change which job you're billed against
+          // mid-shift). When not clocked in, prefer the ?project= deep
+          // link from /field/jobs; otherwise blank.
+          isClockedIn
+            ? latest?.projectId ?? null
+            : ((await searchParams).project ?? null)
+        }
       />
 
       {/* Day summary */}

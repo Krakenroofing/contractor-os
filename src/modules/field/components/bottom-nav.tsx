@@ -32,6 +32,20 @@ const ITEMS: Item[] = [
     ),
   },
   {
+    href: '/field/jobs',
+    label: 'Jobs',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+        <path
+          d="M3 7h18M3 12h18M3 17h18"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: '/field/clock',
     label: 'Clock',
     icon: (
@@ -73,7 +87,7 @@ export function FieldBottomNav({ role: _role }: { role: Role }) {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-20 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-3">
+      <ul className="grid grid-cols-4">
         {ITEMS.map((item) => {
           const active = pathname === item.href;
           return (

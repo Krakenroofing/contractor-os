@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { getActiveEmployee } from '@/lib/active-employee';
 import { getCurrentUser } from '@/lib/auth';
 import { getLatestClockEvent } from '@/lib/data/clock-events';
+import { listAssignmentsForEmployeeDate } from '@/lib/data/project-assignments';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,13 @@ export default async function FieldHomePage() {
   // already explains nothing will work.
   const latest = employee ? await getLatestClockEvent(employee.id) : null;
   const isClockedIn = latest?.kind === 'in';
+
+  // Today's assignment count for the "N jobs today" badge.
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todaysAssignments = employee
+    ? await listAssignmentsForEmployeeDate(employee.id, todayIso)
+    : [];
 
   const greetingName = employee
     ? employee.firstName
@@ -72,11 +80,20 @@ export default async function FieldHomePage() {
         disabled={!employee}
       />
 
-      {/* Phase M3 placeholder — Today's jobs. Smaller card. */}
+      {/* Today's jobs card. Subtitle reflects the assignment count so a
+          worker glances at home and sees "3 jobs today" without
+          drilling in. */}
       <ActionCard
         title="Today&apos;s jobs"
-        subtitle="See where you&apos;re assigned"
-        disabled
+        subtitle={
+          !employee
+            ? 'Needs employee link'
+            : todaysAssignments.length === 0
+              ? 'No assignments today'
+              : `${todaysAssignments.length} job${todaysAssignments.length === 1 ? '' : 's'} scheduled`
+        }
+        href={employee ? '/field/jobs' : undefined}
+        disabled={!employee}
       />
 
       {/* Phase M4 placeholder — Daily report. Schema already exists; the
