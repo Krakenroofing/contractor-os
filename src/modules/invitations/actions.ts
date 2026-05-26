@@ -26,6 +26,14 @@ export type CreateInvitationState = {
 const createSchema = z.object({
   email: z.string().email('Invalid email').max(200),
   role: z.enum(ROLES),
+  // Empty string when not provided (HTML select default). Coerce to null
+  // so the data layer treats it as "no link". Validated as a UUID when
+  // present.
+  employeeId: z
+    .string()
+    .uuid()
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
 });
 
 export async function createInvitationAction(
@@ -46,6 +54,7 @@ export async function createInvitationAction(
   const parsed = createSchema.safeParse({
     email: formData.get('email'),
     role: formData.get('role') ?? 'view_only',
+    employeeId: formData.get('employeeId') ?? '',
   });
   if (!parsed.success) {
     return { errors: parsed.error.flatten().fieldErrors };
@@ -65,6 +74,7 @@ export async function createInvitationAction(
       token,
       expiresAt,
       invitedByUserId: inviter?.id ?? null,
+      employeeId: parsed.data.employeeId ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

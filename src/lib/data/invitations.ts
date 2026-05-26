@@ -14,6 +14,10 @@ export type CreateInvitationInput = {
   token: string;
   expiresAt: Date;
   invitedByUserId: string | null;
+  // Optional: link this invite to an existing employee record. When the
+  // recipient accepts, users.employee_id is populated from this field so
+  // the field app can identify "which crew member just signed in".
+  employeeId?: string | null;
 };
 
 /**
@@ -77,6 +81,7 @@ export async function createInvitation(
       token: input.token,
       expiresAt: input.expiresAt,
       invitedByUserId: input.invitedByUserId,
+      employeeId: input.employeeId ?? null,
     })
     .returning();
   return rows[0];

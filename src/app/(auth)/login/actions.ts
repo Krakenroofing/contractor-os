@@ -103,10 +103,11 @@ export async function signInAction(
     },
   });
 
-  const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
-    password: parsed.data.password,
-  });
+  const { data: signInData, error: signInError } =
+    await supabase.auth.signInWithPassword({
+      email: parsed.data.email,
+      password: parsed.data.password,
+    });
 
   if (signInError) {
     return { error: signInError.message };
@@ -122,10 +123,40 @@ export async function signInAction(
     };
   }
 
-  const next =
-    parsed.data.next && parsed.data.next.startsWith('/')
-      ? parsed.data.next
-      : '/dashboard';
+  // Resolve the post-login destination.
+  //
+  // Priority order:
+  //   1. The `next` form field, if it's a safe same-origin path. (This is
+  //      what middleware sets when an unauthenticated user lands on a
+  //      protected URL — we send them back there after sign-in.)
+  //   2. Role-based default: field_user → /field (the mobile app shell),
+  //      everyone else → /dashboard (desktop).
+  //
+  // Why this default matters: field workers signing in on their phone
+  // expect the mobile UI, not the dense desktop dashboard. A signed-in
+  // field_user can still reach /dashboard manually if they want, but
+  // out-of-the-box the login flow should land them where they'll
+  // actually work.
+  let next = '/dashboard';
+  if (parsed.data.next && parsed.data.next.startsWith('/')) {
+    next = parsed.data.next;
+  } else if (signInData?.user) {
+    // Look up the signed-in user's first active membership to read their
+    // role. We don't pick a specific company here — pickFirstMembership
+    // is just for routing the landing page. The active-company helper
+    // takes over from here.
+    const { data: membership } = await supabase
+      .from('memberships')
+      .select('role')
+      .eq('user_id', signInData.user.id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    if (membership?.role === 'field_user') {
+      next = '/field';
+    }
+  }
+
   // redirect() throws NEXT_REDIRECT — the cookies set above ARE included
   // in the redirect response's Set-Cookie headers, so the browser stores
   // them before following the 303 to `next`.

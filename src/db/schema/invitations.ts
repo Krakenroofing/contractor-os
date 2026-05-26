@@ -7,6 +7,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
+import { employees } from './employees';
 import { users } from './users';
 import { membershipRoleEnum } from './_enums';
 
@@ -32,6 +33,12 @@ export const invitations = pgTable(
     token: text('token').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     invitedByUserId: uuid('invited_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    // Phase M1 (field app): when inviting a field_user, the owner picks
+    // which employee record this invite is for. On accept, the new
+    // users.employee_id is set from this column in the same transaction.
+    employeeId: uuid('employee_id').references(() => employees.id, {
       onDelete: 'set null',
     }),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),

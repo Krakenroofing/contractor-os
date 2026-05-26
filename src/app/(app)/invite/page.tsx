@@ -14,6 +14,8 @@ import { getActiveRole } from '@/lib/active-role';
 import { isAuthEnabled } from '@/lib/auth';
 import { canCreate, ROLE_LABELS, type Role } from '@/lib/permissions';
 import { listInvitationsForCompany } from '@/lib/data/invitations';
+import { listEmployees } from '@/lib/data/employees';
+import { listUsersWithEmployeeLink } from '@/lib/data/users';
 import { isExpired } from '@/modules/invitations/lib/tokens';
 import { InviteForm } from '@/modules/invitations/components/invite-form';
 import { RevokeButton } from '@/modules/invitations/components/revoke-button';
@@ -26,6 +28,22 @@ export default async function InvitePage() {
 
   const company = await getActiveCompany();
   const invites = await listInvitationsForCompany(company.id);
+  // Employee picker options for field_user invites. Mark each employee
+  // already linked to a user so the admin sees they can't be picked again.
+  const [allEmployees, linkedUsers] = await Promise.all([
+    listEmployees(company.id),
+    listUsersWithEmployeeLink(company.id),
+  ]);
+  const linkedEmployeeIds = new Set(
+    linkedUsers.map((u) => u.employeeId).filter((id): id is string => !!id),
+  );
+  const employeeOptions = allEmployees
+    .filter((e) => e.active)
+    .map((e) => ({
+      id: e.id,
+      label: `${e.firstName} ${e.lastName}`.trim(),
+      alreadyLinked: linkedEmployeeIds.has(e.id),
+    }));
 
   // Categorize for display
   const pending = invites.filter(
@@ -77,7 +95,7 @@ export default async function InvitePage() {
           <CardTitle>New invitation</CardTitle>
         </CardHeader>
         <CardContent>
-          <InviteForm companyName={company.name} />
+          <InviteForm companyName={company.name} employees={employeeOptions} />
         </CardContent>
       </Card>
 

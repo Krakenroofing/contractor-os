@@ -97,7 +97,10 @@ export async function acceptInviteAction(
   }
   const newUserId = created.user.id;
 
-  // 3. Mirror the auth user into public.users so memberships can FK to it
+  // 3. Mirror the auth user into public.users so memberships can FK to it.
+  // If the invitation specified an employee_id (Phase M1 field-app link),
+  // populate users.employee_id in the same insert so the field app can
+  // identify which crew member just signed in on their first request.
   const db = getDb()!;
   await db
     .insert(users)
@@ -105,10 +108,17 @@ export async function acceptInviteAction(
       id: newUserId,
       email: invitation.email,
       name: name?.trim() || invitation.email,
+      employeeId: invitation.employeeId ?? null,
     })
     .onConflictDoUpdate({
       target: users.id,
-      set: { email: invitation.email, name: name?.trim() || invitation.email },
+      set: {
+        email: invitation.email,
+        name: name?.trim() || invitation.email,
+        ...(invitation.employeeId
+          ? { employeeId: invitation.employeeId }
+          : {}),
+      },
     });
 
   // 4. Create the membership row with the role from the invitation

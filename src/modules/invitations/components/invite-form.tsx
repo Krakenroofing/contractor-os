@@ -13,14 +13,33 @@ import {
 
 const initial: CreateInvitationState = {};
 
-export function InviteForm({ companyName }: { companyName: string }) {
+export type InviteFormEmployeeOption = {
+  id: string;
+  label: string;
+  alreadyLinked: boolean;
+};
+
+export function InviteForm({
+  companyName,
+  employees,
+}: {
+  companyName: string;
+  employees: InviteFormEmployeeOption[];
+}) {
   const [state, formAction, pending] = useActionState(
     createInvitationAction,
     initial,
   );
   const formRef = useRef<HTMLFormElement>(null);
   const [copied, setCopied] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<string>('project_manager');
   const err = (k: string) => state.errors?.[k]?.[0];
+
+  // Only field_user invites need an employee link. For other roles the
+  // employee picker would just clutter the form — and a payroll record
+  // would be wrong for, say, an outside accountant.
+  const showEmployeePicker = selectedRole === 'field_user';
+  const linkableEmployees = employees.filter((e) => !e.alreadyLinked);
 
   useEffect(() => {
     if (state.ok && !state.formError) formRef.current?.reset();
@@ -63,7 +82,12 @@ export function InviteForm({ companyName }: { companyName: string }) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="role">Role</Label>
-            <Select name="role" defaultValue="project_manager" id="role">
+            <Select
+              name="role"
+              defaultValue="project_manager"
+              id="role"
+              onChange={(e) => setSelectedRole(e.target.value)}
+            >
               {ROLES.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABELS[r]}
@@ -73,6 +97,34 @@ export function InviteForm({ companyName }: { companyName: string }) {
             {err('role') && <p className="text-xs text-red-600">{err('role')}</p>}
           </div>
         </div>
+
+        {showEmployeePicker && (
+          <div className="space-y-1 rounded-md bg-amber-50 border border-amber-200 px-3 py-3">
+            <Label htmlFor="employeeId" className="text-amber-900">
+              Link to employee record
+            </Label>
+            <Select name="employeeId" defaultValue="" id="employeeId">
+              <option value="">— Not linked (link later) —</option>
+              {linkableEmployees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-amber-800">
+              Field users sign in on their phone and see the mobile app. Pick
+              the matching payroll record so clock-ins, daily reports, and
+              today&apos;s jobs are stamped with the right person. If the
+              employee doesn&apos;t exist yet, create them in{' '}
+              <span className="font-medium">Employees</span> first, then come
+              back here. You can also link later from the user&apos;s detail
+              page.
+            </p>
+            {err('employeeId') && (
+              <p className="text-xs text-red-600">{err('employeeId')}</p>
+            )}
+          </div>
+        )}
 
         <p className="text-xs text-slate-500">
           The invitation will be issued for <span className="font-medium">{companyName}</span>.

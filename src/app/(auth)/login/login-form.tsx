@@ -43,12 +43,27 @@ export function LoginForm({
 
       <div className="space-y-1">
         <Label htmlFor="email">Email</Label>
+        {/*
+          text-base (16px) on mobile prevents iOS Safari's auto-zoom on
+          input focus. The default Input is text-sm (14px) which triggers
+          a frustrating zoom-in + layout shift every time a phone user
+          taps a field. md:text-sm restores the desktop size on tablet+.
+
+          inputMode="email" + autoCapitalize="off" + autoCorrect="off"
+          give phone keyboards the right key layout and stop the OS
+          autocorrecting "kraken.com" to "Kraken.com" mid-type.
+        */}
         <Input
           id="email"
           name="email"
           type="email"
+          inputMode="email"
           autoComplete="email"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           required
+          className="text-base md:text-sm h-12 md:h-10"
         />
       </div>
 
@@ -68,6 +83,7 @@ export function LoginForm({
           type="password"
           autoComplete="current-password"
           required
+          className="text-base md:text-sm h-12 md:h-10"
         />
       </div>
 
@@ -81,7 +97,11 @@ export function LoginForm({
         <span>Remember me</span>
       </label>
 
-      <Button type="submit" disabled={pending} className="w-full">
+      <Button
+        type="submit"
+        disabled={pending}
+        className="w-full h-12 md:h-10 text-base md:text-sm"
+      >
         {pending ? 'Signing in…' : 'Sign in'}
       </Button>
 

@@ -22,7 +22,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   project_manager: 'Projects, customers, POs, change orders, job-costing view',
   estimator: 'Estimates, proposals, cost codes',
   accounting: 'POs, vendors, landed cost, job costing',
-  field_user: 'Projects (view only)',
+  field_user: 'Mobile field app — daily reports, clock in/out, photos',
   view_only: 'Read-only across all modules',
 };
 
