@@ -12,6 +12,7 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { listProjects } from '@/lib/data/projects';
+import { buildProfitLossReport } from '@/lib/data/profit-loss';
 import { add, parseMoney, round2, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import {
@@ -76,6 +77,14 @@ export type DashboardKPIs = {
   // Profitability
   projectedGrossProfit: number;
   projectedGrossMarginPct: number;
+  // Phase 2 accounting tiles — current-month rollups from job_cost_entries
+  // grouped by accounting_account.rollup_group. Drives the COGS/OpEx tiles
+  // in the dashboard Accounting section. Zero when accounting categories
+  // aren't installed yet.
+  monthlyCogsTotal: number;
+  monthlyOpexTotal: number;
+  monthlyCogsCount: number;
+  monthlyOpexCount: number;
 };
 
 export type AlertItem = {
@@ -421,6 +430,20 @@ export async function buildDashboardData(
       ? round2((projectedGrossProfit / projectedRevenue) * 100)
       : 0;
 
+  // ---- Phase 2 accounting: current-month COGS / OpEx rollups -------------
+  // First day of current month → last day, in YYYY-MM-DD. Reuses the same
+  // P&L builder the /reports/profit-loss page uses so the numbers can't
+  // disagree.
+  const monthStart = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
+  const monthEnd = new Date(
+    Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() + 1, 0),
+  );
+  const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+  const monthlyPL = await buildProfitLossReport(companyId, {
+    from: isoDate(monthStart),
+    to: isoDate(monthEnd),
+  });
+
   return {
     asOf,
     revenueByQuarter,
@@ -449,6 +472,10 @@ export async function buildDashboardData(
       committedPurchaseOrderTotal: round2(committedTotal),
       projectedGrossProfit: round2(projectedGrossProfit),
       projectedGrossMarginPct,
+      monthlyCogsTotal: round2(monthlyPL.cogs.total),
+      monthlyOpexTotal: round2(monthlyPL.opex.total),
+      monthlyCogsCount: monthlyPL.cogs.accounts.length,
+      monthlyOpexCount: monthlyPL.opex.accounts.length,
     },
     alerts: {
       overdueInvoices: {

@@ -108,6 +108,10 @@ export async function createCostEntryAction(
       companyId,
       projectId: project.id,
       costCodeId: data.costCodeId,
+      // Phase 2 accounting: manual entries don't inherit a category from a
+      // source receipt. Future Phase 2.x wires the AccountingAccountPicker
+      // into the manual job-cost entry forms so users can pick one here.
+      accountingAccountId: null,
       source: 'manual',
       sourceRefId: null,
       costType: data.costType,
@@ -297,6 +301,10 @@ export async function createLaborEntryAction(
       companyId,
       projectId: project.id,
       costCodeId: data.costCodeId,
+      // Phase 2 accounting: manual entries don't inherit a category from a
+      // source receipt. Future Phase 2.x wires the AccountingAccountPicker
+      // into the manual job-cost entry forms so users can pick one here.
+      accountingAccountId: null,
       source: 'manual',
       sourceRefId: null,
       costType: 'labor',
@@ -372,6 +380,10 @@ export async function createEquipmentEntryAction(
       companyId,
       projectId: project.id,
       costCodeId: data.costCodeId,
+      // Phase 2 accounting: manual entries don't inherit a category from a
+      // source receipt. Future Phase 2.x wires the AccountingAccountPicker
+      // into the manual job-cost entry forms so users can pick one here.
+      accountingAccountId: null,
       source: 'manual',
       sourceRefId: null,
       costType,
@@ -483,6 +495,8 @@ export async function createVendorExpenseAction(
         companyId,
         projectId: project.id,
         costCodeId: data.costCodeId,
+        // Phase 2 accounting: see note in the sibling actions above.
+        accountingAccountId: null,
         source: 'manual',
         sourceRefId: null,
         costType: r.costType,

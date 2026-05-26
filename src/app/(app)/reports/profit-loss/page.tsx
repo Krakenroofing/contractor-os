@@ -1,0 +1,287 @@
+import { redirect } from 'next/navigation';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { getActiveCompany } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { canView } from '@/lib/permissions';
+import { formatMoney } from '@/lib/money';
+import { listProjects } from '@/lib/data/projects';
+import { buildProfitLossReport } from '@/lib/data/profit-loss';
+import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { ReportShell } from '@/modules/reports/components/report-shell';
+
+export const dynamic = 'force-dynamic';
+
+export default async function ProfitLossReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const role = await getActiveRole();
+  if (!canView(role, 'reports')) redirect('/dashboard');
+  const company = await getActiveCompany();
+  const params = await searchParams;
+  const filters = parseReportFilters(params);
+
+  const [report, projects] = await Promise.all([
+    buildProfitLossReport(company.id, filters),
+    listProjects(company.id),
+  ]);
+
+  const netSign = report.netIncome >= 0;
+  const grossSign = report.grossProfit >= 0;
+
+  return (
+    <ReportShell
+      type="profit-loss"
+      filters={filters}
+      projects={projects.map((p) => ({ id: p.id, label: p.name }))}
+      companyName={company.name}
+    >
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <KPI
+          label="Revenue"
+          value={formatMoney(report.income.total)}
+          hint={`${report.income.invoiceCount} invoice${report.income.invoiceCount === 1 ? '' : 's'} (ex-VAT)`}
+          highlight
+        />
+        <KPI
+          label="COGS"
+          value={formatMoney(report.cogs.total)}
+          hint={`${report.cogs.accounts.length} categor${report.cogs.accounts.length === 1 ? 'y' : 'ies'}`}
+          valueClassName="text-amber-700"
+        />
+        <KPI
+          label="Gross profit"
+          value={formatMoney(report.grossProfit)}
+          hint={`${report.grossMarginPercent.toFixed(1)}% margin`}
+          valueClassName={
+            grossSign ? 'text-emerald-700' : 'text-red-600'
+          }
+        />
+        <KPI
+          label="Operating expense"
+          value={formatMoney(report.opex.total)}
+          hint={`${report.opex.accounts.length} categor${report.opex.accounts.length === 1 ? 'y' : 'ies'}`}
+          valueClassName="text-amber-700"
+        />
+        <KPI
+          label="Net income"
+          value={formatMoney(report.netIncome)}
+          valueClassName={
+            netSign ? 'text-emerald-700' : 'text-red-600'
+          }
+          highlight
+        />
+      </div>
+
+      {report.uncategorized.total > 0 && (
+        <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+          <span className="font-medium">
+            {formatMoney(report.uncategorized.total)}
+          </span>{' '}
+          of cost ({report.uncategorized.entryCount} entr
+          {report.uncategorized.entryCount === 1 ? 'y' : 'ies'}) is uncategorized
+          and excluded from COGS / OpEx above. These are job-cost rows posted
+          before the operational category was set on the source receipt. Open
+          those receipts, pick a category, and re-post to fix.
+        </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Income</CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          {report.income.total === 0 ? (
+            <p className="text-sm text-slate-500">
+              No invoices in this date range (excluding draft + void).
+            </p>
+          ) : (
+            <div className="flex items-baseline justify-between gap-4 text-sm">
+              <span className="text-slate-700">
+                Invoiced revenue ({report.income.invoiceCount} invoice
+                {report.income.invoiceCount === 1 ? '' : 's'}, ex-VAT)
+              </span>
+              <span className="font-medium tabular-nums text-slate-900">
+                {formatMoney(report.income.total)}
+              </span>
+            </div>
+          )}
+          <p className="text-xs text-slate-500 mt-3">
+            v1 income side is a single total. Future Phase 2.x adds
+            accountingAccountId to invoice line items so revenue can split by
+            service type (Roofing / Waterproofing / Windows &amp; Doors / etc.).
+          </p>
+        </CardContent>
+      </Card>
+
+      <AccountSection
+        title={`Cost of Goods Sold — ${formatMoney(report.cogs.total)}`}
+        accounts={report.cogs.accounts}
+        emptyMessage="No COGS entries categorized in this range."
+      />
+
+      <AccountSection
+        title={`Operating Expense — ${formatMoney(report.opex.total)}`}
+        accounts={report.opex.accounts}
+        emptyMessage="No operating expense entries categorized in this range."
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bottom line</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 p-6">
+          <Row label="Revenue" value={formatMoney(report.income.total)} />
+          <Row
+            label="− Cost of Goods Sold"
+            value={formatMoney(report.cogs.total)}
+            tone="amber"
+          />
+          <Row
+            label="= Gross profit"
+            value={formatMoney(report.grossProfit)}
+            tone={grossSign ? 'emerald' : 'red'}
+            bold
+          />
+          <Row
+            label="− Operating expense"
+            value={formatMoney(report.opex.total)}
+            tone="amber"
+          />
+          <Row
+            label="= Net income"
+            value={formatMoney(report.netIncome)}
+            tone={netSign ? 'emerald' : 'red'}
+            bold
+            border
+          />
+        </CardContent>
+      </Card>
+    </ReportShell>
+  );
+}
+
+function AccountSection({
+  title,
+  accounts,
+  emptyMessage,
+}: {
+  title: string;
+  accounts: Array<{
+    accountId: string;
+    accountName: string;
+    amount: number;
+    entryCount: number;
+  }>;
+  emptyMessage: string;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0 overflow-x-auto">
+        {accounts.length === 0 ? (
+          <p className="p-6 text-sm text-slate-500">{emptyMessage}</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Category</TableHead>
+                <TableHead className="text-right">Entries</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {accounts.map((a) => (
+                <TableRow key={a.accountId}>
+                  <TableCell className="text-slate-900">{a.accountName}</TableCell>
+                  <TableCell className="text-right tabular-nums text-slate-600">
+                    {a.entryCount}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">
+                    {formatMoney(a.amount)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({
+  label,
+  value,
+  tone,
+  bold,
+  border,
+}: {
+  label: string;
+  value: string;
+  tone?: 'emerald' | 'red' | 'amber';
+  bold?: boolean;
+  border?: boolean;
+}) {
+  const toneClass =
+    tone === 'emerald'
+      ? 'text-emerald-700'
+      : tone === 'red'
+        ? 'text-red-600'
+        : tone === 'amber'
+          ? 'text-amber-700'
+          : 'text-slate-900';
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-4 text-sm ${border ? 'border-t border-slate-200 pt-2 mt-2' : ''}`}
+    >
+      <span className={`${bold ? 'font-semibold' : ''} text-slate-700`}>{label}</span>
+      <span
+        className={`tabular-nums ${bold ? 'text-base font-semibold' : 'font-medium'} ${toneClass}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function KPI({
+  label,
+  value,
+  hint,
+  highlight,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  highlight?: boolean;
+  valueClassName?: string;
+}) {
+  return (
+    <Card className={highlight ? 'border-slate-300' : undefined}>
+      <CardContent className="p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+        <p
+          className={`mt-1 text-xl font-semibold tabular-nums ${valueClassName ?? 'text-slate-900'}`}
+        >
+          {value}
+        </p>
+        {hint && (
+          <p className="mt-0.5 text-[11px] text-slate-500 tabular-nums">{hint}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

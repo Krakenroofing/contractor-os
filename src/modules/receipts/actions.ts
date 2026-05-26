@@ -560,6 +560,10 @@ export async function postReceiptAction(input: {
       companyId: company.id,
       projectId: line.projectId!, // checked above
       costCodeId: line.costCodeId!,
+      // Phase 2 accounting: propagate the operational category from the
+      // receipt line into job_cost_entries so P&L can group by rollup_group
+      // without re-joining through receipt_lines.
+      accountingAccountId: line.accountingAccountId ?? null,
       source: 'receipt_import',
       sourceRefId: receipt.id,
       costType,

@@ -18,6 +18,7 @@ export const REPORT_TYPES = [
   'job-cost',
   'accounts-receivable',
   'accounts-payable',
+  'profit-loss',
   'invoice-summary',
   'payment-summary',
   'purchase-orders',
@@ -34,6 +35,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'job-cost': 'Job Cost Report',
   'accounts-receivable': 'Accounts Receivable Report',
   'accounts-payable': 'Accounts Payable Report',
+  'profit-loss': 'Profit & Loss (Income Statement)',
   'invoice-summary': 'Invoice Summary Report',
   'payment-summary': 'Payment Summary Report',
   'purchase-orders': 'Purchase Order Summary',
@@ -53,6 +55,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Aging buckets per customer with overdue invoices flagged.',
   'accounts-payable':
     'Open commitments aged by vendor: open POs (not closed/void) + approved-but-unpaid subcontractor payments. Choose a default Net term for vendors without one on file.',
+  'profit-loss':
+    'Income statement: revenue (invoiced ex-VAT), cost of goods sold by operational category, gross profit, operating expenses by category, and net income. Accrual basis — invoices count when sent, costs when posted.',
   'invoice-summary':
     'List of invoices with line totals, status, balance due, and rolled-up totals.',
   'payment-summary':
@@ -83,6 +87,10 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   // by vendor regardless of which project they hit. Project filter would
   // confuse the "what do I owe whom" workflow.
   'accounts-payable': false,
+  // P&L is company-wide by design — net income across all projects.
+  // A future per-project P&L would live as a section in the project-financial
+  // report, not as a filter here.
+  'profit-loss': false,
   'invoice-summary': true,
   'payment-summary': true,
   'purchase-orders': true,
@@ -103,6 +111,7 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'job-cost': false,
   'accounts-receivable': false,
   'accounts-payable': false,
+  'profit-loss': false,
   'invoice-summary': false,
   'payment-summary': false,
   'purchase-orders': false,

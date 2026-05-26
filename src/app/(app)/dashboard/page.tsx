@@ -351,6 +351,32 @@ export default async function DashboardPage() {
                 href="/reports/vat-quarterly"
               />
             )}
+            {canView(role, 'reports') && (
+              <AccountingTile
+                label="COGS this month"
+                value={formatMoney(kpis.monthlyCogsTotal)}
+                hint={
+                  kpis.monthlyCogsCount > 0
+                    ? `Across ${kpis.monthlyCogsCount} categor${kpis.monthlyCogsCount === 1 ? 'y' : 'ies'}`
+                    : 'No categorized COGS posted yet'
+                }
+                tone={kpis.monthlyCogsTotal > 0 ? 'amber' : 'slate'}
+                href="/reports/profit-loss"
+              />
+            )}
+            {canView(role, 'reports') && (
+              <AccountingTile
+                label="OpEx this month"
+                value={formatMoney(kpis.monthlyOpexTotal)}
+                hint={
+                  kpis.monthlyOpexCount > 0
+                    ? `Across ${kpis.monthlyOpexCount} categor${kpis.monthlyOpexCount === 1 ? 'y' : 'ies'}`
+                    : 'No categorized OpEx posted yet'
+                }
+                tone={kpis.monthlyOpexTotal > 0 ? 'amber' : 'slate'}
+                href="/reports/profit-loss"
+              />
+            )}
           </div>
         </section>
       )}

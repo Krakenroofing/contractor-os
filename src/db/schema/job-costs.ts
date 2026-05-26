@@ -14,6 +14,7 @@ import { projects } from './projects';
 import { costCodes } from './cost-codes';
 import { vendors } from './vendors';
 import { users } from './users';
+import { accountingAccounts } from './accounting-accounts';
 import { jobCostSourceEnum, jobCostTypeEnum } from './_enums';
 
 export const jobCostEntries = pgTable(
@@ -29,6 +30,13 @@ export const jobCostEntries = pgTable(
     costCodeId: uuid('cost_code_id')
       .notNull()
       .references(() => costCodes.id, { onDelete: 'restrict' }),
+    // Phase 2 accounting: operational category link. Nullable for legacy
+    // entries and manual entries without a category mapping. Receipts
+    // posted via postReceiptAction populate this from the receipt line.
+    accountingAccountId: uuid('accounting_account_id').references(
+      () => accountingAccounts.id,
+      { onDelete: 'set null' },
+    ),
     source: jobCostSourceEnum('source').notNull().default('manual'),
     sourceRefId: uuid('source_ref_id'),
     // Decoupled from cost_code.category — a single code can be used for an
@@ -63,6 +71,10 @@ export const jobCostEntries = pgTable(
     projectTypeIdx: index('job_cost_entries_project_type_idx')
       .on(t.projectId, t.costType)
       .where(sql`${t.deletedAt} IS NULL`),
+    // Phase 2 accounting: P&L grouping query joins by (company, account).
+    companyAccountIdx: index('job_cost_entries_company_account_idx')
+      .on(t.companyId, t.accountingAccountId)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.accountingAccountId} IS NOT NULL`),
   }),
 );
 
