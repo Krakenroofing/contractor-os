@@ -10,7 +10,10 @@ import { canCreate } from '@/lib/permissions';
 import {
   deleteClockEvent,
   getClockEvent,
+  listPostableSessions,
   markPunchesReviewed,
+  postSessionsToTimeEntries,
+  PunchAlreadyPostedError,
   unmarkPunchesReviewed,
   updateClockEvent,
 } from '@/lib/data/clock-events';
@@ -77,12 +80,19 @@ export async function editPunchAction(
     return { errors: { occurredAt: ['Invalid date/time'] } };
   }
 
-  await updateClockEvent(companyId, punchId, {
-    occurredAt,
-    projectId: emptyToNull(parsed.data.projectId),
-    costCodeId: emptyToNull(parsed.data.costCodeId),
-    notes: emptyToNull(parsed.data.notes),
-  });
+  try {
+    await updateClockEvent(companyId, punchId, {
+      occurredAt,
+      projectId: emptyToNull(parsed.data.projectId),
+      costCodeId: emptyToNull(parsed.data.costCodeId),
+      notes: emptyToNull(parsed.data.notes),
+    });
+  } catch (err) {
+    if (err instanceof PunchAlreadyPostedError) {
+      return { formError: err.message };
+    }
+    throw err;
+  }
 
   revalidatePath('/clock');
   redirect('/clock' as never);
@@ -95,8 +105,34 @@ export async function deletePunchAction(punchId: string): Promise<void> {
     throw new Error('You do not have permission to delete punches.');
   }
   const companyId = await getActiveCompanyId();
-  await deleteClockEvent(companyId, punchId);
+  try {
+    await deleteClockEvent(companyId, punchId);
+  } catch (err) {
+    if (err instanceof PunchAlreadyPostedError) throw err;
+    throw err;
+  }
   revalidatePath('/clock');
+}
+
+/**
+ * Post every reviewed-and-unposted paired session to time_entries.
+ * Result counts (posted / skippedLocked / skippedOther) are returned
+ * via redirect query params so the /clock page can surface a banner.
+ * Gated on payroll:create — PMs can review but can't post.
+ */
+export async function postReviewedSessionsAction(): Promise<void> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    throw new Error('You do not have permission to post to payroll.');
+  }
+  const companyId = await getActiveCompanyId();
+  const sessions = await listPostableSessions(companyId);
+  const result = await postSessionsToTimeEntries(companyId, sessions);
+  revalidatePath('/clock');
+  redirect(
+    (`/clock?posted=${result.posted}&locked=${result.skippedLocked}&err=${result.skippedOther}`) as never,
+  );
 }
 
 export async function markSessionReviewedAction(

@@ -11,6 +11,7 @@ import { employees } from './employees';
 import { projects } from './projects';
 import { costCodes } from './cost-codes';
 import { users } from './users';
+import { timeEntries } from './time-entries';
 
 // One row per atomic clock punch. Sessions are derived by pairing
 // adjacent (in → out) events at read time. See migration
@@ -50,6 +51,14 @@ export const clockEvents = pgTable(
     reviewedBy: uuid('reviewed_by').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // Phase M6.2: idempotency link to the time_entries row this punch
+    // posted into. Both punches of a paired session share the same FK.
+    // ON DELETE SET NULL: deleting the time entry on /payroll unposts
+    // the session and lets it be re-posted (the correction workflow).
+    postedTimeEntryId: uuid('posted_time_entry_id').references(
+      () => timeEntries.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -2,13 +2,16 @@
 // DB-only (no in-memory mock — clock punches aren't useful in demo).
 
 import 'server-only';
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import {
   clockEvents,
+  timeEntries,
   type ClockEvent,
   type ClockEventKind,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { getOrCreatePeriodForDate } from '@/lib/data/pay-periods';
+import { todayISOInTZ } from '@/lib/tz';
 
 export type CreateClockEventInput = {
   companyId: string;
@@ -149,6 +152,7 @@ export async function listOpenSessionsForCompany(
     notes: string | null;
     reviewed_at: Date | null;
     reviewed_by: string | null;
+    posted_time_entry_id: string | null;
     created_at: Date;
   }>(sql`
     SELECT DISTINCT ON (employee_id) *
@@ -174,6 +178,7 @@ export async function listOpenSessionsForCompany(
       notes: r.notes,
       reviewedAt: r.reviewed_at ? new Date(r.reviewed_at) : null,
       reviewedBy: r.reviewed_by,
+      postedTimeEntryId: r.posted_time_entry_id,
       createdAt: new Date(r.created_at),
     }));
 }
@@ -199,10 +204,18 @@ export type UpdateClockEventInput = {
   notes?: string | null;
 };
 
+export class PunchAlreadyPostedError extends Error {
+  constructor(message = 'This punch has already been posted to payroll. Delete the time entry on /payroll first to make further changes.') {
+    super(message);
+    this.name = 'PunchAlreadyPostedError';
+  }
+}
+
 /**
  * Edit a punch. Any edit clears `reviewed_at` so the session has to be
- * re-reviewed before M6.2 will post it — prevents accidentally
- * back-dating an approved punch into payroll.
+ * re-reviewed before M6.2 will re-post it. Refuses to touch a posted
+ * punch — admins must delete the resulting time entry first (which
+ * cascades posted_time_entry_id back to NULL via ON DELETE SET NULL).
  */
 export async function updateClockEvent(
   companyId: string,
@@ -211,6 +224,9 @@ export async function updateClockEvent(
 ): Promise<ClockEvent | null> {
   if (!isDatabaseConfigured()) return null;
   const db = getDb()!;
+  const existing = await getClockEvent(companyId, id);
+  if (!existing) return null;
+  if (existing.postedTimeEntryId) throw new PunchAlreadyPostedError();
   const rows = await db
     .update(clockEvents)
     .set({
@@ -231,6 +247,9 @@ export async function deleteClockEvent(
   id: string,
 ): Promise<void> {
   if (!isDatabaseConfigured()) return;
+  const existing = await getClockEvent(companyId, id);
+  if (!existing) return;
+  if (existing.postedTimeEntryId) throw new PunchAlreadyPostedError();
   const db = getDb()!;
   await db
     .delete(clockEvents)
@@ -275,6 +294,145 @@ export async function unmarkPunchesReviewed(
         sql`${clockEvents.id} = ANY(${ids}::uuid[])`,
       ),
     );
+}
+
+export type PostableSession = { in: ClockEvent; out: ClockEvent };
+
+/**
+ * Reviewed-and-unposted paired sessions across all employees in the
+ * company. Open (unpaired) and unreviewed sessions are excluded — only
+ * complete, signed-off sessions are eligible to post.
+ *
+ * Implementation: pull every UNPOSTED event for the company, group by
+ * employee, pair, then keep pairs where both punches carry reviewed_at.
+ * Posted events are excluded from the input so pairing can't span a
+ * previously-posted session.
+ */
+export async function listPostableSessions(
+  companyId: string,
+): Promise<PostableSession[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(clockEvents)
+    .where(
+      and(
+        eq(clockEvents.companyId, companyId),
+        isNull(clockEvents.postedTimeEntryId),
+      ),
+    )
+    .orderBy(asc(clockEvents.employeeId), asc(clockEvents.occurredAt));
+
+  const byEmployee = new Map<string, ClockEvent[]>();
+  for (const e of rows) {
+    const list = byEmployee.get(e.employeeId) ?? [];
+    list.push(e);
+    byEmployee.set(e.employeeId, list);
+  }
+  const out: PostableSession[] = [];
+  for (const events of byEmployee.values()) {
+    const sessions = pairClockSessions(events);
+    for (const s of sessions) {
+      if (s.out && s.in.reviewedAt && s.out.reviewedAt) {
+        out.push({ in: s.in, out: s.out });
+      }
+    }
+  }
+  return out;
+}
+
+export type PostResult = {
+  posted: number;
+  skippedLocked: number;
+  skippedOther: number;
+};
+
+/**
+ * Post a batch of reviewed sessions to time_entries. One time_entries
+ * row per session. Skips sessions whose pay period is locked (close-out
+ * already happened — re-opening the period is an explicit action on
+ * /payroll). On transient errors, skips the offending session and keeps
+ * going so a single bad punch doesn't poison the whole batch.
+ */
+export async function postSessionsToTimeEntries(
+  companyId: string,
+  sessions: PostableSession[],
+): Promise<PostResult> {
+  if (!isDatabaseConfigured() || sessions.length === 0) {
+    return { posted: 0, skippedLocked: 0, skippedOther: 0 };
+  }
+  const db = getDb()!;
+  let posted = 0;
+  let skippedLocked = 0;
+  let skippedOther = 0;
+
+  // Many sessions on the same Nassau date share a pay period — cache
+  // by workDate so we don't hammer getOrCreatePeriodForDate per row.
+  const periodCache = new Map<string, { id: string; status: string }>();
+  async function periodFor(workDate: string) {
+    let cached = periodCache.get(workDate);
+    if (!cached) {
+      const p = await getOrCreatePeriodForDate(companyId, workDate);
+      cached = { id: p.id, status: p.status };
+      periodCache.set(workDate, cached);
+    }
+    return cached;
+  }
+
+  for (const s of sessions) {
+    try {
+      // Anchor the time-entries.work_date to the IN punch's Nassau day.
+      // Midnight-crossing sessions are deferred to M6.2.1 — they'll
+      // just land on the IN day's row for now.
+      const workDate = todayISOInTZ(s.in.occurredAt);
+      const period = await periodFor(workDate);
+      if (period.status === 'locked') {
+        skippedLocked += 1;
+        continue;
+      }
+      const ms = s.out.occurredAt.getTime() - s.in.occurredAt.getTime();
+      const hoursNum = Math.max(0, Math.round((ms / 3_600_000) * 100) / 100);
+      const notesParts = [s.in.notes, s.out.notes].filter(
+        (n): n is string => !!n,
+      );
+      const notes = notesParts.length ? notesParts.join(' / ') : null;
+
+      await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(timeEntries)
+          .values({
+            companyId,
+            employeeId: s.in.employeeId,
+            payPeriodId: period.id,
+            workDate,
+            entryType: 'hours',
+            hours: hoursNum.toFixed(2),
+            amount: '0',
+            projectId: s.in.projectId,
+            costCodeId: s.in.costCodeId,
+            isOverhead: s.in.projectId == null,
+            notes,
+          })
+          .returning({ id: timeEntries.id });
+        await tx
+          .update(clockEvents)
+          .set({ postedTimeEntryId: inserted.id })
+          .where(
+            and(
+              eq(clockEvents.companyId, companyId),
+              sql`${clockEvents.id} = ANY(${[s.in.id, s.out.id]}::uuid[])`,
+            ),
+          );
+      });
+      posted += 1;
+    } catch {
+      // Don't let one bad session block the rest of the batch — the
+      // count gives the admin a signal to investigate.
+      skippedOther += 1;
+    }
+  }
+  return { posted, skippedLocked, skippedOther };
 }
 
 /**

@@ -28,12 +28,13 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canView } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { listEmployees } from '@/lib/data/employees';
 import { listProjects } from '@/lib/data/projects';
 import {
   listClockEventsForCompanyRange,
   listOpenSessionsForCompany,
+  listPostableSessions,
   pairClockSessions,
 } from '@/lib/data/clock-events';
 import {
@@ -45,6 +46,7 @@ import {
 import { DeletePunchButton } from '@/modules/clock-events/components/delete-punch-button';
 import {
   markSessionReviewedAction,
+  postReviewedSessionsAction,
   unmarkSessionReviewedAction,
 } from '@/modules/clock-events/actions';
 
@@ -81,16 +83,37 @@ function durationLabel(ms: number): string {
 export default async function ClockReviewPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ date?: string }>;
+  searchParams?: Promise<{
+    date?: string;
+    posted?: string;
+    locked?: string;
+    err?: string;
+  }>;
 }) {
   const role = await getActiveRole();
   if (!canView(role, 'clock_events')) {
     redirect('/dashboard');
   }
+  // Posting writes to time_entries → gated on payroll, not clock_events.
+  // PMs can review punches but can't push them to payroll (matches the
+  // existing permission split: clock_events RW, payroll NONE for PM).
+  const canPost = canCreate(role, 'payroll');
 
   const sp = (await searchParams) ?? {};
   const date =
     sp.date && DATE_RE.test(sp.date) ? sp.date : todayISOInTZ();
+
+  // Parse the post-result query params from a recent
+  // postReviewedSessionsAction redirect. Any negative / NaN values are
+  // ignored so a bookmark-style URL can't fake a confirmation banner.
+  const postedCount = Number(sp.posted);
+  const lockedCount = Number(sp.locked);
+  const errCount = Number(sp.err);
+  const showResultBanner =
+    Number.isFinite(postedCount) &&
+    Number.isFinite(lockedCount) &&
+    Number.isFinite(errCount) &&
+    (postedCount > 0 || lockedCount > 0 || errCount > 0);
 
   // Build the day window in APP_TZ so "today" is Nassau wall-clock,
   // not server-UTC. The reference instant is noon-UTC on the chosen
@@ -102,12 +125,15 @@ export default async function ClockReviewPage({
 
   const companyId = await getActiveCompanyId();
 
-  const [employees, projects, events, openSessions] = await Promise.all([
-    listEmployees(companyId),
-    listProjects(companyId),
-    listClockEventsForCompanyRange(companyId, start, end),
-    listOpenSessionsForCompany(companyId),
-  ]);
+  const [employees, projects, events, openSessions, postableSessions] =
+    await Promise.all([
+      listEmployees(companyId),
+      listProjects(companyId),
+      listClockEventsForCompanyRange(companyId, start, end),
+      listOpenSessionsForCompany(companyId),
+      listPostableSessions(companyId),
+    ]);
+  const postableCount = postableSessions.length;
 
   const employeeName = new Map(
     employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()] as const),
@@ -133,6 +159,7 @@ export default async function ClockReviewPage({
     outEvent: (typeof events)[number] | null;
     durationMs: number | null;
     reviewed: boolean;
+    posted: boolean;
   };
   const sessionRows: SessionRow[] = [];
   for (const [employeeId, perEmp] of byEmployee.entries()) {
@@ -144,6 +171,12 @@ export default async function ClockReviewPage({
       const reviewed = s.out
         ? Boolean(s.in.reviewedAt && s.out.reviewedAt)
         : Boolean(s.in.reviewedAt);
+      // A session is "posted" once both punches carry a
+      // posted_time_entry_id. We track both punches for symmetry even
+      // though they always share the same FK after a successful post.
+      const posted = s.out
+        ? Boolean(s.in.postedTimeEntryId && s.out.postedTimeEntryId)
+        : Boolean(s.in.postedTimeEntryId);
       sessionRows.push({
         key: s.in.id,
         employeeId,
@@ -152,6 +185,7 @@ export default async function ClockReviewPage({
         outEvent: s.out,
         durationMs,
         reviewed,
+        posted,
       });
     }
   }
@@ -187,6 +221,62 @@ export default async function ClockReviewPage({
           Nassau (AST, UTC-4).
         </p>
       </header>
+
+      {/* Result banner from a recent post action. Cleared on next nav
+          since the query params disappear when the date picker submits. */}
+      {showResultBanner && (
+        <div
+          className={
+            'rounded-md border px-4 py-3 text-sm ' +
+            (errCount > 0
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-900')
+          }
+        >
+          Posted <strong>{postedCount}</strong> session
+          {postedCount === 1 ? '' : 's'} to payroll.
+          {lockedCount > 0 && (
+            <>
+              {' '}
+              Skipped <strong>{lockedCount}</strong> in a locked pay period —
+              unlock the period on /payroll to re-post.
+            </>
+          )}
+          {errCount > 0 && (
+            <>
+              {' '}
+              <strong>{errCount}</strong> failed unexpectedly — please retry
+              or report.
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Post-to-payroll panel. Hidden entirely for roles without
+          payroll:create (PMs review punches but can't push to payroll). */}
+      {canPost && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle>Post to payroll</CardTitle>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Reviewed sessions become one <code>time_entries</code> row
+                  each. Posting into a locked pay period is refused (skipped
+                  with a count).
+                </p>
+              </div>
+              <form action={postReviewedSessionsAction}>
+                <Button type="submit" disabled={postableCount === 0}>
+                  {postableCount === 0
+                    ? 'Nothing to post'
+                    : `Post ${postableCount} session${postableCount === 1 ? '' : 's'}`}
+                </Button>
+              </form>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* On the clock now */}
       <Card>
@@ -339,7 +429,9 @@ export default async function ClockReviewPage({
                         )}
                       </TableCell>
                       <TableCell>
-                        {r.reviewed ? (
+                        {r.posted ? (
+                          <Badge tone="blue">posted to payroll</Badge>
+                        ) : r.reviewed ? (
                           <Badge tone="green">reviewed</Badge>
                         ) : r.outEvent ? (
                           <Badge tone="slate">unreviewed</Badge>
@@ -349,49 +441,57 @@ export default async function ClockReviewPage({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="inline-flex items-center gap-1">
-                          {r.outEvent && !r.reviewed && (
-                            <form
-                              action={markSessionReviewedAction.bind(null, ids)}
-                              className="inline"
-                            >
-                              <Button type="submit" size="sm" variant="outline">
-                                Mark reviewed
-                              </Button>
-                            </form>
+                          {r.posted ? (
+                            <span className="text-[11px] text-slate-500 px-1">
+                              Delete the time entry on /payroll to edit
+                            </span>
+                          ) : (
+                            <>
+                              {r.outEvent && !r.reviewed && (
+                                <form
+                                  action={markSessionReviewedAction.bind(null, ids)}
+                                  className="inline"
+                                >
+                                  <Button type="submit" size="sm" variant="outline">
+                                    Mark reviewed
+                                  </Button>
+                                </form>
+                              )}
+                              {r.reviewed && (
+                                <form
+                                  action={unmarkSessionReviewedAction.bind(null, ids)}
+                                  className="inline"
+                                >
+                                  <Button type="submit" size="sm" variant="ghost">
+                                    Un-review
+                                  </Button>
+                                </form>
+                              )}
+                              <Link
+                                href={{
+                                  pathname: `/clock/${r.inEvent.id}/edit`,
+                                  query: { date },
+                                }}
+                              >
+                                <Button size="sm" variant="ghost">
+                                  Edit in
+                                </Button>
+                              </Link>
+                              {r.outEvent && (
+                                <Link
+                                  href={{
+                                    pathname: `/clock/${r.outEvent.id}/edit`,
+                                    query: { date },
+                                  }}
+                                >
+                                  <Button size="sm" variant="ghost">
+                                    Edit out
+                                  </Button>
+                                </Link>
+                              )}
+                              <DeletePunchButton punchId={r.inEvent.id} />
+                            </>
                           )}
-                          {r.reviewed && (
-                            <form
-                              action={unmarkSessionReviewedAction.bind(null, ids)}
-                              className="inline"
-                            >
-                              <Button type="submit" size="sm" variant="ghost">
-                                Un-review
-                              </Button>
-                            </form>
-                          )}
-                          <Link
-                            href={{
-                              pathname: `/clock/${r.inEvent.id}/edit`,
-                              query: { date },
-                            }}
-                          >
-                            <Button size="sm" variant="ghost">
-                              Edit in
-                            </Button>
-                          </Link>
-                          {r.outEvent && (
-                            <Link
-                              href={{
-                                pathname: `/clock/${r.outEvent.id}/edit`,
-                                query: { date },
-                              }}
-                            >
-                              <Button size="sm" variant="ghost">
-                                Edit out
-                              </Button>
-                            </Link>
-                          )}
-                          <DeletePunchButton punchId={r.inEvent.id} />
                         </div>
                       </TableCell>
                     </TableRow>
