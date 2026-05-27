@@ -18,6 +18,7 @@ import {
 } from '@/lib/data/clock-events';
 import { listProjects } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
+import { startOfDayInTZ, endOfDayInTZ } from '@/lib/tz';
 import { ClockForm } from '@/modules/field/components/clock-form';
 
 export const dynamic = 'force-dynamic';
@@ -40,15 +41,13 @@ export default async function FieldClockPage({
 
   const companyId = await getActiveCompanyId();
 
-  // Build day window in the server's timezone. Bahamas runs on AST
-  // (UTC-4, no DST) which the server should match. If the field crew
-  // ever roams across timezones we'd need to capture the device TZ on
-  // each punch — out of scope for M2.
+  // Build day window in the business TZ (APP_TZ = America/Nassau) so
+  // "today" rolls over at midnight Nassau, not midnight UTC. The Vercel
+  // server runs in UTC; without this, evening punches (8 PM – midnight
+  // AST) would bucket into the next day.
   const now = new Date();
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(now);
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDay = startOfDayInTZ(now);
+  const endOfDay = endOfDayInTZ(now);
 
   const [latest, todayEvents, projects] = await Promise.all([
     getLatestClockEvent(employee.id),

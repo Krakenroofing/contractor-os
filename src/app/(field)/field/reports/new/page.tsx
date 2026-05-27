@@ -24,6 +24,7 @@ import { getCustomer } from '@/lib/data/customers';
 import { listAssignmentsForEmployeeDate } from '@/lib/data/project-assignments';
 import { createDailyReportAction } from '@/modules/daily-reports/actions';
 import { MobileDailyReportForm } from '@/modules/field/components/daily-report-form';
+import { todayISOInTZ } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,9 +52,10 @@ export default async function FieldReportNewPage({
     // trust a client-supplied projectId on the action itself.
     const boundAction = createDailyReportAction.bind(null, project.id);
 
-    // Date defaults to today in local TZ (same calc as /field/jobs).
-    const now = new Date();
-    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // Date defaults to today in the business TZ (America/Nassau), not
+    // server-local — the Vercel server runs in UTC and would otherwise
+    // prefill tomorrow's date for evening reports.
+    const todayIso = todayISOInTZ();
 
     return (
       <div className="px-4 py-5 space-y-5">
