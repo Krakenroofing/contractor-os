@@ -306,8 +306,8 @@ export function MobileDailyReportForm({
         {pending ? 'Saving…' : 'Save report'}
       </Button>
       <p className="text-[11px] text-slate-500 text-center">
-        Saves as draft. You can add photos and finalize from the desktop
-        view after submitting.
+        Saves as draft. The next screen has a big <strong>📷 Add photo</strong>{' '}
+        button — tap to take or upload photos straight from your phone.
       </p>
     </form>
   );
