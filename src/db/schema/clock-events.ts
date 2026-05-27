@@ -10,6 +10,7 @@ import { companies } from './companies';
 import { employees } from './employees';
 import { projects } from './projects';
 import { costCodes } from './cost-codes';
+import { users } from './users';
 
 // One row per atomic clock punch. Sessions are derived by pairing
 // adjacent (in → out) events at read time. See migration
@@ -42,6 +43,13 @@ export const clockEvents = pgTable(
     gpsLng: numeric('gps_lng', { precision: 9, scale: 6 }),
     gpsAccuracyM: numeric('gps_accuracy_m', { precision: 8, scale: 2 }),
     notes: text('notes'),
+    // Phase M6.1: office review flag. Set when an owner/PM/accounting
+    // confirms the punch is correct. M6.2 only posts reviewed sessions
+    // to payroll. Editing a punch clears this — see updateClockEvent.
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedBy: uuid('reviewed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

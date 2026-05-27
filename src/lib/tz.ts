@@ -79,3 +79,44 @@ export function todayISOInTZ(now: Date = new Date(), tz: string = APP_TZ): strin
   const { year, month, day } = wallClockParts(now, tz);
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
+
+/**
+ * Format a Date as 'YYYY-MM-DDTHH:mm' wall-clock in `tz`, suitable for
+ * pre-filling <input type="datetime-local">. The form posts back the
+ * same wall-clock string, which `parseDateTimeLocalInTZ` re-anchors to
+ * an absolute instant — round-trip preserves what the user sees.
+ */
+export function formatDateTimeLocalInTZ(
+  d: Date,
+  tz: string = APP_TZ,
+): string {
+  const w = wallClockParts(d, tz);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${w.year}-${pad(w.month)}-${pad(w.day)}T${pad(w.hour)}:${pad(w.minute)}`;
+}
+
+/**
+ * Parse 'YYYY-MM-DDTHH:mm' (or with :ss) as wall-clock time in `tz`,
+ * returning the absolute instant. Throws on invalid input — callers
+ * should pre-validate with a regex first.
+ */
+export function parseDateTimeLocalInTZ(
+  s: string,
+  tz: string = APP_TZ,
+): Date {
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (!m) throw new Error(`Invalid datetime-local string: ${s}`);
+  const [, y, mo, d, h, mi, se] = m;
+  const utcGuess = Date.UTC(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(se ?? '0'),
+  );
+  const offset = tzOffsetMinutes(new Date(utcGuess), tz);
+  return new Date(utcGuess - offset * 60000);
+}

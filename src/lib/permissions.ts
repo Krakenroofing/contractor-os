@@ -66,6 +66,10 @@ export const RESOURCES = [
   'payroll',
   // Inventory Phase 6.0: product/material catalog feeding PO/Invoice/Estimate lines.
   'inventory',
+  // Phase M6.1: office-side review of field-app clock punches. Field
+  // users still see their own punches in /field/clock (which reads the
+  // data layer directly, not this resource).
+  'clock_events',
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -109,6 +113,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     employees: RW,
     payroll: RW,
     inventory: RW,
+    clock_events: RW,
   },
   project_manager: {
     dashboard: READ,
@@ -152,6 +157,8 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     // PMs can browse the catalog (for PO/invoice line picking) but
     // not edit it. Catalog management is owner/estimator/accounting.
     inventory: READ,
+    // PMs review field crew punches as part of running a job.
+    clock_events: RW,
   },
   estimator: {
     dashboard: READ,
@@ -187,6 +194,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     payroll: NONE,
     // Estimators pick products and add new ones as they encounter them.
     inventory: RW,
+    clock_events: NONE,
   },
   accounting: {
     dashboard: READ,
@@ -221,6 +229,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     employees: RW,
     payroll: RW,
     inventory: RW,
+    clock_events: RW,
   },
   field_user: {
     // Field users are bounced to /field by the office layout (see
@@ -263,6 +272,9 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     employees: NONE,
     payroll: NONE,
     inventory: NONE,
+    // Their own punches are visible on /field/clock (data layer, not
+    // this resource). The office review surface is owner/PM/accounting.
+    clock_events: NONE,
   },
   view_only: {
     dashboard: READ,
@@ -297,6 +309,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     employees: READ,
     payroll: READ,
     inventory: READ,
+    clock_events: READ,
   },
 };
 
