@@ -147,7 +147,17 @@ export function EmployeeForm({
             <Select
               name="employmentType"
               value={employmentType}
-              onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}
+              onChange={(e) => {
+                const next = e.target.value as EmploymentType;
+                setEmploymentType(next);
+                // Sub-crews / contract workers are NIB-exempt because
+                // they're not paid hourly wages on which NIB is owed.
+                // Auto-tick on first pick; the user can still uncheck
+                // below if they really mean a NIB-eligible contractor.
+                if (next === 'contract' && !nibExempt) {
+                  setNibExempt(true);
+                }
+              }}
             >
               {employmentTypeValues.map((t) => (
                 <option key={t} value={t}>
@@ -155,6 +165,11 @@ export function EmployeeForm({
                 </option>
               ))}
             </Select>
+            {employmentType === 'contract' && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Contract workers default to NIB-exempt — adjust below if needed.
+              </p>
+            )}
           </Field>
 
           <Field
