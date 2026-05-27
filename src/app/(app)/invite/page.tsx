@@ -15,10 +15,14 @@ import { isAuthEnabled } from '@/lib/auth';
 import { canCreate, ROLE_LABELS, type Role } from '@/lib/permissions';
 import { listInvitationsForCompany } from '@/lib/data/invitations';
 import { listEmployees } from '@/lib/data/employees';
-import { listUsersWithEmployeeLink } from '@/lib/data/users';
+import {
+  listCompanyUsersWithLinks,
+  listUsersWithEmployeeLink,
+} from '@/lib/data/users';
 import { isExpired } from '@/modules/invitations/lib/tokens';
 import { InviteForm } from '@/modules/invitations/components/invite-form';
 import { RevokeButton } from '@/modules/invitations/components/revoke-button';
+import { UserEmployeeLinkRow } from '@/modules/users/components/user-employee-link-row';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,11 +32,13 @@ export default async function InvitePage() {
 
   const company = await getActiveCompany();
   const invites = await listInvitationsForCompany(company.id);
-  // Employee picker options for field_user invites. Mark each employee
-  // already linked to a user so the admin sees they can't be picked again.
-  const [allEmployees, linkedUsers] = await Promise.all([
+  // Employee picker options for field_user invites + the link-manager
+  // section below. Both surfaces want "every active employee" and "who
+  // is each currently linked to" — fetch once, project twice.
+  const [allEmployees, linkedUsers, companyUsers] = await Promise.all([
     listEmployees(company.id),
     listUsersWithEmployeeLink(company.id),
+    listCompanyUsersWithLinks(company.id),
   ]);
   const linkedEmployeeIds = new Set(
     linkedUsers.map((u) => u.employeeId).filter((id): id is string => !!id),
@@ -43,6 +49,21 @@ export default async function InvitePage() {
       id: e.id,
       label: `${e.firstName} ${e.lastName}`.trim(),
       alreadyLinked: linkedEmployeeIds.has(e.id),
+    }));
+
+  // Options for the link-manager dropdown: every active employee, with
+  // a "linked to X" annotation when applicable. Includes contract /
+  // sub-employee rows since their drivers can have logins too.
+  const userByEmployeeId = new Map<string, string>(); // employeeId → linked user email
+  for (const u of companyUsers) {
+    if (u.employeeId) userByEmployeeId.set(u.employeeId, u.email);
+  }
+  const linkOptions = allEmployees
+    .filter((e) => e.active)
+    .map((e) => ({
+      id: e.id,
+      label: `${e.firstName} ${e.lastName}`.trim(),
+      linkedToEmail: userByEmployeeId.get(e.id) ?? null,
     }));
 
   // Categorize for display
@@ -96,6 +117,59 @@ export default async function InvitePage() {
         </CardHeader>
         <CardContent>
           <InviteForm companyName={company.name} employees={employeeOptions} />
+        </CardContent>
+      </Card>
+
+      {/* User → employee link manager. One row per active member of the
+          company. Lets the admin retroactively link an existing user to
+          an employee (e.g. owner linking themselves so /clock attributes
+          punches correctly) or reassign / clear an existing link.
+          Includes contract / sub-employee rows in the dropdown — they
+          can have logins too. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Users in this company</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          {companyUsers.length === 0 ? (
+            <p className="px-6 py-6 text-sm text-slate-500">
+              No active members yet.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Linked employee</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {companyUsers.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="text-slate-900 text-sm">
+                      {u.name}
+                    </TableCell>
+                    <TableCell className="text-slate-700 text-xs">
+                      {u.email}
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone="slate">{ROLE_LABELS[u.role]}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <UserEmployeeLinkRow
+                        userId={u.id}
+                        userEmail={u.email}
+                        currentEmployeeId={u.employeeId}
+                        options={linkOptions}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
