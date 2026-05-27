@@ -141,6 +141,8 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     isVatActive: false,
     vatJurisdiction: null,
     accountingMethod: 'accrual' as const,
+    // Phase M6.3: per-company opt-in for auto-posting clock sessions.
+    autoPostClockSessions: false,
     createdAt: now,
     updatedAt: now,
     ...over,

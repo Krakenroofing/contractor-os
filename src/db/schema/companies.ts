@@ -59,6 +59,14 @@ export const companies = pgTable('companies', {
   bankAddress: text('bank_address'),
   paymentNotes: text('payment_notes'),
 
+  // Phase M6.3: when true, punch-out immediately marks the session
+  // reviewed (by the worker) and posts it to time_entries — no admin
+  // review step. Off by default; flip on per-company once you trust
+  // the punch data. Toggle lives on /clock.
+  autoPostClockSessions: boolean('auto_post_clock_sessions')
+    .notNull()
+    .default(false),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

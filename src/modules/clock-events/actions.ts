@@ -17,6 +17,7 @@ import {
   unmarkPunchesReviewed,
   updateClockEvent,
 } from '@/lib/data/clock-events';
+import { updateCompany } from '@/lib/data/companies';
 import { parseDateTimeLocalInTZ } from '@/lib/tz';
 
 export type EditPunchState = {
@@ -111,6 +112,31 @@ export async function deletePunchAction(punchId: string): Promise<void> {
     if (err instanceof PunchAlreadyPostedError) throw err;
     throw err;
   }
+  revalidatePath('/clock');
+}
+
+/**
+ * Toggle the company-level auto-post flag (Phase M6.3). When ON, the
+ * punch-out action immediately marks the session reviewed (by the
+ * worker themselves) and posts it to time_entries — no admin
+ * ceremony. Gated on settings:create — owner only.
+ *
+ * The desired state is passed as a string in formData ('on' / 'off')
+ * so a plain server-rendered form can flip it without client JS.
+ */
+export async function setAutoPostClockSessionsAction(
+  formData: FormData,
+): Promise<void> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    throw new Error('Only owners can change company settings.');
+  }
+  const companyId = await getActiveCompanyId();
+  const desired = (formData.get('value') ?? '').toString();
+  await updateCompany(companyId, {
+    autoPostClockSessions: desired === 'on',
+  });
   revalidatePath('/clock');
 }
 

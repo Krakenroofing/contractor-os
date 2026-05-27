@@ -29,6 +29,7 @@ import {
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
+import { getCompany } from '@/lib/data/companies';
 import { listEmployees } from '@/lib/data/employees';
 import { listProjects } from '@/lib/data/projects';
 import {
@@ -47,6 +48,7 @@ import { DeletePunchButton } from '@/modules/clock-events/components/delete-punc
 import {
   markSessionReviewedAction,
   postReviewedSessionsAction,
+  setAutoPostClockSessionsAction,
   unmarkSessionReviewedAction,
 } from '@/modules/clock-events/actions';
 
@@ -124,9 +126,11 @@ export default async function ClockReviewPage({
   const end = endOfDayInTZ(reference);
 
   const companyId = await getActiveCompanyId();
+  const canEditSettings = canCreate(role, 'settings');
 
-  const [employees, projects, events, openSessions, postableSessions] =
+  const [company, employees, projects, events, openSessions, postableSessions] =
     await Promise.all([
+      getCompany(companyId),
       listEmployees(companyId),
       listProjects(companyId),
       listClockEventsForCompanyRange(companyId, start, end),
@@ -134,6 +138,7 @@ export default async function ClockReviewPage({
       listPostableSessions(companyId),
     ]);
   const postableCount = postableSessions.length;
+  const autoPostOn = Boolean(company?.autoPostClockSessions);
 
   const employeeName = new Map(
     employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()] as const),
@@ -261,9 +266,22 @@ export default async function ClockReviewPage({
               <div>
                 <CardTitle>Post to payroll</CardTitle>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Reviewed sessions become one <code>time_entries</code> row
-                  each. Posting into a locked pay period is refused (skipped
-                  with a count).
+                  {autoPostOn ? (
+                    <>
+                      <strong className="text-emerald-700">
+                        Auto-post is ON
+                      </strong>{' '}
+                      — sessions post automatically when the worker clocks
+                      out. The button below catches any stragglers (e.g.
+                      back-filled punches that didn't trigger the live path).
+                    </>
+                  ) : (
+                    <>
+                      Reviewed sessions become one <code>time_entries</code>{' '}
+                      row each. Posting into a locked pay period is refused
+                      (skipped with a count).
+                    </>
+                  )}
                 </p>
               </div>
               <form action={postReviewedSessionsAction}>
@@ -275,6 +293,37 @@ export default async function ClockReviewPage({
               </form>
             </div>
           </CardHeader>
+          {canEditSettings && (
+            <CardContent className="border-t border-slate-100 pt-4">
+              <form
+                action={setAutoPostClockSessionsAction}
+                className="flex items-center justify-between gap-3 flex-wrap"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    Auto-post on clock-out
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Skip the review step — paired sessions post the instant
+                    the worker punches out. Flip on once you trust the punch
+                    data. Locked pay periods still block posting silently.
+                  </p>
+                </div>
+                <input
+                  type="hidden"
+                  name="value"
+                  value={autoPostOn ? 'off' : 'on'}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant={autoPostOn ? 'destructive' : 'outline'}
+                >
+                  {autoPostOn ? 'Turn off auto-post' : 'Turn on auto-post'}
+                </Button>
+              </form>
+            </CardContent>
+          )}
         </Card>
       )}
 

@@ -19,10 +19,14 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveEmployee } from '@/lib/active-employee';
+import { getCurrentUser } from '@/lib/auth';
 import {
   getLatestClockEvent,
+  markPunchesReviewed,
+  postSessionsToTimeEntries,
   recordClockEvent,
 } from '@/lib/data/clock-events';
+import { getCompany } from '@/lib/data/companies';
 
 export type PunchState = {
   ok?: boolean;
@@ -153,7 +157,7 @@ export async function punchOutAction(
     };
   }
 
-  await recordClockEvent({
+  const outEvent = await recordClockEvent({
     companyId: pre.companyId,
     employeeId: pre.employeeId,
     // Carry the open session's project forward if the client didn't send
@@ -169,7 +173,32 @@ export async function punchOutAction(
     notes: parsed.data.notes?.trim() || null,
   });
 
+  // Phase M6.3: if the company has auto-post enabled, mark this
+  // session reviewed (by the worker) and post it to time_entries
+  // immediately. Wrapped in try/catch — auto-post is best-effort, the
+  // punch itself MUST succeed even if the bridge fails.
+  try {
+    const company = await getCompany(pre.companyId);
+    if (company?.autoPostClockSessions) {
+      const user = await getCurrentUser();
+      if (user) {
+        await markPunchesReviewed(
+          pre.companyId,
+          [last.id, outEvent.id],
+          user.id,
+        );
+        await postSessionsToTimeEntries(pre.companyId, [
+          { in: last, out: outEvent },
+        ]);
+      }
+    }
+  } catch {
+    // Don't surface auto-post failures to the worker — the punch
+    // recorded fine, the admin can post manually from /clock.
+  }
+
   revalidatePath('/field');
   revalidatePath('/field/clock');
+  revalidatePath('/clock');
   return { ok: true };
 }
