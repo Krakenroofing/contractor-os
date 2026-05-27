@@ -78,6 +78,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const activeCompanyId = await getActiveCompanyId();
   const role = await getActiveRole();
 
+  // Field users never see the desktop office shell. Bounce them to the
+  // mobile field app — that's the only surface they're supposed to use
+  // (clock, today's jobs, daily reports + photos).
+  if (role === 'field_user') {
+    redirect('/field' as never);
+  }
+
   // In auth-enabled mode the company switcher must only show companies the
   // current user has a membership in — otherwise the dropdown leaks every
   // tenant's name and confuses users by listing companies they can't switch

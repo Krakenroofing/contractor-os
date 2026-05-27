@@ -223,8 +223,11 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     inventory: RW,
   },
   field_user: {
-    dashboard: READ,
-    projects: READ,
+    // Field users are bounced to /field by the office layout (see
+    // src/app/(app)/layout.tsx). Closing these off so there's no
+    // direct-URL escape into the desktop dashboard or projects list.
+    dashboard: NONE,
+    projects: NONE,
     customers: NONE,
     vendors: NONE,
     cost_codes: NONE,
