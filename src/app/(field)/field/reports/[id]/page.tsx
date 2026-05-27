@@ -7,6 +7,7 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
 import { getCurrentUser } from '@/lib/auth';
 import {
   getDailyReport,
@@ -34,6 +35,11 @@ export default async function FieldReportDetailPage({
 
   const { id } = await params;
   const companyId = await getActiveCompanyId();
+  const role = await getActiveRole();
+  // Office-style users (owner/PM/etc.) can still click through to the
+  // full desktop edit page. Field users are locked out of /projects/*
+  // by the office-layout guard, so hide the link entirely for them.
+  const showDesktopEditLink = role !== 'field_user';
   const report = await getDailyReport(companyId, id);
   if (!report) notFound();
 
@@ -177,14 +183,16 @@ export default async function FieldReportDetailPage({
         </Field>
       )}
 
-      <Link
-        href={{
-          pathname: `/projects/${report.projectId}/daily-reports/${report.id}/edit`,
-        }}
-        className="block text-center text-xs text-slate-500"
-      >
-        Need to edit details? Open desktop view →
-      </Link>
+      {showDesktopEditLink && (
+        <Link
+          href={{
+            pathname: `/projects/${report.projectId}/daily-reports/${report.id}/edit`,
+          }}
+          className="block text-center text-xs text-slate-500"
+        >
+          Need to edit details? Open desktop view →
+        </Link>
+      )}
     </div>
   );
 }

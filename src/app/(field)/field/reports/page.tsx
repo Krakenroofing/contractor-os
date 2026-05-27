@@ -1,8 +1,7 @@
 // Field-side "my daily reports" list. Shows reports this user created
 // across all projects, most recent first. Tapping a row jumps to the
-// existing desktop view at /projects/:id/daily-reports/:reportId — that
-// page is read-only enough on mobile (we'll polish later if needed). A
-// big "+ New report" button up top is the primary action.
+// mobile detail page at /field/reports/:id (where photo upload lives).
+// A big "+ New report" button up top is the primary action.
 
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -68,10 +67,10 @@ export default async function FieldReportsListPage() {
       ) : (
         <ul className="space-y-2">
           {cards.map(({ report, project }) => {
-            // The full detail view still lives on the desktop route — we
-            // route there for now. Phase M4 doesn't include a mobile
-            // detail view; that's polish.
-            const href = `/projects/${report.projectId}/daily-reports/${report.id}`;
+            // Route to the mobile detail page (where photo upload lives).
+            // The desktop URL would bounce field_user back to /field via
+            // the office-layout lockout — they'd never reach the photos.
+            const href = `/field/reports/${report.id}`;
             return (
               <li key={report.id}>
                 <Link
