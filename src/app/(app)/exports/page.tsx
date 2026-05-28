@@ -116,6 +116,21 @@ export default async function ExportsHubPage({
         />
 
         <ExportCard
+          title="Invoices"
+          description={
+            <>
+              Every <strong>active (non-void) invoice</strong> — number,
+              status, dates (invoice / due / sent / paid), customer, project,
+              PO number, subtotal, tax, retainage, total, amount paid, and
+              balance due. One row per invoice. Built for reconciling against
+              QuickBooks; opens straight in Excel.
+            </>
+          }
+          href="/exports/invoices.csv"
+          filterLabel="Full list (all dates)"
+        />
+
+        <ExportCard
           title="Chart of Accounts"
           description="All accounting accounts (code, name, type, parent, currency, archive status). Useful as a one-time COA seed in your accountant's tool."
           href="/exports/chart-of-accounts.csv"
