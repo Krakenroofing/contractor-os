@@ -100,13 +100,10 @@ export async function createInvoice(
 ): Promise<Invoice> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    const existing = await db
-      .select({ id: invoices.id })
-      .from(invoices)
-      .where(and(eq(invoices.companyId, companyId), eq(invoices.number, input.number)))
-      .limit(1);
-    if (existing.length > 0) throw new DuplicateInvoiceNumberError();
-
+    // Invoice numbers are allowed to repeat within a company (e.g. the
+    // same number re-used across years). No uniqueness pre-check — the
+    // DB index on (company_id, number) is non-unique. The invoice's
+    // identity is its UUID id.
     const now = new Date();
     const inserted = await db
       .insert(invoices)

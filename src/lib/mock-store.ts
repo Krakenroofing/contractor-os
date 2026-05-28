@@ -2631,11 +2631,8 @@ export function createMockInvoice(
   input: CreateInvoiceInput,
 ): Invoice {
   const store = getStore();
-  if (
-    store.invoices.some((i) => i.number === input.number && i.companyId === companyId)
-  ) {
-    throw new DuplicateInvoiceNumberError();
-  }
+  // Invoice numbers may repeat within a company (re-used across years).
+  // No uniqueness check — identity is the UUID id. Mirrors the DB path.
   const now = new Date();
   const invoiceId = randomUUID();
   const invoice: Invoice = {

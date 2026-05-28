@@ -7,7 +7,6 @@ import {
   date,
   integer,
   index,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
@@ -83,7 +82,10 @@ export const invoices = pgTable(
   },
   (t) => ({
     projectIdx: index('invoices_project_idx').on(t.projectId),
-    companyNumberUniq: uniqueIndex('invoices_company_number_uniq').on(
+    // Non-unique: invoice numbers may repeat within a company (e.g. the
+    // same number re-used across years). Kept as a plain index for
+    // lookups/sort. See migration 2026-05-28_invoices_allow_duplicate_numbers.
+    companyNumberIdx: index('invoices_company_number_idx').on(
       t.companyId,
       t.number,
     ),
