@@ -92,7 +92,10 @@ export default async function InvoicesPage() {
     outstandingVat = add(outstandingVat, split.balanceVat);
   }
 
-  const totalCount = rows.length;
+  // Header count excludes voids — they're hidden in the list by default
+  // and never count toward any total, so showing them here would just
+  // inflate the number the operator scans against QuickBooks.
+  const totalCount = rows.filter((r) => r.status !== 'void').length;
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">

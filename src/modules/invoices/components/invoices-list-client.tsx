@@ -83,6 +83,10 @@ export function InvoicesListClient({
   allowCreate: boolean;
 }) {
   const [search, setSearch] = useState('');
+  // Voided invoices are hidden by default — they're dead obligations and
+  // never count toward any total. They stay in the DB for audit, so a
+  // toggle reveals them (rendered faded) when someone needs to look.
+  const [showVoided, setShowVoided] = useState(false);
   // Empty filter set means "no filter applied" — every row is visible
   // until the user explicitly checks something in a header dropdown.
   const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>(
@@ -114,35 +118,49 @@ export function InvoicesListClient({
     setCollapsedQuarters(new Set(quarters.map((q) => q.key)));
   };
 
+  // Count of voided invoices in the full set (for the toggle label) and
+  // the base set the rest of the table works from — voids excluded unless
+  // the toggle is on. Everything downstream (options, filters, quarter
+  // totals, counts) keys off baseRows so hidden voids never sneak into a
+  // total or a dropdown.
+  const voidCount = useMemo(
+    () => rows.filter((r) => r.status === 'void').length,
+    [rows],
+  );
+  const baseRows = useMemo(
+    () => (showVoided ? rows : rows.filter((r) => r.status !== 'void')),
+    [rows, showVoided],
+  );
+
   const projectOptions = useMemo<FilterOption[]>(() => {
     const map = new Map<string, string>();
-    for (const r of rows) map.set(r.projectId, r.projectName);
+    for (const r of baseRows) map.set(r.projectId, r.projectName);
     return Array.from(map.entries())
       .sort((a, b) => a[1].localeCompare(b[1]))
       .map(([value, label]) => ({ value, label }));
-  }, [rows]);
+  }, [baseRows]);
 
   const customerOptions = useMemo<FilterOption[]>(() => {
     const map = new Map<string, string>();
-    for (const r of rows) map.set(r.customerId ?? '', r.customerName);
+    for (const r of baseRows) map.set(r.customerId ?? '', r.customerName);
     return Array.from(map.entries())
       .sort((a, b) => a[1].localeCompare(b[1]))
       .map(([value, label]) => ({ value, label }));
-  }, [rows]);
+  }, [baseRows]);
 
   const typeOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(rows.map((r) => r.billingType));
+    const present = new Set(baseRows.map((r) => r.billingType));
     return Array.from(present)
       .sort()
       .map((value) => ({ value, label: BILLING_TYPE_LABEL[value] }));
-  }, [rows]);
+  }, [baseRows]);
 
   const statusOptions = useMemo<FilterOption[]>(() => {
-    const present = new Set(rows.map((r) => r.status));
+    const present = new Set(baseRows.map((r) => r.status));
     return Array.from(present)
       .sort()
       .map((value) => ({ value, label: STATUS_LABEL[value] }));
-  }, [rows]);
+  }, [baseRows]);
 
   const filtered = useMemo(() => {
     const matches = (set: Set<string>, value: string) =>
@@ -162,7 +180,7 @@ export function InvoicesListClient({
         .toLowerCase();
       return haystack.includes(q);
     };
-    let out = rows.filter(
+    let out = baseRows.filter(
       (r) =>
         matches(filters.project, r.projectId) &&
         matches(filters.customer, r.customerId ?? '') &&
@@ -202,7 +220,7 @@ export function InvoicesListClient({
       });
     }
     return out;
-  }, [rows, filters, sort, search]);
+  }, [baseRows, filters, sort, search]);
 
   // Group the filtered set by quarter (of invoiceDate). Newest quarter
   // first so the accountant sees the current period at the top. Inside
@@ -278,8 +296,8 @@ export function InvoicesListClient({
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="text-slate-500">
-            {totalFiltered} of {rows.length} invoice
-            {rows.length === 1 ? '' : 's'}
+            {totalFiltered} of {baseRows.length} invoice
+            {baseRows.length === 1 ? '' : 's'}
             {quarters.length > 0 && (
               <>
                 {' '}· {quarters.length} quarter
@@ -287,6 +305,17 @@ export function InvoicesListClient({
               </>
             )}
           </span>
+          {voidCount > 0 && (
+            <label className="flex items-center gap-1.5 text-slate-500 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showVoided}
+                onChange={(e) => setShowVoided(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              Show {voidCount} voided
+            </label>
+          )}
           {quarters.length > 1 && (
             <button
               type="button"
