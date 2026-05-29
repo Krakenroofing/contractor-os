@@ -2,6 +2,12 @@
 
 import { useActionState, useEffect, useMemo, useState } from 'react';
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
+import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  formatDraftTime,
+} from '@/lib/form-draft';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -139,6 +145,37 @@ const TEMPLATE_SUMMARY_ROWS: Array<{
   { key: 'showFooter', label: 'Footer text', wired: true },
 ];
 
+// Local "Save draft" (Path 1) — per-browser localStorage draft of the
+// in-progress invoice. Note: notes/terms are uncontrolled and not restored.
+const DRAFT_KEY = 'kops:invoice-draft';
+
+type InvoiceDraft = {
+  number: string;
+  status: string;
+  billingType: string;
+  projectId: string;
+  proposalId: string;
+  changeOrderId: string;
+  templateId: string;
+  invoiceDate: string;
+  dueDate: string;
+  purchaseOrderNumber: string;
+  billingLabel: string;
+  lumpDescription: string;
+  lumpAmount: string;
+  percentOfContract: string;
+  taxAmount: string;
+  taxAmountManual: boolean;
+  retainagePercent: string;
+  retainageAmount: string;
+  retainageAmountManual: boolean;
+  expectedRetainageReleaseDate: string;
+  amountPaid: string;
+  applyCreditEnabled: boolean;
+  applyCreditAmount: string;
+  lines: LineDraft[];
+};
+
 export function InvoiceForm({
   projects,
   proposals,
@@ -231,7 +268,95 @@ export function InvoiceForm({
   const [amountPaid, setAmountPaid] = useState('0');
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
   const [billingLabel, setBillingLabel] = useState('');
+  // Header fields controlled so a saved draft restores them.
+  const [invoiceNumber, setInvoiceNumber] = useState(defaultNumber);
+  const [status, setStatus] = useState<string>('draft');
+  const [proposalId, setProposalId] = useState<string>('');
+  const [changeOrderId, setChangeOrderId] = useState<string>('');
+  const [invoiceDate, setInvoiceDate] = useState<string>(defaultInvoiceDate);
+  const [dueDate, setDueDate] = useState<string>(defaultDueDate);
   const isLumpSum = billingType === 'lump_sum';
+
+  // Local Save-draft / Resume (Path 1). Notes/terms are uncontrolled and not
+  // captured here.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [resumeAvailableAt, setResumeAvailableAt] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    const d = loadDraft<InvoiceDraft>(DRAFT_KEY);
+    if (d) setResumeAvailableAt(d.savedAt);
+  }, []);
+
+  function saveDraftNow() {
+    const at = saveDraft<InvoiceDraft>(DRAFT_KEY, {
+      number: invoiceNumber,
+      status,
+      billingType,
+      projectId,
+      proposalId,
+      changeOrderId,
+      templateId,
+      invoiceDate,
+      dueDate,
+      purchaseOrderNumber,
+      billingLabel,
+      lumpDescription,
+      lumpAmount,
+      percentOfContract,
+      taxAmount,
+      taxAmountManual,
+      retainagePercent,
+      retainageAmount,
+      retainageAmountManual,
+      expectedRetainageReleaseDate,
+      amountPaid,
+      applyCreditEnabled,
+      applyCreditAmount,
+      lines,
+    });
+    if (at !== null) {
+      setDraftSavedAt(at);
+      setDirty(false);
+    }
+  }
+
+  function resumeDraft() {
+    const d = loadDraft<InvoiceDraft>(DRAFT_KEY);
+    if (!d) return;
+    const v = d.data;
+    setInvoiceNumber(v.number);
+    setStatus(v.status);
+    setBillingType(v.billingType);
+    setProjectId(v.projectId);
+    setProposalId(v.proposalId);
+    setChangeOrderId(v.changeOrderId);
+    setTemplateId(v.templateId);
+    setInvoiceDate(v.invoiceDate);
+    setDueDate(v.dueDate);
+    setPurchaseOrderNumber(v.purchaseOrderNumber);
+    setBillingLabel(v.billingLabel);
+    setLumpDescription(v.lumpDescription);
+    setLumpAmount(v.lumpAmount);
+    setPercentOfContract(v.percentOfContract);
+    setTaxAmount(v.taxAmount);
+    setTaxAmountManual(v.taxAmountManual);
+    setRetainagePercent(v.retainagePercent);
+    setRetainageAmount(v.retainageAmount);
+    setRetainageAmountManual(v.retainageAmountManual);
+    setExpectedRetainageReleaseDate(v.expectedRetainageReleaseDate);
+    setAmountPaid(v.amountPaid);
+    setApplyCreditEnabled(v.applyCreditEnabled);
+    setApplyCreditAmount(v.applyCreditAmount);
+    setLines(
+      v.lines.length > 0
+        ? v.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() }))
+        : [newEmptyLine()],
+    );
+    setResumeAvailableAt(null);
+    setDraftSavedAt(null);
+    setDirty(false);
+  }
 
   // Honour the template's `lineItemLayout === 'lumpsum'` / `showLineItems
   // === false` by auto-flipping billingType. Only fires when the user picks
@@ -420,12 +545,41 @@ export function InvoiceForm({
   return (
     <form
       action={formAction}
-      onInput={() => setDirty(true)}
+      onInput={() => {
+        setDirty(true);
+        setDraftSavedAt(null);
+      }}
       className="space-y-6"
     >
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {state.formError}
+        </div>
+      )}
+
+      {resumeAvailableAt !== null && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            You have a saved invoice draft from{' '}
+            {formatDraftTime(resumeAvailableAt)}.{' '}
+            <span className="text-amber-700">(Notes/terms aren&apos;t restored.)</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={resumeDraft}>
+              Resume draft
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                clearDraft(DRAFT_KEY);
+                setResumeAvailableAt(null);
+              }}
+            >
+              Discard
+            </Button>
+          </span>
         </div>
       )}
 
@@ -440,10 +594,19 @@ export function InvoiceForm({
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="Invoice number" error={err('number')} required>
-            <Input name="number" defaultValue={defaultNumber} required />
+            <Input
+              name="number"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              required
+            />
           </Field>
           <Field label="Status" error={err('status')}>
-            <Select name="status" defaultValue="draft">
+            <Select
+              name="status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
               {invoiceStatusValues
                 .filter((s) => s !== 'overdue')
                 .map((s) => (
@@ -545,7 +708,11 @@ export function InvoiceForm({
             })()}
           </Field>
           <Field label="Linked proposal (optional)" error={err('proposalId')}>
-            <Select name="proposalId" defaultValue="">
+            <Select
+              name="proposalId"
+              value={proposalId}
+              onChange={(e) => setProposalId(e.target.value)}
+            >
               <option value="">— None —</option>
               {filteredProposals.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -555,7 +722,11 @@ export function InvoiceForm({
             </Select>
           </Field>
           <Field label="Linked change order (optional)" error={err('changeOrderId')}>
-            <Select name="changeOrderId" defaultValue="">
+            <Select
+              name="changeOrderId"
+              value={changeOrderId}
+              onChange={(e) => setChangeOrderId(e.target.value)}
+            >
               <option value="">— None —</option>
               {filteredCOs.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -582,12 +753,18 @@ export function InvoiceForm({
             <Input
               name="invoiceDate"
               type="date"
-              defaultValue={defaultInvoiceDate}
+              value={invoiceDate}
+              onChange={(e) => setInvoiceDate(e.target.value)}
               required
             />
           </Field>
           <Field label="Due date" error={err('dueDate')}>
-            <Input name="dueDate" type="date" defaultValue={defaultDueDate} />
+            <Input
+              name="dueDate"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
           </Field>
           {showProjectMetadata && (
             <>
@@ -998,15 +1175,28 @@ export function InvoiceForm({
         />
       )}
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="submit"
+          disabled={pending}
+          onClick={() => clearDraft(DRAFT_KEY)}
+        >
           {pending ? 'Creating…' : 'Create invoice'}
+        </Button>
+        <Button type="button" variant="outline" onClick={saveDraftNow}>
+          Save draft
         </Button>
         <Link href="/invoices">
           <Button type="button" variant="ghost">
             Cancel
           </Button>
         </Link>
+        {draftSavedAt !== null && (
+          <span className="text-xs text-emerald-700">
+            ✓ Draft saved {formatDraftTime(draftSavedAt)} — safe to leave and
+            resume later.
+          </span>
+        )}
       </div>
     </form>
   );
