@@ -98,10 +98,16 @@ export async function buildProfitLossReport(
   const db = getDb()!;
 
   // ----- Income: sum invoice subtotal in range -----
+  // Exclude retainage-release invoices: the original invoice's subtotal
+  // already recognized the full contract value (incl. the held retainage)
+  // on an accrual basis, so counting the release subtotal again would
+  // double-count the released portion. (VAT report still counts the
+  // release's tax_amount — that VAT is collected at release.)
   const incomeConds = [
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
+    ne(invoices.billingType, 'retainage'),
   ];
   if (filters.from) incomeConds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) incomeConds.push(lte(invoices.invoiceDate, filters.to));
