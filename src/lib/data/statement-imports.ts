@@ -225,6 +225,7 @@ export type ListImportedTransactionsFilters = {
   search?: string;
   includeIgnored?: boolean;
   onlyUnreviewed?: boolean;
+  onlyReviewed?: boolean;
   onlyUncategorized?: boolean;
   limit?: number;
   offset?: number;
@@ -265,6 +266,9 @@ export async function listImportedTransactions(
   if (filters.onlyUnreviewed) {
     conds.push(eq(importedTransactions.isReviewed, false));
   }
+  if (filters.onlyReviewed) {
+    conds.push(eq(importedTransactions.isReviewed, true));
+  }
   if (filters.onlyUncategorized) {
     conds.push(isNull(importedTransactions.accountingAccountId));
   }
@@ -292,6 +296,15 @@ export async function countImportedTransactions(
   }
   if (!filters.includeIgnored) {
     conds.push(eq(importedTransactions.isIgnored, false));
+  }
+  if (filters.onlyUnreviewed) {
+    conds.push(eq(importedTransactions.isReviewed, false));
+  }
+  if (filters.onlyReviewed) {
+    conds.push(eq(importedTransactions.isReviewed, true));
+  }
+  if (filters.onlyUncategorized) {
+    conds.push(isNull(importedTransactions.accountingAccountId));
   }
   const rows = await db
     .select({ n: sql<number>`count(*)::int` })

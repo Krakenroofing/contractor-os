@@ -84,12 +84,15 @@ export default async function BankAccountDetailPage({
   const fromDate = parseStr(sp.from);
   const toDate = parseStr(sp.to);
   const includeIgnored = parseStr(sp.ignored) === '1';
-  const onlyUnreviewed = parseStr(sp.unreviewed) === '1';
+  // Reviewed transactions drop off the worklist by default (their data is
+  // already saved); tick "Show reviewed" to bring them back for audit.
+  const showReviewed = parseStr(sp.reviewed) === '1';
   const onlyUncategorized = parseStr(sp.uncategorized) === '1';
 
   const [
     transactions,
     total,
+    reviewedCount,
     accounts,
     projects,
     costCodes,
@@ -110,13 +113,17 @@ export default async function BankAccountDetailPage({
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
       includeIgnored,
-      onlyUnreviewed,
+      onlyUnreviewed: !showReviewed,
       onlyUncategorized,
       limit: 200,
     }),
     countImportedTransactions(company.id, {
       bankAccountId: account.id,
       includeIgnored: true,
+    }),
+    countImportedTransactions(company.id, {
+      bankAccountId: account.id,
+      onlyReviewed: true,
     }),
     listAccountingAccounts(company.id),
     listProjects(company.id),
@@ -337,12 +344,12 @@ export default async function BankAccountDetailPage({
               <label className="flex items-center gap-1 text-xs">
                 <input
                   type="checkbox"
-                  name="unreviewed"
+                  name="reviewed"
                   value="1"
-                  defaultChecked={onlyUnreviewed}
+                  defaultChecked={showReviewed}
                   className="h-4 w-4"
                 />
-                Unreviewed only
+                Show reviewed{reviewedCount > 0 ? ` (${reviewedCount})` : ''}
               </label>
             </div>
             <div className="flex items-end gap-2">
@@ -376,6 +383,9 @@ export default async function BankAccountDetailPage({
           <p className="mt-3 text-xs text-slate-500">
             Showing {transactions.length} of {total} transaction(s) for this
             account.
+            {!showReviewed && reviewedCount > 0 && (
+              <> {reviewedCount} reviewed {reviewedCount === 1 ? 'is' : 'are'} hidden — tick &quot;Show reviewed&quot; to see them.</>
+            )}
           </p>
         </CardContent>
       </Card>
