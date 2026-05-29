@@ -8,6 +8,8 @@ type OptionItem = {
   label: React.ReactNode;
   searchText: string;
   disabled?: boolean;
+  /** Non-selectable <optgroup> label row, rendered as a section header. */
+  isGroup?: boolean;
 };
 
 function childrenToText(node: React.ReactNode): string {
@@ -26,6 +28,26 @@ function extractOptions(children: React.ReactNode): OptionItem[] {
   const items: OptionItem[] = [];
   React.Children.forEach(children, (child) => {
     if (!React.isValidElement(child)) return;
+    // Recurse into <optgroup>, surfacing its label as a non-selectable
+    // header so grouped pickers (e.g. accounting categories) render their
+    // options instead of being silently dropped.
+    if (child.type === 'optgroup') {
+      const gprops = child.props as {
+        label?: string;
+        children?: React.ReactNode;
+      };
+      if (gprops.label) {
+        items.push({
+          value: `__group__:${gprops.label}`,
+          label: gprops.label,
+          searchText: '',
+          disabled: true,
+          isGroup: true,
+        });
+      }
+      items.push(...extractOptions(gprops.children));
+      return;
+    }
     if (child.type !== 'option') return;
     const props = child.props as React.OptionHTMLAttributes<HTMLOptionElement> & {
       children?: React.ReactNode;
@@ -251,6 +273,17 @@ export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
               {filtered.map((opt, i) => {
                 const isSel = opt.value === value;
                 const isHl = i === highlight;
+                if (opt.isGroup) {
+                  return (
+                    <li
+                      key={`${opt.value}-${i}`}
+                      role="presentation"
+                      className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400"
+                    >
+                      {opt.label}
+                    </li>
+                  );
+                }
                 return (
                   <li
                     key={`${opt.value}-${i}`}
