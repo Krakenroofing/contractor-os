@@ -26,6 +26,7 @@ import {
 import { listAllProjectFinancials } from '@/modules/job-costing/lib/financials';
 import {
   computeInvoiceFinancials,
+  computeInvoiceVatSplit,
   groupPaymentsByInvoice,
 } from '@/modules/invoices/lib/financials';
 
@@ -269,17 +270,21 @@ export async function buildDashboardData(
   >();
   for (const inv of invoices) {
     const c = normalizeStatus('invoice', inv.status);
-    if (c === 'void') continue;
-    const fin = computeInvoiceFinancials(inv, paymentsByInvoice.get(inv.id) ?? []);
+    // Skip void AND draft — a draft hasn't been issued, so it must not
+    // contribute to revenue / AR (keeps the dashboard in step with the
+    // P&L and VAT report, which both exclude draft).
+    if (c === 'void' || c === 'draft') continue;
+    const pays = paymentsByInvoice.get(inv.id) ?? [];
+    const fin = computeInvoiceFinancials(inv, pays);
     const subtotal = parseMoney(inv.subtotal);
     const tax = parseMoney(inv.taxAmount);
-    // Proportional VAT split on payments — when an invoice is half-paid,
-    // half of its VAT has been received. Falls back to "all net" when the
-    // invoice has no VAT or zero total (avoids div-by-zero).
-    const totalWithTax = subtotal + tax;
-    const vatShare = totalWithTax > 0 ? tax / totalWithTax : 0;
-    const paidVat = fin.paid * vatShare;
-    const paidNet = fin.paid - paidVat;
+    // Proportional VAT split on payments via the canonical helper (divides
+    // by the gross billed, post-retainage) — don't reimplement it with a
+    // (subtotal + tax) denominator, which overstates revenue on retainage
+    // invoices.
+    const split = computeInvoiceVatSplit(inv, pays);
+    const paidVat = split.paidVat;
+    const paidNet = split.paidNet;
     totalInvoicedGross = add(totalInvoicedGross, fin.total);
     totalInvoicedNet = add(totalInvoicedNet, subtotal);
     totalInvoicedVAT = add(totalInvoicedVAT, tax);

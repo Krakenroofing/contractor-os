@@ -50,7 +50,8 @@ async function buildAgingRow(
   payments: InvoicePayment[],
   asOf: Date,
 ): Promise<AgingRow | null> {
-  if (inv.status === 'void') return null;
+  // A draft has not been sent and is not a receivable; void is settled-out.
+  if (inv.status === 'void' || inv.status === 'draft') return null;
   // Balance is computed from payment rows directly — never trust
   // `inv.amount_paid` here because a manual "Mark Paid" status flip can
   // leave the cache stale until the next recompute.
