@@ -8,6 +8,10 @@ import {
   sumManualActualForProject,
 } from '@/lib/data/job-cost-entries';
 import {
+  sumBankActualForProject,
+  sumBankActualByCostCodeForProject,
+} from '@/lib/data/statement-imports';
+import {
   listJobCostForecastsForProject,
   sumCostToCompleteForProject,
 } from '@/lib/data/job-cost-forecasts';
@@ -136,6 +140,13 @@ export async function computeProjectFinancials(
         0,
       );
 
+  // Expenses charged to this project directly on the bank statement
+  // (categorized + project-tagged debits). Real project spend that never
+  // posts a job_cost_entry, so it must be added to actuals here.
+  const actualFromBank = isDatabaseConfigured()
+    ? await sumBankActualForProject(companyId, projectId)
+    : 0;
+
   // Landed cost surcharge = total all-in landed cost minus the supplier
   // material we've already captured in PO line totals — avoids double-counting.
   const landedCosts = await listLandedCostsForProject(projectId);
@@ -149,7 +160,13 @@ export async function computeProjectFinancials(
   );
   const landedCostSurcharge = Math.max(0, subtract(landedCostTotal, landedCostMaterial));
 
-  const actualCost = add(actualFromPOs, actualLabor, actualManual, landedCostSurcharge);
+  const actualCost = add(
+    actualFromPOs,
+    actualLabor,
+    actualManual,
+    actualFromBank,
+    landedCostSurcharge,
+  );
 
   // Phase 3: open commitments = PO money ordered but not yet received.
   // Floored at 0 because over-receipts on a PO could otherwise make this
@@ -256,6 +273,15 @@ export async function computeProjectCostCodeBreakdown(
     for (const m of manualByCode) {
       const agg = ensure(m.costCodeId);
       agg.actual = add(agg.actual, m.actual);
+    }
+    // Bank-categorized actuals by cost code (project-tagged debits).
+    const bankByCode = await sumBankActualByCostCodeForProject(
+      companyId,
+      projectId,
+    );
+    for (const b of bankByCode) {
+      const agg = ensure(b.costCodeId);
+      agg.actual = add(agg.actual, b.actual);
     }
   } else {
     for (const e of listMockJobCostEntriesForProject(projectId)) {

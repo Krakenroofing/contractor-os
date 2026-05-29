@@ -313,6 +313,66 @@ export async function countImportedTransactions(
   return rows[0]?.n ?? 0;
 }
 
+// ---------------------------------------------------------------------------
+// Job-cost actuals from categorized bank transactions. An expense charged
+// directly on the bank statement (project-tagged + categorized) is real
+// project spend, so job costing must see it. Excludes reconciled rows (those
+// are matched to a receipt / job-cost entry already counted elsewhere) and
+// ignored rows; counts debits only (amount < 0) as -amount. Mirrors the P&L
+// bank-expense filter, and since the P&L and the job-cost report are separate
+// surfaces there is no double-count between them.
+// ---------------------------------------------------------------------------
+
+function bankActualConds(companyId: string, projectId: string): SQL[] {
+  return [
+    eq(importedTransactions.companyId, companyId),
+    eq(importedTransactions.projectId, projectId),
+    eq(importedTransactions.isIgnored, false),
+    isNull(importedTransactions.reconciledAt),
+    isNotNull(importedTransactions.accountingAccountId),
+    sql`${importedTransactions.amount} < 0`,
+  ];
+}
+
+export async function sumBankActualForProject(
+  companyId: string,
+  projectId: string,
+): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(-${importedTransactions.amount}), 0)`,
+    })
+    .from(importedTransactions)
+    .where(and(...bankActualConds(companyId, projectId)));
+  return Number(rows[0]?.total ?? '0');
+}
+
+export async function sumBankActualByCostCodeForProject(
+  companyId: string,
+  projectId: string,
+): Promise<Array<{ costCodeId: string; actual: number }>> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      costCodeId: importedTransactions.costCodeId,
+      total: sql<string>`COALESCE(SUM(-${importedTransactions.amount}), 0)`,
+    })
+    .from(importedTransactions)
+    .where(
+      and(
+        ...bankActualConds(companyId, projectId),
+        isNotNull(importedTransactions.costCodeId),
+      ),
+    )
+    .groupBy(importedTransactions.costCodeId);
+  return rows
+    .filter((r): r is { costCodeId: string; total: string } => !!r.costCodeId)
+    .map((r) => ({ costCodeId: r.costCodeId, actual: Number(r.total) }));
+}
+
 export async function getImportedTransaction(
   companyId: string,
   id: string,
