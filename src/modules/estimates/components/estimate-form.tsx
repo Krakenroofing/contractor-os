@@ -1,8 +1,14 @@
 'use client';
 
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
+import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  formatDraftTime,
+} from '@/lib/form-draft';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +24,8 @@ import {
 
 const initialState: CreateEstimateState = {};
 
+const DRAFT_KEY = 'kops:estimate-draft';
+
 type LineDraft = {
   rowId: string;
   costCodeId: string;
@@ -31,6 +39,14 @@ type LineDraft = {
 
 type ProjectOption = { id: string; label: string };
 type CostCodeOption = { id: string; code: string; description: string };
+
+type EstimateDraft = {
+  number: string;
+  status: string;
+  projectId: string;
+  validUntil: string;
+  lines: LineDraft[];
+};
 
 function newEmptyLine(): LineDraft {
   return {
@@ -60,6 +76,53 @@ export function EstimateForm({
   const [dirty, setDirty] = useState(false);
   useUnsavedChangesGuard(dirty);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
+  // Header fields controlled so a saved draft restores fully.
+  const [number, setNumber] = useState(defaultNumber);
+  const [status, setStatus] = useState<string>('draft');
+  const [projectId, setProjectId] = useState<string>('');
+  const [validUntil, setValidUntil] = useState<string>('');
+
+  // Local Save-draft / Resume (Path 1).
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [resumeAvailableAt, setResumeAvailableAt] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    const d = loadDraft<EstimateDraft>(DRAFT_KEY);
+    if (d) setResumeAvailableAt(d.savedAt);
+  }, []);
+
+  function saveDraftNow() {
+    const at = saveDraft<EstimateDraft>(DRAFT_KEY, {
+      number,
+      status,
+      projectId,
+      validUntil,
+      lines,
+    });
+    if (at !== null) {
+      setDraftSavedAt(at);
+      setDirty(false);
+    }
+  }
+
+  function resumeDraft() {
+    const d = loadDraft<EstimateDraft>(DRAFT_KEY);
+    if (!d) return;
+    const v = d.data;
+    setNumber(v.number);
+    setStatus(v.status);
+    setProjectId(v.projectId);
+    setValidUntil(v.validUntil);
+    setLines(
+      v.lines.length > 0
+        ? v.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() }))
+        : [newEmptyLine()],
+    );
+    setResumeAvailableAt(null);
+    setDraftSavedAt(null);
+    setDirty(false);
+  }
 
   const totals = useMemo(
     () =>
@@ -107,7 +170,10 @@ export function EstimateForm({
   return (
     <form
       action={formAction}
-      onInput={() => setDirty(true)}
+      onInput={() => {
+        setDirty(true);
+        setDraftSavedAt(null);
+      }}
       className="space-y-6"
     >
       {state.formError && (
@@ -116,15 +182,49 @@ export function EstimateForm({
         </div>
       )}
 
+      {resumeAvailableAt !== null && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            You have a saved estimate draft from{' '}
+            {formatDraftTime(resumeAvailableAt)}.
+          </span>
+          <span className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={resumeDraft}>
+              Resume draft
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                clearDraft(DRAFT_KEY);
+                setResumeAvailableAt(null);
+              }}
+            >
+              Discard
+            </Button>
+          </span>
+        </div>
+      )}
+
       <input type="hidden" name="lines" value={JSON.stringify(linesPayload)} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Estimate number" error={err('number')} required>
-          <Input name="number" defaultValue={defaultNumber} required />
+          <Input
+            name="number"
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+            required
+          />
         </Field>
 
         <Field label="Status" error={err('status')}>
-          <Select name="status" defaultValue="draft">
+          <Select
+            name="status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
             {estimateStatusValues.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
@@ -134,7 +234,12 @@ export function EstimateForm({
         </Field>
 
         <Field label="Project" error={err('projectId')} className="md:col-span-2" required>
-          <Select name="projectId" required defaultValue="">
+          <Select
+            name="projectId"
+            required
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
             <option value="" disabled>
               {projects.length === 0
                 ? 'No projects — create one first'
@@ -149,7 +254,12 @@ export function EstimateForm({
         </Field>
 
         <Field label="Valid until" error={err('validUntil')}>
-          <Input name="validUntil" type="date" />
+          <Input
+            name="validUntil"
+            type="date"
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+          />
         </Field>
       </div>
 
@@ -294,15 +404,28 @@ export function EstimateForm({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="submit"
+          disabled={pending}
+          onClick={() => clearDraft(DRAFT_KEY)}
+        >
           {pending ? 'Creating…' : 'Create estimate'}
+        </Button>
+        <Button type="button" variant="outline" onClick={saveDraftNow}>
+          Save draft
         </Button>
         <Link href="/estimates">
           <Button type="button" variant="ghost">
             Cancel
           </Button>
         </Link>
+        {draftSavedAt !== null && (
+          <span className="text-xs text-emerald-700">
+            ✓ Draft saved {formatDraftTime(draftSavedAt)} — safe to leave and
+            resume later.
+          </span>
+        )}
       </div>
     </form>
   );
