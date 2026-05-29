@@ -19,10 +19,58 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
   creditMemos,
   creditMemoApplications,
+  invoicePayments,
+  invoices,
   type CreditMemo,
   type CreditMemoApplication,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+
+// Method marker on the contra invoice_payment a credit application writes.
+const CREDIT_MEMO_PAYMENT_METHOD = 'credit_memo';
+
+// Recompute an invoice's amount_paid + status from its payment rows, inside
+// an open transaction (mirrors recomputeInvoicePaymentState, which can't be
+// reused here because it opens its own connection and wouldn't see the tx's
+// uncommitted rows). Credit applications settle the receivable via a contra
+// payment row, so this is what reduces the invoice balance and AR.
+async function recomputeInvoiceInTx(
+  tx: Parameters<
+    Parameters<NonNullable<ReturnType<typeof getDb>>['transaction']>[0]
+  >[0],
+  invoiceId: string,
+): Promise<void> {
+  const [inv] = await tx
+    .select()
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  if (!inv) return;
+  const pays = await tx
+    .select({ amount: invoicePayments.amount, status: invoicePayments.status })
+    .from(invoicePayments)
+    .where(eq(invoicePayments.invoiceId, invoiceId));
+  let paid = 0;
+  for (const p of pays) {
+    if (p.status === 'received' || p.status === 'applied') paid += Number(p.amount);
+  }
+  const total = Number(inv.total);
+  const patch: Record<string, unknown> = {
+    amountPaid: paid.toFixed(2),
+    updatedAt: new Date(),
+  };
+  if (paid >= total - 0.005) {
+    patch.status = 'paid';
+    patch.paidAt = new Date();
+  } else if (paid > 0) {
+    patch.status = 'partial';
+    patch.paidAt = null;
+  } else if (inv.status === 'paid' || inv.status === 'partial') {
+    patch.status = 'sent';
+    patch.paidAt = null;
+  }
+  await tx.update(invoices).set(patch).where(eq(invoices.id, invoiceId));
+}
 
 function requireDb() {
   if (!isDatabaseConfigured()) {
@@ -335,6 +383,24 @@ export async function applyCreditMemoToInvoice(
       })
       .where(eq(creditMemos.id, creditMemoId));
 
+    // Settle the receivable: a credit application is a non-cash settlement
+    // of the invoice. Write a contra payment row (method 'credit_memo') and
+    // recompute the invoice — this is what actually reduces the invoice
+    // balance, flips status, and drops it out of AR (all of which key off
+    // payment rows). reference = the credit number so unapply can reverse it.
+    await tx.insert(invoicePayments).values({
+      invoiceId: input.invoiceId,
+      paymentNumber: '',
+      paidDate: input.appliedAt,
+      amount: input.amount.toFixed(2),
+      method: CREDIT_MEMO_PAYMENT_METHOD,
+      reference: cm.number,
+      bankAccount: null,
+      status: 'applied',
+      notes: input.notes ?? `Credit memo ${cm.number}`,
+    });
+    await recomputeInvoiceInTx(tx, input.invoiceId);
+
     return app;
   });
 }
@@ -481,6 +547,31 @@ export async function unapplyCreditMemoApplication(
         updatedAt: new Date(),
       })
       .where(eq(creditMemos.id, cm.id));
+
+    // Reverse the contra payment this application wrote against the invoice
+    // (cash refunds never wrote one), then recompute so the invoice balance
+    // and AR come back. Match on invoice + credit-memo method + number +
+    // amount, delete one.
+    if (app.kind === 'invoice_application' && app.invoiceId) {
+      const [contra] = await tx
+        .select({ id: invoicePayments.id })
+        .from(invoicePayments)
+        .where(
+          and(
+            eq(invoicePayments.invoiceId, app.invoiceId),
+            eq(invoicePayments.method, CREDIT_MEMO_PAYMENT_METHOD),
+            eq(invoicePayments.reference, cm.number),
+            eq(invoicePayments.amount, app.amount),
+          ),
+        )
+        .limit(1);
+      if (contra) {
+        await tx
+          .delete(invoicePayments)
+          .where(eq(invoicePayments.id, contra.id));
+      }
+      await recomputeInvoiceInTx(tx, app.invoiceId);
+    }
 
     return { creditMemoId: cm.id };
   });
