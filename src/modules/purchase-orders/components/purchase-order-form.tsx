@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useMemo, useState } from 'react';
+import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -97,6 +98,8 @@ export function PurchaseOrderForm({
     createPurchaseOrderAction,
     initialState,
   );
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [lines, setLines] = useState<LineDraft[]>(() => {
     if (defaults?.lines && defaults.lines.length > 0) {
       return defaults.lines.map((l) => ({
@@ -212,7 +215,11 @@ export function PurchaseOrderForm({
   })();
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form
+      action={formAction}
+      onInput={() => setDirty(true)}
+      className="space-y-6"
+    >
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {state.formError}

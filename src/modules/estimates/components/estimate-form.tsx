@@ -2,6 +2,7 @@
 
 import { useActionState, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -56,6 +57,8 @@ export function EstimateForm({
   defaultNumber: string;
 }) {
   const [state, formAction, pending] = useActionState(createEstimateAction, initialState);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
 
   const totals = useMemo(
@@ -102,7 +105,11 @@ export function EstimateForm({
   const err = (key: string) => state.errors?.[key]?.[0];
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form
+      action={formAction}
+      onInput={() => setDirty(true)}
+      className="space-y-6"
+    >
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {state.formError}

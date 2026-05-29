@@ -32,6 +32,7 @@ import {
   type InventoryMatchCandidate,
 } from '@/lib/inventory-match';
 import { QuickAddProductDrawer } from '@/modules/inventory/components/quick-add-product-drawer';
+import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
 import {
   createPoFromExtractedAction,
   extractPoPdfAction,
@@ -405,6 +406,11 @@ function PreviewPhase({
     createPoFromExtractedAction,
     initialCreate,
   );
+
+  // The extracted-but-unsaved PO is real work — guard against navigating away
+  // and losing it. (Successful create redirects programmatically, not via a
+  // link, so the guard doesn't fire on save.)
+  useUnsavedChangesGuard(true);
 
   // Pre-match vendor by fuzzy name (containment, like receipts pipeline).
   const autoVendorId = useMemo<string>(() => {

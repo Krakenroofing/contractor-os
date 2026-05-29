@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useEffect, useMemo, useState } from 'react';
+import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -166,6 +167,8 @@ export function InvoiceForm({
   companyVatRatePercent?: number;
 }) {
   const [state, formAction, pending] = useActionState(createInvoiceAction, initialState);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
   const [projectId, setProjectId] = useState('');
   const [templateId, setTemplateId] = useState('');
@@ -415,7 +418,11 @@ export function InvoiceForm({
   const err = (key: string) => state.errors?.[key]?.[0];
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form
+      action={formAction}
+      onInput={() => setDirty(true)}
+      className="space-y-6"
+    >
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {state.formError}
