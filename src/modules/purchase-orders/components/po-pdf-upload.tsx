@@ -31,6 +31,7 @@ import {
   matchInventoryItem,
   type InventoryMatchCandidate,
 } from '@/lib/inventory-match';
+import { QuickAddProductDrawer } from '@/modules/inventory/components/quick-add-product-drawer';
 import {
   createPoFromExtractedAction,
   extractPoPdfAction,
@@ -43,6 +44,10 @@ import {
 type ProjectOption = { id: string; label: string };
 type VendorOption = { id: string; name: string };
 type CostCodeOption = { id: string; code: string; description: string };
+
+// Sentinel for the per-line "+ Add new item" option — opens the quick-add
+// inventory drawer instead of selecting an existing product.
+const ADD_NEW_ITEM = '__add_new_item__';
 
 type EditableLine = {
   rowId: string;
@@ -412,11 +417,23 @@ function PreviewPhase({
     return hit?.id ?? '';
   }, [extracted.vendorName, vendors]);
 
+  // Products created inline via the "+ Add new item" drawer, merged ahead of
+  // the server-provided catalog. `addingLineRowId` tracks which line opened
+  // the drawer so the created item lands on the right row.
+  const [addedProducts, setAddedProducts] = useState<InventoryMatchCandidate[]>(
+    [],
+  );
+  const [addingLineRowId, setAddingLineRowId] = useState<string | null>(null);
+  const allProducts = useMemo(
+    () => [...addedProducts, ...products],
+    [addedProducts, products],
+  );
+
   const productsById = useMemo(() => {
     const m = new Map<string, InventoryMatchCandidate>();
-    for (const p of products) m.set(p.id, p);
+    for (const p of allProducts) m.set(p.id, p);
     return m;
-  }, [products]);
+  }, [allProducts]);
 
   const [vendorId, setVendorId] = useState<string>(autoVendorId);
   const [projectId, setProjectId] = useState<string>('');
@@ -620,7 +637,7 @@ function PreviewPhase({
               {lines.map((l) => {
                 const suggestions = matchInventoryItem(
                   { description: l.description },
-                  products,
+                  allProducts,
                   { topN: 5 },
                 );
                 const selectedOption =
@@ -648,6 +665,10 @@ function PreviewPhase({
                         value={l.selectedInventoryItemId}
                         className="h-8"
                         onChange={(e) => {
+                          if (e.target.value === ADD_NEW_ITEM) {
+                            setAddingLineRowId(l.rowId);
+                            return;
+                          }
                           const picked = productsById.get(e.target.value);
                           updateLine(l.rowId, {
                             selectedInventoryItemId: e.target.value,
@@ -670,6 +691,7 @@ function PreviewPhase({
                             {s.candidate.name} — {Math.round(s.score * 100)}%
                           </option>
                         ))}
+                        <option value={ADD_NEW_ITEM}>+ Add new item…</option>
                       </Select>
                     </TableCell>
                     <TableCell>
@@ -741,6 +763,30 @@ function PreviewPhase({
           </Table>
         </div>
       </fieldset>
+
+      <QuickAddProductDrawer
+        open={addingLineRowId !== null}
+        onClose={() => setAddingLineRowId(null)}
+        initialName={
+          lines.find((l) => l.rowId === addingLineRowId)?.description ?? ''
+        }
+        onCreated={(item) => {
+          setAddedProducts((prev) => [item, ...prev]);
+          const rowId = addingLineRowId;
+          if (rowId) {
+            const line = lines.find((l) => l.rowId === rowId);
+            updateLine(rowId, {
+              selectedInventoryItemId: item.id,
+              selectedCostCodeId:
+                item.defaultCostCodeId ||
+                line?.selectedCostCodeId ||
+                defaultCostCodeId,
+              unit: item.unit ?? line?.unit ?? '',
+            });
+          }
+          setAddingLineRowId(null);
+        }}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Tax" error={err('taxAmount')}>

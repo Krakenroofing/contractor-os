@@ -94,6 +94,77 @@ export async function createInventoryItemAction(
   redirect(`/inventory/${createdId}`);
 }
 
+// Shape returned to inline callers — identical to ProductPickerOption /
+// InventoryMatchCandidate so the line-item pickers can append + select it
+// without a reshape.
+export type InlineProduct = {
+  id: string;
+  name: string;
+  category: string | null;
+  sku: string | null;
+  unit: string | null;
+  defaultCost: number;
+  defaultCostCodeId: string | null;
+};
+
+export type InlineCreateProductResult =
+  | { ok: true; item: InlineProduct }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+// RPC-style create used by the "+ Add new product" drawer. Unlike
+// createInventoryItemAction it does NOT redirect — it returns the created
+// item so the caller (a half-filled PO/invoice/estimate) can select it inline
+// and keep every other field intact.
+export async function createInventoryItemInlineAction(input: {
+  name: string;
+  category?: string;
+  sku?: string;
+  unit?: string;
+  defaultCost?: string;
+  isTaxable?: 'yes' | 'no';
+}): Promise<InlineCreateProductResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) {
+    return { ok: false, error: 'You do not have permission to manage products.' };
+  }
+  const parsed = inventoryItemFormSchema.safeParse({
+    name: input.name ?? '',
+    category: input.category ?? '',
+    sku: input.sku ?? '',
+    unit: input.unit ?? '',
+    defaultCost: input.defaultCost ?? '0',
+    defaultCostCodeId: '',
+    isTaxable: input.isTaxable ?? 'yes',
+    qbGlAccountText: '',
+    notes: '',
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const item = await createInventoryItem(companyId, toCreateInput(parsed.data));
+    revalidatePath('/inventory');
+    revalidatePath('/purchase-orders/new');
+    return {
+      ok: true,
+      item: {
+        id: item.id,
+        name: item.name,
+        category: item.category ?? null,
+        sku: item.sku ?? null,
+        unit: item.unit ?? null,
+        defaultCost: Number(item.defaultCost),
+        defaultCostCodeId: item.defaultCostCodeId ?? null,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create product: ${message}` };
+  }
+}
+
 const idSchema = z.string().uuid('Missing or invalid id');
 
 export async function updateInventoryItemAction(

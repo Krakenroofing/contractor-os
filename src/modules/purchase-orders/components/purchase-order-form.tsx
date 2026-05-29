@@ -320,6 +320,7 @@ export function PurchaseOrderForm({
                 <ProductPicker
                   value={line.inventoryItemId}
                   options={products}
+                  defaultNewName={line.description}
                   onItemSelected={(picked) => {
                     if (!picked) {
                       updateLine(line.rowId, { inventoryItemId: '' });
