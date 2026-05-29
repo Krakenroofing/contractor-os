@@ -99,4 +99,23 @@ export const invoiceFormSchema = z.object({
   lines: z.array(invoiceLineSchema).min(1, 'At least one line item is required'),
 });
 
+/**
+ * A change-order invoice must be linked to its change order, else the CO
+ * billing-progress view under-bills and base-vs-CO revenue splits wrong.
+ * Returns an error message, or null when valid. Called by the create/edit
+ * actions (kept off the schema so invoiceFormSchema stays .extend()-able).
+ */
+export function changeOrderLinkError(input: {
+  billingType: string;
+  changeOrderId?: string | null;
+}): string | null {
+  if (
+    input.billingType === 'change_order' &&
+    (!input.changeOrderId || input.changeOrderId.trim() === '')
+  ) {
+    return 'Select the change order this invoice bills against.';
+  }
+  return null;
+}
+
 export type InvoiceFormParsed = z.output<typeof invoiceFormSchema>;

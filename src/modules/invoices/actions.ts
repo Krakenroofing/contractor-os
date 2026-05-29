@@ -30,7 +30,11 @@ import {
   listCreditMemosForCustomer,
 } from '@/lib/data/credit-memos';
 import { getProject } from '@/lib/data/projects';
-import { billingTypeValues, invoiceFormSchema } from './schema';
+import {
+  billingTypeValues,
+  changeOrderLinkError,
+  invoiceFormSchema,
+} from './schema';
 
 export type CreateInvoiceState = {
   errors?: Record<string, string[]>;
@@ -94,6 +98,8 @@ export async function createInvoiceAction(
   }
 
   const data = parsed.data;
+  const coErr = changeOrderLinkError(data);
+  if (coErr) return { errors: { changeOrderId: [coErr] } };
   const companyId = await getActiveCompanyId();
 
   // When the user leaves the template dropdown on "— Default —", auto-attach
@@ -367,6 +373,8 @@ export async function updateInvoiceFullAction(
   }
 
   const data = parsed.data;
+  const coErr = changeOrderLinkError(data);
+  if (coErr) return { errors: { changeOrderId: [coErr] } };
   const companyId = await getActiveCompanyId();
   const existing = await getInvoice(companyId, data.id);
   if (!existing) {
