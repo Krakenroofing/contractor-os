@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
+import { getCompany } from '@/lib/data/companies';
 import {
   createJobCostEntry,
   getJobCostEntry,
@@ -454,6 +455,14 @@ export async function createVendorExpenseAction(
   const freightNum = data.freightAmount?.trim() ? Number(data.freightAmount) : 0;
   const dutyNum = data.dutyAmount?.trim() ? Number(data.dutyAmount) : 0;
 
+  // Input VAT is only a job cost when it CAN'T be reclaimed. For a VAT-active
+  // company it's recoverable (a receivable from government, not project cost),
+  // so it must not inflate actuals — mirrors the receipt posting path, which
+  // posts net when VAT-active. Non-VAT companies (e.g. Kraken) genuinely bear
+  // the VAT, so it stays a cost there.
+  const company = await getCompany(companyId);
+  const vatIsRecoverable = company?.isVatActive ?? false;
+
   // Build the rows we're about to insert. All share vendor + invoice #.
   type Row = {
     costType: typeof data.subtotalCostType;
@@ -467,7 +476,7 @@ export async function createVendorExpenseAction(
       description: data.description,
     },
   ];
-  if (vatPct > 0) {
+  if (vatPct > 0 && !vatIsRecoverable) {
     rows.push({
       costType: 'vat',
       amount: subtotalNum * (vatPct / 100),
