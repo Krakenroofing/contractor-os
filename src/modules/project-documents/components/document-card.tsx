@@ -91,15 +91,14 @@ export function DocumentCard({
               className="h-11"
             />
           </div>
-          <label className="flex items-center gap-3 cursor-pointer py-1">
-            <input
-              type="checkbox"
-              name="visibleToClient"
-              defaultChecked={document.visibleToClient}
-              className="h-5 w-5 rounded border-slate-300"
-            />
-            <span className="text-sm">Visible to client</span>
-          </label>
+          {/* "Visible to client" control hidden until a client portal exists
+              (the flag gates nothing today). Preserve the stored value so an
+              edit can't silently flip it. */}
+          <input
+            type="hidden"
+            name="visibleToClient"
+            value={document.visibleToClient ? 'on' : ''}
+          />
           {updateState.formError && (
             <p className="text-xs text-red-600">{updateState.formError}</p>
           )}

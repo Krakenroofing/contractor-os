@@ -162,16 +162,10 @@ export function DocumentUploader({ projectId }: { projectId: string }) {
               className="bg-white h-11 md:h-10"
             />
           </div>
-          <div className="md:col-span-1 flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer text-sm md:text-xs h-11 md:h-10">
-              <input
-                type="checkbox"
-                name="visibleToClient"
-                className="h-5 w-5 md:h-4 md:w-4 rounded border-slate-300"
-              />
-              <span>Client&nbsp;visible</span>
-            </label>
-          </div>
+          {/* "Client visible" control hidden until a client-facing portal /
+              share surface exists — the flag gates nothing today, so exposing
+              it would mislead owners into thinking a doc is shared. Uploads
+              default to internal (visibleToClient = false). */}
           <div className="md:col-span-1 flex items-end">
             <Button
               type="submit"

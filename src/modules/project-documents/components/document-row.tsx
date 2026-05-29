@@ -84,17 +84,14 @@ export function DocumentRow({
                   ))}
                 </Select>
               </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="visibleToClient"
-                    defaultChecked={document.visibleToClient}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  <span className="text-xs">Visible to client</span>
-                </label>
-              </div>
+              {/* "Visible to client" control hidden until a client portal
+                  exists (the flag gates nothing today). Preserve the stored
+                  value so an edit can't silently flip it. */}
+              <input
+                type="hidden"
+                name="visibleToClient"
+                value={document.visibleToClient ? 'on' : ''}
+              />
             </div>
             <div>
               <Label className="text-[10px]">Description</Label>
