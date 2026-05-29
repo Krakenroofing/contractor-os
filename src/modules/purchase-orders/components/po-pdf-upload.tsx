@@ -34,6 +34,12 @@ import {
 import { QuickAddProductDrawer } from '@/modules/inventory/components/quick-add-product-drawer';
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
 import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  formatDraftTime,
+} from '@/lib/form-draft';
+import {
   createPoFromExtractedAction,
   extractPoPdfAction,
   runDocumentAiDiagnosisAction,
@@ -60,6 +66,26 @@ type EditableLine = {
   selectedCostCodeId: string;
 };
 
+// Local "Save draft" (Path 1): the in-progress preview is stashed in
+// localStorage so leaving the page doesn't wipe it. Per-browser, not a
+// server record.
+const DRAFT_KEY = 'kops:po-pdf-draft';
+
+type PoPdfEditable = {
+  vendorId: string;
+  projectId: string;
+  defaultCostCodeId: string;
+  issueDate: string;
+  expectedDeliveryDate: string;
+  taxAmount: string;
+  shipping: string;
+  notes: string;
+  lines: EditableLine[];
+  addedProducts: InventoryMatchCandidate[];
+};
+
+type PoPdfDraft = { state: ExtractPoPdfState; editable: PoPdfEditable };
+
 const initialExtract: ExtractPoPdfState = {};
 const initialCreate: CreatePoFromExtractedState = {};
 
@@ -78,18 +104,61 @@ export function PoPdfUpload({
     extractPoPdfAction,
     initialExtract,
   );
+  const [restored, setRestored] = useState<PoPdfDraft | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    const d = loadDraft<PoPdfDraft>(DRAFT_KEY);
+    if (d) setDraftSavedAt(d.savedAt);
+  }, []);
+
+  const previewState: ExtractPoPdfState | null =
+    restored?.state ?? (extractState.extracted ? extractState : null);
 
   return (
     <div className="space-y-6">
-      {!extractState.extracted ? (
-        <UploadPhase
-          state={extractState}
-          formAction={extractAction}
-          pending={extractPending}
-        />
+      {!previewState ? (
+        <>
+          {draftSavedAt !== null && (
+            <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                You have a saved PO draft from {formatDraftTime(draftSavedAt)}.
+              </span>
+              <span className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    const d = loadDraft<PoPdfDraft>(DRAFT_KEY);
+                    if (d?.data) setRestored(d.data);
+                  }}
+                >
+                  Resume draft
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    clearDraft(DRAFT_KEY);
+                    setDraftSavedAt(null);
+                  }}
+                >
+                  Discard
+                </Button>
+              </span>
+            </div>
+          )}
+          <UploadPhase
+            state={extractState}
+            formAction={extractAction}
+            pending={extractPending}
+          />
+        </>
       ) : (
         <PreviewPhase
-          state={extractState}
+          state={previewState}
+          initialEditable={restored?.editable ?? null}
           projects={projects}
           vendors={vendors}
           costCodes={costCodes}
@@ -388,12 +457,14 @@ function DiagnosticResult({ result }: { result: DocumentAiDiagnosisState }) {
 
 function PreviewPhase({
   state,
+  initialEditable,
   projects,
   vendors,
   costCodes,
   products,
 }: {
   state: ExtractPoPdfState;
+  initialEditable: PoPdfEditable | null;
   projects: ProjectOption[];
   vendors: VendorOption[];
   costCodes: CostCodeOption[];
@@ -408,9 +479,11 @@ function PreviewPhase({
   );
 
   // The extracted-but-unsaved PO is real work — guard against navigating away
-  // and losing it. (Successful create redirects programmatically, not via a
-  // link, so the guard doesn't fire on save.)
-  useUnsavedChangesGuard(true);
+  // and losing it, UNLESS the operator has saved a local draft (then it's
+  // safe to leave and resume later). Editing again re-arms the guard.
+  const [dirty, setDirty] = useState(true);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  useUnsavedChangesGuard(dirty);
 
   // Pre-match vendor by fuzzy name (containment, like receipts pipeline).
   const autoVendorId = useMemo<string>(() => {
@@ -427,7 +500,7 @@ function PreviewPhase({
   // the server-provided catalog. `addingLineRowId` tracks which line opened
   // the drawer so the created item lands on the right row.
   const [addedProducts, setAddedProducts] = useState<InventoryMatchCandidate[]>(
-    [],
+    initialEditable?.addedProducts ?? [],
   );
   const [addingLineRowId, setAddingLineRowId] = useState<string | null>(null);
   const allProducts = useMemo(
@@ -441,22 +514,36 @@ function PreviewPhase({
     return m;
   }, [allProducts]);
 
-  const [vendorId, setVendorId] = useState<string>(autoVendorId);
-  const [projectId, setProjectId] = useState<string>('');
-  const [defaultCostCodeId, setDefaultCostCodeId] = useState<string>('');
+  const [vendorId, setVendorId] = useState<string>(
+    initialEditable?.vendorId ?? autoVendorId,
+  );
+  const [projectId, setProjectId] = useState<string>(
+    initialEditable?.projectId ?? '',
+  );
+  const [defaultCostCodeId, setDefaultCostCodeId] = useState<string>(
+    initialEditable?.defaultCostCodeId ?? '',
+  );
   const [issueDate, setIssueDate] = useState<string>(
-    extracted.documentDate ?? new Date().toISOString().slice(0, 10),
+    initialEditable?.issueDate ??
+      extracted.documentDate ??
+      new Date().toISOString().slice(0, 10),
   );
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>('');
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>(
+    initialEditable?.expectedDeliveryDate ?? '',
+  );
   const [taxAmount, setTaxAmount] = useState<string>(
-    extracted.taxAmount !== null ? String(extracted.taxAmount) : '0',
+    initialEditable?.taxAmount ??
+      (extracted.taxAmount !== null ? String(extracted.taxAmount) : '0'),
   );
-  const [shipping, setShipping] = useState<string>('0');
+  const [shipping, setShipping] = useState<string>(
+    initialEditable?.shipping ?? '0',
+  );
   const [notes, setNotes] = useState<string>(
-    `Created from uploaded estimate ${source.fileName}`,
+    initialEditable?.notes ?? `Created from uploaded estimate ${source.fileName}`,
   );
 
   const [lines, setLines] = useState<EditableLine[]>(() =>
+    initialEditable?.lines ??
     extracted.lines.map((l) => {
       const top = matchInventoryItem(
         { description: l.description },
@@ -510,7 +597,14 @@ function PreviewPhase({
   const err = (key: string) => createState.errors?.[key]?.[0];
 
   return (
-    <form action={createAction} className="space-y-6">
+    <form
+      action={createAction}
+      onInput={() => {
+        setDirty(true);
+        setDraftSavedAt(null);
+      }}
+      className="space-y-6"
+    >
       {createState.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {createState.formError}
@@ -867,15 +961,50 @@ function PreviewPhase({
         />
       </Field>
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={createPending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="submit"
+          disabled={createPending}
+          onClick={() => clearDraft(DRAFT_KEY)}
+        >
           {createPending ? 'Creating draft PO…' : 'Create draft PO'}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            const editable: PoPdfEditable = {
+              vendorId,
+              projectId,
+              defaultCostCodeId,
+              issueDate,
+              expectedDeliveryDate,
+              taxAmount,
+              shipping,
+              notes,
+              lines,
+              addedProducts,
+            };
+            const at = saveDraft<PoPdfDraft>(DRAFT_KEY, { state, editable });
+            if (at !== null) {
+              setDraftSavedAt(at);
+              setDirty(false);
+            }
+          }}
+        >
+          Save draft
         </Button>
         <Link href="/purchase-orders/upload">
           <Button type="button" variant="ghost">
             Cancel &amp; upload another
           </Button>
         </Link>
+        {draftSavedAt !== null && (
+          <span className="text-xs text-emerald-700">
+            ✓ Draft saved {formatDraftTime(draftSavedAt)} — safe to leave and
+            resume later.
+          </span>
+        )}
       </div>
     </form>
   );
