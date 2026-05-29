@@ -6,6 +6,7 @@
 // pick up any new categories added to the seed file later.
 
 import { useActionState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -65,6 +66,16 @@ export function SeedContractorCategoriesCard() {
             {pending ? 'Installing…' : 'Install contractor accounting categories'}
           </Button>
         </form>
+
+        <p className="text-xs text-slate-500">
+          Need to add your own category, or rename/archive one?{' '}
+          <Link
+            href={'/settings/accounting-categories' as never}
+            className="text-slate-900 underline hover:no-underline"
+          >
+            Manage accounting categories →
+          </Link>
+        </p>
       </CardContent>
     </Card>
   );
