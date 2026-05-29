@@ -211,10 +211,12 @@ export async function buildDashboardData(
   // ---- Projects ----
   const projects = await listProjects(companyId);
   const activeProjects = projects.filter((p) => isActiveProject(p.status)).length;
-  const totalContractValue = projects.reduce(
-    (acc, p) => add(acc, parseMoney(p.contractValue)),
-    0,
-  );
+  // Scope contract value to active projects so it matches the active-project
+  // count it sits beside — previously it summed every project (incl. closed
+  // and lost/lead), which read as a much larger "current" book of business.
+  const totalContractValue = projects
+    .filter((p) => isActiveProject(p.status))
+    .reduce((acc, p) => add(acc, parseMoney(p.contractValue)), 0);
 
   // ---- Change Orders ----
   const changeOrders = await listChangeOrders(companyId);
