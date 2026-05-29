@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -126,12 +127,14 @@ export default async function ProfitLossReportPage({
       <AccountSection
         title={`Cost of Goods Sold — ${formatMoney(report.cogs.total)}`}
         accounts={report.cogs.accounts}
+        filters={filters}
         emptyMessage="No COGS entries categorized in this range."
       />
 
       <AccountSection
         title={`Operating Expense — ${formatMoney(report.opex.total)}`}
         accounts={report.opex.accounts}
+        filters={filters}
         emptyMessage="No operating expense entries categorized in this range."
       />
 
@@ -173,6 +176,7 @@ export default async function ProfitLossReportPage({
 function AccountSection({
   title,
   accounts,
+  filters,
   emptyMessage,
 }: {
   title: string;
@@ -182,8 +186,13 @@ function AccountSection({
     amount: number;
     entryCount: number;
   }>;
+  filters: { from: string; to: string };
   emptyMessage: string;
 }) {
+  const qs = new URLSearchParams();
+  if (filters.from) qs.set('from', filters.from);
+  if (filters.to) qs.set('to', filters.to);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return (
     <Card>
       <CardHeader>
@@ -204,7 +213,16 @@ function AccountSection({
             <TableBody>
               {accounts.map((a) => (
                 <TableRow key={a.accountId}>
-                  <TableCell className="text-slate-900">{a.accountName}</TableCell>
+                  <TableCell>
+                    <Link
+                      href={
+                        `/reports/profit-loss/${a.accountId}${suffix}` as never
+                      }
+                      className="text-slate-900 underline-offset-2 hover:underline"
+                    >
+                      {a.accountName}
+                    </Link>
+                  </TableCell>
                   <TableCell className="text-right tabular-nums text-slate-600">
                     {a.entryCount}
                   </TableCell>

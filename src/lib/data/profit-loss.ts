@@ -272,3 +272,113 @@ export async function buildProfitLossReport(
     netIncome,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Drill-down: the individual entries behind one P&L account line, so clicking
+// "Fuel — $200" on the report shows the actual gas charges that made it up.
+// Same two sources + same range/de-dup rules as buildProfitLossReport.
+// ---------------------------------------------------------------------------
+
+export type ProfitLossAccountEntry = {
+  date: string;
+  description: string;
+  amount: number;
+  source: 'Bank transaction' | 'Job cost';
+};
+
+export type ProfitLossAccountDetail = {
+  accountId: string;
+  accountName: string;
+  rollupGroup: RollupGroup;
+  total: number;
+  entries: ProfitLossAccountEntry[];
+};
+
+export async function listProfitLossAccountEntries(
+  companyId: string,
+  accountId: string,
+  filters: ProfitLossFilters,
+): Promise<ProfitLossAccountDetail | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+
+  const accRows = await db
+    .select({
+      id: accountingAccounts.id,
+      name: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+    })
+    .from(accountingAccounts)
+    .where(
+      and(
+        eq(accountingAccounts.id, accountId),
+        eq(accountingAccounts.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  const acc = accRows[0];
+  if (!acc) return null;
+
+  // Job-cost entries on this account.
+  const jceConds = [
+    eq(jobCostEntries.companyId, companyId),
+    sql`${jobCostEntries.deletedAt} IS NULL`,
+    eq(jobCostEntries.accountingAccountId, accountId),
+  ];
+  if (filters.from) jceConds.push(gte(jobCostEntries.entryDate, filters.from));
+  if (filters.to) jceConds.push(lte(jobCostEntries.entryDate, filters.to));
+  const jceRows = await db
+    .select({
+      date: jobCostEntries.entryDate,
+      description: jobCostEntries.description,
+      amount: jobCostEntries.amount,
+    })
+    .from(jobCostEntries)
+    .where(and(...jceConds));
+
+  // Categorized bank transactions on this account (unreconciled, not ignored).
+  const btConds = [
+    eq(importedTransactions.companyId, companyId),
+    eq(importedTransactions.isIgnored, false),
+    isNull(importedTransactions.reconciledAt),
+    eq(importedTransactions.accountingAccountId, accountId),
+  ];
+  if (filters.from)
+    btConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    btConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const btRows = await db
+    .select({
+      date: importedTransactions.transactionDate,
+      description: importedTransactions.description,
+      amount: importedTransactions.amount,
+    })
+    .from(importedTransactions)
+    .where(and(...btConds));
+
+  const entries: ProfitLossAccountEntry[] = [
+    ...jceRows.map((r) => ({
+      date: r.date,
+      description: r.description,
+      amount: Number(r.amount),
+      source: 'Job cost' as const,
+    })),
+    ...btRows.map((r) => ({
+      date: r.date,
+      description: r.description,
+      // Stored signed (negative = debit); expense magnitude is -amount.
+      amount: -Number(r.amount),
+      source: 'Bank transaction' as const,
+    })),
+  ];
+  entries.sort((a, b) => a.date.localeCompare(b.date));
+  const total = entries.reduce((s, e) => s + e.amount, 0);
+
+  return {
+    accountId: acc.id,
+    accountName: acc.name,
+    rollupGroup: acc.rollupGroup as RollupGroup,
+    total,
+    entries,
+  };
+}
