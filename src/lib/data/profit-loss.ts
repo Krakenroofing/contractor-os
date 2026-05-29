@@ -15,9 +15,10 @@
 // excluded — those are balance-sheet items, not income-statement).
 
 import 'server-only';
-import { and, eq, gte, isNotNull, lte, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
+  importedTransactions,
   invoices,
   jobCostEntries,
 } from '@/db/schema';
@@ -144,31 +145,93 @@ export async function buildProfitLossReport(
     )
     .orderBy(accountingAccounts.name);
 
+  // ----- Expense side (2): categorized bank transactions -----
+  // Operating expenses / COGS entered directly on the bank statement (e.g.
+  // bank fees, utilities) never create a job_cost_entry, so they must be
+  // summed here too. Exclude reconciled rows — those are matched to a
+  // receipt / job-cost entry already counted above — and ignored rows. A
+  // debit (negative amount) is an expense; a credit categorized to an
+  // expense account is a refund, so we sum -amount.
+  const bankConds = [
+    eq(importedTransactions.companyId, companyId),
+    eq(importedTransactions.isIgnored, false),
+    isNull(importedTransactions.reconciledAt),
+    isNotNull(importedTransactions.accountingAccountId),
+  ];
+  if (filters.from)
+    bankConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    bankConds.push(lte(importedTransactions.transactionDate, filters.to));
+
+  const bankRows = await db
+    .select({
+      accountId: importedTransactions.accountingAccountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      total: sql<string>`COALESCE(SUM(-${importedTransactions.amount}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(importedTransactions)
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactions.accountingAccountId),
+    )
+    .where(and(...bankConds))
+    .groupBy(
+      importedTransactions.accountingAccountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+
+  // Merge both expense sources per account so an account that has both a
+  // job-cost entry and a bank line shows one combined row.
+  const byAccount = new Map<string, ProfitLossAccountRow>();
+  const accumulate = (
+    rows: Array<{
+      accountId: string | null;
+      accountName: string;
+      rollupGroup: string;
+      total: string;
+      count: number;
+    }>,
+  ) => {
+    for (const r of rows) {
+      if (!r.accountId) continue;
+      const amount = Number(r.total);
+      const existing = byAccount.get(r.accountId);
+      if (existing) {
+        existing.amount += amount;
+        existing.entryCount += Number(r.count ?? 0);
+      } else {
+        byAccount.set(r.accountId, {
+          accountId: r.accountId,
+          accountName: r.accountName,
+          rollupGroup: r.rollupGroup as RollupGroup,
+          amount,
+          entryCount: Number(r.count ?? 0),
+        });
+      }
+    }
+  };
+  accumulate(categorizedRows);
+  accumulate(bankRows);
+
   const cogsAccounts: ProfitLossAccountRow[] = [];
   const opexAccounts: ProfitLossAccountRow[] = [];
   let cogsTotal = 0;
   let opexTotal = 0;
-
-  for (const r of categorizedRows) {
-    if (!r.accountId) continue;
-    const amount = Number(r.total);
-    const row: ProfitLossAccountRow = {
-      accountId: r.accountId,
-      accountName: r.accountName,
-      rollupGroup: r.rollupGroup as RollupGroup,
-      amount,
-      entryCount: Number(r.count ?? 0),
-    };
+  for (const row of byAccount.values()) {
     if (row.rollupGroup === 'cogs') {
       cogsAccounts.push(row);
-      cogsTotal += amount;
+      cogsTotal += row.amount;
     } else if (row.rollupGroup === 'opex') {
       opexAccounts.push(row);
-      opexTotal += amount;
+      opexTotal += row.amount;
     }
-    // asset / liability / equity / vat_tax / income are balance-sheet (or
-    // shouldn't appear here for cost entries); skip from P&L.
+    // asset / liability / equity / vat_tax / income are balance-sheet items.
   }
+  cogsAccounts.sort((a, b) => a.accountName.localeCompare(b.accountName));
+  opexAccounts.sort((a, b) => a.accountName.localeCompare(b.accountName));
 
   // ----- Uncategorized: job_cost_entries with no accountingAccountId -----
   // Surfaced separately so Chris can see what's missing classification.
