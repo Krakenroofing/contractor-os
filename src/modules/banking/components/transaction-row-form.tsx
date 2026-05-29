@@ -59,15 +59,21 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
     <form action={action} className="grid grid-cols-1 md:grid-cols-12 gap-2">
       <input type="hidden" name="id" value={props.id} />
       <div className="md:col-span-3">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
+          Category
+        </span>
         <AccountingAccountPicker
           name="accountingAccountId"
           value={accountingAccountId}
           onChange={(id) => setAccountingAccountId(id)}
           accounts={props.categories}
-          placeholder="— uncategorized —"
+          placeholder="— select category —"
         />
       </div>
       <div className="md:col-span-3">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
+          Project <span className="normal-case text-slate-400">(optional)</span>
+        </span>
         <Select
           name="projectId"
           value={projectId}
@@ -82,6 +88,10 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
         </Select>
       </div>
       <div className="md:col-span-3">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
+          Cost code{' '}
+          <span className="normal-case text-slate-400">(optional)</span>
+        </span>
         <Select
           name="costCodeId"
           value={costCodeId}
