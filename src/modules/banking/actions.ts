@@ -52,6 +52,8 @@ import {
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
+import { listProjects } from '@/lib/data/projects';
+import { listCustomers } from '@/lib/data/customers';
 import { getReceipt, listReceipts } from '@/lib/data/receipts';
 import {
   ensureDefaultCoaForCompany,
@@ -917,6 +919,103 @@ export async function matchInvoicePaymentAction(input: {
   }
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
+}
+
+export type InvoicePaymentSearchResult = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  amount: number;
+  paidDate: string;
+  sameAmount: boolean;
+};
+
+/**
+ * Manual invoice-payment search for the reconciliation match picker. Unlike
+ * the ±7-day auto-suggester, this lets the operator find ANY non-void,
+ * not-yet-matched invoice payment by invoice number or customer name and
+ * reconcile it regardless of the date gap (then matched via
+ * matchInvoicePaymentAction with confidence 'manual'). Money-in txns only.
+ */
+export async function searchInvoicePaymentsForMatchAction(input: {
+  transactionId: string;
+  query?: string;
+}): Promise<
+  | { ok: true; results: InvoicePaymentSearchResult[] }
+  | { ok: false; error: string }
+> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const txnId = matchTxnIdSchema.safeParse(input.transactionId);
+  if (!txnId.success) return { ok: false, error: 'Invalid transaction id.' };
+  const txn = await getImportedTransaction(companyId, txnId.data);
+  if (!txn) return { ok: false, error: 'Transaction not found.' };
+
+  const bankAmount = Number(txn.amount);
+  if (bankAmount <= 0) {
+    return {
+      ok: false,
+      error: 'Invoice matching applies to money-in transactions only.',
+    };
+  }
+
+  const [payments, invoices, projects, customers, activeMatches] =
+    await Promise.all([
+      listPayments(companyId), // already excludes voided-invoice payments
+      listInvoices(companyId),
+      listProjects(companyId),
+      listCustomers(companyId),
+      listActiveMatchesForCompany(companyId),
+    ]);
+
+  const taken = new Set(
+    activeMatches
+      .filter((m) => m.invoicePaymentId !== null)
+      .map((m) => m.invoicePaymentId!),
+  );
+  const invoiceById = new Map(invoices.map((i) => [i.id, i]));
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+
+  const q = (input.query ?? '').trim().toLowerCase();
+  const bankCents = Math.round(bankAmount * 100);
+
+  const results: InvoicePaymentSearchResult[] = [];
+  for (const p of payments) {
+    if (taken.has(p.id)) continue;
+    const inv = invoiceById.get(p.invoiceId);
+    if (!inv) continue;
+    const proj = inv.projectId ? projectById.get(inv.projectId) : null;
+    const cust = proj ? customerById.get(proj.customerId) : null;
+    const invoiceNumber = inv.number ?? '—';
+    const customerName = cust?.name ?? '—';
+    if (q && !`${invoiceNumber} ${customerName}`.toLowerCase().includes(q)) {
+      continue;
+    }
+    const amount = Number(p.amount);
+    results.push({
+      id: p.id,
+      invoiceId: p.invoiceId,
+      invoiceNumber,
+      customerName,
+      amount,
+      paidDate: p.paidDate,
+      sameAmount: Math.round(amount * 100) === bankCents,
+    });
+  }
+
+  // Same-amount candidates first (most likely match), then most recent.
+  results.sort((a, b) => {
+    if (a.sameAmount !== b.sameAmount) return a.sameAmount ? -1 : 1;
+    return b.paidDate.localeCompare(a.paidDate);
+  });
+
+  return { ok: true, results: results.slice(0, 25) };
 }
 
 export async function matchReceiptAction(input: {

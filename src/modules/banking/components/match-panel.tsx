@@ -10,8 +10,11 @@ import {
   matchOwnerEquityAction,
   matchReceiptAction,
   matchTransferAction,
+  searchInvoicePaymentsForMatchAction,
   unmatchTransactionAction,
+  type InvoicePaymentSearchResult,
 } from '../actions';
+import { Input } from '@/components/ui/input';
 import type { MatchCandidates } from '../lib/match-candidates';
 
 export type ActiveMatchInfo = {
@@ -76,6 +79,40 @@ export function MatchPanel(props: MatchPanelProps) {
   const [transferMode, setTransferMode] = useState(false);
   const [pickedPairId, setPickedPairId] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [invoiceMode, setInvoiceMode] = useState(false);
+  const [invoiceQuery, setInvoiceQuery] = useState('');
+  const [invoiceResults, setInvoiceResults] = useState<
+    InvoicePaymentSearchResult[]
+  >([]);
+  const [invoiceSearched, setInvoiceSearched] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  function runInvoiceSearch() {
+    setErr(null);
+    setSearching(true);
+    startTransition(async () => {
+      const res = await searchInvoicePaymentsForMatchAction({
+        transactionId: props.transactionId,
+        query: invoiceQuery,
+      });
+      setSearching(false);
+      setInvoiceSearched(true);
+      if (!res.ok) {
+        setErr(res.error);
+        setInvoiceResults([]);
+        return;
+      }
+      setInvoiceResults(res.results);
+    });
+  }
+
+  function resetInvoiceMode() {
+    setInvoiceMode(false);
+    setInvoiceQuery('');
+    setInvoiceResults([]);
+    setInvoiceSearched(false);
+    setErr(null);
+  }
 
   function runAndRefresh(fn: () => Promise<{ ok: boolean; error?: string }>) {
     setErr(null);
@@ -179,6 +216,107 @@ export function MatchPanel(props: MatchPanelProps) {
               setPickedPairId('');
               setErr(null);
             }}
+          >
+            Cancel
+          </Button>
+        </div>
+        {err && <p className="text-red-700">{err}</p>}
+      </div>
+    );
+  }
+
+  // ----- Manual invoice match: search any invoice payment -----
+  if (invoiceMode) {
+    return (
+      <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
+        <div className="font-medium text-blue-900">Match to an invoice</div>
+        <p className="text-blue-800">
+          Search any open invoice by number or customer. This matches
+          regardless of the date gap — use it when the deposit date and the
+          recorded payment date don&apos;t line up.
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            value={invoiceQuery}
+            onChange={(e) => setInvoiceQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                runInvoiceSearch();
+              }
+            }}
+            placeholder="Invoice # or customer name"
+            className="h-8 text-xs"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending || searching}
+            onClick={runInvoiceSearch}
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </Button>
+        </div>
+
+        {invoiceSearched && invoiceResults.length === 0 && !err && (
+          <p className="text-slate-600">
+            No matching invoice payments found. Try a different search.
+          </p>
+        )}
+
+        {invoiceResults.length > 0 && (
+          <div className="space-y-1">
+            {invoiceResults.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">
+                    Invoice {r.invoiceNumber} — {r.customerName} · $
+                    {fmtMoney(r.amount)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    paid {r.paidDate}{' '}
+                    {r.sameAmount ? (
+                      <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
+                        same amount
+                      </span>
+                    ) : (
+                      <span className="inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">
+                        amount differs
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    runAndRefresh(() =>
+                      matchInvoicePaymentAction({
+                        transactionId: props.transactionId,
+                        invoicePaymentId: r.id,
+                        confidence: 'manual',
+                      }),
+                    )
+                  }
+                >
+                  Match
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={resetInvoiceMode}
           >
             Cancel
           </Button>
@@ -353,6 +491,20 @@ export function MatchPanel(props: MatchPanelProps) {
           >
             Mark as transfer
           </Button>
+          {moneyIn && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => {
+                setErr(null);
+                setInvoiceMode(true);
+              }}
+            >
+              Match to invoice…
+            </Button>
+          )}
           {moneyIn && (
             <Button
               type="button"
