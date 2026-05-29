@@ -670,9 +670,21 @@ export async function createPoFromExtractedAction(
       });
       await deleteReceiptBlob(data.sourceStoragePath).catch(() => {});
     }
-  } catch {
+  } catch (err) {
     // Storage hiccup shouldn't take the PO down with it — the user can
-    // re-upload the source manually in the project documents view.
+    // re-upload the source manually in the project documents view. Log it
+    // (was silently swallowed) so a persistent attach failure is visible,
+    // and leave a breadcrumb on the PO.
+    console.error(
+      `[po-from-pdf] failed to attach source PDF for PO ${finalNumber}:`,
+      err,
+    );
+    appendActivity(companyId, {
+      entityType: 'purchase_order',
+      entityId: createdId,
+      kind: 'po_created_from_pdf',
+      summary: `Source PDF for PO ${finalNumber} could not be attached — re-upload it in project documents.`,
+    });
   }
 
   appendActivity(companyId, {
