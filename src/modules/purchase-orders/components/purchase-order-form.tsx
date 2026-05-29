@@ -1,7 +1,13 @@
 'use client';
 
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes-guard';
+import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  formatDraftTime,
+} from '@/lib/form-draft';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +83,24 @@ export type PurchaseOrderFormDefaults = {
   }>;
 };
 
+// Local "Save draft" (Path 1) — stash the whole in-progress PO in
+// localStorage so leaving doesn't wipe it. Per-browser, not a server record.
+const DRAFT_KEY = 'kops:po-manual-draft';
+
+type PoManualDraft = {
+  number: string;
+  status: string;
+  vendorId: string;
+  projectId: string;
+  landedCostEntryId: string;
+  issueDate: string;
+  expectedDeliveryDate: string;
+  taxAmount: string;
+  shipping: string;
+  notes: string;
+  lines: LineDraft[];
+};
+
 export function PurchaseOrderForm({
   projects,
   vendors,
@@ -118,6 +142,79 @@ export function PurchaseOrderForm({
   const [shipping, setShipping] = useState(defaults?.shipping ?? '0');
   const [projectId, setProjectId] = useState<string>(defaults?.projectId ?? '');
   const [excelOpen, setExcelOpen] = useState(false);
+
+  // Header fields are controlled so a saved draft can fully restore them.
+  const [poNumber, setPoNumber] = useState(defaultNumber);
+  const [status, setStatus] = useState<string>('draft');
+  const [vendorId, setVendorId] = useState<string>(defaults?.vendorId ?? '');
+  const [landedCostEntryId, setLandedCostEntryId] = useState<string>(
+    defaults?.landedCostEntryId ?? '',
+  );
+  const [issueDate, setIssueDate] = useState<string>(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>(
+    () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      return d.toISOString().slice(0, 10);
+    },
+  );
+  const [notes, setNotes] = useState<string>(defaults?.notes ?? '');
+
+  // Local Save-draft / Resume (Path 1).
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [resumeAvailableAt, setResumeAvailableAt] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    const d = loadDraft<PoManualDraft>(DRAFT_KEY);
+    if (d) setResumeAvailableAt(d.savedAt);
+  }, []);
+
+  function saveDraftNow() {
+    const at = saveDraft<PoManualDraft>(DRAFT_KEY, {
+      number: poNumber,
+      status,
+      vendorId,
+      projectId,
+      landedCostEntryId,
+      issueDate,
+      expectedDeliveryDate,
+      taxAmount,
+      shipping,
+      notes,
+      lines,
+    });
+    if (at !== null) {
+      setDraftSavedAt(at);
+      setDirty(false);
+    }
+  }
+
+  function resumeDraft() {
+    const d = loadDraft<PoManualDraft>(DRAFT_KEY);
+    if (!d) return;
+    const v = d.data;
+    setPoNumber(v.number);
+    setStatus(v.status);
+    setVendorId(v.vendorId);
+    setProjectId(v.projectId);
+    setLandedCostEntryId(v.landedCostEntryId);
+    setIssueDate(v.issueDate);
+    setExpectedDeliveryDate(v.expectedDeliveryDate);
+    setTaxAmount(v.taxAmount);
+    setShipping(v.shipping);
+    setNotes(v.notes);
+    setLines(
+      v.lines.length > 0
+        ? v.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() }))
+        : [newEmptyLine()],
+    );
+    setResumeAvailableAt(null);
+    setDraftSavedAt(null);
+    setDirty(false);
+  }
 
   // A line is "empty" if the user hasn't touched it — no product, no cost
   // code, no description, no qty/cost. When importing from Excel we replace
@@ -207,19 +304,38 @@ export function PurchaseOrderForm({
 
   const err = (key: string) => state.errors?.[key]?.[0];
 
-  const today = new Date().toISOString().slice(0, 10);
-  const defaultDelivery = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 10);
-  })();
-
   return (
     <form
       action={formAction}
-      onInput={() => setDirty(true)}
+      onInput={() => {
+        setDirty(true);
+        setDraftSavedAt(null);
+      }}
       className="space-y-6"
     >
+      {resumeAvailableAt !== null && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            You have a saved PO draft from {formatDraftTime(resumeAvailableAt)}.
+          </span>
+          <span className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={resumeDraft}>
+              Resume draft
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                clearDraft(DRAFT_KEY);
+                setResumeAvailableAt(null);
+              }}
+            >
+              Discard
+            </Button>
+          </span>
+        </div>
+      )}
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {state.formError}
@@ -230,11 +346,20 @@ export function PurchaseOrderForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="PO number" error={err('number')} required>
-          <Input name="number" defaultValue={defaultNumber} required />
+          <Input
+            name="number"
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
+            required
+          />
         </Field>
 
         <Field label="Status" error={err('status')}>
-          <Select name="status" defaultValue="draft">
+          <Select
+            name="status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
             {poStatusValues.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
@@ -244,7 +369,12 @@ export function PurchaseOrderForm({
         </Field>
 
         <Field label="Vendor" error={err('vendorId')} required>
-          <Select name="vendorId" required defaultValue={defaults?.vendorId ?? ''}>
+          <Select
+            name="vendorId"
+            required
+            value={vendorId}
+            onChange={(e) => setVendorId(e.target.value)}
+          >
             <option value="" disabled>
               {vendors.length === 0 ? 'No vendors yet' : 'Select a vendor'}
             </option>
@@ -278,7 +408,11 @@ export function PurchaseOrderForm({
           label="Linked landed-cost entry (optional)"
           error={err('landedCostEntryId')}
         >
-          <Select name="landedCostEntryId" defaultValue={defaults?.landedCostEntryId ?? ''}>
+          <Select
+            name="landedCostEntryId"
+            value={landedCostEntryId}
+            onChange={(e) => setLandedCostEntryId(e.target.value)}
+          >
             <option value="">— None —</option>
             {filteredLandedCosts.map((l) => (
               <option key={l.id} value={l.id}>
@@ -289,11 +423,21 @@ export function PurchaseOrderForm({
         </Field>
 
         <Field label="Order date" error={err('issueDate')}>
-          <Input name="issueDate" type="date" defaultValue={today} />
+          <Input
+            name="issueDate"
+            type="date"
+            value={issueDate}
+            onChange={(e) => setIssueDate(e.target.value)}
+          />
         </Field>
 
         <Field label="Expected delivery" error={err('expectedDeliveryDate')}>
-          <Input name="expectedDeliveryDate" type="date" defaultValue={defaultDelivery} />
+          <Input
+            name="expectedDeliveryDate"
+            type="date"
+            value={expectedDeliveryDate}
+            onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+          />
         </Field>
       </div>
 
@@ -529,19 +673,33 @@ export function PurchaseOrderForm({
           rows={3}
           className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           placeholder="Delivery instructions, ship-to override, etc."
-          defaultValue={defaults?.notes ?? ''}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
         />
       </Field>
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="submit"
+          disabled={pending}
+          onClick={() => clearDraft(DRAFT_KEY)}
+        >
           {pending ? 'Creating…' : 'Create purchase order'}
+        </Button>
+        <Button type="button" variant="outline" onClick={saveDraftNow}>
+          Save draft
         </Button>
         <Link href="/purchase-orders">
           <Button type="button" variant="ghost">
             Cancel
           </Button>
         </Link>
+        {draftSavedAt !== null && (
+          <span className="text-xs text-emerald-700">
+            ✓ Draft saved {formatDraftTime(draftSavedAt)} — safe to leave and
+            resume later.
+          </span>
+        )}
       </div>
     </form>
   );
