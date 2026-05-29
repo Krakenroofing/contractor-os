@@ -12,6 +12,7 @@ import {
   softDeleteCustomer,
   updateCustomer,
 } from '@/lib/data/customers';
+import { listProjects } from '@/lib/data/projects';
 import { customerFormSchema } from './schema';
 
 export type CreateCustomerState = {
@@ -164,6 +165,19 @@ export async function archiveCustomerAction(
   }
   const id = idResult.data;
   const companyId = await getActiveCompanyId();
+
+  // Block archive when projects still reference this customer — getCustomer
+  // filters out archived customers, so their project detail pages would 404.
+  const linkedProjects = (await listProjects(companyId)).filter(
+    (p) => p.customerId === id,
+  );
+  if (linkedProjects.length > 0) {
+    return {
+      formError: `Can't archive: ${linkedProjects.length} project${
+        linkedProjects.length === 1 ? '' : 's'
+      } still belong to this customer. Reassign or remove them first.`,
+    };
+  }
 
   try {
     const removed = await softDeleteCustomer(companyId, id);
