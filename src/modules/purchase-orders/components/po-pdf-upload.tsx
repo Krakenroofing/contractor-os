@@ -768,6 +768,27 @@ function PreviewPhase({
             </TableBody>
           </Table>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            setLines((prev) => [
+              ...prev,
+              {
+                rowId: crypto.randomUUID(),
+                description: '',
+                quantity: '1',
+                unitCost: '0',
+                unit: '',
+                selectedInventoryItemId: '',
+                selectedCostCodeId: defaultCostCodeId,
+              },
+            ])
+          }
+        >
+          + Add line
+        </Button>
       </fieldset>
 
       <QuickAddProductDrawer
