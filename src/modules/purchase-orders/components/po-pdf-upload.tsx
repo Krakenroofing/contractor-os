@@ -603,16 +603,16 @@ function PreviewPhase({
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
 
         <div className="border rounded-md overflow-x-auto">
-          <Table>
+          <Table className="[&_th]:px-2 [&_td]:px-2">
             <TableHeader>
               <TableRow>
-                <TableHead>Description</TableHead>
-                <TableHead className="w-40">Match to inventory</TableHead>
-                <TableHead className="w-44">Cost code</TableHead>
+                <TableHead className="min-w-[240px]">Description</TableHead>
+                <TableHead className="w-44">Match to inventory</TableHead>
+                <TableHead className="w-36">Cost code</TableHead>
                 <TableHead className="text-right w-20">Qty</TableHead>
                 <TableHead className="w-16">Unit</TableHead>
-                <TableHead className="text-right w-24">Unit cost</TableHead>
-                <TableHead className="text-right w-24">Total</TableHead>
+                <TableHead className="text-right w-28">Unit cost</TableHead>
+                <TableHead className="text-right w-28">Total</TableHead>
                 <TableHead className="w-8"></TableHead>
               </TableRow>
             </TableHeader>
