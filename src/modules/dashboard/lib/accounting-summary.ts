@@ -76,7 +76,6 @@ export async function buildAccountingSummary(
   try {
     const company = await getCompany(companyId);
     const isVatActive = company?.isVatActive ?? false;
-    const ratePct = company ? Number(company.vatRatePercent) || 0 : 0;
     const quarter = currentQuarter(asOf);
 
     const [imports, draftReceipts, invoices, postedReceipts, allTxns] =
@@ -138,7 +137,9 @@ export async function buildAccountingSummary(
       for (const inv of invoices) {
         if (inv.status === 'void' || inv.status === 'draft') continue;
         if (quarterKeyForDate(inv.invoiceDate) !== quarter.key) continue;
-        outputVat = add(outputVat, round2((parseMoney(inv.subtotal) * ratePct) / 100));
+        // Output VAT = stored tax_amount actually charged, not a recomputed
+        // subtotal × flat rate (which ignores retainage / reduced rates).
+        outputVat = add(outputVat, parseMoney(inv.taxAmount));
       }
       for (const r of postedReceipts) {
         if (!r.vatRecoverable) continue;

@@ -222,7 +222,13 @@ export async function buildVatQuarterlyReport(
       const project = inv.projectId ? projectById.get(inv.projectId) : null;
       const customer = project ? customerById.get(project.customerId) : null;
       const subtotal = parseMoney(inv.subtotal);
-      const vatDue = round2((subtotal * companyVatRatePct) / 100);
+      // Output VAT = the VAT actually charged on the invoice. Read the stored,
+      // authoritative tax_amount instead of recomputing subtotal × flat rate
+      // (which ignores retainage, reduced / zero-rated invoices, and rounding,
+      // overstating what we owe the government).
+      const vatDue = parseMoney(inv.taxAmount);
+      const vatRatePct =
+        subtotal > 0 ? round2((vatDue / subtotal) * 100) : companyVatRatePct;
       const retainage = parseMoney(inv.retainageAmount);
       const total = parseMoney(inv.total);
       const { key, label } = quarterKeyForDate(effective);
@@ -237,7 +243,7 @@ export async function buildVatQuarterlyReport(
         // attach label here too so the per-quarter aggregate can reuse it
         _label: label,
         subtotal,
-        vatRatePct: companyVatRatePct,
+        vatRatePct,
         vatDue,
         retainage,
         total,
