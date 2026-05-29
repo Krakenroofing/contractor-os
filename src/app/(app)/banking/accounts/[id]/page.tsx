@@ -298,6 +298,9 @@ export default async function BankAccountDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={{ pathname: '/banking/rules' }}>
+            <Button variant="outline">Rules</Button>
+          </Link>
           {canEdit && (
             <BulkAutoMatchButton
               bankAccountId={account.id}
