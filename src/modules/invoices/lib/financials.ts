@@ -126,8 +126,8 @@ export function groupPaymentsByInvoice(
  *   taxAmount    = invoice.taxAmount (VAT we'll owe once collected)
  *   total        = invoice.total (gross = subtotal + tax - retainage held)
  *   paidGross    = sum of applied payments
- *   paidNet      = paidGross * (subtotal / (subtotal + tax))
- *   paidVat      = paidGross - paidNet
+ *   paidVat      = paidGross * (tax / total)      // total is the gross billed
+ *   paidNet      = paidGross - paidVat
  *
  * When the invoice has no VAT or zero total the split degrades cleanly to
  * "all net" so dashboards don't divide by zero.
@@ -161,7 +161,11 @@ export function computeInvoiceVatSplit(
   const vat = parseMoney(invoice.taxAmount);
   const gross = parseMoney(invoice.total);
   const paidGross = sumAppliedPayments(payments);
-  const denom = net + vat;
+  // Split a payment by the VAT proportion of the GROSS actually billed
+  // (subtotal + vat − retainage held = invoice.total), NOT (net + vat).
+  // On retainage invoices (net + vat) inflates the denominator by the
+  // retainage, understating VAT-collected and overstating revenue.
+  const denom = gross;
   const vatShare = denom > 0 ? vat / denom : 0;
   const paidVat = round2(paidGross * vatShare);
   const paidNet = round2(paidGross - paidVat);
