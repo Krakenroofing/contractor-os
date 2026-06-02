@@ -92,14 +92,19 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
 
       <div className="space-y-1">
         <Label htmlFor="projectId" className="text-xs">
-          {isClockedIn ? 'Project (carry forward if blank)' : 'Project'}
+          {isClockedIn ? 'Project (carry forward if blank)' : 'Project (required)'}
         </Label>
         <Select
           name="projectId"
           id="projectId"
           defaultValue={defaultProjectId ?? ''}
+          required={!isClockedIn}
         >
-          <option value="">— No project (yard / general) —</option>
+          <option value="">
+            {isClockedIn
+              ? '— Same job (carry forward) —'
+              : '— Pick a job —'}
+          </option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}

@@ -104,6 +104,17 @@ export async function punchInAction(
     return { formError: 'Invalid punch data. Please reload and try again.' };
   }
 
+  // A job is required to clock IN — otherwise the time lands as overhead
+  // and someone has to recode it later on /clock. Enforced here (not just
+  // in the UI) because the field Select renders its required flag on a
+  // hidden input, which browsers skip during constraint validation.
+  if (!parsed.data.projectId) {
+    return {
+      formError:
+        'Pick the job you’re working on before you clock in. If you’re not on a specific job, ask your supervisor which to use.',
+    };
+  }
+
   // Refuse to log an "in" if the latest event is already "in" — that
   // would create back-to-back ins (almost always a double-tap).
   const last = await getLatestClockEvent(pre.employeeId);

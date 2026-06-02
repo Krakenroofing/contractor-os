@@ -46,6 +46,7 @@ import {
   todayISOInTZ,
 } from '@/lib/tz';
 import { DeletePunchButton } from '@/modules/clock-events/components/delete-punch-button';
+import { SessionProjectSelect } from '@/modules/clock-events/components/session-project-select';
 import {
   markSessionReviewedAction,
   postReviewedSessionsAction,
@@ -143,6 +144,8 @@ export default async function ClockReviewPage({
   const projectName = new Map(
     projects.map((p) => [p.id, p.name] as const),
   );
+  // Options for the inline session → project picker in the day grid.
+  const projectOptions = projects.map((p) => ({ id: p.id, label: p.name }));
 
   // Group events by employee, pair into sessions per employee, then
   // flatten back so the table can render one row per session.
@@ -470,8 +473,17 @@ export default async function ClockReviewPage({
                           : '—'}
                       </TableCell>
                       <TableCell className="text-slate-700 text-xs">
-                        {projectLabel ?? (
-                          <span className="text-slate-400">overhead</span>
+                        {r.posted ? (
+                          projectLabel ?? (
+                            <span className="text-slate-400">overhead</span>
+                          )
+                        ) : (
+                          <SessionProjectSelect
+                            inId={r.inEvent.id}
+                            outId={r.outEvent?.id ?? null}
+                            projectId={r.inEvent.projectId}
+                            projects={projectOptions}
+                          />
                         )}
                       </TableCell>
                       <TableCell>
@@ -488,9 +500,20 @@ export default async function ClockReviewPage({
                       <TableCell className="text-right">
                         <div className="inline-flex items-center gap-1">
                           {r.posted ? (
-                            <span className="text-[11px] text-slate-500 px-1">
-                              Delete the time entry on /payroll to edit
-                            </span>
+                            r.inEvent.postedTimeEntryId ? (
+                              <Link
+                                href={
+                                  `/payroll/entries/${r.inEvent.postedTimeEntryId}/edit` as never
+                                }
+                                className="text-[11px] text-blue-600 hover:underline px-1"
+                              >
+                                Recode on payroll →
+                              </Link>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 px-1">
+                                posted
+                              </span>
+                            )
                           ) : (
                             <>
                               {r.outEvent && !r.reviewed && (

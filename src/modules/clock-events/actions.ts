@@ -99,6 +99,62 @@ export async function editPunchAction(
   redirect('/clock' as never);
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const sessionProjectSchema = z
+  .string()
+  .optional()
+  .transform((v) => (v == null || v.trim() === '' ? null : v.trim()))
+  .refine((v) => v === null || UUID_RE.test(v), {
+    message: 'Invalid project selection',
+  });
+
+/**
+ * Reassign a whole session to a project (or to overhead = no project)
+ * straight from the /clock day grid. Field workers routinely forget to
+ * pick a job, so the punch lands as overhead — this lets the office
+ * recode it in one click without opening the per-punch edit page.
+ *
+ * Sets the project on BOTH punches so the in/out pair stays consistent
+ * (posting only reads the IN punch, but we keep them in sync to avoid
+ * confusing stale data on the OUT punch). Like any punch edit, this
+ * clears the review flag via updateClockEvent — the session has to be
+ * re-reviewed before it posts. Posted sessions don't render this control;
+ * they're recoded on /payroll instead.
+ */
+export async function setSessionProjectAction(
+  inId: string,
+  outId: string | null,
+  formData: FormData,
+): Promise<void> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'clock_events')) {
+    throw new Error('You do not have permission to edit punches.');
+  }
+  const companyId = await getActiveCompanyId();
+
+  const parsed = sessionProjectSchema.safeParse(
+    formData.get('projectId')?.toString(),
+  );
+  if (!parsed.success) {
+    throw new Error('Invalid project selection.');
+  }
+  const projectId = parsed.data;
+
+  const ids = outId ? [inId, outId] : [inId];
+  try {
+    for (const id of ids) {
+      await updateClockEvent(companyId, id, { projectId });
+    }
+  } catch (err) {
+    if (err instanceof PunchAlreadyPostedError) throw err;
+    throw err;
+  }
+  revalidatePath('/clock');
+}
+
 export async function deletePunchAction(punchId: string): Promise<void> {
   await requireAuth();
   const role = await getActiveRole();
