@@ -27,6 +27,7 @@ import {
   recordClockEvent,
 } from '@/lib/data/clock-events';
 import { getCompany } from '@/lib/data/companies';
+import { formatTimeInTZ } from '@/lib/tz';
 
 export type PunchState = {
   ok?: boolean;
@@ -108,7 +109,7 @@ export async function punchInAction(
   const last = await getLatestClockEvent(pre.employeeId);
   if (last?.kind === 'in') {
     return {
-      formError: `You're already clocked in (since ${last.occurredAt.toISOString().slice(11, 16)} UTC). Tap "Clock out" first if you meant to start a new session.`,
+      formError: `You're already clocked in (since ${formatTimeInTZ(last.occurredAt)}). Tap "Clock out" first if you meant to start a new session.`,
     };
   }
 

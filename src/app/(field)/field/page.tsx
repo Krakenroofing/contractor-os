@@ -9,6 +9,7 @@ import { getActiveEmployee } from '@/lib/active-employee';
 import { getCurrentUser } from '@/lib/auth';
 import { getLatestClockEvent } from '@/lib/data/clock-events';
 import { listAssignmentsForEmployeeDate } from '@/lib/data/project-assignments';
+import { formatTimeInTZ, formatDateLongInTZ, todayISOInTZ } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +23,10 @@ export default async function FieldHomePage() {
   const latest = employee ? await getLatestClockEvent(employee.id) : null;
   const isClockedIn = latest?.kind === 'in';
 
-  // Today's assignment count for the "N jobs today" badge.
-  const now = new Date();
-  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  // Today's assignment count for the "N jobs today" badge. "Today" is the
+  // Nassau calendar day — NOT the server's UTC day, which would roll over
+  // 4 hours early (8 PM Nassau onward shows tomorrow's jobs).
+  const todayIso = todayISOInTZ();
   const todaysAssignments = employee
     ? await listAssignmentsForEmployeeDate(employee.id, todayIso)
     : [];
@@ -33,14 +35,11 @@ export default async function FieldHomePage() {
     ? employee.firstName
     : user.name?.split('@')[0] || 'there';
 
-  // Today's date in a friendly format. Server-rendered (no useEffect /
-  // hydration mismatch concerns) since this layout is force-dynamic.
-  const today = new Date();
-  const dateLine = today.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
+  // Today's date in a friendly format, in the business timezone. Server-
+  // rendered (force-dynamic, no hydration concerns) — but the server runs
+  // in UTC, so we must pin Nassau or the date label flips a day early in
+  // the evening.
+  const dateLine = formatDateLongInTZ(new Date());
 
   return (
     <div className="px-4 py-5 space-y-5">
@@ -72,7 +71,7 @@ export default async function FieldHomePage() {
         title={isClockedIn ? 'Clock out' : 'Clock in'}
         subtitle={
           isClockedIn
-            ? `On the clock since ${latest!.occurredAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+            ? `On the clock since ${formatTimeInTZ(latest!.occurredAt)}`
             : 'Start your work session'
         }
         tone="primary"

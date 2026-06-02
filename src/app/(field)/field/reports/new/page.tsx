@@ -94,8 +94,7 @@ export default async function FieldReportNewPage({
     (p) => p.status !== 'closed' && p.status !== 'lost',
   );
 
-  const now = new Date();
-  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayIso = todayISOInTZ();
   const todaysAssignments = employee
     ? await listAssignmentsForEmployeeDate(employee.id, todayIso)
     : [];

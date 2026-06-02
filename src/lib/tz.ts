@@ -1,10 +1,13 @@
 // =====================================================================
 // App timezone
 //
-// Kraken Roofing operates in the Bahamas (AST, UTC-4, no DST). On Vercel
-// the server process runs in UTC, so any code that reaches for "today"
-// via `setHours(0,0,0,0)` or `new Date().getMonth()` is wrong for ~4 hrs
-// every evening (8 PM – midnight Nassau = next-day UTC).
+// Kraken Roofing operates in the Bahamas (America/Nassau). The Bahamas
+// DOES observe daylight saving time — EST/UTC-5 in winter, EDT/UTC-4 in
+// summer — so never hard-code the offset; let Intl resolve it per instant
+// (see tzOffsetMinutes). On Vercel the server process runs in UTC, so any
+// code that reaches for "today" via `setHours(0,0,0,0)` or
+// `new Date().getMonth()` is wrong for 4–5 hrs every evening (≈7–8 PM –
+// midnight Nassau = next-day UTC).
 //
 // Route all "what day is it for the business?" questions through here.
 // Pure UTC math is still fine for things that *are* genuinely UTC-anchored
@@ -93,6 +96,37 @@ export function formatDateTimeLocalInTZ(
   const w = wallClockParts(d, tz);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${w.year}-${pad(w.month)}-${pad(w.day)}T${pad(w.hour)}:${pad(w.minute)}`;
+}
+
+/**
+ * Format the time-of-day of an absolute instant as it reads on the wall
+ * clock in `tz` — e.g. "7:30 AM". Use this for any punch / clock display
+ * instead of `Date.prototype.toLocaleTimeString(undefined, …)`: the bare
+ * `undefined` locale falls back to the *runtime* timezone, which on
+ * Vercel is UTC, so a 7:30 AM Nassau punch would render as "11:30 AM".
+ * Pinning `timeZone` here is the whole point.
+ */
+export function formatTimeInTZ(d: Date, tz: string = APP_TZ): string {
+  return d.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: tz,
+  });
+}
+
+/**
+ * Format the calendar day of an absolute instant as a long, human label
+ * in `tz` — e.g. "Tuesday, June 2, 2026". Same UTC-fallback hazard as
+ * `formatTimeInTZ`; always pins `timeZone`.
+ */
+export function formatDateLongInTZ(d: Date, tz: string = APP_TZ): string {
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: tz,
+  });
 }
 
 /**

@@ -18,7 +18,7 @@ import {
 } from '@/lib/data/clock-events';
 import { listProjects } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
-import { startOfDayInTZ, endOfDayInTZ } from '@/lib/tz';
+import { startOfDayInTZ, endOfDayInTZ, formatTimeInTZ } from '@/lib/tz';
 import { ClockForm } from '@/modules/field/components/clock-form';
 
 export const dynamic = 'force-dynamic';
@@ -116,7 +116,7 @@ export default async function FieldClockPage({
           }
         >
           {isClockedIn
-            ? `Clocked in since ${latest!.occurredAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+            ? `Clocked in since ${formatTimeInTZ(latest!.occurredAt)}`
             : 'Not on the clock'}
         </p>
         {isClockedIn && latest?.projectId && (
@@ -153,16 +153,8 @@ export default async function FieldClockPage({
           </h2>
           <ul className="divide-y divide-slate-100">
             {sessions.map((s) => {
-              const inTime = s.in.occurredAt.toLocaleTimeString(undefined, {
-                hour: 'numeric',
-                minute: '2-digit',
-              });
-              const outTime = s.out
-                ? s.out.occurredAt.toLocaleTimeString(undefined, {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })
-                : 'now';
+              const inTime = formatTimeInTZ(s.in.occurredAt);
+              const outTime = s.out ? formatTimeInTZ(s.out.occurredAt) : 'now';
               const endTs = s.out ? s.out.occurredAt.getTime() : now.getTime();
               const mins = Math.max(
                 0,

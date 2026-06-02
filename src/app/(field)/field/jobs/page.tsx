@@ -10,6 +10,7 @@ import { getActiveEmployee } from '@/lib/active-employee';
 import { listAssignmentsForEmployeeDate } from '@/lib/data/project-assignments';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
+import { todayISOInTZ, formatDateLongInTZ } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,11 +19,11 @@ export default async function FieldJobsPage() {
   if (!employee) redirect('/field' as never);
   const companyId = await getActiveCompanyId();
 
-  // Local date in YYYY-MM-DD. We deliberately do NOT use toISOString
-  // here — that converts to UTC and would shift days at midnight local
-  // time. Build the string from local fields instead.
-  const now = new Date();
-  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  // Today's date (YYYY-MM-DD) in the business timezone. The server runs
+  // in UTC, so neither toISOString() NOR `now.getDate()` gives the Nassau
+  // calendar day — both shift a day early in the evening. todayISOInTZ
+  // resolves the wall-clock day in APP_TZ explicitly.
+  const todayIso = todayISOInTZ();
 
   const assignments = await listAssignmentsForEmployeeDate(
     employee.id,
@@ -46,11 +47,7 @@ export default async function FieldJobsPage() {
     }),
   );
 
-  const friendlyDate = now.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
+  const friendlyDate = formatDateLongInTZ(new Date());
 
   return (
     <div className="px-4 py-5 space-y-5">

@@ -41,6 +41,7 @@ import {
 import {
   APP_TZ,
   endOfDayInTZ,
+  formatTimeInTZ,
   startOfDayInTZ,
   todayISOInTZ,
 } from '@/lib/tz';
@@ -56,13 +57,9 @@ export const dynamic = 'force-dynamic';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function formatNassauTime(d: Date): string {
-  return d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: APP_TZ,
-  });
-}
+// Thin alias over the shared helper so this page reads naturally; the
+// timezone pinning lives in one place (src/lib/tz.ts).
+const formatNassauTime = formatTimeInTZ;
 
 function formatNassauDateLong(iso: string): string {
   const d = new Date(`${iso}T12:00:00Z`);
@@ -223,7 +220,7 @@ export default async function ClockReviewPage({
         <h1 className="text-2xl font-semibold text-slate-900">Time clock</h1>
         <p className="text-sm text-slate-500 mt-0.5">
           Review field punches before they post to payroll. All times in
-          Nassau (AST, UTC-4).
+          Nassau local time (America/Nassau).
         </p>
       </header>
 
