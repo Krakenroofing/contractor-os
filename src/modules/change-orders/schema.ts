@@ -60,12 +60,22 @@ const numericString = z
     message: 'Must be a non-negative number',
   });
 
+// Quantity and unit cost may be negative so a change order can record a
+// *scope reduction* / credit — e.g. a canceled portion that's being refunded
+// becomes a negative-total CO that lowers the project's revised contract.
+// Markup stays non-negative; a credit line carries the sign on qty or cost.
+const signedNumericString = z
+  .string()
+  .refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)), {
+    message: 'Must be a number',
+  });
+
 export const changeOrderLineSchema = z.object({
   costCodeId: z.string().uuid('Pick a cost code'),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
-  quantity: numericString,
-  unitCost: numericString,
+  quantity: signedNumericString,
+  unitCost: signedNumericString,
   markupPercent: numericString,
 });
 

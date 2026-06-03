@@ -267,7 +267,11 @@ export function ChangeOrdersListClient({ rows }: { rows: ChangeOrderRow[] }) {
                   <TableCell className="text-right tabular-nums text-slate-600">
                     {r.scheduleImpactDays}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium">
+                  <TableCell
+                    className={`text-right tabular-nums font-medium ${
+                      Number(r.total) < 0 ? 'text-red-600' : ''
+                    }`}
+                  >
                     {formatMoney(r.total)}
                   </TableCell>
                   <TableCell className="text-right">

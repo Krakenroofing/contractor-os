@@ -389,7 +389,7 @@ export function ChangeOrderForm({
         </div>
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-500">Total</p>
-          <p className="mt-0.5 text-base font-semibold tabular-nums">
+          <p className={`mt-0.5 text-base font-semibold tabular-nums ${totals.total < 0 ? 'text-red-600' : ''}`}>
             {formatMoney(totals.total)}
           </p>
         </div>

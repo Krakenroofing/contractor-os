@@ -138,8 +138,12 @@ export default async function ChangeOrderDetailPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">Amount</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(total)}</p>
-            <p className="mt-0.5 text-xs text-slate-500">customer-facing</p>
+            <p className={`mt-1 text-xl font-semibold tabular-nums ${total < 0 ? 'text-red-600' : ''}`}>
+              {formatMoney(total)}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {total < 0 ? 'credit / scope reduction' : 'customer-facing'}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -264,7 +268,9 @@ export default async function ChangeOrderDetailPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">Total</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(total)}</p>
+            <p className={`mt-1 text-xl font-semibold tabular-nums ${total < 0 ? 'text-red-600' : ''}`}>
+              {formatMoney(total)}
+            </p>
           </CardContent>
         </Card>
       </div>
