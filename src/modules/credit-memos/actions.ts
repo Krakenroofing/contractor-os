@@ -14,6 +14,7 @@ import {
   unapplyCreditMemoApplication,
   voidCreditMemo,
 } from '@/lib/data/credit-memos';
+import { createDeductChangeOrderForRefund } from '@/lib/data/change-orders';
 
 // ---------- Issue ----------
 
@@ -36,12 +37,22 @@ const issueSchema = z.object({
   // refund_cash:
   refundBankAccount: z.string().max(120).optional().or(z.literal('')),
   refundReference: z.string().max(120).optional().or(z.literal('')),
+  // refund_cash + a project in scope: also book a deduct change order that
+  // lowers the project's revised contract by the refund, and net the refund
+  // out of billed-net in reporting. Checkbox sends 'on' when checked.
+  recordAsContractReduction: z
+    .union([z.literal('on'), z.literal('')])
+    .optional(),
 });
 
 export type IssueCreditMemoState = {
   errors?: Record<string, string[]>;
   formError?: string;
   okCreditId?: string;
+  // When a deduct CO was auto-created, surface it so the dialog can confirm
+  // the contract reduction instead of nudging the operator to make one.
+  deductCONumber?: string;
+  deductCOId?: string;
 };
 
 export async function issueCreditMemoAction(
@@ -66,6 +77,7 @@ export async function issueCreditMemoAction(
     mode: formData.get('mode') ?? 'open',
     refundBankAccount: formData.get('refundBankAccount') ?? '',
     refundReference: formData.get('refundReference') ?? '',
+    recordAsContractReduction: formData.get('recordAsContractReduction') ?? '',
   });
   if (!parsed.success) {
     return { errors: parsed.error.flatten().fieldErrors };
@@ -82,21 +94,45 @@ export async function issueCreditMemoAction(
 
   const companyId = await getActiveCompanyId();
   const amountNum = Number(data.amount);
+  const projectId =
+    data.projectId && data.projectId !== '' ? data.projectId : null;
+  // Only refunds against a project can be booked as a contract reduction.
+  const reduceContract =
+    data.recordAsContractReduction === 'on' &&
+    data.mode === 'refund_cash' &&
+    !!projectId;
 
   // Create the credit memo (status=issued), then in the same flow either
   // apply it to the invoice or refund it. 'open' mode skips the second
-  // step — credit sits available on the customer.
+  // step — credit sits available on the customer. When the refund is a
+  // contract reduction, book the deduct CO first so we can link it.
   let createdId: string;
+  let deductCONumber: string | undefined;
+  let deductCOId: string | undefined;
   try {
+    let changeOrderId: string | null = null;
+    if (reduceContract && projectId) {
+      const co = await createDeductChangeOrderForRefund(companyId, {
+        projectId,
+        amount: amountNum,
+        issueDate: data.issueDate,
+        description: `Deduct CO — refund of canceled/reduced scope. ${data.reason}`,
+      });
+      changeOrderId = co.id;
+      deductCONumber = co.number;
+      deductCOId = co.id;
+    }
+
     const cm = await createCreditMemo(companyId, {
       customerId: data.customerId,
-      projectId: data.projectId && data.projectId !== '' ? data.projectId : null,
+      projectId,
       invoiceId: data.invoiceId && data.invoiceId !== '' ? data.invoiceId : null,
       issueDate: data.issueDate,
       amount: amountNum,
       reason: data.reason,
       notes: data.notes?.trim() || null,
       createdByUserId: user.id,
+      changeOrderId,
     });
     createdId = cm.id;
 
@@ -127,10 +163,12 @@ export async function issueCreditMemoAction(
   revalidatePath('/customers');
   revalidatePath('/dashboard');
   revalidatePath('/reports/accounts-receivable');
+  revalidatePath('/reports/customer-summary');
+  revalidatePath('/change-orders');
   if (data.invoiceId) revalidatePath(`/invoices/${data.invoiceId}`);
-  if (data.projectId) revalidatePath(`/projects/${data.projectId}`);
+  if (projectId) revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/customers/${data.customerId}`);
-  return { okCreditId: createdId };
+  return { okCreditId: createdId, deductCONumber, deductCOId };
 }
 
 // ---------- Apply to an existing invoice (later) ----------

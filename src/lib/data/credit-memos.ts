@@ -90,6 +90,10 @@ export type CreateCreditMemoInput = {
   reason: string;
   notes: string | null;
   createdByUserId: string | null;
+  // Set when this credit is a refund for a canceled/reduced scope that's
+  // also being booked as a deduct change order. Links the two so reporting
+  // nets the refund out of billed-net. null for goodwill / open credits.
+  changeOrderId?: string | null;
 };
 
 /**
@@ -130,6 +134,7 @@ export async function createCreditMemo(
       customerId: input.customerId,
       projectId: input.projectId,
       invoiceId: input.invoiceId,
+      changeOrderId: input.changeOrderId ?? null,
       number,
       issueDate: input.issueDate,
       amount: input.amount.toFixed(2),
@@ -317,6 +322,40 @@ export async function getInvoiceCreditApplicationsMap(
     .groupBy(creditMemoApplications.invoiceId);
   for (const r of rows) {
     if (r.invoiceId) map.set(r.invoiceId, Number(r.total));
+  }
+  return map;
+}
+
+/**
+ * Per-project sum of credit memos that are linked to a deduct change order
+ * (i.e. refunds for canceled/reduced scope). Reporting subtracts these from
+ * the project's billed-net so "still billable" stays coherent: the linked CO
+ * already lowered the revised contract by the same amount, and the original
+ * invoice is left intact at full value. Void credits are excluded.
+ */
+export async function getContractReductionRefundByProjectMap(
+  companyId: string,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!isDatabaseConfigured()) return map;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      projectId: creditMemos.projectId,
+      total: sql<string>`COALESCE(SUM(${creditMemos.amount}), 0)`,
+    })
+    .from(creditMemos)
+    .where(
+      and(
+        eq(creditMemos.companyId, companyId),
+        ne(creditMemos.status, 'void'),
+        sql`${creditMemos.changeOrderId} IS NOT NULL`,
+        sql`${creditMemos.projectId} IS NOT NULL`,
+      ),
+    )
+    .groupBy(creditMemos.projectId);
+  for (const r of rows) {
+    if (r.projectId) map.set(r.projectId, Number(r.total));
   }
   return map;
 }

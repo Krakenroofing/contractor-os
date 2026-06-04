@@ -111,23 +111,46 @@ export function IssueCreditMemoDialog({
               the relevant invoice / project pages will reflect the
               change.
             </div>
-            {scope.suggestDeductCO && scope.projectId && amount !== '' && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-3 text-amber-900 space-y-2">
+            {state.deductCONumber ? (
+              <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-3 text-emerald-900 space-y-2">
                 <p className="font-medium">
-                  Reduce contract value by a deduct change order?
+                  ✓ Deduct change order {state.deductCONumber} created
                 </p>
                 <p className="text-xs">
-                  Standard practice when a scope is canceled: issue a
-                  matching deduct CO of −${amount} so the project&apos;s
-                  revised contract value stays in sync.
+                  {scope.projectName ? <strong>{scope.projectName}</strong> : 'The project'}
+                  &apos;s revised contract was reduced by the refund, and
+                  reporting now nets it out of billed so &quot;still
+                  billable&quot; stays balanced.
                 </p>
-                <a
-                  href={`/change-orders/new?projectId=${scope.projectId}&amount=-${amount}`}
-                  className="inline-block text-blue-700 hover:underline text-xs font-medium"
-                >
-                  Open deduct CO form pre-filled →
-                </a>
+                {state.deductCOId && (
+                  <a
+                    href={`/change-orders/${state.deductCOId}`}
+                    className="inline-block text-blue-700 hover:underline text-xs font-medium"
+                  >
+                    View change order →
+                  </a>
+                )}
               </div>
+            ) : (
+              scope.suggestDeductCO && scope.projectId && amount !== '' && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-3 text-amber-900 space-y-2">
+                  <p className="font-medium">
+                    Reduce contract value by a deduct change order?
+                  </p>
+                  <p className="text-xs">
+                    This refund wasn&apos;t booked as a contract reduction. If
+                    the scope was canceled, add a matching deduct CO of −$
+                    {amount} so {scope.projectName ?? 'the project'}&apos;s
+                    revised contract stays in sync.
+                  </p>
+                  <a
+                    href={`/change-orders/new?projectId=${scope.projectId}`}
+                    className="inline-block text-blue-700 hover:underline text-xs font-medium"
+                  >
+                    Open the change order form →
+                  </a>
+                </div>
+              )
             )}
             <div className="flex justify-end pt-2 border-t border-slate-200">
               <Button type="button" onClick={() => setOpen(false)}>
@@ -244,23 +267,50 @@ export function IssueCreditMemoDialog({
             </div>
 
             {mode === 'refund_cash' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 pt-4">
-                <div className="space-y-1.5">
-                  <Label>Bank account (optional)</Label>
-                  <Input
-                    name="refundBankAccount"
-                    placeholder="Operating · Royal Bank #1234"
-                    maxLength={120}
-                  />
+              <div className="border-t border-slate-200 pt-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Bank account (optional)</Label>
+                    <Input
+                      name="refundBankAccount"
+                      placeholder="Operating · Royal Bank #1234"
+                      maxLength={120}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Check / wire reference (optional)</Label>
+                    <Input
+                      name="refundReference"
+                      placeholder="Check #1042"
+                      maxLength={120}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Check / wire reference (optional)</Label>
-                  <Input
-                    name="refundReference"
-                    placeholder="Check #1042"
-                    maxLength={120}
-                  />
-                </div>
+                {scope.projectId && (
+                  <label className="flex items-start gap-2 rounded-md bg-slate-50 border border-slate-200 px-3 py-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="recordAsContractReduction"
+                      defaultChecked={!!scope.suggestDeductCO}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span className="text-xs text-slate-700">
+                      <strong className="text-slate-900">
+                        Record as a contract reduction (deduct change order)
+                      </strong>
+                      <br />
+                      Books a matching −{amount || '0.00'} change order on{' '}
+                      {scope.projectName ? (
+                        <strong>{scope.projectName}</strong>
+                      ) : (
+                        'the project'
+                      )}
+                      , lowering its revised contract. Reporting nets the refund
+                      out of billed so &quot;still billable&quot; stays balanced.
+                      Leave unchecked for a goodwill / pricing-correction refund.
+                    </span>
+                  </label>
+                )}
               </div>
             )}
 

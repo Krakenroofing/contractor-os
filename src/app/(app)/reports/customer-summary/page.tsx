@@ -92,7 +92,13 @@ export default async function CustomerSummaryReportPage({
                     ? 'text-slate-900'
                     : 'text-emerald-700'
               }
-              hint="Revised contract − billed (net)"
+              hint={
+                report.totals.refundsCredited > 0
+                  ? `Revised contract − billed (net), net of ${formatMoney(
+                      report.totals.refundsCredited,
+                    )} refunded`
+                  : 'Revised contract − billed (net)'
+              }
             />
             <KPI
               label="Collected (gross)"
@@ -201,6 +207,11 @@ export default async function CustomerSummaryReportPage({
                         }`}
                       >
                         {formatMoney(r.stillBillable)}
+                        {r.refundsCredited > 0 && (
+                          <span className="block text-[10px] font-normal text-slate-400">
+                            net of {formatMoney(r.refundsCredited)} refunded
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${
@@ -361,7 +372,10 @@ export default async function CustomerSummaryReportPage({
             <strong>Still billable</strong> = revised contract − billed{' '}
             <em>net</em> — net vs net, because VAT is a separate liability
             collected on behalf of the government and is not part of contract
-            scope. Negative means over-billed.{' '}
+            scope. Negative means over-billed. When a canceled/reduced scope is
+            refunded and booked as a deduct change order, that refund is netted
+            back out of billed here (the deduct CO already lowered the revised
+            contract by the same amount), so the two sides stay balanced.{' '}
             <strong>Collected (gross)</strong> includes VAT received; the
             net + VAT breakdown is shown beneath.{' '}
             <strong>Outstanding AR</strong> = billed − collected (both gross).

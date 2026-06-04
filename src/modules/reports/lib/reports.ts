@@ -32,6 +32,7 @@ import {
 } from '@/lib/data/purchase-orders';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import { listChangeOrders } from '@/lib/data/change-orders';
+import { getContractReductionRefundByProjectMap } from '@/lib/data/credit-memos';
 import { getVendor, listVendors } from '@/lib/data/vendors';
 // listVendors is consumed by the VAT-quarterly expenses pane (Phase B).
 import {
@@ -1483,12 +1484,19 @@ export type CustomerProjectRow = {
   totalInvoicedVat: number;
   baseInvoiced: number;
   coInvoiced: number;
-  /** Revised contract − billed (NET, ex-VAT). Apples-to-apples comparison:
-   *  the contract amount is the net the customer owes for work, and the
-   *  net billed is what we've invoiced for that work — VAT is a separate
-   *  liability collected on behalf of the government and is never part of
-   *  "what's left to bill on the job". Negative means over-billed against
-   *  the revised contract. */
+  /** NET refunds (canceled/reduced scope) booked as deduct change orders on
+   *  this project. The matching CO already lowered the revised contract by
+   *  this amount; this nets the same amount out of billed when computing
+   *  stillBillable so the two sides stay balanced. */
+  refundsCredited: number;
+  /** Revised contract − billed (NET, ex-VAT), net of scope-reduction refunds.
+   *  Apples-to-apples comparison: the contract amount is the net the customer
+   *  owes for work, and the net billed is what we've invoiced for that work —
+   *  VAT is a separate liability collected on behalf of the government and is
+   *  never part of "what's left to bill on the job". A refund for canceled
+   *  scope drops both the revised contract (via the deduct CO) and billed-net
+   *  (via refundsCredited) equally, so it nets to zero here. Negative means
+   *  over-billed against the revised contract. */
   stillBillable: number;
   totalPaid: number;
   totalPaidNet: number;
@@ -1533,6 +1541,7 @@ export type CustomerSummaryReport = {
     totalInvoicedVat: number;
     baseInvoiced: number;
     coInvoiced: number;
+    refundsCredited: number;
     stillBillable: number;
     totalPaid: number;
     totalPaidNet: number;
@@ -1568,6 +1577,7 @@ export async function buildCustomerSummaryReport(
         totalInvoicedVat: 0,
         baseInvoiced: 0,
         coInvoiced: 0,
+        refundsCredited: 0,
         stillBillable: 0,
         totalPaid: 0,
         totalPaidNet: 0,
@@ -1586,6 +1596,9 @@ export async function buildCustomerSummaryReport(
   const projects = allProjects.filter((p) => p.customerId === customer.id);
   const changeOrders = await listChangeOrders(companyId);
   const coById = new Map(changeOrders.map((co) => [co.id, co]));
+  // NET refunds booked as deduct COs, per project — netted out of billed so
+  // a canceled-scope refund doesn't make "still billable" go negative.
+  const refundByProject = await getContractReductionRefundByProjectMap(companyId);
 
   const projectRows: CustomerProjectRow[] = [];
   const invoiceRows: CustomerInvoiceRow[] = [];
@@ -1632,12 +1645,19 @@ export async function buildCustomerSummaryReport(
     const contractValue = parseMoney(p.originalContractValue);
     const revisedContractValue = parseMoney(p.contractValue);
     const changeOrdersTotal = subtract(revisedContractValue, contractValue);
+    // Scope-reduction refunds (booked as deduct COs) net out of billed: the
+    // matching CO already pulled this amount out of the revised contract, and
+    // the original invoice stays intact at full value, so without this the
+    // refund would show as over-billing.
+    const refundsCredited = round2(refundByProject.get(p.id) ?? 0);
     // Contract values are stored NET (ex-VAT) because VAT is not part of
     // the contracted scope — it's an additional liability collected on
     // each invoice. Comparing the net contract against gross billed makes
     // every VAT-active project look over-billed by the VAT amount, so the
     // comparison must be net-vs-net.
-    const stillBillable = round2(subtract(revisedContractValue, totalInvoicedNet));
+    const stillBillable = round2(
+      subtract(revisedContractValue, subtract(totalInvoicedNet, refundsCredited)),
+    );
 
     projectRows.push({
       projectId: p.id,
@@ -1651,6 +1671,7 @@ export async function buildCustomerSummaryReport(
       totalInvoicedVat: round2(totalInvoicedVat),
       baseInvoiced: round2(bySource.base.totalInvoiced),
       coInvoiced: round2(coTotals.invoiced),
+      refundsCredited,
       stillBillable,
       totalPaid: round2(totalPaid),
       totalPaidNet: round2(totalPaidNet),
@@ -1705,6 +1726,7 @@ export async function buildCustomerSummaryReport(
       totalInvoicedVat: add(acc.totalInvoicedVat, r.totalInvoicedVat),
       baseInvoiced: add(acc.baseInvoiced, r.baseInvoiced),
       coInvoiced: add(acc.coInvoiced, r.coInvoiced),
+      refundsCredited: add(acc.refundsCredited, r.refundsCredited),
       stillBillable: add(acc.stillBillable, r.stillBillable),
       totalPaid: add(acc.totalPaid, r.totalPaid),
       totalPaidNet: add(acc.totalPaidNet, r.totalPaidNet),
@@ -1725,6 +1747,7 @@ export async function buildCustomerSummaryReport(
       totalInvoicedVat: 0,
       baseInvoiced: 0,
       coInvoiced: 0,
+      refundsCredited: 0,
       stillBillable: 0,
       totalPaid: 0,
       totalPaidNet: 0,

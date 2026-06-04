@@ -13,6 +13,7 @@ import { companies } from './companies';
 import { customers } from './customers';
 import { projects } from './projects';
 import { invoices } from './invoices';
+import { changeOrders } from './change-orders';
 import { users } from './users';
 import {
   creditMemoApplicationKindEnum,
@@ -50,6 +51,15 @@ export const creditMemos = pgTable(
     invoiceId: uuid('invoice_id').references(() => invoices.id, {
       onDelete: 'set null',
     }),
+    // Deduct change order spawned from this credit when it's a refund for a
+    // canceled / reduced scope. When set, the credit represents work that was
+    // billed and then refunded, so reporting nets its amount out of the
+    // project's billed-net (the CO already lowers the revised contract by the
+    // same amount). NULL for goodwill / pricing-correction credits, which
+    // shouldn't move the contract or billed totals.
+    changeOrderId: uuid('change_order_id').references(() => changeOrders.id, {
+      onDelete: 'set null',
+    }),
     number: text('number').notNull(),
     issueDate: date('issue_date').notNull(),
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
@@ -80,6 +90,7 @@ export const creditMemos = pgTable(
     customerIdx: index('credit_memos_customer_idx').on(t.customerId),
     projectIdx: index('credit_memos_project_idx').on(t.projectId),
     invoiceIdx: index('credit_memos_invoice_idx').on(t.invoiceId),
+    changeOrderIdx: index('credit_memos_change_order_idx').on(t.changeOrderId),
     // Partial index for the "what does this customer have open?" lookup
     // that feeds the AR-aging net-out and the customer-detail tile.
     customerOpenIdx: index('credit_memos_customer_open_idx')

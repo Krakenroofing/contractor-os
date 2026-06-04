@@ -289,6 +289,60 @@ export async function createChangeOrder(
   return mockCreate(companyId, input);
 }
 
+/**
+ * Next "CO-YYYY-NNN" number for this company. Mirrors the helper on the
+ * new-CO page so auto-created deduct COs share the operator's sequence.
+ */
+export async function nextChangeOrderNumber(companyId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const existing = await listChangeOrders(companyId, { includeVoided: true });
+  const prefix = `CO-${year}-`;
+  const matching = existing
+    .map((c) => c.number)
+    .filter((n) => n.startsWith(prefix))
+    .map((n) => Number(n.slice(prefix.length)))
+    .filter((n) => Number.isFinite(n));
+  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
+  return `${prefix}${String(next).padStart(3, '0')}`;
+}
+
+/**
+ * Create an approved *deduct* (negative) change order that records a
+ * canceled / reduced scope being refunded. `amount` is the positive refund
+ * value (net of VAT, matching how contracts are stored); the CO is booked at
+ * −amount so it lowers the project's revised contract value. No line items —
+ * the credit is a single header-level reduction, described in `description`.
+ *
+ * Returns the created CO. The caller links it onto the credit memo.
+ */
+export async function createDeductChangeOrderForRefund(
+  companyId: string,
+  input: {
+    projectId: string;
+    amount: number;
+    issueDate: string;
+    description: string;
+  },
+): Promise<ChangeOrder> {
+  const negativeTotal = (-Math.abs(input.amount)).toFixed(2);
+  const number = await nextChangeOrderNumber(companyId);
+  return await createChangeOrder(companyId, {
+    number,
+    projectId: input.projectId,
+    proposalId: null,
+    status: 'approved',
+    reason: 'scope_change',
+    description: input.description,
+    scheduleImpactDays: 0,
+    submittedAt: input.issueDate,
+    approvedAt: input.issueDate,
+    customerSignedName: null,
+    subtotal: negativeTotal,
+    total: negativeTotal,
+    lines: [],
+  });
+}
+
 export type UpdateChangeOrderInput = Omit<CreateChangeOrderInput, 'number'> & {
   number: string;
 };
