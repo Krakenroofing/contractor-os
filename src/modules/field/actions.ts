@@ -104,14 +104,18 @@ export async function punchInAction(
     return { formError: 'Invalid punch data. Please reload and try again.' };
   }
 
-  // A job is required to clock IN — otherwise the time lands as overhead
-  // and someone has to recode it later on /clock. Enforced here (not just
-  // in the UI) because the field Select renders its required flag on a
-  // hidden input, which browsers skip during constraint validation.
-  if (!parsed.data.projectId) {
+  // Job vs. overhead is an explicit toggle on the field clock screen. In
+  // "job" mode a project is required — otherwise the time silently lands as
+  // overhead and has to be hand-recoded on /clock. In "overhead" mode the
+  // worker is deliberately on yard / general time, so an empty projectId is
+  // allowed and stored as null below. Enforced here (not just the UI)
+  // because the field Select renders its required flag on a hidden input,
+  // which browsers skip during constraint validation.
+  const isOverhead = formData.get('mode') === 'overhead';
+  if (!isOverhead && !parsed.data.projectId) {
     return {
       formError:
-        'Pick the job you’re working on before you clock in. If you’re not on a specific job, ask your supervisor which to use.',
+        'Pick the job you’re working on, or switch to Overhead if you’re on yard / general time.',
     };
   }
 

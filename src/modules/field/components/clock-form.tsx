@@ -36,6 +36,12 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
     'idle' | 'requesting' | 'ready' | 'denied' | 'unavailable'
   >('idle');
 
+  // Job vs. overhead is an explicit choice when clocking in. Defaults to
+  // "job" so the common case is one tap; "overhead" is the deliberate
+  // yard / general path. Only surfaced when not already clocked in —
+  // clock-out always carries the open session's project forward.
+  const [mode, setMode] = useState<'job' | 'overhead'>('job');
+
   // Fire-and-forget geolocation request when the page mounts. The OS
   // permission prompt happens here (not on button tap) so the punch
   // itself feels instantaneous — by the time the user taps the button,
@@ -90,28 +96,81 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
       <input type="hidden" name="gpsLng" defaultValue="" />
       <input type="hidden" name="gpsAccuracyM" defaultValue="" />
 
-      <div className="space-y-1">
-        <Label htmlFor="projectId" className="text-xs">
-          {isClockedIn ? 'Project (carry forward if blank)' : 'Project (required)'}
-        </Label>
-        <Select
-          name="projectId"
-          id="projectId"
-          defaultValue={defaultProjectId ?? ''}
-          required={!isClockedIn}
-        >
-          <option value="">
-            {isClockedIn
-              ? '— Same job (carry forward) —'
-              : '— Pick a job —'}
-          </option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </Select>
-      </div>
+      {isClockedIn ? (
+        // Clock-out: single picker. Blank carries the open session's
+        // project forward; picking a job overrides it for the out punch.
+        <div className="space-y-1">
+          <Label htmlFor="projectId" className="text-xs">
+            Project (carry forward if blank)
+          </Label>
+          <Select
+            name="projectId"
+            id="projectId"
+            defaultValue={defaultProjectId ?? ''}
+          >
+            <option value="">— Same job (carry forward) —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Job | Overhead toggle. The hidden `mode` input lets the
+              server distinguish "deliberately on overhead" from "forgot to
+              pick a job" — only the latter is rejected. */}
+          <input type="hidden" name="mode" value={mode} />
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+            {(['job', 'overhead'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={
+                  'h-10 rounded-md text-sm font-medium capitalize transition ' +
+                  (mode === m
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700')
+                }
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'job' ? (
+            <div className="space-y-1">
+              <Label htmlFor="projectId" className="text-xs">
+                Project (required)
+              </Label>
+              <Select
+                name="projectId"
+                id="projectId"
+                defaultValue={defaultProjectId ?? ''}
+                required
+              >
+                <option value="">— Pick a job —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label className="text-xs">Overhead</Label>
+              {/* Empty projectId → stored as null (overhead) server-side. */}
+              <input type="hidden" name="projectId" value="" />
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                Yard / general — not on a specific job.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1">
         <Label htmlFor="notes" className="text-xs">
