@@ -20,6 +20,7 @@ import type {
   AccountingAccount,
   BankAccount,
   ImportedTransaction,
+  ImportedTransactionLine,
   Invoice,
   InvoicePayment,
   Receipt,
@@ -44,7 +45,8 @@ export type JournalEntryRow = {
     | 'invoice_payment'
     | 'transfer'
     | 'owner_contribution'
-    | 'owner_draw';
+    | 'owner_draw'
+    | 'bank_expense';
   /** Source row id (receipt.id / invoice_payment.id / imported_transactions.id). */
   sourceRefId: string;
   /** Optional reference for the accountant — invoice number, vendor invoice, etc. */
@@ -63,6 +65,8 @@ export type BuildJournalInput = {
   accountingAccounts: AccountingAccount[];
   vendors: Vendor[];
   importedTransactions: ImportedTransaction[];
+  /** Split lines for the imported transactions above (empty for unsplit). */
+  importedTransactionLines: ImportedTransactionLine[];
   /** Active (non-reversed) matches. */
   transactionMatches: TransactionMatch[];
 };
@@ -136,6 +140,12 @@ export function buildJournalEntries(
   const vendorById = new Map(input.vendors.map((v) => [v.id, v]));
   const invoiceById = new Map(input.invoices.map((i) => [i.id, i]));
   const txnById = new Map(input.importedTransactions.map((t) => [t.id, t]));
+  const linesByTxn = new Map<string, ImportedTransactionLine[]>();
+  for (const ln of input.importedTransactionLines) {
+    const arr = linesByTxn.get(ln.importedTransactionId) ?? [];
+    arr.push(ln);
+    linesByTxn.set(ln.importedTransactionId, arr);
+  }
 
   // Default category fallbacks (used when a receipt has no
   // accountingAccountId set — happens for old/quick receipts).
@@ -394,6 +404,57 @@ export function buildJournalEntries(
         reference: '',
       });
     }
+  }
+
+  // ===== Split bank expenses =====
+  // A categorized split of a money-out bank transaction posts like
+  // QuickBooks: debit each cost / VAT-input line, credit the bank for the
+  // gross. Only SPLIT transactions are emitted (single-category bank rows
+  // aren't posted yet). Skip ignored rows, and skip already-reconciled rows —
+  // a matched receipt/payment already represents that entry, so emitting here
+  // too would double-count.
+  for (const t of input.importedTransactions) {
+    const tLines = linesByTxn.get(t.id);
+    if (!tLines || tLines.length === 0) continue;
+    if (t.isIgnored) continue;
+    if (t.reconciledAt) continue;
+    const amt = Number(t.amount);
+    if (!(amt < 0)) continue; // expenses (money out) only
+    if (!inRange(t.transactionDate, input.fromDate, input.toDate)) continue;
+
+    const gross = round2(Math.abs(amt));
+    const bankLabel = bankAccountLabel(bankById.get(t.bankAccountId), coaById);
+    const vendor = t.vendorId ? vendorById.get(t.vendorId) : null;
+    const who = vendor?.name ?? t.payee ?? t.description;
+    const memo = `Bank expense — ${who}`.slice(0, 140);
+
+    const ordered = [...tLines].sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const ln of ordered) {
+      rows.push({
+        date: t.transactionDate,
+        memo,
+        account: accountLabelById(
+          ln.accountingAccountId,
+          coaById,
+          expenseFallbackLabel,
+        ),
+        debit: toMoneyString(round2(Number(ln.amount))),
+        credit: '',
+        source: 'bank_expense',
+        sourceRefId: t.id,
+        reference: ln.description ?? '',
+      });
+    }
+    rows.push({
+      date: t.transactionDate,
+      memo,
+      account: bankLabel,
+      debit: '',
+      credit: toMoneyString(gross),
+      source: 'bank_expense',
+      sourceRefId: t.id,
+      reference: '',
+    });
   }
 
   // Sort by date ASC, then preserve source emit order (stable).

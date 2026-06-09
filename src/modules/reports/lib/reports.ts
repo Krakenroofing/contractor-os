@@ -35,7 +35,11 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { getContractReductionRefundByProjectMap } from '@/lib/data/credit-memos';
 import { getVendor, listVendors } from '@/lib/data/vendors';
 // listVendors is consumed by the VAT-quarterly expenses pane (Phase B).
-import { listImportedTransactions } from '@/lib/data/statement-imports';
+import {
+  listImportedTransactions,
+  listLinesForTransactionIds,
+} from '@/lib/data/statement-imports';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import {
   computeProjectFinancials,
   computeProjectCostCodeBreakdown,
@@ -441,7 +445,7 @@ export async function buildVendorVatReport(
   companyId: string,
   filters: ReportFilters,
 ): Promise<VendorVatReport> {
-  const [company, vendors, txns] = await Promise.all([
+  const [company, vendors, txns, accounts] = await Promise.all([
     getCompany(companyId),
     listVendors(companyId),
     listImportedTransactions(companyId, {
@@ -449,10 +453,27 @@ export async function buildVendorVatReport(
       toDate: filters.to || undefined,
       includeIgnored: false,
     }),
+    listAccountingAccounts(companyId),
   ]);
 
+  // Split lines let us read the ACTUAL booked VAT (honoring manual overrides)
+  // instead of always deriving it from the vendor rate.
+  const vatInputAccountIds = new Set(
+    accounts.filter((a) => a.type === 'vat_input').map((a) => a.id),
+  );
+  const allLines = await listLinesForTransactionIds(
+    companyId,
+    txns.map((t) => t.id),
+  );
+  const linesByTxn = new Map<string, typeof allLines>();
+  for (const ln of allLines) {
+    const arr = linesByTxn.get(ln.importedTransactionId) ?? [];
+    arr.push(ln);
+    linesByTxn.set(ln.importedTransactionId, arr);
+  }
+
   const vendorById = new Map(vendors.map((v) => [v.id, v]));
-  const agg = new Map<string, { gross: number; count: number }>();
+  const agg = new Map<string, { gross: number; vat: number; count: number }>();
   let totalExpenseGross = 0;
   let nonVatVendorGross = 0;
   let unassignedGross = 0;
@@ -475,26 +496,41 @@ export async function buildVendorVatReport(
       nonVatVendorGross = add(nonVatVendorGross, gross);
       continue;
     }
-    const cur = agg.get(t.vendorId) ?? { gross: 0, count: 0 };
+
+    // Split → sum the VAT-Input line(s) actually booked; otherwise derive
+    // the VAT from the vendor's rate on the gross.
+    const txnLines = linesByTxn.get(t.id) ?? [];
+    let vat: number;
+    if (txnLines.length > 0) {
+      vat = 0;
+      for (const ln of txnLines) {
+        if (ln.accountingAccountId && vatInputAccountIds.has(ln.accountingAccountId)) {
+          vat = add(vat, parseMoney(ln.amount));
+        }
+      }
+    } else {
+      vat = round2(subtract(gross, gross / (1 + rate / 100)));
+    }
+
+    const cur = agg.get(t.vendorId) ?? { gross: 0, vat: 0, count: 0 };
     cur.gross = add(cur.gross, gross);
+    cur.vat = add(cur.vat, vat);
     cur.count += 1;
     agg.set(t.vendorId, cur);
   }
 
   const rows: VendorVatRow[] = [];
-  for (const [vendorId, { gross, count }] of agg) {
+  for (const [vendorId, { gross, vat, count }] of agg) {
     const v = vendorById.get(vendorId)!;
     const rate = Number(v.vatRatePercent);
-    const net = round2(gross / (1 + rate / 100));
-    const vat = round2(subtract(gross, net));
     rows.push({
       vendorId,
       vendorName: v.name,
       ratePercent: rate,
       transactionCount: count,
       gross: round2(gross),
-      net,
-      vat,
+      net: round2(subtract(gross, vat)),
+      vat: round2(vat),
     });
   }
   rows.sort((a, b) => b.gross - a.gross);

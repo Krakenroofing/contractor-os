@@ -8,7 +8,10 @@ import { listInvoices } from '@/lib/data/invoices';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listVendors } from '@/lib/data/vendors';
-import { listImportedTransactions } from '@/lib/data/statement-imports';
+import {
+  listImportedTransactions,
+  listLinesForTransactionIds,
+} from '@/lib/data/statement-imports';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { buildJournalEntries } from '@/modules/exports/lib/journal-entries';
 import {
@@ -56,6 +59,11 @@ export async function GET(req: NextRequest) {
     listActiveMatchesForCompany(companyId),
   ]);
 
+  const importedTransactionLines = await listLinesForTransactionIds(
+    companyId,
+    importedTransactions.map((t) => t.id),
+  );
+
   const journalRows = buildJournalEntries({
     fromDate: from || undefined,
     toDate: to || undefined,
@@ -67,6 +75,7 @@ export async function GET(req: NextRequest) {
     accountingAccounts,
     vendors,
     importedTransactions,
+    importedTransactionLines,
     transactionMatches,
   });
 
