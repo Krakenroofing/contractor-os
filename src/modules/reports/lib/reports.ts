@@ -35,6 +35,7 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { getContractReductionRefundByProjectMap } from '@/lib/data/credit-memos';
 import { getVendor, listVendors } from '@/lib/data/vendors';
 // listVendors is consumed by the VAT-quarterly expenses pane (Phase B).
+import { listImportedTransactions } from '@/lib/data/statement-imports';
 import {
   computeProjectFinancials,
   computeProjectCostCodeBreakdown,
@@ -394,6 +395,136 @@ export async function buildVatQuarterlyReport(
     invoices: cleanRows,
     expenses: expenseRows,
     totals,
+  };
+}
+
+// ===== Vendor VAT Breakdown =====
+//
+// Groups bank-feed expenses by vendor and, for VAT-registered vendors,
+// extracts the input VAT from the gross amount paid:
+//   net (material) = gross / (1 + rate/100);   vat = gross - net.
+// Only money-out transactions (amount < 0) count. A vendor is "VAT-registered"
+// when vendors.vat_rate_percent is set and > 0. Expenses with no vendor, or a
+// vendor with no rate, are excluded from the VAT rows but summarized under
+// `coverage` so the operator can see how complete the vendor tagging is.
+
+export type VendorVatRow = {
+  vendorId: string;
+  vendorName: string;
+  ratePercent: number;
+  transactionCount: number;
+  gross: number; // total paid (VAT-inclusive)
+  net: number; // material cost, ex-VAT
+  vat: number; // input VAT paid
+};
+
+export type VendorVatReport = {
+  companyName: string;
+  rows: VendorVatRow[];
+  totals: {
+    transactionCount: number;
+    gross: number;
+    net: number;
+    vat: number;
+  };
+  // How much of the period's expense spend the VAT rows actually cover.
+  coverage: {
+    totalExpenseGross: number; // all money-out in range
+    vatVendorGross: number; // attributed to VAT vendors (= totals.gross)
+    nonVatVendorGross: number; // assigned to a vendor with no VAT rate
+    unassignedGross: number; // no vendor picked on the expense
+    unassignedCount: number;
+  };
+};
+
+export async function buildVendorVatReport(
+  companyId: string,
+  filters: ReportFilters,
+): Promise<VendorVatReport> {
+  const [company, vendors, txns] = await Promise.all([
+    getCompany(companyId),
+    listVendors(companyId),
+    listImportedTransactions(companyId, {
+      fromDate: filters.from || undefined,
+      toDate: filters.to || undefined,
+      includeIgnored: false,
+    }),
+  ]);
+
+  const vendorById = new Map(vendors.map((v) => [v.id, v]));
+  const agg = new Map<string, { gross: number; count: number }>();
+  let totalExpenseGross = 0;
+  let nonVatVendorGross = 0;
+  let unassignedGross = 0;
+  let unassignedCount = 0;
+
+  for (const t of txns) {
+    const amt = parseMoney(t.amount);
+    if (amt >= 0) continue; // expenses only — ignore deposits / money-in
+    const gross = Math.abs(amt);
+    totalExpenseGross = add(totalExpenseGross, gross);
+
+    if (!t.vendorId) {
+      unassignedGross = add(unassignedGross, gross);
+      unassignedCount += 1;
+      continue;
+    }
+    const v = vendorById.get(t.vendorId);
+    const rate = v?.vatRatePercent ? Number(v.vatRatePercent) : 0;
+    if (!v || !(rate > 0)) {
+      nonVatVendorGross = add(nonVatVendorGross, gross);
+      continue;
+    }
+    const cur = agg.get(t.vendorId) ?? { gross: 0, count: 0 };
+    cur.gross = add(cur.gross, gross);
+    cur.count += 1;
+    agg.set(t.vendorId, cur);
+  }
+
+  const rows: VendorVatRow[] = [];
+  for (const [vendorId, { gross, count }] of agg) {
+    const v = vendorById.get(vendorId)!;
+    const rate = Number(v.vatRatePercent);
+    const net = round2(gross / (1 + rate / 100));
+    const vat = round2(subtract(gross, net));
+    rows.push({
+      vendorId,
+      vendorName: v.name,
+      ratePercent: rate,
+      transactionCount: count,
+      gross: round2(gross),
+      net,
+      vat,
+    });
+  }
+  rows.sort((a, b) => b.gross - a.gross);
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      transactionCount: acc.transactionCount + r.transactionCount,
+      gross: add(acc.gross, r.gross),
+      net: add(acc.net, r.net),
+      vat: add(acc.vat, r.vat),
+    }),
+    { transactionCount: 0, gross: 0, net: 0, vat: 0 },
+  );
+
+  return {
+    companyName: company?.name ?? '',
+    rows,
+    totals: {
+      transactionCount: totals.transactionCount,
+      gross: round2(totals.gross),
+      net: round2(totals.net),
+      vat: round2(totals.vat),
+    },
+    coverage: {
+      totalExpenseGross: round2(totalExpenseGross),
+      vatVendorGross: round2(totals.gross),
+      nonVatVendorGross: round2(nonVatVendorGross),
+      unassignedGross: round2(unassignedGross),
+      unassignedCount,
+    },
   };
 }
 

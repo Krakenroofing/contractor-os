@@ -25,6 +25,7 @@ export const REPORT_TYPES = [
   'purchase-orders',
   'landed-cost',
   'vat-quarterly',
+  'vendor-vat',
   'customer-summary',
   'nib-monthly',
   'payroll-summary',
@@ -43,6 +44,7 @@ export const REPORT_LABEL: Record<ReportType, string> = {
   'purchase-orders': 'Purchase Order Summary',
   'landed-cost': 'Landed Cost Summary',
   'vat-quarterly': 'VAT Quarterly Report',
+  'vendor-vat': 'Vendor VAT Breakdown',
   'customer-summary': 'Customer Summary Report',
   'nib-monthly': 'NIB Monthly Report (C-10)',
   'payroll-summary': 'Payroll Summary Report',
@@ -71,6 +73,8 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
     'Landed-cost imports with CIF, duty, VAT, and per-unit cost.',
   'vat-quarterly':
     'Accrual-basis VAT liability by quarter — every sent invoice with VAT, grouped by quarter of sent date.',
+  'vendor-vat':
+    'Bank-feed expenses grouped by VAT-registered vendor. For each, splits gross spend into material cost (ex-VAT) and VAT paid using the vendor’s rate. Requires the vendor (payee) to be set on each expense.',
   'customer-summary':
     'Pick a customer — see every project they own with contract, billed, still billable, collected, and a list of their invoices.',
   'nib-monthly':
@@ -103,6 +107,7 @@ export const REPORT_SUPPORTS_PROJECT_FILTER: Record<ReportType, boolean> = {
   'purchase-orders': true,
   'landed-cost': true,
   'vat-quarterly': false,
+  'vendor-vat': false,
   'customer-summary': false,
   'nib-monthly': false,
   'payroll-summary': false,
@@ -125,6 +130,7 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'purchase-orders': false,
   'landed-cost': false,
   'vat-quarterly': false,
+  'vendor-vat': false,
   'customer-summary': true,
   'nib-monthly': false,
   'payroll-summary': false,
