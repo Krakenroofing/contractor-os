@@ -47,6 +47,7 @@ function readForm(formData: FormData) {
     postalCode: formData.get('postalCode') ?? '',
     defaultTerms: formData.get('defaultTerms') ?? '',
     notes: formData.get('notes') ?? '',
+    vatRatePercent: formData.get('vatRatePercent') ?? '',
     // Vendor defaults
     defaultCostCodeId: formData.get('defaultCostCodeId') ?? '',
     defaultCostType: formData.get('defaultCostType') ?? '',
@@ -90,6 +91,7 @@ export async function createVendorAction(
       isSubcontractor: data.vendorType === 'subcontractor',
       w9OnFile: false,
       notes: emptyToNull(data.notes ?? null),
+      vatRatePercent: data.vatRatePercent,
       defaultCostCodeId: data.defaultCostCodeId,
       defaultCostType: data.defaultCostType,
       defaultAccountingAccountId: data.defaultAccountingAccountId,
@@ -144,6 +146,7 @@ export async function updateVendorAction(
       defaultTerms: emptyToNull(data.defaultTerms ?? null),
       isSubcontractor: data.vendorType === 'subcontractor',
       notes: emptyToNull(data.notes ?? null),
+      vatRatePercent: data.vatRatePercent,
       defaultCostCodeId: data.defaultCostCodeId,
       defaultCostType: data.defaultCostType,
       defaultAccountingAccountId: data.defaultAccountingAccountId,

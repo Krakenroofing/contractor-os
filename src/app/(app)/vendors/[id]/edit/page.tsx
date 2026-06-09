@@ -68,6 +68,7 @@ export default async function EditVendorPage({
           postalCode: vendor.postalCode ?? '',
           defaultTerms: vendor.defaultTerms ?? '',
           notes: vendor.notes ?? '',
+          vatRatePercent: vendor.vatRatePercent ?? '',
           defaultCostCodeId: vendor.defaultCostCodeId ?? '',
           defaultCostType: vendor.defaultCostType ?? '',
           defaultAccountingAccountId: vendor.defaultAccountingAccountId ?? '',

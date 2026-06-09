@@ -1,4 +1,12 @@
-import { pgTable, uuid, text, timestamp, boolean, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  boolean,
+  numeric,
+  index,
+} from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 
 export const vendors = pgTable(
@@ -22,6 +30,11 @@ export const vendors = pgTable(
     isSubcontractor: boolean('is_subcontractor').notNull().default(false),
     w9OnFile: boolean('w9_on_file').notNull().default(false),
     notes: text('notes'),
+    // Per-vendor VAT rate (Bahamas standard = 10). NULL means this vendor is
+    // not VAT-registered, so there's no input VAT to extract. Read by the
+    // Vendor VAT report to gross down spend:
+    //   net = gross / (1 + rate/100);  vat = gross - net.
+    vatRatePercent: numeric('vat_rate_percent', { precision: 6, scale: 3 }),
     // Vendor Defaults — Phase 1. Read by the Receipt form to prefill cost
     // code / cost type / accounting category. All nullable. FK references
     // declared at the SQL layer in 2026-05-15_vendor_defaults_phase1.sql;

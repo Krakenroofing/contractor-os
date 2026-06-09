@@ -66,6 +66,19 @@ export const vendorFormSchema = z.object({
   postalCode: optionalString,
   defaultTerms: z.string().max(100).optional().or(z.literal('')),
   notes: z.string().max(2000).optional().or(z.literal('')),
+  // Per-vendor VAT rate. Blank = not a VAT vendor (stored NULL). Stored as a
+  // numeric string (drizzle numeric column). 0–100.
+  vatRatePercent: z
+    .string()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' || v === undefined ? null : v))
+    .refine(
+      (v) =>
+        v === null ||
+        (!Number.isNaN(Number(v)) && Number(v) >= 0 && Number(v) <= 100),
+      { message: 'Enter a VAT rate between 0 and 100' },
+    ),
   // Vendor defaults — Phase 1. Receipt form reads these to prefill.
   defaultCostCodeId: nullableUuid,
   defaultCostType: z

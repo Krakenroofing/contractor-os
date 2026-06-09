@@ -15,12 +15,19 @@ import {
 
 type Option = { id: string; label: string };
 
+type VendorOption = {
+  id: string;
+  label: string;
+  defaultAccountingAccountId: string | null;
+};
+
 export type TransactionRowFormProps = {
   id: string;
   initial: {
     accountingAccountId: string | null;
     projectId: string | null;
     costCodeId: string | null;
+    vendorId: string | null;
     isReviewed: boolean;
     isIgnored: boolean;
     notes: string | null;
@@ -28,6 +35,7 @@ export type TransactionRowFormProps = {
   categories: AccountingAccountOption[];
   projects: Option[];
   costCodes: Option[];
+  vendors: VendorOption[];
   canEdit: boolean;
 };
 
@@ -43,9 +51,22 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   );
   const [projectId, setProjectId] = useState(props.initial.projectId ?? '');
   const [costCodeId, setCostCodeId] = useState(props.initial.costCodeId ?? '');
+  const [vendorId, setVendorId] = useState(props.initial.vendorId ?? '');
   const [isReviewed, setIsReviewed] = useState(props.initial.isReviewed);
   const [isIgnored, setIsIgnored] = useState(props.initial.isIgnored);
   const [notes, setNotes] = useState(props.initial.notes ?? '');
+
+  // Picking a vendor prefills the category from the vendor's default when the
+  // operator hasn't already chosen one — never overwrites an existing pick.
+  function onVendorChange(nextVendorId: string) {
+    setVendorId(nextVendorId);
+    if (!accountingAccountId) {
+      const v = props.vendors.find((x) => x.id === nextVendorId);
+      if (v?.defaultAccountingAccountId) {
+        setAccountingAccountId(v.defaultAccountingAccountId);
+      }
+    }
+  }
 
   if (!props.canEdit) {
     return (
@@ -58,6 +79,24 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   return (
     <form action={action} className="grid grid-cols-1 md:grid-cols-12 gap-2">
       <input type="hidden" name="id" value={props.id} />
+      <div className="md:col-span-3">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
+          Payee / Vendor{' '}
+          <span className="normal-case text-slate-400">(optional)</span>
+        </span>
+        <Select
+          name="vendorId"
+          value={vendorId}
+          onChange={(e) => onVendorChange(e.target.value)}
+        >
+          <option value="">— no vendor —</option>
+          {props.vendors.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </div>
       <div className="md:col-span-3">
         <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">
           Category
@@ -105,7 +144,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
           ))}
         </Select>
       </div>
-      <div className="md:col-span-2 flex items-center gap-2 text-xs">
+      <div className="md:col-span-9 flex items-center gap-2 text-xs">
         <label className="flex items-center gap-1">
           <input
             type="checkbox"
@@ -127,7 +166,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
           Ignore
         </label>
       </div>
-      <div className="md:col-span-1 flex items-center">
+      <div className="md:col-span-3 flex items-center md:justify-end">
         <Button type="submit" size="sm" disabled={pending}>
           {pending ? '…' : 'Save'}
         </Button>

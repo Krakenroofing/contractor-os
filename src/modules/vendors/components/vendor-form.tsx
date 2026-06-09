@@ -58,6 +58,7 @@ export type VendorFormInitialValues = {
   postalCode: string;
   defaultTerms: string;
   notes: string;
+  vatRatePercent: string;
   defaultCostCodeId: string;
   defaultCostType: string;
   defaultAccountingAccountId: string;
@@ -75,6 +76,7 @@ const blankInitial: VendorFormInitialValues = {
   postalCode: '',
   defaultTerms: '',
   notes: '',
+  vatRatePercent: '',
   defaultCostCodeId: '',
   defaultCostType: '',
   defaultAccountingAccountId: '',
@@ -144,6 +146,26 @@ export function VendorForm({
             placeholder="Net 30"
             defaultValue={values.defaultTerms}
           />
+        </Field>
+
+        <Field
+          label="VAT rate %"
+          error={err('vatRatePercent')}
+          className="md:col-span-2"
+        >
+          <Input
+            name="vatRatePercent"
+            type="number"
+            step="0.001"
+            min="0"
+            max="100"
+            placeholder="10 for VAT-registered vendors — leave blank if none"
+            defaultValue={values.vatRatePercent}
+          />
+          <p className="text-xs text-slate-500">
+            Set this for vendors that charge VAT. The Vendor VAT report uses it
+            to split each expense into material cost vs VAT paid.
+          </p>
         </Field>
 
         <Field label="Primary contact" error={err('primaryContactName')}>

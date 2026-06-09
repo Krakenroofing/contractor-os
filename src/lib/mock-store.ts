@@ -262,6 +262,7 @@ function makeVendor(
     defaultCostCodeId: null,
     defaultCostType: null,
     defaultAccountingAccountId: null,
+    vatRatePercent: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -2862,8 +2863,17 @@ export function createMockCustomer(
 
 export type CreateVendorInput = Omit<
   Vendor,
-  'id' | 'companyId' | 'createdAt' | 'updatedAt' | 'deletedAt'
->;
+  | 'id'
+  | 'companyId'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'deletedAt'
+  | 'vatRatePercent'
+> & {
+  // Optional so existing vendor-create call sites (import, seed, backfill)
+  // compile unchanged; omitting it inserts NULL (not a VAT vendor).
+  vatRatePercent?: string | null;
+};
 
 export function createMockVendor(companyId: string, input: CreateVendorInput): Vendor {
   const store = getStore();
@@ -2875,6 +2885,7 @@ export function createMockVendor(companyId: string, input: CreateVendorInput): V
     createdAt: now,
     updatedAt: now,
     ...input,
+    vatRatePercent: input.vatRatePercent ?? null,
   };
   store.vendors.push(vendor);
   return vendor;

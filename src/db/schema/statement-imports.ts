@@ -17,6 +17,7 @@ import { projects } from './projects';
 import { costCodes } from './cost-codes';
 import { bankAccounts } from './bank-accounts';
 import { accountingAccounts } from './accounting-accounts';
+import { vendors } from './vendors';
 import { statementImportStatusEnum } from './_enums';
 
 // Saved column maps per (company, bank_account). bank_account_id IS NULL is
@@ -163,6 +164,13 @@ export const importedTransactions = pgTable(
       onDelete: 'set null',
     }),
 
+    // The payee resolved to a known vendor. Optional — set by the operator on
+    // the banking categorization row. Drives the Vendor VAT report, which
+    // groups expenses by vendor and extracts input VAT for VAT-rated vendors.
+    vendorId: uuid('vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
+
     notes: text('notes'),
     rawRow: jsonb('raw_row').notNull(),
 
@@ -198,6 +206,7 @@ export const importedTransactions = pgTable(
       t.bankAccountId,
       t.transactionDate,
     ),
+    vendorIdx: index('imported_transactions_vendor_idx').on(t.vendorId),
   }),
 );
 

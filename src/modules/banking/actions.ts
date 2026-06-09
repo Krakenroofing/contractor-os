@@ -368,6 +368,7 @@ export async function updateImportedTransactionAction(
     accountingAccountId: formData.get('accountingAccountId') ?? '',
     projectId: formData.get('projectId') ?? '',
     costCodeId: formData.get('costCodeId') ?? '',
+    vendorId: formData.get('vendorId') ?? '',
     isReviewed:
       formData.get('isReviewed') === 'on' ||
       formData.get('isReviewed') === 'true',
@@ -386,6 +387,7 @@ export async function updateImportedTransactionAction(
     accountingAccountId: parsed.data.accountingAccountId,
     projectId: parsed.data.projectId,
     costCodeId: parsed.data.costCodeId,
+    vendorId: parsed.data.vendorId,
     isReviewed: parsed.data.isReviewed ?? false,
     isIgnored: parsed.data.isIgnored ?? false,
     notes: parsed.data.notes,

@@ -281,6 +281,13 @@ export default async function BankAccountDetailPage({
     id: c.id,
     label: `${c.code} — ${c.description}`,
   }));
+  // Vendor options for the per-row payee picker. Carry each vendor's default
+  // accounting category so picking a vendor can prefill the category.
+  const vendorOptions = vendors.map((v) => ({
+    id: v.id,
+    label: v.name,
+    defaultAccountingAccountId: v.defaultAccountingAccountId ?? null,
+  }));
 
   const canEdit = canCreate(role, 'statement_imports');
 
@@ -655,6 +662,7 @@ export default async function BankAccountDetailPage({
                               accountingAccountId: t.accountingAccountId,
                               projectId: t.projectId,
                               costCodeId: t.costCodeId,
+                              vendorId: t.vendorId,
                               isReviewed: t.isReviewed,
                               isIgnored: t.isIgnored,
                               notes: t.notes,
@@ -662,6 +670,7 @@ export default async function BankAccountDetailPage({
                             categories={categories}
                             projects={projectOptions}
                             costCodes={costCodeOptions}
+                            vendors={vendorOptions}
                             canEdit={canEdit}
                           />
                         </TableCell>
