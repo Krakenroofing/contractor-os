@@ -7,7 +7,7 @@ import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { can, canCreate, canView } from '@/lib/permissions';
-import { toMoneyString } from '@/lib/money';
+import { formatMoney, toMoneyString } from '@/lib/money';
 import {
   ALLOWED_STATEMENT_MIME,
   MAX_STATEMENT_BYTES,
@@ -31,7 +31,9 @@ import {
   bulkApplyRuleToTransactions,
   getImportedTransaction,
   listRecentTransactionsForRules,
+  replaceImportedTransactionLines,
   updateImportedTransaction,
+  type ImportedTransactionLineInput,
 } from '@/lib/data/statement-imports';
 import {
   bumpMatchCount,
@@ -353,6 +355,18 @@ export async function commitImportAction(
 // Manual triage: assign category, project, cost code; mark reviewed/ignored;
 // edit notes/payee/memo. Phase 1 explicitly does NOT post these anywhere.
 
+// Split lines arrive as a JSON-encoded hidden field (dynamic count). Amount is
+// coerced from string|number and must be a positive money value; the per-line
+// total is validated against the parent's gross in the action.
+const splitLineParseSchema = z.object({
+  accountingAccountId: z.string().uuid('Pick a category for every line'),
+  projectId: z.union([z.string(), z.null()]).optional(),
+  costCodeId: z.union([z.string(), z.null()]).optional(),
+  description: z.union([z.string().max(500), z.null()]).optional(),
+  amount: z.coerce.number().finite().positive(),
+});
+const splitLinesParseSchema = z.array(splitLineParseSchema).max(50);
+
 export async function updateImportedTransactionAction(
   _prev: BankingActionState,
   formData: FormData,
@@ -383,17 +397,87 @@ export async function updateImportedTransactionAction(
       errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
     };
   }
-  const updated = await updateImportedTransaction(companyId, parsed.data.id, {
-    accountingAccountId: parsed.data.accountingAccountId,
-    projectId: parsed.data.projectId,
-    costCodeId: parsed.data.costCodeId,
+
+  // Common (non-category) fields, shared by split and single paths.
+  const commonPatch = {
     vendorId: parsed.data.vendorId,
     isReviewed: parsed.data.isReviewed ?? false,
     isIgnored: parsed.data.isIgnored ?? false,
     notes: parsed.data.notes,
-  });
-  if (!updated) return { formError: 'Transaction not found.' };
-  revalidatePath(`/banking/accounts/${updated.bankAccountId}`);
+  };
+
+  const isSplit =
+    formData.get('split') === 'on' || formData.get('split') === 'true';
+
+  // Need the parent row for its signed amount (to validate the split sum) and
+  // its bankAccountId (to revalidate the right page).
+  const txn = await getImportedTransaction(companyId, parsed.data.id);
+  if (!txn) return { formError: 'Transaction not found.' };
+
+  if (isSplit) {
+    let rawLines: unknown;
+    try {
+      const linesJson = formData.get('linesJson');
+      rawLines = JSON.parse(typeof linesJson === 'string' ? linesJson : '[]');
+    } catch {
+      return { formError: 'Could not read the split lines. Please retry.' };
+    }
+    const result = splitLinesParseSchema.safeParse(rawLines);
+    if (!result.success) {
+      return {
+        formError: 'Each split line needs a category and an amount greater than zero.',
+      };
+    }
+    const lines = result.data;
+    if (lines.length === 0) {
+      return { formError: 'Add at least one split line, or turn Split off.' };
+    }
+
+    const grossCents = Math.round(Math.abs(Number(txn.amount)) * 100);
+    const sumCents = lines.reduce(
+      (s, l) => s + Math.round(l.amount * 100),
+      0,
+    );
+    if (sumCents !== grossCents) {
+      return {
+        formError: `Split lines must add up to ${formatMoney(
+          Math.abs(Number(txn.amount)),
+          txn.currency,
+        )} — they currently total ${formatMoney(
+          sumCents / 100,
+          txn.currency,
+        )}.`,
+      };
+    }
+
+    const lineInputs: ImportedTransactionLineInput[] = lines.map((l) => ({
+      accountingAccountId: l.accountingAccountId,
+      projectId: l.projectId ? l.projectId : null,
+      costCodeId: l.costCodeId ? l.costCodeId : null,
+      description: l.description ? l.description : null,
+      amount: toMoneyString(l.amount),
+    }));
+    await replaceImportedTransactionLines(companyId, parsed.data.id, lineInputs);
+    // Lines are the source of truth → clear the single-category fields so the
+    // transaction never carries two conflicting categorizations.
+    await updateImportedTransaction(companyId, parsed.data.id, {
+      accountingAccountId: null,
+      projectId: null,
+      costCodeId: null,
+      ...commonPatch,
+    });
+  } else {
+    // Single category → drop any prior split lines and stamp the single fields.
+    await replaceImportedTransactionLines(companyId, parsed.data.id, []);
+    await updateImportedTransaction(companyId, parsed.data.id, {
+      accountingAccountId: parsed.data.accountingAccountId,
+      projectId: parsed.data.projectId,
+      costCodeId: parsed.data.costCodeId,
+      ...commonPatch,
+    });
+  }
+
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
 

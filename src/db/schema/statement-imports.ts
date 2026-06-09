@@ -210,6 +210,58 @@ export const importedTransactions = pgTable(
   }),
 );
 
+// One row per category-split of a single bank expense. A simple (unsplit)
+// transaction has zero lines and uses the single accounting_account_id on the
+// parent row. When lines exist, the transaction is "split": the parent's
+// single category is cleared and these lines are the source of truth. Lines
+// sum (by `amount`, positive magnitudes) to the absolute value of the parent's
+// signed amount. A VAT-input split is just a line whose account is the
+// vat_input account (code 1300) — mirrors QuickBooks' "VAT Input" expense line.
+export const importedTransactionLines = pgTable(
+  'imported_transaction_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    importedTransactionId: uuid('imported_transaction_id')
+      .notNull()
+      .references(() => importedTransactions.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    accountingAccountId: uuid('accounting_account_id').references(
+      () => accountingAccounts.id,
+      { onDelete: 'set null' },
+    ),
+    projectId: uuid('project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
+    costCodeId: uuid('cost_code_id').references(() => costCodes.id, {
+      onDelete: 'set null',
+    }),
+    description: text('description'),
+    // Positive magnitude of this line's share of the expense. Lines sum to
+    // ABS(imported_transactions.amount).
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    txnIdx: index('imported_transaction_lines_txn_idx').on(
+      t.importedTransactionId,
+    ),
+    companyIdx: index('imported_transaction_lines_company_idx').on(t.companyId),
+  }),
+);
+
+export type ImportedTransactionLine =
+  typeof importedTransactionLines.$inferSelect;
+export type NewImportedTransactionLine =
+  typeof importedTransactionLines.$inferInsert;
+
 export type BankStatementMapping = typeof bankStatementMappings.$inferSelect;
 export type NewBankStatementMapping = typeof bankStatementMappings.$inferInsert;
 export type StatementImportBatch = typeof statementImportBatches.$inferSelect;

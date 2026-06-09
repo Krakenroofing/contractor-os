@@ -21,6 +21,7 @@ import { getBankAccount } from '@/lib/data/bank-accounts';
 import {
   countImportedTransactions,
   listImportedTransactions,
+  listLinesForTransactionIds,
 } from '@/lib/data/statement-imports';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
@@ -152,6 +153,24 @@ export default async function BankAccountDetailPage({
       );
     })(),
   ]);
+
+  // Split lines for the visible transactions (one extra query, batched).
+  const allLines = await listLinesForTransactionIds(
+    company.id,
+    transactions.map((t) => t.id),
+  );
+  const linesByTxn = new Map<string, typeof allLines>();
+  for (const ln of allLines) {
+    const arr = linesByTxn.get(ln.importedTransactionId) ?? [];
+    arr.push(ln);
+    linesByTxn.set(ln.importedTransactionId, arr);
+  }
+
+  // The VAT Input (Recoverable) account — target of the "Auto-VAT split"
+  // button. Resolved by type so it works regardless of code/name. Null when
+  // the company isn't VAT-active (no such account seeded).
+  const vatInputAccountId =
+    accounts.find((a) => a.type === 'vat_input' && !a.isArchived)?.id ?? null;
 
   // Rules pre-sorted by priority ASC, then created_at ASC (data layer does this).
   const matcherRules = rules.map(toRuleForMatching);
@@ -287,6 +306,7 @@ export default async function BankAccountDetailPage({
     id: v.id,
     label: v.name,
     defaultAccountingAccountId: v.defaultAccountingAccountId ?? null,
+    vatRatePercent: v.vatRatePercent ? Number(v.vatRatePercent) : null,
   }));
 
   const canEdit = canCreate(role, 'statement_imports');
@@ -424,6 +444,8 @@ export default async function BankAccountDetailPage({
                 {transactions.map((t) => {
                   // Per-row rule + match lookup. All inputs are pre-loaded
                   // above so this stays O(n) without extra DB queries.
+                  const txnLines = linesByTxn.get(t.id) ?? [];
+                  const hasLines = txnLines.length > 0;
                   const txnLike = toTxnForMatching({
                     bankAccountId: t.bankAccountId,
                     description: t.description,
@@ -433,7 +455,12 @@ export default async function BankAccountDetailPage({
                     amount: t.amount,
                     isReviewed: t.isReviewed,
                     isIgnored: t.isIgnored,
-                    accountingAccountId: t.accountingAccountId,
+                    // A split transaction has no single category, but it IS
+                    // categorized — surface a non-null value so the triage
+                    // badge reads "categorized", not "uncategorized".
+                    accountingAccountId: hasLines
+                      ? (t.accountingAccountId ?? 'split')
+                      : t.accountingAccountId,
                     appliedRuleId: t.appliedRuleId,
                     reconciledAt: t.reconciledAt,
                   });
@@ -666,11 +693,21 @@ export default async function BankAccountDetailPage({
                               isReviewed: t.isReviewed,
                               isIgnored: t.isIgnored,
                               notes: t.notes,
+                              lines: (linesByTxn.get(t.id) ?? []).map((ln) => ({
+                                accountingAccountId: ln.accountingAccountId,
+                                projectId: ln.projectId,
+                                costCodeId: ln.costCodeId,
+                                description: ln.description,
+                                amount: Number(ln.amount),
+                              })),
                             }}
+                            grossAmount={Math.abs(Number(t.amount))}
+                            currency={t.currency}
                             categories={categories}
                             projects={projectOptions}
                             costCodes={costCodeOptions}
                             vendors={vendorOptions}
+                            vatInputAccountId={vatInputAccountId}
                             canEdit={canEdit}
                           />
                         </TableCell>

@@ -9,6 +9,7 @@ import {
   eq,
   gte,
   ilike,
+  inArray,
   isNotNull,
   isNull,
   lte,
@@ -20,11 +21,13 @@ import {
   bankStatementMappings,
   statementImportBatches,
   importedTransactions,
+  importedTransactionLines,
   type BankStatementMapping,
   type NewBankStatementMapping,
   type StatementImportBatch,
   type NewStatementImportBatch,
   type ImportedTransaction,
+  type ImportedTransactionLine,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
@@ -456,6 +459,70 @@ export async function updateImportedTransaction(
     )
     .returning();
   return row;
+}
+
+// ===== Split lines =====
+
+export type ImportedTransactionLineInput = {
+  accountingAccountId: string | null;
+  projectId: string | null;
+  costCodeId: string | null;
+  description: string | null;
+  amount: string; // numeric string, positive magnitude
+};
+
+/** Lines for a set of transactions, batched. Returns [] in demo mode (the
+ *  imported_transactions ledger is DB-only). Ordered by sort_order. */
+export async function listLinesForTransactionIds(
+  companyId: string,
+  ids: string[],
+): Promise<ImportedTransactionLine[]> {
+  if (ids.length === 0 || !isDatabaseConfigured()) return [];
+  const db = requireDb();
+  return await db
+    .select()
+    .from(importedTransactionLines)
+    .where(
+      and(
+        eq(importedTransactionLines.companyId, companyId),
+        inArray(importedTransactionLines.importedTransactionId, ids),
+      ),
+    )
+    .orderBy(asc(importedTransactionLines.sortOrder));
+}
+
+/** Replace the split lines for one transaction atomically. Passing an empty
+ *  array clears the split (the transaction reverts to single-category). */
+export async function replaceImportedTransactionLines(
+  companyId: string,
+  transactionId: string,
+  lines: ImportedTransactionLineInput[],
+): Promise<void> {
+  const db = requireDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(importedTransactionLines)
+      .where(
+        and(
+          eq(importedTransactionLines.companyId, companyId),
+          eq(importedTransactionLines.importedTransactionId, transactionId),
+        ),
+      );
+    if (lines.length > 0) {
+      await tx.insert(importedTransactionLines).values(
+        lines.map((l, i) => ({
+          companyId,
+          importedTransactionId: transactionId,
+          sortOrder: i,
+          accountingAccountId: l.accountingAccountId,
+          projectId: l.projectId,
+          costCodeId: l.costCodeId,
+          description: l.description,
+          amount: l.amount,
+        })),
+      );
+    }
+  });
 }
 
 /** Bulk-apply a rule's actions to a set of transactions inside one
