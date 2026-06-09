@@ -41,6 +41,7 @@ export type InvoiceListRow = {
   status: InvoiceStatus;
   invoiceDate: string;
   dueDate: string | null;
+  datePaid: string | null;
   total: number;
   subtotal: number;
   taxAmount: number;
@@ -55,6 +56,7 @@ type ColumnKey =
   | 'status'
   | 'invoiceDate'
   | 'dueDate'
+  | 'datePaid'
   | 'total'
   | 'balance';
 
@@ -206,6 +208,8 @@ export function InvoicesListClient({
             return r.invoiceDate;
           case 'dueDate':
             return r.dueDate;
+          case 'datePaid':
+            return r.datePaid;
           case 'total':
             return r.total;
           case 'balance':
@@ -400,6 +404,14 @@ export function InvoicesListClient({
                 onSortChange={setSort}
               />
             </TableHead>
+            <TableHead>
+              <ColumnHeader
+                label="Date paid"
+                sortKey="datePaid"
+                sort={sort}
+                onSortChange={setSort}
+              />
+            </TableHead>
             <TableHead className="text-right">
               <ColumnHeader
                 label="Total"
@@ -424,7 +436,7 @@ export function InvoicesListClient({
         <TableBody>
           {filtered.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={10} className="py-12 text-center text-slate-500">
+              <TableCell colSpan={11} className="py-12 text-center text-slate-500">
                 No invoices match those filters.
               </TableCell>
             </TableRow>
@@ -438,7 +450,7 @@ export function InvoicesListClient({
                   onClick={() => toggleQuarter(q.key)}
                 >
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="font-semibold text-slate-900 text-sm py-2.5"
                   >
                     <span className="inline-block w-4 text-slate-500">
@@ -494,6 +506,13 @@ export function InvoicesListClient({
                   </TableCell>
                   <TableCell className="text-slate-600">
                     {r.dueDate ?? '—'}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      r.datePaid ? 'text-emerald-700' : 'text-slate-400'
+                    }
+                  >
+                    {r.datePaid ?? '—'}
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
                     <div>{formatMoney(r.total)}</div>

@@ -38,10 +38,19 @@ export default async function InvoicesPage() {
       const customer = project
         ? await getCustomer(companyId, project.customerId)
         : undefined;
-      const fin = computeInvoiceFinancials(
-        inv,
-        paymentsByInvoice.get(inv.id) ?? [],
-      );
+      const invPayments = paymentsByInvoice.get(inv.id) ?? [];
+      const fin = computeInvoiceFinancials(inv, invPayments);
+      // Date paid = the settle date — the latest received/applied payment date
+      // once the invoice is fully paid. Blank while a balance remains. This is
+      // the date that lines up against QuickBooks' payment date.
+      const settled = fin.balance <= 0.005 && invPayments.length > 0;
+      const datePaid = settled
+        ? (invPayments
+            .filter((p) => p.status === 'received' || p.status === 'applied')
+            .map((p) => p.paidDate)
+            .sort()
+            .at(-1) ?? null)
+        : null;
       return {
         id: inv.id,
         number: inv.number,
@@ -53,6 +62,7 @@ export default async function InvoicesPage() {
         status: inv.status,
         invoiceDate: inv.invoiceDate,
         dueDate: inv.dueDate ?? null,
+        datePaid,
         total: parseMoney(inv.total),
         subtotal: parseMoney(inv.subtotal),
         taxAmount: parseMoney(inv.taxAmount),
