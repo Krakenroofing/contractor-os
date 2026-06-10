@@ -4,10 +4,11 @@
 // daily-report-form — same underlying action and schema, but only the
 // fields a field worker actually fills in at the end of a shift.
 //
+// Laid out as clean, labeled cards (Weather · Crew · Work · Sign-off) so
+// it reads like a guided checklist on a phone instead of one long form.
+//
 // Crew rows are submitted as a JSON blob (`manpowerJson`) — that's the
-// shape the existing action expects. We let the worker add multiple
-// crews (e.g. roofing + electrician sub on the same day) without a
-// fancy editor: each "Add crew row" appends a new bag of fields.
+// shape the existing action expects.
 
 import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,6 @@ type Action = (
 ) => Promise<DailyReportFormState>;
 
 type CrewRow = {
-  // Stable key for React; we re-generate ids on add, not from row data.
   key: string;
   companyCrew: string;
   trade: string;
@@ -53,8 +53,6 @@ export function MobileDailyReportForm({
 }) {
   const [state, formAction, pending] = useActionState(action, initial);
 
-  // Single default row so the form starts useful; worker can fill or
-  // leave blank (blank rows are dropped server-side).
   const [rows, setRows] = useState<CrewRow[]>([blankRow()]);
 
   function setRow(i: number, patch: Partial<CrewRow>) {
@@ -63,9 +61,6 @@ export function MobileDailyReportForm({
     );
   }
 
-  // Serialised crew rows in the shape the existing action expects
-  // (camelCase keys matching manpowerRowSchema). Empty rows are kept
-  // here — the server-side parser filters them.
   const manpowerJson = JSON.stringify(
     rows.map((r) => ({
       companyCrew: r.companyCrew,
@@ -74,6 +69,14 @@ export function MobileDailyReportForm({
       hours: r.hours === '' ? 0 : Number(r.hours),
     })),
   );
+
+  // Live roll-up shown in the Crew card header so the worker can sanity-check
+  // the count before submitting (matches the desktop "men on site" total).
+  const totalWorkers = rows.reduce(
+    (s, r) => s + (Number(r.workerCount) || 0),
+    0,
+  );
+  const totalHours = rows.reduce((s, r) => s + (Number(r.hours) || 0), 0);
 
   const err = (k: string) => state.errors?.[k]?.[0];
 
@@ -85,16 +88,12 @@ export function MobileDailyReportForm({
         </div>
       )}
 
-      {/* Hidden status — draft by default. Worker can mark complete via
-          the bottom button row. */}
+      {/* Hidden status — draft by default. */}
       <input type="hidden" name="status" value="draft" />
       <input type="hidden" name="weatherSource" value="manual" />
-      {/* Tells the action to redirect to /field/reports/:id after save
-          so the worker stays in the mobile shell (vs being bounced to
-          the desktop daily-report detail). */}
+      {/* Redirect back into the mobile shell after save. */}
       <input type="hidden" name="from" value="field" />
-      {/* Export-section toggles — default-on so the desktop PDF behaves
-          identically to a desktop-created report. */}
+      {/* Export-section toggles — default-on to match desktop-created reports. */}
       <input type="hidden" name="includeWeatherInExport" value="on" />
       <input type="hidden" name="includeManpowerInExport" value="on" />
       <input type="hidden" name="includeWorkInExport" value="on" />
@@ -104,16 +103,10 @@ export function MobileDailyReportForm({
       <input type="hidden" name="includeSafetyInExport" value="on" />
       <input type="hidden" name="includePhotosInExport" value="on" />
       <input type="hidden" name="includeClientNotesInExport" value="on" />
-      {/* manpowerJson is the hidden ground-truth field; the visible
-          inputs below are JS state mirrors so the textarea / number
-          inputs feel native to the browser. */}
       <input type="hidden" name="manpowerJson" value={manpowerJson} />
 
       {/* Date */}
-      <div className="space-y-1">
-        <Label htmlFor="reportDate" className="text-xs">
-          Report date
-        </Label>
+      <Section icon="📅" title="Date">
         <Input
           id="reportDate"
           name="reportDate"
@@ -125,25 +118,16 @@ export function MobileDailyReportForm({
         {err('reportDate') && (
           <p className="text-xs text-red-600">{err('reportDate')}</p>
         )}
-      </div>
+      </Section>
 
-      {/* Weather — quick capture, no API. The desktop view has full
-          weather fields; mobile keeps it to condition + temp because
-          that's what fits comfortably. */}
-      <fieldset className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-2">
-        <legend className="px-1 text-xs font-medium text-slate-700">
-          Weather
-        </legend>
+      {/* Weather */}
+      <Section icon="☀️" title="Weather" hint="Quick conditions for the day.">
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label htmlFor="weatherCondition" className="text-xs">
               Condition
             </Label>
-            <Select
-              name="weatherCondition"
-              id="weatherCondition"
-              defaultValue=""
-            >
+            <Select name="weatherCondition" id="weatherCondition" defaultValue="">
               <option value="">—</option>
               <option value="Sunny">Sunny</option>
               <option value="Partly cloudy">Partly cloudy</option>
@@ -169,14 +153,19 @@ export function MobileDailyReportForm({
             />
           </div>
         </div>
-      </fieldset>
+      </Section>
 
-      {/* Crew rows — Sub crew + own crew handled the same. Worker
-          counts and hours roll up to the desktop "men on site" total. */}
-      <fieldset className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-3">
-        <legend className="px-1 text-xs font-medium text-slate-700">
-          Crew on site
-        </legend>
+      {/* Crew on site */}
+      <Section
+        icon="👷"
+        title="Crew on site"
+        hint="Add each crew or sub working today."
+        badge={
+          totalWorkers > 0 || totalHours > 0
+            ? `${totalWorkers} on site · ${totalHours} hrs`
+            : undefined
+        }
+      >
         {rows.map((row, i) => (
           <div
             key={row.key}
@@ -203,9 +192,7 @@ export function MobileDailyReportForm({
                 <Label className="text-xs">Company / crew</Label>
                 <Input
                   value={row.companyCrew}
-                  onChange={(e) =>
-                    setRow(i, { companyCrew: e.target.value })
-                  }
+                  onChange={(e) => setRow(i, { companyCrew: e.target.value })}
                   placeholder="Kraken / Sub"
                   maxLength={200}
                   className="text-base md:text-sm h-12 md:h-10"
@@ -228,9 +215,7 @@ export function MobileDailyReportForm({
                   inputMode="numeric"
                   min="0"
                   value={row.workerCount}
-                  onChange={(e) =>
-                    setRow(i, { workerCount: e.target.value })
-                  }
+                  onChange={(e) => setRow(i, { workerCount: e.target.value })}
                   className="text-base md:text-sm h-12 md:h-10"
                 />
               </div>
@@ -256,36 +241,44 @@ export function MobileDailyReportForm({
           className="w-full"
           onClick={() => setRows((prev) => [...prev, blankRow()])}
         >
-          + Add crew row
+          + Add crew
         </Button>
-      </fieldset>
+      </Section>
 
-      {/* Free-text capture. Big rows because phone keyboards eat half
-          the screen — these are the most-likely-to-be-long fields. */}
-      <Textarea
-        name="workPerformed"
-        label="Work performed today"
-        placeholder="Tore off east elevation, set drip edge…"
-        rows={4}
-      />
-      <Textarea
-        name="materialsDelivered"
-        label="Materials delivered (optional)"
-        placeholder="3 squares shingles, 2 rolls ice & water"
-        rows={2}
-      />
-      <Textarea
-        name="delays"
-        label="Delays / weather hold (optional)"
-        rows={2}
-      />
-      <Textarea
-        name="tomorrowPlan"
-        label="Plan for tomorrow (optional)"
-        rows={2}
-      />
+      {/* Work */}
+      <Section
+        icon="🛠️"
+        title="Work"
+        hint="What got done today. Only the first box is required."
+      >
+        <FieldTextarea
+          name="workPerformed"
+          label="Work performed today"
+          placeholder="Tore off east elevation, set drip edge…"
+          rows={4}
+          required
+          error={err('workPerformed')}
+        />
+        <FieldTextarea
+          name="materialsDelivered"
+          label="Materials delivered"
+          placeholder="3 squares shingles, 2 rolls ice & water"
+          rows={2}
+        />
+        <FieldTextarea
+          name="delays"
+          label="Delays / weather hold"
+          rows={2}
+        />
+        <FieldTextarea
+          name="tomorrowPlan"
+          label="Plan for tomorrow"
+          rows={2}
+        />
+      </Section>
 
-      <div className="space-y-1">
+      {/* Sign-off */}
+      <Section icon="✍️" title="Sign-off">
         <Label htmlFor="preparedByName" className="text-xs">
           Submitted by
         </Label>
@@ -296,7 +289,7 @@ export function MobileDailyReportForm({
           maxLength={200}
           className="text-base md:text-sm h-12 md:h-10"
         />
-      </div>
+      </Section>
 
       <Button
         type="submit"
@@ -305,40 +298,79 @@ export function MobileDailyReportForm({
       >
         {pending ? 'Saving…' : 'Save report'}
       </Button>
-      <p className="text-[11px] text-slate-500 text-center">
-        Saves as draft. The next screen has a big <strong>📷 Add photo</strong>{' '}
-        button — tap to take or upload photos straight from your phone.
+      <p className="text-[11px] text-slate-500 text-center pb-2">
+        Saves as a draft. The next screen has big{' '}
+        <strong>📷 Take photo</strong> / <strong>🖼️ Gallery</strong> buttons to
+        add pictures from your phone.
       </p>
     </form>
   );
 }
 
-function Textarea({
+function Section({
+  icon,
+  title,
+  hint,
+  badge,
+  children,
+}: {
+  icon: string;
+  title: string;
+  hint?: string;
+  badge?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 pt-3 pb-2.5 border-b border-slate-100">
+        <span className="text-lg leading-none" aria-hidden>
+          {icon}
+        </span>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          {hint && <p className="text-[11px] text-slate-500 mt-0.5">{hint}</p>}
+        </div>
+        {badge && (
+          <span className="shrink-0 rounded-full bg-blue-50 text-blue-700 text-[11px] font-medium px-2.5 py-1 tabular-nums">
+            {badge}
+          </span>
+        )}
+      </div>
+      <div className="px-4 py-3 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function FieldTextarea({
   name,
   label,
   placeholder,
   rows = 3,
+  required,
+  error,
 }: {
   name: string;
   label: string;
   placeholder?: string;
   rows?: number;
+  required?: boolean;
+  error?: string;
 }) {
   return (
     <div className="space-y-1">
       <Label htmlFor={name} className="text-xs">
         {label}
+        {required && <span className="text-red-600 ml-0.5">*</span>}
       </Label>
       <textarea
         id={name}
         name={name}
         rows={rows}
         placeholder={placeholder}
-        // 16px font + h-auto so the OS doesn't pinch-zoom on focus. Plain
-        // <textarea> rather than the desktop Textarea component because
-        // that one ships smaller padding designed for dense desktop UIs.
+        // 16px font so the OS doesn't pinch-zoom on focus.
         className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }
