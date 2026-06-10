@@ -158,6 +158,24 @@ export async function getDailyReportPhotoDataUrl(
   }
 }
 
+/** Raw photo bytes — used to build the per-project "Download all" zip.
+ *  Returns null if Storage isn't configured or the object is missing. */
+export async function downloadPhotoBytes(
+  storagePath: string,
+): Promise<Buffer | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client.storage
+    .from(DAILY_REPORT_PHOTOS_BUCKET)
+    .download(storagePath);
+  if (error || !data) return null;
+  try {
+    return Buffer.from(await data.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteDailyReportPhotoBlob(
   storagePath: string,
 ): Promise<void> {

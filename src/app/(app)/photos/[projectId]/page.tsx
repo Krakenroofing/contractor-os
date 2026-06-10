@@ -59,6 +59,14 @@ export default async function ProjectPhotosPage({
             {photos.length === 1 ? '' : 's'} from daily reports
           </p>
         </div>
+        {photos.length > 0 && (
+          <a
+            href={`/api/photos/download-all/${projectId}`}
+            className="inline-flex items-center rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          >
+            Download all ({photos.length})
+          </a>
+        )}
       </header>
 
       {photos.length === 0 ? (
