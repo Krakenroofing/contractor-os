@@ -1,14 +1,15 @@
 'use client';
 
-// Mobile-first daily report form. A trimmed-down sibling of the desktop
-// daily-report-form — same underlying action and schema, but only the
-// fields a field worker actually fills in at the end of a shift.
+// Mobile-first daily report editor. Always edits an existing (draft or
+// finished) report — the field create flow now makes a draft up front and
+// drops the worker straight here, so this single card-based screen handles
+// both "fill it in" and "tweak it later", plus photos, in one place.
 //
-// Laid out as clean, labeled cards (Weather · Crew · Work · Sign-off) so
-// it reads like a guided checklist on a phone instead of one long form.
+// Laid out as clean, labeled cards (Date · Weather · Crew · Work · Photos ·
+// Sign-off) so it reads like a guided checklist on a phone.
 //
-// Crew rows are submitted as a JSON blob (`manpowerJson`) — that's the
-// shape the existing action expects.
+// Crew rows are submitted as a JSON blob (`manpowerJson`) — the shape the
+// existing update action expects.
 
 import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import type { DailyReportFormState } from '@/modules/daily-reports/actions';
 
-const initial: DailyReportFormState = {};
+const initialState: DailyReportFormState = {};
 
 type Action = (
   prev: DailyReportFormState,
@@ -32,28 +33,51 @@ type CrewRow = {
   hours: string;
 };
 
+export type DailyReportInitial = {
+  reportDate: string;
+  status: string;
+  weatherCondition: string;
+  weatherTemperatureF: string;
+  workPerformed: string;
+  materialsDelivered: string;
+  delays: string;
+  tomorrowPlan: string;
+  preparedByName: string;
+  rows: Array<{
+    companyCrew: string;
+    trade: string;
+    workerCount: string;
+    hours: string;
+  }>;
+};
+
+let rowSeq = 0;
+function keyedRow(r: DailyReportInitial['rows'][number]): CrewRow {
+  rowSeq += 1;
+  return { key: `r${rowSeq}`, ...r };
+}
 function blankRow(): CrewRow {
-  return {
-    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    companyCrew: '',
-    trade: '',
-    workerCount: '',
-    hours: '',
-  };
+  return keyedRow({ companyCrew: '', trade: '', workerCount: '', hours: '' });
 }
 
 export function MobileDailyReportForm({
   action,
-  defaultDate,
-  defaultPreparedByName,
+  initial,
+  photos,
+  submitLabel = 'Save',
 }: {
   action: Action;
-  defaultDate: string;
-  defaultPreparedByName: string;
+  initial: DailyReportInitial;
+  /** Photos card content (gallery + uploader) — rendered by the server page
+   *  because signed URLs need server data. */
+  photos?: React.ReactNode;
+  submitLabel?: string;
 }) {
-  const [state, formAction, pending] = useActionState(action, initial);
+  const [state, formAction, pending] = useActionState(action, initialState);
 
-  const [rows, setRows] = useState<CrewRow[]>([blankRow()]);
+  const [rows, setRows] = useState<CrewRow[]>(
+    initial.rows.length > 0 ? initial.rows.map(keyedRow) : [blankRow()],
+  );
 
   function setRow(i: number, patch: Partial<CrewRow>) {
     setRows((prev) =>
@@ -70,8 +94,6 @@ export function MobileDailyReportForm({
     })),
   );
 
-  // Live roll-up shown in the Crew card header so the worker can sanity-check
-  // the count before submitting (matches the desktop "men on site" total).
   const totalWorkers = rows.reduce(
     (s, r) => s + (Number(r.workerCount) || 0),
     0,
@@ -88,10 +110,9 @@ export function MobileDailyReportForm({
         </div>
       )}
 
-      {/* Hidden status — draft by default. */}
-      <input type="hidden" name="status" value="draft" />
+      {/* Preserve the report's status; stay in the mobile shell after save. */}
+      <input type="hidden" name="status" value={initial.status} />
       <input type="hidden" name="weatherSource" value="manual" />
-      {/* Redirect back into the mobile shell after save. */}
       <input type="hidden" name="from" value="field" />
       {/* Export-section toggles — default-on to match desktop-created reports. */}
       <input type="hidden" name="includeWeatherInExport" value="on" />
@@ -111,7 +132,7 @@ export function MobileDailyReportForm({
           id="reportDate"
           name="reportDate"
           type="date"
-          defaultValue={defaultDate}
+          defaultValue={initial.reportDate}
           required
           className="text-base md:text-sm h-12 md:h-10"
         />
@@ -127,7 +148,11 @@ export function MobileDailyReportForm({
             <Label htmlFor="weatherCondition" className="text-xs">
               Condition
             </Label>
-            <Select name="weatherCondition" id="weatherCondition" defaultValue="">
+            <Select
+              name="weatherCondition"
+              id="weatherCondition"
+              defaultValue={initial.weatherCondition}
+            >
               <option value="">—</option>
               <option value="Sunny">Sunny</option>
               <option value="Partly cloudy">Partly cloudy</option>
@@ -149,6 +174,7 @@ export function MobileDailyReportForm({
               inputMode="decimal"
               step="0.1"
               placeholder="78"
+              defaultValue={initial.weatherTemperatureF}
               className="text-base md:text-sm h-12 md:h-10"
             />
           </div>
@@ -257,6 +283,7 @@ export function MobileDailyReportForm({
           placeholder="Tore off east elevation, set drip edge…"
           rows={4}
           required
+          defaultValue={initial.workPerformed}
           error={err('workPerformed')}
         />
         <FieldTextarea
@@ -264,18 +291,28 @@ export function MobileDailyReportForm({
           label="Materials delivered"
           placeholder="3 squares shingles, 2 rolls ice & water"
           rows={2}
+          defaultValue={initial.materialsDelivered}
         />
         <FieldTextarea
           name="delays"
           label="Delays / weather hold"
           rows={2}
+          defaultValue={initial.delays}
         />
         <FieldTextarea
           name="tomorrowPlan"
           label="Plan for tomorrow"
           rows={2}
+          defaultValue={initial.tomorrowPlan}
         />
       </Section>
+
+      {/* Photos — rendered by the server page (gallery + uploader). */}
+      {photos && (
+        <Section icon="📷" title="Photos" hint="Take new ones or add from your gallery.">
+          {photos}
+        </Section>
+      )}
 
       {/* Sign-off */}
       <Section icon="✍️" title="Sign-off">
@@ -285,7 +322,7 @@ export function MobileDailyReportForm({
         <Input
           id="preparedByName"
           name="preparedByName"
-          defaultValue={defaultPreparedByName}
+          defaultValue={initial.preparedByName}
           maxLength={200}
           className="text-base md:text-sm h-12 md:h-10"
         />
@@ -296,13 +333,8 @@ export function MobileDailyReportForm({
         disabled={pending}
         className="w-full h-14 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white"
       >
-        {pending ? 'Saving…' : 'Save report'}
+        {pending ? 'Saving…' : submitLabel}
       </Button>
-      <p className="text-[11px] text-slate-500 text-center pb-2">
-        Saves as a draft. The next screen has big{' '}
-        <strong>📷 Take photo</strong> / <strong>🖼️ Gallery</strong> buttons to
-        add pictures from your phone.
-      </p>
     </form>
   );
 }
@@ -347,6 +379,7 @@ function FieldTextarea({
   placeholder,
   rows = 3,
   required,
+  defaultValue,
   error,
 }: {
   name: string;
@@ -354,6 +387,7 @@ function FieldTextarea({
   placeholder?: string;
   rows?: number;
   required?: boolean;
+  defaultValue?: string;
   error?: string;
 }) {
   return (
@@ -367,6 +401,7 @@ function FieldTextarea({
         name={name}
         rows={rows}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         // 16px font so the OS doesn't pinch-zoom on focus.
         className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
       />

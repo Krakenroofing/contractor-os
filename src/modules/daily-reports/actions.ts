@@ -8,12 +8,15 @@ import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
+import { getActiveEmployee } from '@/lib/active-employee';
+import { todayISOInTZ } from '@/lib/tz';
 import {
   createDailyReport,
   updateDailyReport,
   voidDailyReport,
   softDeleteDailyReport,
   getDailyReport,
+  listDailyReportsForProject,
   createPhotoRecord,
   updatePhotoRecord,
   deletePhotoRecord,
@@ -327,7 +330,121 @@ export async function updateDailyReportAction(
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/daily-reports`);
   revalidatePath(`/projects/${projectId}/daily-reports/${reportId}`);
+  // Field submitters stay in the mobile shell — back to the same editor so
+  // they can keep adding photos / tweaking after a save.
+  const from = (formData.get('from') ?? '').toString();
+  if (from === 'field') {
+    revalidatePath(`/field/reports/${reportId}`);
+    revalidatePath('/field/reports');
+    redirect(`/field/reports/${reportId}` as never);
+  }
   redirect(`/projects/${projectId}/daily-reports/${reportId}`);
+}
+
+// Field create flow (Phase B): tapping a project makes/returns TODAY's draft
+// for that project, then drops the worker straight into the mobile editor.
+// Get-or-create keeps it idempotent — re-tapping a job resumes the same
+// report rather than tripping the one-report-per-(project,date) rule.
+export async function startFieldReportAction(
+  projectId: string,
+  _formData: FormData,
+): Promise<void> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'daily_reports')) {
+    redirect('/field/reports' as never);
+  }
+  const companyId = await getActiveCompanyId();
+  const project = await getProject(companyId, projectId);
+  if (!project) redirect('/field/reports/new' as never);
+
+  const today = todayISOInTZ();
+
+  // Resume an existing report for this (project, today) if there is one.
+  const existing = await listDailyReportsForProject(companyId, project.id);
+  const open = existing.find(
+    (r) => r.reportDate === today && r.status !== 'void',
+  );
+  if (open) {
+    redirect(`/field/reports/${open.id}` as never);
+  }
+
+  const employee = await getActiveEmployee();
+  const preparedByName = employee
+    ? `${employee.firstName} ${employee.lastName}`.trim()
+    : user.name;
+  const location = [
+    project.jobsiteAddressLine1,
+    project.jobsiteCity,
+    project.jobsiteState,
+    project.jobsitePostalCode,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  let newId: string;
+  try {
+    const created = await createDailyReport(
+      {
+        companyId,
+        projectId: project.id,
+        createdBy: user.id,
+        updatedBy: user.id,
+        reportDate: today,
+        status: 'draft',
+        projectNameSnapshot: project.name,
+        projectLocationSnapshot: location || null,
+        weatherCondition: null,
+        weatherTemperatureF: null,
+        weatherPrecipitation: null,
+        weatherWind: null,
+        weatherHumidity: null,
+        weatherSource: 'manual',
+        weatherObservedAt: null,
+        siteConditions: null,
+        menOnSite: 0,
+        crewCompanyName: null,
+        foremanName: null,
+        workPerformed: null,
+        materialsDelivered: null,
+        equipmentOnSite: null,
+        inspections: null,
+        delays: null,
+        safetyIncidents: null,
+        visitorsOnSite: null,
+        issuesConcerns: null,
+        tomorrowPlan: null,
+        internalNotes: null,
+        clientNotes: null,
+        preparedByName: preparedByName || null,
+        includeWeatherInExport: true,
+        includeManpowerInExport: true,
+        includeWorkInExport: true,
+        includeMaterialsInExport: true,
+        includeEquipmentInExport: true,
+        includeDelaysInExport: true,
+        includeSafetyInExport: true,
+        includeIssuesInExport: false,
+        includePhotosInExport: true,
+        includeClientNotesInExport: true,
+      },
+      [],
+    );
+    newId = created.id;
+  } catch (err) {
+    // Lost a race (another tab created today's report first) — resume it.
+    if (err instanceof DuplicateDailyReportDateError) {
+      const again = await listDailyReportsForProject(companyId, project.id);
+      const dupe = again.find(
+        (r) => r.reportDate === today && r.status !== 'void',
+      );
+      if (dupe) redirect(`/field/reports/${dupe.id}` as never);
+    }
+    throw err;
+  }
+
+  revalidatePath('/field/reports');
+  redirect(`/field/reports/${newId}` as never);
 }
 
 export type SimpleState = { formError?: string };

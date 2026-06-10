@@ -1,7 +1,7 @@
-// Mobile detail view for a single daily report. Lighter than the
-// desktop /projects/.../daily-reports/[id] view — the field worker
-// mostly wants to confirm "did my report save?" and then add photos
-// straight off their camera.
+// Mobile daily-report editor (Phase B). One card-based screen that both
+// views and edits the report — Date · Weather · Crew · Work · Photos ·
+// Sign-off — so the field worker fills it in and adds photos in one place.
+// The field create flow lands here on a fresh draft.
 
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -20,12 +20,19 @@ import {
   STATUS_LABEL as DR_STATUS_LABEL,
   STATUS_TONE as DR_STATUS_TONE,
 } from '@/modules/daily-reports/schema';
-import { uploadPhotoAction } from '@/modules/daily-reports/actions';
+import {
+  updateDailyReportAction,
+  uploadPhotoAction,
+} from '@/modules/daily-reports/actions';
 import { FieldPhotoUpload } from '@/modules/field/components/photo-upload';
+import {
+  MobileDailyReportForm,
+  type DailyReportInitial,
+} from '@/modules/field/components/daily-report-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function FieldReportDetailPage({
+export default async function FieldReportEditorPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -36,10 +43,8 @@ export default async function FieldReportDetailPage({
   const { id } = await params;
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
-  // Office-style users (owner/PM/etc.) can still click through to the
-  // full desktop edit page. Field users are locked out of /projects/*
-  // by the office-layout guard, so hide the link entirely for them.
   const showDesktopEditLink = role !== 'field_user';
+
   const report = await getDailyReport(companyId, id);
   if (!report) notFound();
 
@@ -49,9 +54,6 @@ export default async function FieldReportDetailPage({
     listPhotosForReport(report.id),
   ]);
 
-  // Generate signed URLs for thumbnails. Slow if there are many photos
-  // (one signed URL = one Supabase call) — fine for a single report's
-  // gallery, which is typically ≤20 photos.
   const photoCards = await Promise.all(
     photos.map(async (p) => ({
       photo: p,
@@ -59,12 +61,64 @@ export default async function FieldReportDetailPage({
     })),
   );
 
-  // Bind project + report id into the upload action so the form just
-  // takes (prev, formData).
   const boundUpload = uploadPhotoAction.bind(null, report.projectId, report.id);
+  const boundUpdate = updateDailyReportAction.bind(
+    null,
+    report.projectId,
+    report.id,
+  );
+
+  const initial: DailyReportInitial = {
+    reportDate: report.reportDate,
+    status: report.status,
+    weatherCondition: report.weatherCondition ?? '',
+    weatherTemperatureF: report.weatherTemperatureF ?? '',
+    workPerformed: report.workPerformed ?? '',
+    materialsDelivered: report.materialsDelivered ?? '',
+    delays: report.delays ?? '',
+    tomorrowPlan: report.tomorrowPlan ?? '',
+    preparedByName: report.preparedByName ?? '',
+    rows: manpower.map((m) => ({
+      companyCrew: m.companyCrew ?? '',
+      trade: m.trade ?? '',
+      workerCount: m.workerCount > 0 ? String(m.workerCount) : '',
+      hours: Number(m.hours) > 0 ? String(m.hours) : '',
+    })),
+  };
+
+  // Photos card content — gallery + uploader, passed into the form so it
+  // sits inline with the other sections.
+  const photosNode = (
+    <div className="space-y-3">
+      {photoCards.length > 0 && (
+        <ul className="grid grid-cols-3 gap-2">
+          {photoCards.map(({ photo, url }) => (
+            <li
+              key={photo.id}
+              className="aspect-square overflow-hidden rounded-md border border-slate-200 bg-slate-100"
+            >
+              {url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={url}
+                  alt={photo.caption ?? 'photo'}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-[10px] text-slate-400 p-1 text-center">
+                  Unable to load
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <FieldPhotoUpload action={boundUpload} />
+    </div>
+  );
 
   return (
-    <div className="px-4 py-5 space-y-5">
+    <div className="px-4 py-5 space-y-4">
       <header className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-semibold text-slate-900 leading-tight">
@@ -74,114 +128,17 @@ export default async function FieldReportDetailPage({
             {DR_STATUS_LABEL[report.status]}
           </Badge>
         </div>
-        <p className="text-xs text-slate-500">
-          {report.reportDate}
-          {report.menOnSite > 0 && (
-            <>
-              <span className="mx-1">·</span>
-              {report.menOnSite} on site
-            </>
-          )}
-        </p>
-        <Link
-          href={{ pathname: '/field/reports' }}
-          className="text-xs text-slate-500"
-        >
+        <Link href={{ pathname: '/field/reports' }} className="text-xs text-slate-500">
           ← All reports
         </Link>
       </header>
 
-      {/* Photo gallery + capture */}
-      <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Photos ({photoCards.length})
-          </h2>
-        </div>
-
-        {photoCards.length > 0 && (
-          <ul className="grid grid-cols-3 gap-2">
-            {photoCards.map(({ photo, url }) => (
-              <li
-                key={photo.id}
-                className="aspect-square overflow-hidden rounded-md border border-slate-200 bg-slate-100"
-              >
-                {url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={url}
-                    alt={photo.caption ?? 'photo'}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-[10px] text-slate-400 p-1 text-center">
-                    Unable to load
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <FieldPhotoUpload action={boundUpload} />
-      </section>
-
-      {/* Read-only snapshot of the rest of the report so the worker can
-          confirm what saved. Editing happens on the desktop edit page
-          (linked at bottom). */}
-      {report.weatherCondition && (
-        <Field label="Weather">
-          {report.weatherCondition}
-          {report.weatherTemperatureF && ` · ${report.weatherTemperatureF}°F`}
-        </Field>
-      )}
-
-      {manpower.length > 0 && (
-        <Field label="Crew">
-          <ul className="space-y-1">
-            {manpower.map((m) => (
-              <li key={m.id} className="text-sm text-slate-700">
-                {[m.companyCrew, m.trade].filter(Boolean).join(' · ') ||
-                  '(unlabeled)'}
-                {m.workerCount > 0 && ` — ${m.workerCount}`}
-                {Number(m.hours) > 0 && ` × ${m.hours}h`}
-              </li>
-            ))}
-          </ul>
-        </Field>
-      )}
-
-      {report.workPerformed && (
-        <Field label="Work performed">
-          <p className="text-sm text-slate-700 whitespace-pre-line">
-            {report.workPerformed}
-          </p>
-        </Field>
-      )}
-
-      {report.materialsDelivered && (
-        <Field label="Materials delivered">
-          <p className="text-sm text-slate-700 whitespace-pre-line">
-            {report.materialsDelivered}
-          </p>
-        </Field>
-      )}
-
-      {report.delays && (
-        <Field label="Delays">
-          <p className="text-sm text-slate-700 whitespace-pre-line">
-            {report.delays}
-          </p>
-        </Field>
-      )}
-
-      {report.tomorrowPlan && (
-        <Field label="Tomorrow">
-          <p className="text-sm text-slate-700 whitespace-pre-line">
-            {report.tomorrowPlan}
-          </p>
-        </Field>
-      )}
+      <MobileDailyReportForm
+        action={boundUpdate}
+        initial={initial}
+        photos={photosNode}
+        submitLabel="Save report"
+      />
 
       {showDesktopEditLink && (
         <Link
@@ -190,26 +147,9 @@ export default async function FieldReportDetailPage({
           }}
           className="block text-center text-xs text-slate-500"
         >
-          Need to edit details? Open desktop view →
+          Open full desktop view →
         </Link>
       )}
     </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <div className="mt-1">{children}</div>
-    </section>
   );
 }
