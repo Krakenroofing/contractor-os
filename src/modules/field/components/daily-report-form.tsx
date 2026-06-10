@@ -11,7 +11,7 @@
 // Crew rows are submitted as a JSON blob (`manpowerJson`) — the shape the
 // existing update action expects.
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,11 +60,14 @@ function blankRow(): CrewRow {
   return keyedRow({ companyCrew: '', trade: '', workerCount: '', hours: '' });
 }
 
+type AutosaveResult = { savedAt?: string; error?: string };
+
 export function MobileDailyReportForm({
   action,
   initial,
   photos,
   submitLabel = 'Save',
+  autosave,
 }: {
   action: Action;
   initial: DailyReportInitial;
@@ -72,12 +75,79 @@ export function MobileDailyReportForm({
    *  because signed URLs need server data. */
   photos?: React.ReactNode;
   submitLabel?: string;
+  /** Debounced background save. When provided, edits autosave the draft. */
+  autosave?: (formData: FormData) => Promise<AutosaveResult>;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
   const [rows, setRows] = useState<CrewRow[]>(
     initial.rows.length > 0 ? initial.rows.map(keyedRow) : [blankRow()],
   );
+
+  const formRef = useRef<HTMLFormElement>(null);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveStatus, setSaveStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+
+  // Weather is controlled so the "use my location" button can fill it.
+  const [weatherCondition, setWeatherCondition] = useState(
+    initial.weatherCondition,
+  );
+  const [weatherTemp, setWeatherTemp] = useState(initial.weatherTemperatureF);
+  const [weatherStatus, setWeatherStatus] = useState<
+    'idle' | 'locating' | 'error'
+  >('idle');
+
+  async function runAutosave() {
+    if (!autosave || !formRef.current) return;
+    setSaveStatus('saving');
+    try {
+      const res = await autosave(new FormData(formRef.current));
+      setSaveStatus(res?.error ? 'error' : 'saved');
+    } catch {
+      setSaveStatus('error');
+    }
+  }
+
+  // Debounce: reschedule on every edit; save 2s after the worker stops.
+  function scheduleAutosave() {
+    if (!autosave) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(runAutosave, 2000);
+  }
+
+  function useMyLocation() {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setWeatherStatus('error');
+      return;
+    }
+    setWeatherStatus('locating');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch(
+            `/api/field/weather?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`,
+          );
+          if (!res.ok) throw new Error('weather');
+          const data = (await res.json()) as {
+            condition?: string;
+            temperatureF?: number | null;
+          };
+          if (data.condition) setWeatherCondition(data.condition);
+          if (typeof data.temperatureF === 'number') {
+            setWeatherTemp(String(data.temperatureF));
+          }
+          setWeatherStatus('idle');
+          scheduleAutosave();
+        } catch {
+          setWeatherStatus('error');
+        }
+      },
+      () => setWeatherStatus('error'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
+    );
+  }
 
   function setRow(i: number, patch: Partial<CrewRow>) {
     setRows((prev) =>
@@ -103,7 +173,12 @@ export function MobileDailyReportForm({
   const err = (k: string) => state.errors?.[k]?.[0];
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form
+      ref={formRef}
+      action={formAction}
+      onChange={scheduleAutosave}
+      className="space-y-4"
+    >
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
           {state.formError}
@@ -143,6 +218,21 @@ export function MobileDailyReportForm({
 
       {/* Weather */}
       <Section icon="☀️" title="Weather" hint="Quick conditions for the day.">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={useMyLocation}
+            disabled={weatherStatus === 'locating'}
+            className="rounded-md border border-blue-600 text-blue-700 text-xs font-medium px-3 py-1.5 disabled:opacity-50 hover:bg-blue-50"
+          >
+            {weatherStatus === 'locating' ? 'Getting weather…' : '📍 Use my location'}
+          </button>
+          {weatherStatus === 'error' && (
+            <span className="text-[11px] text-amber-700">
+              Couldn&apos;t get weather — pick it below.
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label htmlFor="weatherCondition" className="text-xs">
@@ -151,7 +241,11 @@ export function MobileDailyReportForm({
             <Select
               name="weatherCondition"
               id="weatherCondition"
-              defaultValue={initial.weatherCondition}
+              value={weatherCondition}
+              onChange={(e) => {
+                setWeatherCondition(e.target.value);
+                scheduleAutosave();
+              }}
             >
               <option value="">—</option>
               <option value="Sunny">Sunny</option>
@@ -174,7 +268,8 @@ export function MobileDailyReportForm({
               inputMode="decimal"
               step="0.1"
               placeholder="78"
-              defaultValue={initial.weatherTemperatureF}
+              value={weatherTemp}
+              onChange={(e) => setWeatherTemp(e.target.value)}
               className="text-base md:text-sm h-12 md:h-10"
             />
           </div>
@@ -327,6 +422,25 @@ export function MobileDailyReportForm({
           className="text-base md:text-sm h-12 md:h-10"
         />
       </Section>
+
+      {autosave && (
+        <p className="text-[11px] text-center h-4">
+          {saveStatus === 'saving' && (
+            <span className="text-slate-500">Saving…</span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="text-emerald-600">Saved ✓ — changes save automatically</span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="text-amber-700">
+              Couldn&apos;t auto-save — tap {submitLabel} to save.
+            </span>
+          )}
+          {saveStatus === 'idle' && (
+            <span className="text-slate-400">Changes save automatically.</span>
+          )}
+        </p>
+      )}
 
       <Button
         type="submit"

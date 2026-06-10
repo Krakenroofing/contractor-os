@@ -17,6 +17,7 @@ import {
   softDeleteDailyReport,
   getDailyReport,
   listDailyReportsForProject,
+  getManpowerForReport,
   createPhotoRecord,
   updatePhotoRecord,
   deletePhotoRecord,
@@ -34,6 +35,7 @@ import {
   dailyReportFormSchema,
   manpowerListSchema,
   photoCategoryValues,
+  type DailyReportFormInput,
 } from './schema';
 
 export type DailyReportFormState = {
@@ -119,6 +121,55 @@ function parseManpowerRows(raw: string): {
     }));
   const total = rows.reduce((sum, r) => sum + r.workerCount, 0);
   return { rows, total };
+}
+
+// Shared field patch for update + autosave (everything except the immutable
+// create-only columns). menOnSite is derived from the manpower rows.
+function toReportPatch(
+  data: DailyReportFormInput,
+  userId: string,
+  menOnSite: number,
+) {
+  return {
+    reportDate: data.reportDate,
+    status: data.status,
+    weatherCondition: emptyToNull(data.weatherCondition),
+    weatherTemperatureF:
+      data.weatherTemperatureF.trim() === ''
+        ? null
+        : data.weatherTemperatureF.trim(),
+    weatherPrecipitation: emptyToNull(data.weatherPrecipitation),
+    weatherWind: emptyToNull(data.weatherWind),
+    weatherHumidity: emptyToNull(data.weatherHumidity),
+    weatherSource: data.weatherSource,
+    siteConditions: emptyToNull(data.siteConditions),
+    menOnSite,
+    crewCompanyName: emptyToNull(data.crewCompanyName),
+    foremanName: emptyToNull(data.foremanName),
+    workPerformed: emptyToNull(data.workPerformed),
+    materialsDelivered: emptyToNull(data.materialsDelivered),
+    equipmentOnSite: emptyToNull(data.equipmentOnSite),
+    inspections: emptyToNull(data.inspections),
+    delays: emptyToNull(data.delays),
+    safetyIncidents: emptyToNull(data.safetyIncidents),
+    visitorsOnSite: emptyToNull(data.visitorsOnSite),
+    issuesConcerns: emptyToNull(data.issuesConcerns),
+    tomorrowPlan: emptyToNull(data.tomorrowPlan),
+    internalNotes: emptyToNull(data.internalNotes),
+    clientNotes: emptyToNull(data.clientNotes),
+    preparedByName: emptyToNull(data.preparedByName),
+    includeWeatherInExport: data.includeWeatherInExport,
+    includeManpowerInExport: data.includeManpowerInExport,
+    includeWorkInExport: data.includeWorkInExport,
+    includeMaterialsInExport: data.includeMaterialsInExport,
+    includeEquipmentInExport: data.includeEquipmentInExport,
+    includeDelaysInExport: data.includeDelaysInExport,
+    includeSafetyInExport: data.includeSafetyInExport,
+    includeIssuesInExport: data.includeIssuesInExport,
+    includePhotosInExport: data.includePhotosInExport,
+    includeClientNotesInExport: data.includeClientNotesInExport,
+    updatedBy: userId,
+  };
 }
 
 const idSchema = z.string().uuid('Missing or invalid id');
@@ -272,45 +323,7 @@ export async function updateDailyReportAction(
     const updated = await updateDailyReport(
       companyId,
       reportId,
-      {
-        reportDate: data.reportDate,
-        status: data.status,
-        weatherCondition: emptyToNull(data.weatherCondition),
-        weatherTemperatureF: data.weatherTemperatureF.trim() === ''
-          ? null
-          : data.weatherTemperatureF.trim(),
-        weatherPrecipitation: emptyToNull(data.weatherPrecipitation),
-        weatherWind: emptyToNull(data.weatherWind),
-        weatherHumidity: emptyToNull(data.weatherHumidity),
-        weatherSource: data.weatherSource,
-        siteConditions: emptyToNull(data.siteConditions),
-        menOnSite: manpower.total,
-        crewCompanyName: emptyToNull(data.crewCompanyName),
-        foremanName: emptyToNull(data.foremanName),
-        workPerformed: emptyToNull(data.workPerformed),
-        materialsDelivered: emptyToNull(data.materialsDelivered),
-        equipmentOnSite: emptyToNull(data.equipmentOnSite),
-        inspections: emptyToNull(data.inspections),
-        delays: emptyToNull(data.delays),
-        safetyIncidents: emptyToNull(data.safetyIncidents),
-        visitorsOnSite: emptyToNull(data.visitorsOnSite),
-        issuesConcerns: emptyToNull(data.issuesConcerns),
-        tomorrowPlan: emptyToNull(data.tomorrowPlan),
-        internalNotes: emptyToNull(data.internalNotes),
-        clientNotes: emptyToNull(data.clientNotes),
-        preparedByName: emptyToNull(data.preparedByName),
-        includeWeatherInExport: data.includeWeatherInExport,
-        includeManpowerInExport: data.includeManpowerInExport,
-        includeWorkInExport: data.includeWorkInExport,
-        includeMaterialsInExport: data.includeMaterialsInExport,
-        includeEquipmentInExport: data.includeEquipmentInExport,
-        includeDelaysInExport: data.includeDelaysInExport,
-        includeSafetyInExport: data.includeSafetyInExport,
-        includeIssuesInExport: data.includeIssuesInExport,
-        includePhotosInExport: data.includePhotosInExport,
-        includeClientNotesInExport: data.includeClientNotesInExport,
-        updatedBy: user.id,
-      },
+      toReportPatch(data, user.id, manpower.total),
       manpower.rows,
     );
     if (!updated) {
@@ -339,6 +352,47 @@ export async function updateDailyReportAction(
     redirect(`/field/reports/${reportId}` as never);
   }
   redirect(`/projects/${projectId}/daily-reports/${reportId}`);
+}
+
+export type AutosaveState = { savedAt?: string; error?: string };
+
+// Debounced background save for the field editor. Same write as the update
+// action but without redirect or revalidate, so the worker keeps typing
+// while the draft persists. Called directly from the client (not a form
+// submit) and bound with (projectId, reportId).
+export async function autosaveDailyReportAction(
+  _projectId: string,
+  reportId: string,
+  formData: FormData,
+): Promise<AutosaveState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'daily_reports')) return { error: 'No permission.' };
+  const idCheck = idSchema.safeParse(reportId);
+  if (!idCheck.success) return { error: 'Invalid report id.' };
+  const companyId = await getActiveCompanyId();
+
+  const parsed = dailyReportFormSchema.safeParse(readForm(formData));
+  if (!parsed.success) return { error: 'Some fields need fixing.' };
+  const data = parsed.data;
+  const manpower = parseManpowerRows(data.manpowerJson);
+  if ('error' in manpower) return { error: manpower.error };
+
+  try {
+    const updated = await updateDailyReport(
+      companyId,
+      reportId,
+      toReportPatch(data, user.id, manpower.total),
+      manpower.rows,
+    );
+    if (!updated) return { error: 'Report not found.' };
+  } catch (err) {
+    if (err instanceof DailyReportsNotAvailableInDemoError) {
+      return { error: err.message };
+    }
+    return { error: err instanceof Error ? err.message : 'Save failed.' };
+  }
+  return { savedAt: new Date().toISOString() };
 }
 
 // Field create flow (Phase B): tapping a project makes/returns TODAY's draft
@@ -373,6 +427,26 @@ export async function startFieldReportAction(
   const preparedByName = employee
     ? `${employee.firstName} ${employee.lastName}`.trim()
     : user.name;
+
+  // Carry forward the crew from this job's most recent prior report so the
+  // worker barely retypes — same crew is on site most days. Editable after.
+  const prior = existing
+    .filter((r) => r.reportDate < today && r.status !== 'void')
+    .sort((a, b) => b.reportDate.localeCompare(a.reportDate))[0];
+  let carryRows: ManpowerRowInput[] = [];
+  if (prior) {
+    const priorCrew = await getManpowerForReport(prior.id);
+    carryRows = priorCrew.map((m, i) => ({
+      companyCrew: m.companyCrew,
+      trade: m.trade,
+      workerCount: m.workerCount,
+      hours: m.hours,
+      notes: m.notes,
+      sortOrder: i,
+    }));
+  }
+  const carryMenOnSite = carryRows.reduce((s, r) => s + r.workerCount, 0);
+
   const location = [
     project.jobsiteAddressLine1,
     project.jobsiteCity,
@@ -402,7 +476,7 @@ export async function startFieldReportAction(
         weatherSource: 'manual',
         weatherObservedAt: null,
         siteConditions: null,
-        menOnSite: 0,
+        menOnSite: carryMenOnSite,
         crewCompanyName: null,
         foremanName: null,
         workPerformed: null,
@@ -428,7 +502,7 @@ export async function startFieldReportAction(
         includePhotosInExport: true,
         includeClientNotesInExport: true,
       },
-      [],
+      carryRows,
     );
     newId = created.id;
   } catch (err) {

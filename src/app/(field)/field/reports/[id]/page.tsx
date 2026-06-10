@@ -21,6 +21,7 @@ import {
   STATUS_TONE as DR_STATUS_TONE,
 } from '@/modules/daily-reports/schema';
 import {
+  autosaveDailyReportAction,
   updateDailyReportAction,
   uploadPhotoAction,
 } from '@/modules/daily-reports/actions';
@@ -63,6 +64,11 @@ export default async function FieldReportEditorPage({
 
   const boundUpload = uploadPhotoAction.bind(null, report.projectId, report.id);
   const boundUpdate = updateDailyReportAction.bind(
+    null,
+    report.projectId,
+    report.id,
+  );
+  const boundAutosave = autosaveDailyReportAction.bind(
     null,
     report.projectId,
     report.id,
@@ -138,6 +144,7 @@ export default async function FieldReportEditorPage({
         initial={initial}
         photos={photosNode}
         submitLabel="Save report"
+        autosave={boundAutosave}
       />
 
       {showDesktopEditLink && (
