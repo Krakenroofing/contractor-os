@@ -11,11 +11,14 @@ import { ROLES, ROLE_LABELS, type Role } from '@/lib/permissions';
 import {
   changeUserRoleAction,
   restoreUserAction,
+  sendPasswordResetAction,
   suspendUserAction,
+  type ResetLinkState,
   type UserAdminState,
 } from '../actions';
 
 const empty: UserAdminState = {};
+const emptyReset: ResetLinkState = {};
 
 export function UserAdminControls({
   userId,
@@ -37,8 +40,12 @@ export function UserAdminControls({
     suspended ? restoreUserAction : suspendUserAction,
     empty,
   );
+  const [resetState, resetAction, resetPending] = useActionState(
+    sendPasswordResetAction,
+    emptyReset,
+  );
 
-  const error = roleState.error || accessState.error;
+  const error = roleState.error || accessState.error || resetState.error;
 
   return (
     <div className="space-y-1.5">
@@ -75,9 +82,37 @@ export function UserAdminControls({
           </Button>
         </form>
 
+        <form action={resetAction}>
+          <input type="hidden" name="userId" value={userId} />
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
+            disabled={resetPending}
+            title="Generate a password-reset link you can send to this user"
+          >
+            {resetPending ? 'Generating…' : 'Reset password'}
+          </Button>
+        </form>
+
         {suspended && <Badge tone="red">suspended</Badge>}
         {isSelf && <span className="text-[10px] text-slate-400">(you)</span>}
       </div>
+
+      {resetState.ok && resetState.link && (
+        <div className="space-y-1">
+          <p className="text-[11px] text-slate-600">
+            Send this one-time reset link to the user (it sets a new password):
+          </p>
+          <input
+            readOnly
+            value={resetState.link}
+            onFocusCapture={(e) => e.currentTarget.select()}
+            className="w-full rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-mono"
+          />
+        </div>
+      )}
+
       {error && <p className="text-[11px] text-red-600">{error}</p>}
     </div>
   );

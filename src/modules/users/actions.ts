@@ -1,12 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { z } from 'zod';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { getCurrentUser, requireAuth } from '@/lib/auth';
+import { getSupabaseAdminClient } from '@/lib/auth/supabase-admin';
 import { canCreate, ROLES } from '@/lib/permissions';
-import { setUserEmployeeLink } from '@/lib/data/users';
+import { getUserEmailById, setUserEmployeeLink } from '@/lib/data/users';
 import {
   countActiveOwners,
   getMembershipAnyStatus,
@@ -153,4 +155,48 @@ export async function changeUserRoleAction(
   if (!ok) return { error: 'Could not change role.' };
   revalidatePath('/invite');
   return { ok: true };
+}
+
+export type ResetLinkState = { ok?: boolean; link?: string; error?: string };
+
+// Owner-generated password-reset link. Uses the Supabase admin API to mint a
+// recovery link the owner can hand to a stuck user directly (text/WhatsApp) —
+// works even when email delivery is misconfigured. Email is looked up by id,
+// never trusted from the form.
+export async function sendPasswordResetAction(
+  _prev: ResetLinkState,
+  formData: FormData,
+): Promise<ResetLinkState> {
+  const companyId = await requireOwnerCompany();
+  if (!companyId) return { error: 'Only owners can manage users.' };
+  const userId = userIdFrom(formData);
+  if (!userId) return { error: 'Missing user.' };
+
+  const target = await getMembershipAnyStatus(companyId, userId);
+  if (!target) return { error: 'User is not a member of this company.' };
+  const email = await getUserEmailById(userId);
+  if (!email) return { error: 'No email on file for this user.' };
+
+  const admin = getSupabaseAdminClient();
+  if (!admin) {
+    return { error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY.' };
+  }
+
+  const h = await headers();
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? '';
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ??
+    (host ? `${proto}://${host}` : '');
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'recovery',
+    email,
+    options: { redirectTo: `${origin}/reset-password` },
+  });
+  const link = data?.properties?.action_link;
+  if (error || !link) {
+    return { error: error?.message ?? 'Could not generate a reset link.' };
+  }
+  return { ok: true, link };
 }

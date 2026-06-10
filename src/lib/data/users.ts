@@ -69,6 +69,19 @@ export async function listCompanyUsersWithLinks(
   }));
 }
 
+/** Look up a user's email by id. Used by the owner reset-link action so it
+ *  never trusts a client-posted email. */
+export async function getUserEmailById(userId: string): Promise<string | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+  const rows = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return rows[0]?.email ?? null;
+}
+
 /** Stamp a successful sign-in. Best-effort: a no-op for users that exist in
  *  Supabase auth but not (yet) in public.users. */
 export async function updateUserLastLogin(userId: string): Promise<void> {

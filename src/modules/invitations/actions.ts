@@ -8,6 +8,8 @@ import { getCurrentUser, isAuthEnabled } from '@/lib/auth';
 import { canCreate, ROLES } from '@/lib/permissions';
 import {
   createInvitation,
+  getInvitation,
+  refreshInvitationToken,
   revokeInvitation as dataRevoke,
 } from '@/lib/data/invitations';
 import {
@@ -109,4 +111,41 @@ export async function revokeInvitationAction(
   await dataRevoke(companyId, id);
   revalidatePath('/invite');
   return { ok: true };
+}
+
+export type ResendInvitationState = {
+  ok?: boolean;
+  acceptUrl?: string;
+  formError?: string;
+};
+
+// Re-arm a pending (or expired) invite with a fresh token + 7-day expiry and
+// return a new accept link to share. Owner-only.
+export async function resendInvitationAction(
+  _prev: ResendInvitationState,
+  formData: FormData,
+): Promise<ResendInvitationState> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invitations')) {
+    return { formError: 'Only owners can resend invitations.' };
+  }
+  const id = formData.get('invitationId');
+  if (typeof id !== 'string' || id === '') {
+    return { formError: 'Missing invitation id.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const inv = await getInvitation(companyId, id);
+  if (!inv) return { formError: 'Invitation not found.' };
+  if (inv.acceptedAt) {
+    return { formError: 'That invite was already accepted.' };
+  }
+
+  const token = generateInviteToken();
+  const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+  const updated = await refreshInvitationToken(companyId, id, token, expiresAt);
+  if (!updated) return { formError: 'Could not refresh the invitation.' };
+
+  const acceptUrl = await inviteAcceptUrl(token);
+  revalidatePath('/invite');
+  return { ok: true, acceptUrl };
 }

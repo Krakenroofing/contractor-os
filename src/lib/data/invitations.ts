@@ -108,6 +108,33 @@ export async function revokeInvitation(
   return rows[0];
 }
 
+/**
+ * Re-arm a not-yet-accepted invitation with a fresh token + expiry (and clear
+ * any prior revoke). Used by "resend invite" so an expired/old link becomes
+ * valid again without creating a duplicate row. No-op on accepted invites.
+ */
+export async function refreshInvitationToken(
+  companyId: string,
+  id: string,
+  token: string,
+  expiresAt: Date,
+): Promise<Invitation | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .update(invitations)
+    .set({ token, expiresAt, revokedAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(invitations.id, id),
+        eq(invitations.companyId, companyId),
+        isNull(invitations.acceptedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
 export async function markInvitationAccepted(
   invitationId: string,
   acceptedByUserId: string,

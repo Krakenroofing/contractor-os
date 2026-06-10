@@ -57,10 +57,25 @@ export async function requestPasswordResetAction(
     (host ? `${proto}://${host}` : '');
   const redirectTo = `${origin}/reset-password`;
 
-  // Don't leak whether an email exists. Supabase already returns a generic
-  // success for unknown emails, but we also swallow any error here so the
-  // UI message is the same either way.
-  await supabase.auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
+  // Don't leak whether an email exists — Supabase returns a generic success
+  // for unknown emails. But DO surface genuine delivery/config failures
+  // (bad redirect URL, SMTP not set, rate limit) instead of pretending we
+  // sent it, and log them server-side for diagnosis. These errors are about
+  // configuration, not whether the account exists, so showing them is safe.
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    parsed.data.email,
+    { redirectTo },
+  );
+  if (error) {
+    console.error('[forgot-password] resetPasswordForEmail failed', {
+      message: error.message,
+      redirectTo,
+    });
+    return {
+      error:
+        "We couldn't send the reset email. Ask your account owner to send you a reset link directly.",
+    };
+  }
 
   return { sent: true };
 }

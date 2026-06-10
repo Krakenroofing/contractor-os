@@ -22,6 +22,7 @@ import {
 import { isExpired } from '@/modules/invitations/lib/tokens';
 import { InviteForm } from '@/modules/invitations/components/invite-form';
 import { RevokeButton } from '@/modules/invitations/components/revoke-button';
+import { ResendButton } from '@/modules/invitations/components/resend-button';
 import { UserEmployeeLinkRow } from '@/modules/users/components/user-employee-link-row';
 import { UserAdminControls } from '@/modules/users/components/user-admin-controls';
 
@@ -224,7 +225,10 @@ export default async function InvitePage() {
                       {i.expiresAt.toISOString().slice(0, 10)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <RevokeButton invitationId={i.id} />
+                      <div className="flex items-start justify-end gap-2">
+                        <ResendButton invitationId={i.id} />
+                        <RevokeButton invitationId={i.id} />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

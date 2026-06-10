@@ -106,8 +106,8 @@ export function LoginForm({
       </Button>
 
       <p className="text-xs text-slate-500 text-center">
-        Trouble signing in? Ask your account owner to issue an invite from
-        Supabase.
+        Trouble signing in? Ask your account owner to invite you or send a
+        password-reset link.
       </p>
     </form>
   );
