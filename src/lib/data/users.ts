@@ -27,15 +27,18 @@ export type CompanyUserWithLink = {
   email: string;
   name: string;
   role: Role;
+  status: 'active' | 'invited' | 'suspended';
+  lastLoginAt: Date | null;
   employeeId: string | null;
   employeeFirstName: string | null;
   employeeLastName: string | null;
 };
 
 /**
- * Every active member of a company plus their current employee link.
- * Used by the admin link manager on /invite — one row per user, the
- * dropdown lets owner reassign or clear the employeeId.
+ * Every member of a company (active AND suspended) plus their current
+ * employee link, role, status, and last sign-in. Powers the owner admin
+ * table on /invite — role change, suspend/restore, and "who's getting in".
+ * Suspended users are included so they can be restored.
  */
 export async function listCompanyUsersWithLinks(
   companyId: string,
@@ -48,6 +51,8 @@ export async function listCompanyUsersWithLinks(
       email: users.email,
       name: users.name,
       role: memberships.role,
+      status: memberships.status,
+      lastLoginAt: users.lastLoginAt,
       employeeId: users.employeeId,
       employeeFirstName: employees.firstName,
       employeeLastName: employees.lastName,
@@ -55,17 +60,24 @@ export async function listCompanyUsersWithLinks(
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .leftJoin(employees, eq(employees.id, users.employeeId))
-    .where(
-      and(
-        eq(memberships.companyId, companyId),
-        eq(memberships.status, 'active'),
-      ),
-    )
+    .where(eq(memberships.companyId, companyId))
     .orderBy(asc(users.name));
   return rows.map((r) => ({
     ...r,
     role: r.role as Role,
+    status: r.status as CompanyUserWithLink['status'],
   }));
+}
+
+/** Stamp a successful sign-in. Best-effort: a no-op for users that exist in
+ *  Supabase auth but not (yet) in public.users. */
+export async function updateUserLastLogin(userId: string): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  await db
+    .update(users)
+    .set({ lastLoginAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
 /**

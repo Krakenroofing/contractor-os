@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { isAuthEnabled } from '@/lib/auth';
+import { getCurrentUser, isAuthEnabled } from '@/lib/auth';
 import { canCreate, ROLE_LABELS, type Role } from '@/lib/permissions';
 import { listInvitationsForCompany } from '@/lib/data/invitations';
 import { listEmployees } from '@/lib/data/employees';
@@ -23,6 +23,7 @@ import { isExpired } from '@/modules/invitations/lib/tokens';
 import { InviteForm } from '@/modules/invitations/components/invite-form';
 import { RevokeButton } from '@/modules/invitations/components/revoke-button';
 import { UserEmployeeLinkRow } from '@/modules/users/components/user-employee-link-row';
+import { UserAdminControls } from '@/modules/users/components/user-admin-controls';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,7 @@ export default async function InvitePage() {
   if (!canCreate(role, 'invitations')) redirect('/dashboard');
 
   const company = await getActiveCompany();
+  const me = await getCurrentUser();
   const invites = await listInvitationsForCompany(company.id);
   // Employee picker options for field_user invites + the link-manager
   // section below. Both surfaces want "every active employee" and "who
@@ -141,13 +143,17 @@ export default async function InvitePage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>Role &amp; access</TableHead>
+                  <TableHead>Last login</TableHead>
                   <TableHead>Linked employee</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {companyUsers.map((u) => (
-                  <TableRow key={u.id}>
+                  <TableRow
+                    key={u.id}
+                    className={u.status === 'suspended' ? 'opacity-60' : ''}
+                  >
                     <TableCell className="text-slate-900 text-sm">
                       {u.name}
                     </TableCell>
@@ -155,7 +161,17 @@ export default async function InvitePage() {
                       {u.email}
                     </TableCell>
                     <TableCell>
-                      <Badge tone="slate">{ROLE_LABELS[u.role]}</Badge>
+                      <UserAdminControls
+                        userId={u.id}
+                        currentRole={u.role}
+                        status={u.status}
+                        isSelf={me?.id === u.id}
+                      />
+                    </TableCell>
+                    <TableCell className="text-slate-600 text-xs">
+                      {u.lastLoginAt
+                        ? u.lastLoginAt.toISOString().slice(0, 10)
+                        : 'Never'}
                     </TableCell>
                     <TableCell>
                       <UserEmployeeLinkRow

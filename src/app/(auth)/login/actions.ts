@@ -11,6 +11,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { z } from 'zod';
+import { updateUserLastLogin } from '@/lib/data/users';
 
 export type LoginState = {
   error?: string;
@@ -137,6 +138,16 @@ export async function signInAction(
   // field_user can still reach /dashboard manually if they want, but
   // out-of-the-box the login flow should land them where they'll
   // actually work.
+  // Stamp last sign-in for the owner admin view. Best-effort — never block
+  // the login on this write.
+  if (signInData?.user) {
+    try {
+      await updateUserLastLogin(signInData.user.id);
+    } catch {
+      /* ignore */
+    }
+  }
+
   let next = '/dashboard';
   if (parsed.data.next && parsed.data.next.startsWith('/')) {
     next = parsed.data.next;

@@ -73,6 +73,89 @@ export const listMembersForCompany = cache(async function listMembersForCompany(
   return rows;
 });
 
+/** A user's membership in a company regardless of status (active, suspended,
+ *  invited). Used by owner admin actions that need the current role/status to
+ *  apply guards (e.g. "don't suspend the last owner"). */
+export async function getMembershipAnyStatus(
+  companyId: string,
+  userId: string,
+): Promise<Membership | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.userId, userId),
+        eq(memberships.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+/** Count active owners of a company — guards last-owner removal/demotion. */
+export async function countActiveOwners(companyId: string): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.companyId, companyId),
+        eq(memberships.role, 'owner'),
+        eq(memberships.status, 'active'),
+      ),
+    );
+  return rows.length;
+}
+
+/** Flip a member's status (active ⇄ suspended). Suspended users have no
+ *  active membership, so every access check (which filters status='active')
+ *  immediately denies them. Returns false if no row matched. */
+export async function setMembershipStatus(
+  companyId: string,
+  userId: string,
+  status: 'active' | 'suspended',
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const res = await db
+    .update(memberships)
+    .set({ status, updatedAt: new Date() })
+    .where(
+      and(
+        eq(memberships.companyId, companyId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .returning({ id: memberships.id });
+  return res.length > 0;
+}
+
+/** Change a member's role. Returns false if no row matched. */
+export async function updateMembershipRole(
+  companyId: string,
+  userId: string,
+  role: Role,
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const res = await db
+    .update(memberships)
+    .set({ role, updatedAt: new Date() })
+    .where(
+      and(
+        eq(memberships.companyId, companyId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .returning({ id: memberships.id });
+  return res.length > 0;
+}
+
 /**
  * Upsert a membership row. Used during onboarding to ensure a freshly-signed-up
  * user has at least one membership.
