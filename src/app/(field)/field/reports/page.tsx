@@ -9,7 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getCurrentUser } from '@/lib/auth';
-import { listDailyReportsForUser } from '@/lib/data/daily-reports';
+import {
+  countPhotosByReportIds,
+  listDailyReportsForUser,
+} from '@/lib/data/daily-reports';
 import { getProject } from '@/lib/data/projects';
 import {
   STATUS_LABEL as DR_STATUS_LABEL,
@@ -25,10 +28,33 @@ export default async function FieldReportsListPage() {
   const companyId = await getActiveCompanyId();
   const reports = await listDailyReportsForUser(companyId, user.id, 50);
 
+  // Hide genuinely-blank abandoned drafts (tapped a job from the picker but
+  // entered nothing) so the list stays clean. "Blank" = a draft with no work
+  // text, no weather, no crew, AND no photos. The draft still exists and is
+  // resumed if they re-open that job for the day — it's just not listed.
+  const blankIds = new Set(
+    reports
+      .filter(
+        (r) =>
+          r.status === 'draft' &&
+          !r.workPerformed &&
+          !r.materialsDelivered &&
+          !r.delays &&
+          !r.tomorrowPlan &&
+          !r.weatherCondition &&
+          r.menOnSite === 0,
+      )
+      .map((r) => r.id),
+  );
+  const photoCounts = await countPhotosByReportIds([...blankIds]);
+  const visibleReports = reports.filter(
+    (r) => !blankIds.has(r.id) || (photoCounts.get(r.id) ?? 0) > 0,
+  );
+
   // Hydrate project names so the worker recognises each row. Small
   // N+1 — capped at 50 reports per fetch above.
   const cards = await Promise.all(
-    reports.map(async (r) => ({
+    visibleReports.map(async (r) => ({
       report: r,
       project: await getProject(companyId, r.projectId),
     })),

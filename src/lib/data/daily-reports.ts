@@ -13,7 +13,7 @@
 // DATABASE_URL is missing, the action layer surfaces a clear error instead.
 
 import 'server-only';
-import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
   dailyReports,
   dailyReportManpower,
@@ -312,6 +312,24 @@ export async function listPhotosForReport(
     .from(dailyReportPhotos)
     .where(eq(dailyReportPhotos.dailyReportId, reportId))
     .orderBy(asc(dailyReportPhotos.sortOrder), asc(dailyReportPhotos.uploadedAt));
+}
+
+/** Photo counts for a batch of reports → Map<reportId, count>. Used to tell
+ *  a genuinely-blank abandoned draft (0 photos) from a photo-only report. */
+export async function countPhotosByReportIds(
+  reportIds: string[],
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured() || reportIds.length === 0) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      reportId: dailyReportPhotos.dailyReportId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(dailyReportPhotos)
+    .where(inArray(dailyReportPhotos.dailyReportId, reportIds))
+    .groupBy(dailyReportPhotos.dailyReportId);
+  return new Map(rows.map((r) => [r.reportId, r.n]));
 }
 
 export async function getPhoto(

@@ -18,6 +18,7 @@ import {
   getDailyReport,
   listDailyReportsForProject,
   getManpowerForReport,
+  countPhotosByReportIds,
   createPhotoRecord,
   updatePhotoRecord,
   deletePhotoRecord,
@@ -395,6 +396,46 @@ export async function autosaveDailyReportAction(
   return { savedAt: new Date().toISOString() };
 }
 
+// Soft-delete the worker's own leftover BLANK drafts for a project (tapped a
+// job but entered nothing — no text, weather, crew, or photos). Runs when they
+// start/open a report (a real action, never a page load). Reversible.
+async function cleanupBlankDrafts(
+  companyId: string,
+  userId: string,
+  reports: Array<{
+    id: string;
+    createdBy: string | null;
+    status: string;
+    workPerformed: string | null;
+    materialsDelivered: string | null;
+    delays: string | null;
+    tomorrowPlan: string | null;
+    weatherCondition: string | null;
+    menOnSite: number;
+  }>,
+  keepId: string,
+): Promise<void> {
+  const candidates = reports.filter(
+    (r) =>
+      r.id !== keepId &&
+      r.createdBy === userId &&
+      r.status === 'draft' &&
+      !r.workPerformed &&
+      !r.materialsDelivered &&
+      !r.delays &&
+      !r.tomorrowPlan &&
+      !r.weatherCondition &&
+      r.menOnSite === 0,
+  );
+  if (candidates.length === 0) return;
+  const counts = await countPhotosByReportIds(candidates.map((c) => c.id));
+  for (const c of candidates) {
+    if ((counts.get(c.id) ?? 0) === 0) {
+      await softDeleteDailyReport(companyId, c.id);
+    }
+  }
+}
+
 // Field create flow (Phase B): tapping a project makes/returns TODAY's draft
 // for that project, then drops the worker straight into the mobile editor.
 // Get-or-create keeps it idempotent — re-tapping a job resumes the same
@@ -420,6 +461,7 @@ export async function startFieldReportAction(
     (r) => r.reportDate === today && r.status !== 'void',
   );
   if (open) {
+    await cleanupBlankDrafts(companyId, user.id, existing, open.id);
     redirect(`/field/reports/${open.id}` as never);
   }
 
@@ -517,6 +559,7 @@ export async function startFieldReportAction(
     throw err;
   }
 
+  await cleanupBlankDrafts(companyId, user.id, existing, newId);
   revalidatePath('/field/reports');
   redirect(`/field/reports/${newId}` as never);
 }
