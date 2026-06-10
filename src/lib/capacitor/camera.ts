@@ -23,16 +23,23 @@ export type NativePhotoResult = {
   mimeType: string;
 };
 
+/** Where the native picker should pull the photo from. */
+export type NativePhotoSource = 'camera' | 'photos';
+
 /**
- * Open the native camera and return the captured photo as a File ready
- * to attach to FormData. Returns null when:
+ * Open the native camera OR photo library and return the chosen photo as a
+ * File ready to attach to FormData. Returns null when:
  *   - Not running in a Capacitor shell (caller should use <input file>)
  *   - The user cancels the capture
  *   - The plugin import fails (defensive — shouldn't happen at runtime)
  *
  * Throws on actual capture errors so the caller can surface them.
+ *
+ * @param source 'camera' shoots a new photo; 'photos' opens the gallery.
  */
-export async function captureNativePhoto(): Promise<NativePhotoResult | null> {
+export async function captureNativePhoto(
+  source: NativePhotoSource = 'camera',
+): Promise<NativePhotoResult | null> {
   if (!isCapacitorNative()) return null;
 
   // Dynamic import keeps @capacitor/camera out of the browser bundle.
@@ -53,10 +60,10 @@ export async function captureNativePhoto(): Promise<NativePhotoResult | null> {
       // to 100% for site photos, ~3x smaller files, faster uploads on
       // spotty cell signal.
       quality: 80,
-      // Camera-only (not gallery). Workers tapping "Add photo" expect
-      // to shoot a NEW photo of the work; a gallery picker would be
-      // a different button.
-      source: CameraSource.Camera,
+      // Camera shoots a new photo; Photos opens the device gallery so
+      // workers can attach pictures they already took.
+      source:
+        source === 'photos' ? CameraSource.Photos : CameraSource.Camera,
       // Don't let the user edit / crop in the native UI — the field
       // crew shouldn't be punching down photos before sending.
       allowEditing: false,

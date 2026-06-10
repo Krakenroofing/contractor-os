@@ -1,16 +1,18 @@
 'use client';
 
-// Field-side photo uploader. Two capture paths depending on runtime:
+// Field-side photo uploader. Two sources (camera / gallery) across two
+// runtimes:
 //
 //   - In the Capacitor native shell (iOS/Android app): use
-//     @capacitor/camera. Better photo quality, in-app preview, no
-//     OS-level prompt loop after the first grant. Detected via
-//     isCapacitorNative() at click time.
-//   - In a regular phone browser: input[type=file capture=environment]
-//     opens the OS camera as a fallback.
+//     @capacitor/camera with source 'camera' or 'photos'. Better quality,
+//     in-app preview, no OS-level prompt loop after the first grant.
+//   - In a regular phone browser: a hidden file input per source — one with
+//     capture="environment" (opens the camera) and one without (opens the
+//     gallery / file picker).
 //
-// Both paths land on the same uploadPhotoAction so server-side handling
-// is identical. The component swaps the front-end primitive only.
+// Whichever source the worker picks, the chosen File is copied into a single
+// hidden "carrier" input (name="photo") and the form is submitted, so the
+// server action sees one identical FormData shape in every case.
 
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -18,7 +20,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { isCapacitorNative } from '@/lib/capacitor/runtime';
-import { captureNativePhoto } from '@/lib/capacitor/camera';
+import {
+  captureNativePhoto,
+  type NativePhotoSource,
+} from '@/lib/capacitor/camera';
 import type { PhotoActionState } from '@/modules/daily-reports/actions';
 
 const initial: PhotoActionState = {};
@@ -31,7 +36,11 @@ type Action = (
 export function FieldPhotoUpload({ action }: { action: Action }) {
   const [state, formAction, pending] = useActionState(action, initial);
   const formRef = useRef<HTMLFormElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // The single input that actually submits (name="photo"). Trigger inputs
+  // below copy their chosen file into this one before submit.
+  const carrierRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   // Show the chosen filename so the worker can see something selected
   // before submission, then clear when the upload completes.
   const [chosenName, setChosenName] = useState<string | null>(null);
@@ -45,50 +54,48 @@ export function FieldPhotoUpload({ action }: { action: Action }) {
     setNative(isCapacitorNative());
   }, []);
 
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    setChosenName(file ? file.name : null);
-    // Auto-submit so a single tap+capture posts the photo.
-    if (file && formRef.current) {
-      formRef.current.requestSubmit();
-    }
+  // Copy a chosen File into the carrier input and submit. DataTransfer is
+  // the standards-compliant way to set a file input's value (direct
+  // assignment to input.files is read-only).
+  function submitFile(file: File) {
+    if (!carrierRef.current || !formRef.current) return;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    carrierRef.current.files = dt.files;
+    setChosenName(file.name);
+    formRef.current.requestSubmit();
   }
 
-  /**
-   * Native capture path. Open the OS camera via @capacitor/camera, get
-   * back a File, stuff it into the hidden file input, and submit the
-   * form — that way the server action sees exactly the same FormData
-   * shape it gets from the browser fallback.
-   *
-   * DataTransfer is the standards-compliant way to programmatically
-   * set a file input's value. Direct assignment to input.files is
-   * read-only.
-   */
-  async function onNativeCameraTap() {
+  function onTriggerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset the trigger so picking the SAME file again still fires change.
+    e.target.value = '';
+    if (file) submitFile(file);
+  }
+
+  // Native capture path. Open the OS camera or gallery via
+  // @capacitor/camera, get back a File, and submit through the carrier.
+  async function onNativeTap(source: NativePhotoSource) {
     setNativeError(null);
     try {
-      const result = await captureNativePhoto();
+      const result = await captureNativePhoto(source);
       if (!result) return; // user cancelled
-      if (!fileInputRef.current || !formRef.current) return;
-      const dt = new DataTransfer();
-      dt.items.add(result.file);
-      fileInputRef.current.files = dt.files;
-      setChosenName(result.file.name);
-      formRef.current.requestSubmit();
+      submitFile(result.file);
     } catch (err) {
       setNativeError(
-        err instanceof Error ? err.message : 'Camera failed to open.',
+        err instanceof Error ? err.message : 'Could not open the photo picker.',
       );
     }
   }
 
   // After a successful upload, clear the chosen-name + reset the form
-  // so the worker can take another photo without re-mounting the
-  // component.
+  // so the worker can add another photo without re-mounting the component.
   if (state.ok && chosenName !== null) {
     setChosenName(null);
     formRef.current?.reset();
   }
+
+  const busyLabel = chosenName ? `Uploading ${chosenName}…` : 'Uploading…';
 
   return (
     <form
@@ -146,81 +153,81 @@ export function FieldPhotoUpload({ action }: { action: Action }) {
         </div>
       )}
 
-      {/*
-        Hidden file input. In native mode it's still here because we
-        programmatically set its `.files` from the Capacitor camera
-        result (via DataTransfer) before submit. In web mode it's the
-        actual capture target via the <label> below.
-      */}
-      <input
-        ref={fileInputRef}
-        id="photoFile"
-        name="photo"
-        type="file"
-        // capture="environment" hints to iOS/Android browsers to open
-        // the rear-facing camera directly. Ignored when the native
-        // path is in use.
-        accept="image/*"
-        capture="environment"
-        onChange={onFileChange}
-        className="sr-only"
-      />
+      {/* The carrier input that actually submits. Never opened directly. */}
+      <input ref={carrierRef} name="photo" type="file" accept="image/*" className="sr-only" />
 
-      {native ? (
-        // Native path — explicit button, not a label, because we don't
-        // want the OS file picker to open. The handler talks to
-        // @capacitor/camera directly.
-        <button
-          type="button"
-          onClick={onNativeCameraTap}
-          disabled={pending}
-          className={
-            'flex items-center justify-center w-full h-14 rounded-md text-base font-semibold ' +
-            (pending
-              ? 'bg-slate-200 text-slate-500'
-              : 'bg-blue-600 hover:bg-blue-700 text-white')
-          }
-        >
-          {pending
-            ? 'Uploading…'
-            : chosenName
-              ? `Uploading ${chosenName}…`
-              : '📷 Take photo'}
-        </button>
-      ) : (
-        // Web path — <label> for the hidden file input lets the OS
-        // open its camera picker on tap.
-        <Label
-          htmlFor="photoFile"
-          className={
-            'flex items-center justify-center w-full h-14 rounded-md text-base font-semibold cursor-pointer ' +
-            (pending
-              ? 'bg-slate-200 text-slate-500'
-              : 'bg-blue-600 hover:bg-blue-700 text-white')
-          }
-        >
-          {pending
-            ? 'Uploading…'
-            : chosenName
-              ? `Uploading ${chosenName}…`
-              : '📷 Add photo'}
-        </Label>
+      {/* Web trigger inputs (one per source). Nameless so they don't submit;
+          their file is copied into the carrier above. */}
+      {!native && (
+        <>
+          <input
+            ref={cameraInputRef}
+            id="photoCamera"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onTriggerChange}
+            className="sr-only"
+          />
+          <input
+            ref={galleryInputRef}
+            id="photoGallery"
+            type="file"
+            accept="image/*"
+            onChange={onTriggerChange}
+            className="sr-only"
+          />
+        </>
       )}
 
-      {/* Hidden visibility toggle so the form layer has it even when
-          unchecked. Defaults to true (client sees these by default). */}
+      {pending ? (
+        <div className="flex items-center justify-center w-full h-14 rounded-md text-base font-semibold bg-slate-200 text-slate-500">
+          {busyLabel}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {native ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onNativeTap('camera')}
+                className="flex items-center justify-center h-14 rounded-md text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                📷 Take photo
+              </button>
+              <button
+                type="button"
+                onClick={() => onNativeTap('photos')}
+                className="flex items-center justify-center h-14 rounded-md text-base font-semibold border border-blue-600 text-blue-700 hover:bg-blue-50"
+              >
+                🖼️ Gallery
+              </button>
+            </>
+          ) : (
+            <>
+              <Label
+                htmlFor="photoCamera"
+                className="flex items-center justify-center h-14 rounded-md text-base font-semibold cursor-pointer bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                📷 Take photo
+              </Label>
+              <Label
+                htmlFor="photoGallery"
+                className="flex items-center justify-center h-14 rounded-md text-base font-semibold cursor-pointer border border-blue-600 text-blue-700 hover:bg-blue-50"
+              >
+                🖼️ Gallery
+              </Label>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Defaults to true (client sees these photos by default). */}
       <input type="hidden" name="visibleToClient" value="on" />
 
       <p className="text-[11px] text-slate-500 text-center">
-        {native
-          ? 'Opens the native camera. New photo will upload immediately.'
-          : 'Tap to open camera. Pick from gallery via the OS prompt.'}
+        Take a new photo or upload one from your gallery — it uploads right away.
       </p>
-
-      {/* Hidden submit so requestSubmit() above triggers the action. */}
-      <Button type="submit" className="hidden" disabled={pending}>
-        Upload
-      </Button>
     </form>
   );
 }
