@@ -114,6 +114,25 @@ export async function createSignedPhotoUrl(
 }
 
 /**
+ * Signed URL that forces a download (Content-Disposition: attachment) with a
+ * friendly filename. Backs the per-photo "Download" button on the Photos
+ * browser — Supabase serves the bytes directly, no proxy through our server.
+ */
+export async function createSignedDownloadUrl(
+  storagePath: string,
+  filename: string,
+  ttlSeconds: number = SIGNED_URL_TTL_SECONDS,
+): Promise<string | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client.storage
+    .from(DAILY_REPORT_PHOTOS_BUCKET)
+    .createSignedUrl(storagePath, ttlSeconds, { download: filename });
+  if (error || !data) return null;
+  return data.signedUrl;
+}
+
+/**
  * Download a photo's bytes and return a base64 data URL suitable for
  * embedding in a server-rendered PDF (@react-pdf/renderer accepts data URLs
  * from `<Image src=...>`). Returns null if Storage isn't configured or the

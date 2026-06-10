@@ -13,6 +13,7 @@ import { canView, type Resource } from '@/lib/permissions';
 const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/dashboard', label: 'Dashboard', resource: 'dashboard' },
   { href: '/projects', label: 'Projects', resource: 'projects' },
+  { href: '/photos', label: 'Photos', resource: 'daily_reports' },
   { href: '/customers', label: 'Customers', resource: 'customers' },
   { href: '/vendors', label: 'Vendors', resource: 'vendors' },
   { href: '/inventory', label: 'Inventory', resource: 'inventory' },

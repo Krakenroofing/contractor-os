@@ -314,6 +314,50 @@ export async function listPhotosForReport(
     .orderBy(asc(dailyReportPhotos.sortOrder), asc(dailyReportPhotos.uploadedAt));
 }
 
+/** Every photo for a project across all its daily reports, newest first.
+ *  Powers the per-project gallery on the Photos browser. */
+export async function listPhotosForProject(
+  companyId: string,
+  projectId: string,
+): Promise<DailyReportPhoto[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(dailyReportPhotos)
+    .where(
+      and(
+        eq(dailyReportPhotos.companyId, companyId),
+        eq(dailyReportPhotos.projectId, projectId),
+      ),
+    )
+    .orderBy(desc(dailyReportPhotos.uploadedAt));
+}
+
+/** Per-project photo summary (count + most-recent photo as a cover) for the
+ *  Photos index. One query, reduced in JS. */
+export async function listProjectPhotoSummaries(
+  companyId: string,
+): Promise<Map<string, { count: number; coverPath: string }>> {
+  if (!isDatabaseConfigured()) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      projectId: dailyReportPhotos.projectId,
+      storagePath: dailyReportPhotos.storagePath,
+    })
+    .from(dailyReportPhotos)
+    .where(eq(dailyReportPhotos.companyId, companyId))
+    .orderBy(desc(dailyReportPhotos.uploadedAt));
+  const map = new Map<string, { count: number; coverPath: string }>();
+  for (const r of rows) {
+    const cur = map.get(r.projectId);
+    if (!cur) map.set(r.projectId, { count: 1, coverPath: r.storagePath });
+    else cur.count += 1;
+  }
+  return map;
+}
+
 /** Photo counts for a batch of reports → Map<reportId, count>. Used to tell
  *  a genuinely-blank abandoned draft (0 photos) from a photo-only report. */
 export async function countPhotosByReportIds(
