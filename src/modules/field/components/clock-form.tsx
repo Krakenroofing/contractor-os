@@ -8,7 +8,7 @@
 // submitting. If the worker denied permission or the fix takes too long,
 // we proceed without coords — never block a punch on location.
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useActionState, useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +35,13 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   const [gpsStatus, setGpsStatus] = useState<
     'idle' | 'requesting' | 'ready' | 'denied' | 'unavailable'
   >('idle');
+  // Accuracy (metres) of the best fix we've stored — drives the hint so
+  // the crew can tell a sharp jobsite fix from a coarse cell-tower guess.
+  const [accuracy, setAccuracy] = useState<number | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  // Best fix so far: its accuracy + when we took it. Lets us prefer a
+  // tighter reading, but also refresh a stale one as the worker moves.
+  const bestRef = useRef<{ accuracy: number; ts: number } | null>(null);
 
   // Job vs. overhead is an explicit choice when clocking in. Defaults to
   // "job" so the common case is one tap; "overhead" is the deliberate
@@ -42,41 +49,76 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   // clock-out always carries the open session's project forward.
   const [mode, setMode] = useState<'job' | 'overhead'>('job');
 
-  // Fire-and-forget geolocation request when the page mounts. The OS
-  // permission prompt happens here (not on button tap) so the punch
-  // itself feels instantaneous — by the time the user taps the button,
-  // we either have a fix or we know we don't.
-  useEffect(() => {
+  const stopWatch = useCallback(() => {
+    if (watchIdRef.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  }, []);
+
+  // Continuously track location (watchPosition, not a single shot) so by
+  // the time the worker taps the button we hold the freshest, tightest
+  // fix — a cold GPS warm-up that first reports ±1500m gets superseded by
+  // the ±10m reading a few seconds later. Permission is prompted on mount,
+  // so the punch itself never waits on location. We never block a punch on
+  // GPS: no fix just means the coords save empty.
+  const beginCapture = useCallback(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsStatus('unavailable');
       return;
     }
+    stopWatch();
+    bestRef.current = null;
     setGpsStatus('requesting');
-    navigator.geolocation.getCurrentPosition(
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        setGpsStatus('ready');
-        // Stash on the form's hidden inputs via DOM — useState would
-        // trigger a re-render that pessimizes the form input.
+        const acc = pos.coords.accuracy;
+        const now = Date.now();
+        const best = bestRef.current;
+        // Store a reading when it's our first, when it's tighter than the
+        // best so far, or when the best is stale (>20s) so coords follow
+        // the worker as they move around the site.
+        const keep = !best || acc <= best.accuracy || now - best.ts > 20_000;
+        if (!keep) return;
+        bestRef.current = { accuracy: acc, ts: now };
+        // Stash on the hidden inputs via DOM — the form action reads these
+        // at submit, so the latest best fix always rides along.
         const f = formRef.current;
-        if (!f) return;
-        (f.elements.namedItem('gpsLat') as HTMLInputElement).value =
-          String(pos.coords.latitude);
-        (f.elements.namedItem('gpsLng') as HTMLInputElement).value =
-          String(pos.coords.longitude);
-        (f.elements.namedItem('gpsAccuracyM') as HTMLInputElement).value =
-          String(pos.coords.accuracy);
+        if (f) {
+          (f.elements.namedItem('gpsLat') as HTMLInputElement).value =
+            String(pos.coords.latitude);
+          (f.elements.namedItem('gpsLng') as HTMLInputElement).value =
+            String(pos.coords.longitude);
+          (f.elements.namedItem('gpsAccuracyM') as HTMLInputElement).value =
+            String(acc);
+        }
+        setAccuracy(acc);
+        setGpsStatus('ready');
+        // A tight fix (≤20 m) pins the jobsite — stop watching to spare
+        // battery. Coarse fixes keep the watch alive, trying to do better.
+        if (acc <= 20) stopWatch();
       },
       (err) => {
-        // PERMISSION_DENIED = 1, POSITION_UNAVAILABLE = 2, TIMEOUT = 3
-        setGpsStatus(err.code === 1 ? 'denied' : 'unavailable');
+        // PERMISSION_DENIED = 1, POSITION_UNAVAILABLE = 2, TIMEOUT = 3.
+        if (err.code === 1) {
+          stopWatch();
+          setGpsStatus('denied');
+        } else if (!bestRef.current) {
+          // Only fall back to "unavailable" if we never got a fix — don't
+          // discard a good earlier reading on a later transient timeout.
+          setGpsStatus('unavailable');
+        }
       },
-      // High accuracy is worth the extra battery — punches are infrequent
-      // and we want to know which jobsite the worker is on, not just
-      // which neighbourhood. Timeout prevents the request hanging
-      // forever when indoors with no signal.
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      // Fresh readings only (no cache); high accuracy for jobsite-level
+      // precision. Per-fix timeout keeps the watch from hanging silently.
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
-  }, []);
+  }, [stopWatch]);
+
+  useEffect(() => {
+    beginCapture();
+    return stopWatch;
+  }, [beginCapture, stopWatch]);
 
   return (
     <form
@@ -209,15 +251,37 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
         </Button>
 
         {/* GPS hint — small, secondary. Never blocks the punch. */}
-        <p className="text-[11px] text-slate-500 text-center">
-          {gpsStatus === 'requesting' && 'Getting location…'}
-          {gpsStatus === 'ready' && 'Location captured ✓'}
-          {gpsStatus === 'denied' &&
-            'Location off — punch will save without GPS'}
-          {gpsStatus === 'unavailable' &&
-            "Couldn't get location — punch will save without GPS"}
-          {gpsStatus === 'idle' && ' '}
-        </p>
+        <div className="text-center min-h-[16px]">
+          {gpsStatus === 'requesting' && (
+            <p className="text-[11px] text-slate-500">Getting location…</p>
+          )}
+          {gpsStatus === 'ready' && accuracy != null && (
+            <p
+              className={
+                'text-[11px] ' +
+                (accuracy <= 50 ? 'text-emerald-600' : 'text-amber-600')
+              }
+            >
+              Location ✓ ±{Math.round(accuracy)}m
+              {accuracy > 50 && ' — step outside for a sharper fix'}
+            </p>
+          )}
+          {(gpsStatus === 'denied' || gpsStatus === 'unavailable') && (
+            <p className="text-[11px] text-slate-500">
+              {gpsStatus === 'denied'
+                ? 'Location is off — the punch will save without GPS. '
+                : "Couldn't get a location — the punch will save without GPS. "}
+              <button
+                type="button"
+                onClick={beginCapture}
+                className="font-medium text-blue-600 underline"
+              >
+                Retry
+              </button>
+            </p>
+          )}
+          {/* idle: nothing shown — capture starts on mount */}
+        </div>
       </div>
     </form>
   );
