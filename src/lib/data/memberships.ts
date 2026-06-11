@@ -156,6 +156,41 @@ export async function updateMembershipRole(
   return res.length > 0;
 }
 
+/** Remove a member from a company outright (not just suspend). Used by the
+ *  "delete login" admin flow. Returns false if no row matched. */
+export async function deleteMembership(
+  companyId: string,
+  userId: string,
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const res = await db
+    .delete(memberships)
+    .where(
+      and(
+        eq(memberships.companyId, companyId),
+        eq(memberships.userId, userId),
+      ),
+    )
+    .returning({ id: memberships.id });
+  return res.length > 0;
+}
+
+/** Count every membership this user holds, across all companies and
+ *  statuses. The delete-login flow uses this to decide whether removing
+ *  them from THIS company should also tear down the shared login: only
+ *  when this is their last membership (single-tenant in practice, but we
+ *  never want to nuke an auth account a TRB user still relies on). */
+export async function countMembershipsForUser(userId: string): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(eq(memberships.userId, userId));
+  return rows.length;
+}
+
 /**
  * Upsert a membership row. Used during onboarding to ensure a freshly-signed-up
  * user has at least one membership.

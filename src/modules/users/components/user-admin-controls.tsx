@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ROLES, ROLE_LABELS, type Role } from '@/lib/permissions';
 import {
   changeUserRoleAction,
+  deleteUserLoginAction,
   restoreUserAction,
   sendPasswordResetAction,
   suspendUserAction,
@@ -44,8 +45,16 @@ export function UserAdminControls({
     sendPasswordResetAction,
     emptyReset,
   );
+  const [deleteState, deleteAction, deletePending] = useActionState(
+    deleteUserLoginAction,
+    empty,
+  );
 
-  const error = roleState.error || accessState.error || resetState.error;
+  const error =
+    roleState.error ||
+    accessState.error ||
+    resetState.error ||
+    deleteState.error;
 
   return (
     <div className="space-y-1.5">
@@ -94,6 +103,34 @@ export function UserAdminControls({
             {resetPending ? 'Generating…' : 'Reset password'}
           </Button>
         </form>
+
+        {/* Delete login — only once suspended (the reversible step) and
+            never for yourself. Destructive + irreversible, so confirm. */}
+        {suspended && !isSelf && (
+          <form
+            action={deleteAction}
+            onSubmit={(e) => {
+              if (
+                !window.confirm(
+                  'Permanently delete this login? Their sign-in is removed and they drop off the Users list. The employee record and timesheet history are kept. This cannot be undone.',
+                )
+              ) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="userId" value={userId} />
+            <Button
+              type="submit"
+              size="sm"
+              variant="outline"
+              disabled={deletePending}
+              className="text-red-600 hover:text-red-700"
+            >
+              {deletePending ? 'Deleting…' : 'Delete login'}
+            </Button>
+          </form>
+        )}
 
         {suspended && <Badge tone="red">suspended</Badge>}
         {isSelf && <span className="text-[10px] text-slate-400">(you)</span>}

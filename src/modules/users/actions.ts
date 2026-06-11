@@ -8,9 +8,15 @@ import { getActiveRole } from '@/lib/active-role';
 import { getCurrentUser, requireAuth } from '@/lib/auth';
 import { getSupabaseAdminClient } from '@/lib/auth/supabase-admin';
 import { canCreate, ROLES } from '@/lib/permissions';
-import { getUserEmailById, setUserEmployeeLink } from '@/lib/data/users';
+import {
+  getUserEmailById,
+  setUserEmployeeLink,
+  tombstoneUserRecord,
+} from '@/lib/data/users';
 import {
   countActiveOwners,
+  countMembershipsForUser,
+  deleteMembership,
   getMembershipAnyStatus,
   setMembershipStatus,
   updateMembershipRole,
@@ -119,6 +125,75 @@ export async function restoreUserAction(
 
   const ok = await setMembershipStatus(companyId, userId, 'active');
   if (!ok) return { error: 'Could not restore this user.' };
+  revalidatePath('/invite');
+  return { ok: true };
+}
+
+/**
+ * Permanently delete a user's login. Owner-only, and only allowed once the
+ * member is already suspended — suspend is the reversible "cut access now"
+ * step; this is the irreversible cleanup. Guards: can't delete your own
+ * login; must be suspended first. (An owner can only be suspended when
+ * another active owner exists, so a deletable user is never the last owner
+ * — no separate owner guard needed.)
+ *
+ * What it does, in order:
+ *  1. If this is the user's ONLY membership (the common single-company
+ *     case), delete their Supabase Auth account — that's the actual login.
+ *     If they belong to another company too, we skip the auth delete and
+ *     just remove them from THIS company, so we never lock them out of a
+ *     company this owner doesn't control.
+ *  2. Remove the membership (drops them off the Users tab).
+ *  3. Tombstone the mirror row (clears the employee link, frees the email).
+ */
+export async function deleteUserLoginAction(
+  _prev: UserAdminState,
+  formData: FormData,
+): Promise<UserAdminState> {
+  const companyId = await requireOwnerCompany();
+  if (!companyId) return { error: 'Only owners can manage users.' };
+  const userId = userIdFrom(formData);
+  if (!userId) return { error: 'Missing user.' };
+
+  const me = await getCurrentUser();
+  if (me?.id === userId) {
+    return { error: "You can't delete your own login." };
+  }
+  const target = await getMembershipAnyStatus(companyId, userId);
+  if (!target) return { error: 'User is not a member of this company.' };
+  if (target.status !== 'suspended') {
+    return {
+      error: 'Suspend this user first, then you can delete their login.',
+    };
+  }
+
+  const isOnlyMembership = (await countMembershipsForUser(userId)) <= 1;
+
+  // Tear down the auth login only when this is their last company. If the
+  // admin client is unavailable we can't safely delete the login, so bail
+  // before touching any DB rows.
+  if (isOnlyMembership) {
+    const admin = getSupabaseAdminClient();
+    if (!admin) {
+      return { error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY.' };
+    }
+    const { error } = await admin.auth.admin.deleteUser(userId);
+    // A "not found" means the auth row is already gone — fine, keep going
+    // and finish the DB cleanup. Any other error aborts before DB changes.
+    if (error && !/not\s*found/i.test(error.message)) {
+      return { error: `Could not delete the login: ${error.message}` };
+    }
+  }
+
+  await deleteMembership(companyId, userId);
+  if (isOnlyMembership) {
+    await tombstoneUserRecord(userId);
+  } else {
+    // Still in another company — just unlink them from this one's employee
+    // record; leave the shared login and mirror row intact.
+    await setUserEmployeeLink(userId, null, companyId);
+  }
+
   revalidatePath('/invite');
   return { ok: true };
 }

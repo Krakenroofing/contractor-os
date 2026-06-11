@@ -129,6 +129,33 @@ export async function setUserEmployeeLink(
 }
 
 /**
+ * Tombstone a user's mirror row after their auth login is deleted.
+ *
+ * We deliberately DON'T `DELETE` the public.users row: audit columns all
+ * over the schema (reviewed_by, *_by_user_id, paid_to_user_id with
+ * onDelete:'restrict') reference it, and a hard delete would either fail
+ * or blank out history. Instead we anonymize — clear the employee link,
+ * release the real email (so the same person can be re-invited later
+ * without colliding on the unique email index), and rename to a tombstone
+ * so any lingering "submitted by" lookups read "Deleted login" rather than
+ * a stale name. The email is keyed on the user id so it's always unique.
+ */
+export async function tombstoneUserRecord(userId: string): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  await db
+    .update(users)
+    .set({
+      employeeId: null,
+      email: `deleted+${userId}@removed.invalid`,
+      name: 'Deleted login',
+      hashedPassword: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
+
+/**
  * Return users belonging to a company who already have an employee link.
  *
  * Used by the invite form (Phase M1 field app) to mark employees as
