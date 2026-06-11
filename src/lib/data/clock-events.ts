@@ -2,7 +2,18 @@
 // DB-only (no in-memory mock — clock punches aren't useful in demo).
 
 import 'server-only';
-import { and, asc, desc, eq, gt, gte, isNull, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   clockEvents,
   timeEntries,
@@ -432,7 +443,7 @@ export async function markPunchesReviewed(
     .where(
       and(
         eq(clockEvents.companyId, companyId),
-        sql`${clockEvents.id} = ANY(${ids}::uuid[])`,
+        inArray(clockEvents.id, ids),
       ),
     );
 }
@@ -449,7 +460,7 @@ export async function unmarkPunchesReviewed(
     .where(
       and(
         eq(clockEvents.companyId, companyId),
-        sql`${clockEvents.id} = ANY(${ids}::uuid[])`,
+        inArray(clockEvents.id, ids),
       ),
     );
 }
@@ -579,7 +590,7 @@ export async function postSessionsToTimeEntries(
           .where(
             and(
               eq(clockEvents.companyId, companyId),
-              sql`${clockEvents.id} = ANY(${[s.in.id, s.out.id]}::uuid[])`,
+              inArray(clockEvents.id, [s.in.id, s.out.id]),
             ),
           );
       });
