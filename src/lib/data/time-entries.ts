@@ -43,6 +43,37 @@ export async function listTimeEntries(
   return mockList(companyId, filters);
 }
 
+/**
+ * Time entries for one employee on one date of a given type ('hours' |
+ * 'amount'). The inline timesheet editor uses this to decide whether a
+ * cell is a single editable row (0 or 1) or a split it must hand off to
+ * the day-detail view (>1 — we never silently merge allocations).
+ */
+export async function findDayTypeEntries(
+  companyId: string,
+  employeeId: string,
+  workDate: string,
+  entryType: 'hours' | 'amount',
+): Promise<TimeEntry[]> {
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    return await db
+      .select()
+      .from(timeEntries)
+      .where(
+        and(
+          eq(timeEntries.companyId, companyId),
+          eq(timeEntries.employeeId, employeeId),
+          eq(timeEntries.workDate, workDate),
+          eq(timeEntries.entryType, entryType),
+        ),
+      );
+  }
+  return mockList(companyId, { employeeId }).filter(
+    (t) => t.workDate === workDate && t.entryType === entryType,
+  );
+}
+
 export async function getTimeEntry(
   companyId: string,
   id: string,

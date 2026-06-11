@@ -124,16 +124,28 @@ export default async function PayrollPage({
   const timesheetRows: TimesheetEmployee[] = activeEmployees.map((e) => {
     const employmentType = e.employmentType as EmploymentType;
     const isVariablePay = VARIABLE_PAY_TYPES.has(employmentType);
-    const hoursByDate: Record<string, number> = {};
-    const payByDate: Record<string, number> = {};
+    // Per-day roll-up keeps the row COUNT alongside the sum: a day with a
+    // single hours/pay row is inline-editable; a day split across projects
+    // (>1 row) is handed off to the day-detail view so we never collapse
+    // an allocation.
+    const days: Record<
+      string,
+      { hours: number; hoursCount: number; pay: number; payCount: number }
+    > = {};
     for (const entry of allEntries) {
       if (entry.employeeId !== e.id) continue;
+      const slot = (days[entry.workDate] ??= {
+        hours: 0,
+        hoursCount: 0,
+        pay: 0,
+        payCount: 0,
+      });
       if (entry.entryType === 'amount') {
-        payByDate[entry.workDate] =
-          (payByDate[entry.workDate] ?? 0) + Number(entry.amount);
+        slot.pay += Number(entry.amount);
+        slot.payCount += 1;
       } else {
-        hoursByDate[entry.workDate] =
-          (hoursByDate[entry.workDate] ?? 0) + Number(entry.hours);
+        slot.hours += Number(entry.hours);
+        slot.hoursCount += 1;
       }
     }
     return {
@@ -141,8 +153,7 @@ export default async function PayrollPage({
       fullName: `${e.firstName} ${e.lastName}`.trim(),
       employmentType,
       isVariablePay,
-      hoursByDate,
-      payByDate,
+      days,
     };
   });
 

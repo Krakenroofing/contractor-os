@@ -10,9 +10,11 @@ import { canCreate } from '@/lib/permissions';
 import {
   createTimeEntry,
   deleteTimeEntry,
+  findDayTypeEntries,
   getTimeEntry,
   updateTimeEntry,
 } from '@/lib/data/time-entries';
+import { getEmployee } from '@/lib/data/employees';
 import { getOrCreatePeriodForDate, getPayPeriod, updatePayPeriod } from '@/lib/data/pay-periods';
 import {
   deletePeriodPayOverride,
@@ -55,6 +57,94 @@ export type TimeEntryState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
+
+// ===========================================================================
+// Inline timesheet cell editing (Phase 2). One server action upserts a
+// single day's hours OR pay value straight from the grid — no form hop.
+// ===========================================================================
+
+export type SaveCellResult = { ok?: boolean; error?: string };
+
+const saveCellSchema = z.object({
+  employeeId: z.string().uuid(),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  kind: z.enum(['hours', 'amount']),
+  // Clamp insane values; 0 means "clear this cell".
+  value: z.number().nonnegative().finite().max(1_000_000),
+});
+
+/**
+ * Upsert one timesheet cell. `kind='hours'` edits the day's hours row,
+ * `kind='amount'` edits the day's pay row. A value of 0 clears (deletes)
+ * the row. Refuses when the day already holds more than one row of that
+ * type — those splits are edited on the day-detail view so allocations
+ * aren't silently collapsed. New rows land unassigned (no project); the
+ * office allocates from the day view as before.
+ */
+export async function saveTimesheetCell(input: {
+  employeeId: string;
+  workDate: string;
+  kind: 'hours' | 'amount';
+  value: number;
+}): Promise<SaveCellResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to edit payroll.' };
+  }
+  const parsed = saveCellSchema.safeParse(input);
+  if (!parsed.success) return { error: 'Invalid value.' };
+  const { employeeId, workDate, kind, value } = parsed.data;
+
+  const companyId = await getActiveCompanyId();
+  // Never trust a client-posted employeeId — confirm it's ours.
+  const employee = await getEmployee(companyId, employeeId);
+  if (!employee) return { error: 'Unknown employee.' };
+
+  const period = await getOrCreatePeriodForDate(companyId, workDate);
+  if (period.status === 'locked') {
+    return { error: 'That pay period is locked — unlock it before editing.' };
+  }
+
+  const existing = await findDayTypeEntries(companyId, employeeId, workDate, kind);
+  if (existing.length > 1) {
+    return {
+      error: 'That day has multiple entries — open the day view to edit.',
+    };
+  }
+  const row = existing[0];
+  const valueStr = value.toFixed(2);
+
+  // 0 / blank clears the cell. Deleting an hours row that was posted from
+  // the clock frees the punch to re-post (FK cascades to NULL) — intended:
+  // it means "these hours were removed."
+  if (value <= 0) {
+    if (row) await deleteTimeEntry(companyId, row.id);
+    revalidatePath('/payroll');
+    return { ok: true };
+  }
+
+  if (row) {
+    await updateTimeEntry(companyId, row.id, {
+      ...(kind === 'hours' ? { hours: valueStr } : { amount: valueStr }),
+    });
+  } else {
+    await createTimeEntry(companyId, {
+      employeeId,
+      payPeriodId: period.id,
+      workDate,
+      entryType: kind,
+      hours: kind === 'hours' ? valueStr : '0',
+      amount: kind === 'amount' ? valueStr : '0',
+      projectId: null,
+      costCodeId: null,
+      isOverhead: false,
+      notes: null,
+    });
+  }
+  revalidatePath('/payroll');
+  return { ok: true };
+}
 
 /**
  * Read the allocation rows posted by the multi-allocation widget.

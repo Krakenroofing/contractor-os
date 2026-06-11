@@ -23,6 +23,14 @@ import {
   EMPLOYMENT_TYPE_TONE,
   type EmploymentType,
 } from '@/modules/employees/schema';
+import { TimesheetCell } from './timesheet-cell';
+
+export type TimesheetDay = {
+  hours: number;
+  hoursCount: number;
+  pay: number;
+  payCount: number;
+};
 
 export type TimesheetEmployee = {
   id: string;
@@ -30,11 +38,11 @@ export type TimesheetEmployee = {
   employmentType: EmploymentType;
   /** Variable-pay types show a $ pay line under the hours in each cell. */
   isVariablePay: boolean;
-  /** Map work_date → hours logged that day (the record, for everyone). */
-  hoursByDate: Record<string, number>;
-  /** Map work_date → $ pay logged that day (variable-pay workers only). */
-  payByDate: Record<string, number>;
+  /** Map work_date → that day's hours/pay roll-up (sum + row counts). */
+  days: Record<string, TimesheetDay>;
 };
+
+const EMPTY_DAY: TimesheetDay = { hours: 0, hoursCount: 0, pay: 0, payCount: 0 };
 
 export function TimesheetGrid({
   days,
@@ -83,11 +91,11 @@ export function TimesheetGrid({
         <TableBody>
           {employees.map((emp) => {
             const totalHours = days.reduce(
-              (a, d) => a + (emp.hoursByDate[d] ?? 0),
+              (a, d) => a + (emp.days[d]?.hours ?? 0),
               0,
             );
             const totalPay = days.reduce(
-              (a, d) => a + (emp.payByDate[d] ?? 0),
+              (a, d) => a + (emp.days[d]?.pay ?? 0),
               0,
             );
             return (
@@ -103,45 +111,19 @@ export function TimesheetGrid({
                   </div>
                 </TableCell>
                 {days.map((d) => {
-                  const hours = emp.hoursByDate[d] ?? 0;
-                  const pay = emp.payByDate[d] ?? 0;
-                  const populated = hours > 0 || pay > 0;
-                  const cellBody = (
-                    <DayCell
-                      hours={hours}
-                      pay={pay}
-                      showPay={emp.isVariablePay}
-                    />
-                  );
-                  // Populated → day-detail breakdown (read-only, works even
-                  // when locked). Empty + editable → quick-add entry form.
-                  if (populated) {
-                    return (
-                      <TableCell key={d} className="text-right align-top">
-                        <Link
-                          href={`/payroll/day?employeeId=${emp.id}&workDate=${d}`}
-                          className="block w-full hover:text-blue-700"
-                        >
-                          {cellBody}
-                        </Link>
-                      </TableCell>
-                    );
-                  }
-                  if (allowEdit && !locked) {
-                    return (
-                      <TableCell key={d} className="text-right align-top">
-                        <Link
-                          href={`/payroll/entries/new?employeeId=${emp.id}&workDate=${d}`}
-                          className="block w-full hover:text-blue-700"
-                        >
-                          {cellBody}
-                        </Link>
-                      </TableCell>
-                    );
-                  }
+                  const day = emp.days[d] ?? EMPTY_DAY;
                   return (
                     <TableCell key={d} className="text-right align-top">
-                      {cellBody}
+                      <TimesheetCell
+                        employeeId={emp.id}
+                        workDate={d}
+                        hours={day.hours}
+                        hoursCount={day.hoursCount}
+                        pay={day.pay}
+                        payCount={day.payCount}
+                        showPay={emp.isVariablePay}
+                        canEdit={allowEdit && !locked}
+                      />
                     </TableCell>
                   );
                 })}
