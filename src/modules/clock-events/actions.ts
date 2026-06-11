@@ -8,12 +8,14 @@ import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
+  CannotCloseSessionError,
   deleteClockEvent,
   getClockEvent,
   listPostableSessions,
   markPunchesReviewed,
   postSessionsToTimeEntries,
   PunchAlreadyPostedError,
+  recordSessionClockOut,
   unmarkPunchesReviewed,
   updateClockEvent,
 } from '@/lib/data/clock-events';
@@ -97,6 +99,82 @@ export async function editPunchAction(
 
   revalidatePath('/clock');
   redirect('/clock' as never);
+}
+
+export type CloseSessionState = {
+  error?: string;
+};
+
+const closeSchema = z.object({
+  occurredAt: z
+    .string()
+    .min(1, 'Time is required')
+    .regex(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/,
+      'Invalid date/time',
+    ),
+  notes: z.string().optional(),
+});
+
+/**
+ * Close an open session by recording its missing clock-out — the office
+ * fix for a worker who forgot to punch out (and now shows e.g. "on the
+ * clock 23h"). `inId` is the dangling IN punch. The chosen wall-clock
+ * value is re-anchored to APP_TZ (Nassau), same as editPunchAction.
+ *
+ * On success the session becomes a normal paired session: editable,
+ * reviewable, and postable. Redirects to the IN punch's day grid so the
+ * now-closed session is in view.
+ */
+export async function closeSessionAction(
+  inId: string,
+  _prev: CloseSessionState,
+  formData: FormData,
+): Promise<CloseSessionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'clock_events')) {
+    return { error: 'You do not have permission to edit punches.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  const parsed = closeSchema.safeParse({
+    occurredAt: formData.get('occurredAt')?.toString() ?? '',
+    notes: formData.get('notes')?.toString() ?? '',
+  });
+  if (!parsed.success) {
+    return {
+      error:
+        parsed.error.flatten().fieldErrors.occurredAt?.[0] ??
+        'Invalid date/time.',
+    };
+  }
+
+  let occurredAt: Date;
+  try {
+    occurredAt = parseDateTimeLocalInTZ(parsed.data.occurredAt);
+  } catch {
+    return { error: 'Invalid date/time.' };
+  }
+
+  let inDayISO: string;
+  try {
+    const result = await recordSessionClockOut(
+      companyId,
+      inId,
+      occurredAt,
+      emptyToNull(parsed.data.notes),
+    );
+    inDayISO = result.inDayISO;
+  } catch (err) {
+    if (err instanceof CannotCloseSessionError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
+
+  revalidatePath('/clock');
+  redirect(`/clock?date=${inDayISO}` as never);
 }
 
 const UUID_RE =

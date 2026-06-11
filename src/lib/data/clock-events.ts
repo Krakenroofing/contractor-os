@@ -242,6 +242,79 @@ export async function updateClockEvent(
   return rows[0] ?? null;
 }
 
+/**
+ * Raised when an open session can't be closed from the office: the IN
+ * punch is no longer the employee's latest event (already closed, or a
+ * newer punch landed), or the requested clock-out time isn't after the
+ * clock-in. Carries a user-facing message the action surfaces inline.
+ */
+export class CannotCloseSessionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CannotCloseSessionError';
+  }
+}
+
+/**
+ * Close an open session by recording its missing OUT punch — the office
+ * fix for "worker forgot to clock out." `inId` is the dangling IN punch.
+ *
+ * Guards:
+ *  - the IN must be the employee's *latest* event (that's what "open"
+ *    means; refusing otherwise prevents inserting an OUT in the middle of
+ *    a later session and scrambling the in→out pairing),
+ *  - the OUT instant must be strictly after the IN.
+ *
+ * The new OUT copies the IN's project/cost code so the pair stays
+ * consistent (posting reads the IN, but we keep them in sync — same
+ * rationale as setSessionProjectAction). Returns the created OUT plus the
+ * IN's Nassau day so the caller can route back to the right day grid.
+ */
+export async function recordSessionClockOut(
+  companyId: string,
+  inId: string,
+  occurredAt: Date,
+  notes: string | null = null,
+): Promise<{ out: ClockEvent; inDayISO: string }> {
+  if (!isDatabaseConfigured()) {
+    throw new Error(
+      'Clock events require a configured database. Set DATABASE_URL.',
+    );
+  }
+  const inEvent = await getClockEvent(companyId, inId);
+  if (!inEvent) {
+    throw new CannotCloseSessionError('That clock-in no longer exists.');
+  }
+  if (inEvent.kind !== 'in') {
+    throw new CannotCloseSessionError('That punch is not a clock-in.');
+  }
+  // Must still be the employee's latest punch, or the session isn't open.
+  const latest = await getLatestClockEvent(inEvent.employeeId);
+  if (!latest || latest.id !== inId) {
+    throw new CannotCloseSessionError(
+      'This session is no longer open — it may already have a clock-out.',
+    );
+  }
+  if (occurredAt.getTime() <= inEvent.occurredAt.getTime()) {
+    throw new CannotCloseSessionError(
+      'Clock-out time must be after the clock-in time.',
+    );
+  }
+  const out = await recordClockEvent({
+    companyId,
+    employeeId: inEvent.employeeId,
+    projectId: inEvent.projectId,
+    costCodeId: inEvent.costCodeId,
+    kind: 'out',
+    occurredAt,
+    gpsLat: null,
+    gpsLng: null,
+    gpsAccuracyM: null,
+    notes,
+  });
+  return { out, inDayISO: todayISOInTZ(inEvent.occurredAt) };
+}
+
 export async function deleteClockEvent(
   companyId: string,
   id: string,

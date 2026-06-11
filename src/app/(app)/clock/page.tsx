@@ -125,6 +125,9 @@ export default async function ClockReviewPage({
 
   const companyId = await getActiveCompanyId();
   const canEditSettings = canCreate(role, 'settings');
+  // Editing/closing punches is gated on clock_events:create (PMs and up).
+  // Drives the "Clock out" affordances on open sessions.
+  const canEditPunches = canCreate(role, 'clock_events');
 
   const [company, employees, projects, events, openSessions, postableSessions] =
     await Promise.all([
@@ -353,6 +356,9 @@ export default async function ClockReviewPage({
                   <TableHead>Elapsed</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>GPS</TableHead>
+                  {canEditPunches && (
+                    <TableHead className="text-right">Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -364,7 +370,16 @@ export default async function ClockReviewPage({
                     <TableCell className="text-slate-700 text-xs">
                       {formatNassauTime(r.event.occurredAt)}
                     </TableCell>
-                    <TableCell className="text-emerald-700 text-xs font-medium">
+                    <TableCell
+                      className={
+                        'text-xs font-medium ' +
+                        // Flag a session that's run unusually long (>16h) —
+                        // almost always a forgotten clock-out.
+                        (r.sinceMs > 16 * 3_600_000
+                          ? 'text-amber-700'
+                          : 'text-emerald-700')
+                      }
+                    >
                       {durationLabel(r.sinceMs)}
                     </TableCell>
                     <TableCell className="text-slate-700 text-xs">
@@ -377,6 +392,20 @@ export default async function ClockReviewPage({
                         ? `${r.event.gpsLat}, ${r.event.gpsLng}`
                         : '—'}
                     </TableCell>
+                    {canEditPunches && (
+                      <TableCell className="text-right">
+                        <Link
+                          href={{
+                            pathname: `/clock/${r.event.id}/close`,
+                            query: { date: todayISOInTZ(r.event.occurredAt) },
+                          }}
+                        >
+                          <Button size="sm" variant="outline">
+                            Clock out
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -535,6 +564,18 @@ export default async function ClockReviewPage({
                                     Un-review
                                   </Button>
                                 </form>
+                              )}
+                              {!r.outEvent && (
+                                <Link
+                                  href={{
+                                    pathname: `/clock/${r.inEvent.id}/close`,
+                                    query: { date },
+                                  }}
+                                >
+                                  <Button size="sm" variant="outline">
+                                    Clock out
+                                  </Button>
+                                </Link>
                               )}
                               <Link
                                 href={{
