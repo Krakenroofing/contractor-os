@@ -13,17 +13,10 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import {
-  getClockEvent,
-  getLatestClockEvent,
-} from '@/lib/data/clock-events';
+import { getSessionCloseInfo } from '@/lib/data/clock-events';
 import { getEmployee } from '@/lib/data/employees';
 import { listProjects } from '@/lib/data/projects';
-import {
-  formatDateTimeLocalInTZ,
-  formatTimeInTZ,
-  todayISOInTZ,
-} from '@/lib/tz';
+import { formatDateTimeLocalInTZ, formatTimeInTZ } from '@/lib/tz';
 import { CloseSessionForm } from '@/modules/clock-events/components/close-session-form';
 
 export const dynamic = 'force-dynamic';
@@ -40,20 +33,20 @@ export default async function CloseSessionPage({
   if (!canCreate(role, 'clock_events')) redirect('/clock' as never);
 
   const companyId = await getActiveCompanyId();
-  const punch = await getClockEvent(companyId, id);
-  if (!punch) notFound();
+  const info = await getSessionCloseInfo(companyId, id);
+  if (!info) notFound();
+  const punch = info.inEvent;
 
   const sp = (await searchParams) ?? {};
   const backHref = sp.date
     ? { pathname: '/clock' as const, query: { date: sp.date } }
     : { pathname: '/clock' as const };
 
-  // Only open sessions can be closed: the IN must be the employee's
-  // latest punch. If a clock-out already exists, send the user to the
-  // day grid for that punch's day where the paired session now lives.
-  const latest = await getLatestClockEvent(punch.employeeId);
-  if (punch.kind !== 'in' || !latest || latest.id !== punch.id) {
-    redirect(`/clock?date=${todayISOInTZ(punch.occurredAt)}` as never);
+  // Only open sessions can be closed (open = no clock-out within the IN's
+  // own day, exactly as the grid shows). If it's already closed, send the
+  // user to the day grid for that punch's day where the session now lives.
+  if (!info.isOpen) {
+    redirect(`/clock?date=${info.inDayISO}` as never);
   }
 
   const [employee, projects] = await Promise.all([
@@ -93,6 +86,12 @@ export default async function CloseSessionPage({
         // day — the office just nudges the time to when work actually ended.
         defaultOccurredAt={formatDateTimeLocalInTZ(punch.occurredAt)}
         inLabel={formatTimeInTZ(punch.occurredAt)}
+        // The OUT has to land before the worker's next clock-in — pass it
+        // through so the picker caps there and the hint explains why.
+        maxOccurredAt={
+          info.nextInAt ? formatDateTimeLocalInTZ(info.nextInAt) : null
+        }
+        nextInLabel={info.nextInAt ? formatTimeInTZ(info.nextInAt) : null}
         projectLabel={projectLabel}
       />
     </div>

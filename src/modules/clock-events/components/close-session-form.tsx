@@ -14,11 +14,17 @@ export function CloseSessionForm({
   inId,
   defaultOccurredAt,
   inLabel,
+  maxOccurredAt,
+  nextInLabel,
   projectLabel,
 }: {
   inId: string;
   defaultOccurredAt: string; // 'YYYY-MM-DDTHH:mm' in APP_TZ
   inLabel: string;
+  // Upper bound: the worker's next clock-in, if any. The OUT must precede
+  // it. Null when this is the worker's last punch.
+  maxOccurredAt: string | null;
+  nextInLabel: string | null;
   projectLabel: string | null;
 }) {
   const boundAction = closeSessionAction.bind(null, inId);
@@ -43,9 +49,17 @@ export function CloseSessionForm({
           type="datetime-local"
           name="occurredAt"
           defaultValue={defaultOccurredAt}
+          min={defaultOccurredAt}
+          max={maxOccurredAt ?? undefined}
           required
           className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm"
         />
+        {nextInLabel && (
+          <p className="mt-1 text-xs text-amber-700">
+            This worker clocked in again at {nextInLabel} — the clock-out
+            must be before then.
+          </p>
+        )}
       </div>
 
       <div>

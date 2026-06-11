@@ -2,7 +2,7 @@
 // DB-only (no in-memory mock — clock punches aren't useful in demo).
 
 import 'server-only';
-import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNull, lte, sql } from 'drizzle-orm';
 import {
   clockEvents,
   timeEntries,
@@ -11,7 +11,12 @@ import {
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { getOrCreatePeriodForDate } from '@/lib/data/pay-periods';
-import { todayISOInTZ } from '@/lib/tz';
+import {
+  endOfDayInTZ,
+  formatTimeInTZ,
+  startOfDayInTZ,
+  todayISOInTZ,
+} from '@/lib/tz';
 
 export type CreateClockEventInput = {
   companyId: string;
@@ -255,20 +260,89 @@ export class CannotCloseSessionError extends Error {
   }
 }
 
+export type SessionCloseInfo = {
+  inEvent: ClockEvent;
+  /** Open in the same sense the /clock day grid shows (paired within day). */
+  isOpen: boolean;
+  /** Employee's next clock-IN after this one (any day) — upper bound for OUT. */
+  nextInAt: Date | null;
+  /** The IN's Nassau day (YYYY-MM-DD), for routing back to the day grid. */
+  inDayISO: string;
+};
+
+/**
+ * Inspect an IN punch for the "close open session" flow.
+ *
+ * "Open" mirrors the /clock day grid exactly: pair the employee's punches
+ * *within the IN's Nassau day* and check this IN has no OUT. A clock-out
+ * that lands on a LATER day (e.g. the worker punched out the next morning,
+ * or re-punched and left a stray OUT) does NOT count — the session still
+ * reads as open for its own day, which is precisely the case the office
+ * needs to fix.
+ *
+ * `nextInAt` is the employee's next clock-IN after this one (any day). It
+ * bounds where the recorded OUT may land: at/after it we'd scramble the
+ * next session's pairing. Any stray OUT sitting before that next IN is
+ * demoted to a harmless orphan once the real OUT is inserted earlier.
+ */
+export async function getSessionCloseInfo(
+  companyId: string,
+  inId: string,
+): Promise<SessionCloseInfo | null> {
+  if (!isDatabaseConfigured()) return null;
+  const inEvent = await getClockEvent(companyId, inId);
+  if (!inEvent) return null;
+  const inDayISO = todayISOInTZ(inEvent.occurredAt);
+
+  if (inEvent.kind !== 'in' || inEvent.postedTimeEntryId) {
+    return { inEvent, isOpen: false, nextInAt: null, inDayISO };
+  }
+
+  // Pair within the IN's own Nassau day — same logic the grid renders.
+  const start = startOfDayInTZ(inEvent.occurredAt);
+  const end = endOfDayInTZ(inEvent.occurredAt);
+  const dayEvents = await listClockEventsForEmployeeRange(
+    inEvent.employeeId,
+    start,
+    end,
+  );
+  const session = pairClockSessions(dayEvents).find((s) => s.in.id === inId);
+  const isOpen = Boolean(session && session.out === null);
+
+  // Next clock-IN after this one (any day) — upper bound for the OUT.
+  const db = getDb()!;
+  const nextIns = await db
+    .select()
+    .from(clockEvents)
+    .where(
+      and(
+        eq(clockEvents.employeeId, inEvent.employeeId),
+        eq(clockEvents.kind, 'in'),
+        gt(clockEvents.occurredAt, inEvent.occurredAt),
+      ),
+    )
+    .orderBy(asc(clockEvents.occurredAt))
+    .limit(1);
+  const nextInAt = nextIns[0]?.occurredAt ?? null;
+
+  return { inEvent, isOpen, nextInAt, inDayISO };
+}
+
 /**
  * Close an open session by recording its missing OUT punch — the office
  * fix for "worker forgot to clock out." `inId` is the dangling IN punch.
  *
- * Guards:
- *  - the IN must be the employee's *latest* event (that's what "open"
- *    means; refusing otherwise prevents inserting an OUT in the middle of
- *    a later session and scrambling the in→out pairing),
- *  - the OUT instant must be strictly after the IN.
+ * Guards (see getSessionCloseInfo for the open/next-in semantics):
+ *  - the IN must be an unposted clock-in that the day grid shows as open,
+ *  - the OUT must be after the IN, and
+ *  - the OUT must be before the worker's next clock-in (so we don't
+ *    scramble a later session's pairing).
  *
  * The new OUT copies the IN's project/cost code so the pair stays
  * consistent (posting reads the IN, but we keep them in sync — same
- * rationale as setSessionProjectAction). Returns the created OUT plus the
- * IN's Nassau day so the caller can route back to the right day grid.
+ * rationale as setSessionProjectAction). Inserting the OUT before any
+ * stray later OUT demotes that stray to an orphan, which pairClockSessions
+ * drops. Returns the created OUT plus the IN's Nassau day for routing.
  */
 export async function recordSessionClockOut(
   companyId: string,
@@ -281,23 +355,34 @@ export async function recordSessionClockOut(
       'Clock events require a configured database. Set DATABASE_URL.',
     );
   }
-  const inEvent = await getClockEvent(companyId, inId);
-  if (!inEvent) {
+  const info = await getSessionCloseInfo(companyId, inId);
+  if (!info) {
     throw new CannotCloseSessionError('That clock-in no longer exists.');
   }
+  const { inEvent, isOpen, nextInAt, inDayISO } = info;
   if (inEvent.kind !== 'in') {
     throw new CannotCloseSessionError('That punch is not a clock-in.');
   }
-  // Must still be the employee's latest punch, or the session isn't open.
-  const latest = await getLatestClockEvent(inEvent.employeeId);
-  if (!latest || latest.id !== inId) {
+  if (inEvent.postedTimeEntryId) {
     throw new CannotCloseSessionError(
-      'This session is no longer open — it may already have a clock-out.',
+      'This session has already posted to payroll.',
+    );
+  }
+  if (!isOpen) {
+    throw new CannotCloseSessionError(
+      'This session already has a clock-out for that day.',
     );
   }
   if (occurredAt.getTime() <= inEvent.occurredAt.getTime()) {
     throw new CannotCloseSessionError(
       'Clock-out time must be after the clock-in time.',
+    );
+  }
+  if (nextInAt && occurredAt.getTime() >= nextInAt.getTime()) {
+    throw new CannotCloseSessionError(
+      `Clock-out must be before this worker's next clock-in (${formatTimeInTZ(
+        nextInAt,
+      )}).`,
     );
   }
   const out = await recordClockEvent({
@@ -312,7 +397,7 @@ export async function recordSessionClockOut(
     gpsAccuracyM: null,
     notes,
   });
-  return { out, inDayISO: todayISOInTZ(inEvent.occurredAt) };
+  return { out, inDayISO };
 }
 
 export async function deleteClockEvent(
