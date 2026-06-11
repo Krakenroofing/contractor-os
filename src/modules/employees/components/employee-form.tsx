@@ -172,22 +172,37 @@ export function EmployeeForm({
             )}
           </Field>
 
-          <Field
-            label={`Pay rate (${PAY_RATE_BASIS_LABEL[employmentType]})`}
-            error={err('payRate')}
-          >
-            <Input
-              name="payRate"
-              type="number"
-              step="0.01"
-              min="0"
-              defaultValue={values.payRate}
-              placeholder="0.00"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">
-              {PAY_RATE_HINT[employmentType]}
-            </p>
-          </Field>
+          {employmentType === 'hourly' || employmentType === 'salaried' ? (
+            <Field
+              label={`Pay rate (${PAY_RATE_BASIS_LABEL[employmentType]})`}
+              error={err('payRate')}
+            >
+              <Input
+                name="payRate"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={values.payRate}
+                placeholder="0.00"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                {PAY_RATE_HINT[employmentType]}
+              </p>
+            </Field>
+          ) : (
+            <Field label="Pay rate">
+              {/* Variable-pay types have no fixed rate — pay is entered per
+                  day on the timesheet (or per week on Pay Run). Preserve any
+                  existing stored rate via a hidden field so editing an
+                  employee never silently wipes it. */}
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                No fixed rate needed —{' '}
+                {EMPLOYMENT_TYPE_LABEL[employmentType].toLowerCase()} pay is
+                entered per day on the timesheet.
+              </div>
+              <input type="hidden" name="payRate" value={values.payRate} />
+            </Field>
+          )}
         </div>
 
         <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3 space-y-2">

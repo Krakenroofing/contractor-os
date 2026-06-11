@@ -47,6 +47,16 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+// Variable-pay employment types: gross comes from per-day $ amounts, not
+// hours × a fixed rate. The timesheet surfaces their daily pay alongside
+// hours; hourly / salaried are paid off their rate and show hours only.
+const VARIABLE_PAY_TYPES: ReadonlySet<EmploymentType> = new Set([
+  'piecework',
+  'contract',
+  'commission',
+  'lump_sum',
+]);
+
 export default async function PayrollPage({
   searchParams,
 }: {
@@ -101,29 +111,38 @@ export default async function PayrollPage({
     listPaystubSnapshots(companyId, { payPeriodId: period.id }),
     listPaystubAdjustments(companyId, { payPeriodId: period.id }),
   ]);
-  // Aggregate per-(employee, date) for the timesheet grid. Hourly /
-  // salaried employees show hours; piecework / contract / commission /
-  // lump-sum show $ amount instead — both pivot off the same daily roll-up.
+  // Aggregate per-(employee, date) for the timesheet grid. The timesheet
+  // is a record of HOURS for everyone — that's what a timesheet is. For
+  // variable-pay workers (contract / piecework / commission / lump-sum)
+  // each cell also surfaces the day's $ pay (entry_type='amount' rows)
+  // beneath the hours, since their gross is the sum of those daily
+  // amounts, not hours × a fixed rate. Hourly / salaried show hours only;
+  // their pay is computed from the rate on the Pay Run tab.
   // Active roster is included even when nothing is logged so the grid
   // mirrors the full team, not just "people who happened to enter something."
   const activeEmployees = allEmployees.filter((e) => e.active);
   const timesheetRows: TimesheetEmployee[] = activeEmployees.map((e) => {
-    const valueByDate: Record<string, number> = {};
     const employmentType = e.employmentType as EmploymentType;
-    const isHours = employmentType === 'hourly' || employmentType === 'salaried';
+    const isVariablePay = VARIABLE_PAY_TYPES.has(employmentType);
+    const hoursByDate: Record<string, number> = {};
+    const payByDate: Record<string, number> = {};
     for (const entry of allEntries) {
       if (entry.employeeId !== e.id) continue;
-      const useAmount = entry.entryType === 'amount';
-      const value = useAmount ? Number(entry.amount) : Number(entry.hours);
-      valueByDate[entry.workDate] =
-        (valueByDate[entry.workDate] ?? 0) + value;
+      if (entry.entryType === 'amount') {
+        payByDate[entry.workDate] =
+          (payByDate[entry.workDate] ?? 0) + Number(entry.amount);
+      } else {
+        hoursByDate[entry.workDate] =
+          (hoursByDate[entry.workDate] ?? 0) + Number(entry.hours);
+      }
     }
     return {
       id: e.id,
       fullName: `${e.firstName} ${e.lastName}`.trim(),
       employmentType,
-      valueUnit: isHours ? 'hours' : 'money',
-      valueByDate,
+      isVariablePay,
+      hoursByDate,
+      payByDate,
     };
   });
 
