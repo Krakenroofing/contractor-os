@@ -344,6 +344,13 @@ export async function updateInvoiceFullAction(
     return { formError: 'Could not read line items.' };
   }
 
+  // The edit form doesn't render a "% of contract" field, so the raw value
+  // is null (field absent) — distinct from '' (operator cleared it). When
+  // absent we preserve the stored value below instead of nulling it, which
+  // used to silently strip the progress-billing block from the PDF on
+  // every edit.
+  const percentOfContractRaw = formData.get('percentOfContract');
+
   const parsed = fullUpdateSchema.safeParse({
     id: formData.get('id'),
     number: formData.get('number'),
@@ -458,9 +465,11 @@ export async function updateInvoiceFullAction(
       billingLabel:
         data.billingLabel && data.billingLabel !== '' ? data.billingLabel : null,
       percentOfContract:
-        data.percentOfContract && data.percentOfContract.trim() !== ''
-          ? Number(data.percentOfContract).toFixed(3)
-          : null,
+        percentOfContractRaw === null
+          ? existing.percentOfContract // field not submitted — preserve
+          : data.percentOfContract && data.percentOfContract.trim() !== ''
+            ? Number(data.percentOfContract).toFixed(3)
+            : null,
       lines: persistLines,
     });
   } catch (err) {
