@@ -14,6 +14,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { add, formatMoney, multiply, subtract } from '@/lib/money';
+import {
+  computeProgressNumbers,
+  resolveProgressSource,
+} from '../lib/progress';
 import { createInvoiceAction, type CreateInvoiceState } from '../actions';
 import {
   BILLING_TYPE_LABEL,
@@ -60,17 +64,23 @@ export type InvoiceFormProjectOption = {
   customerOpenCredit?: number;
   /** Display name for the customer — used in the prompt copy. */
   customerName?: string;
-  /** Contract value at the time the form was rendered. Powers the
-   *  progress-billing breakdown when the operator enters a % of contract. */
+  /** Revised contract value (base + approved COs) at form render time. */
   contractValue?: number;
-  /** Sum of subtotals on prior non-void invoices for this project. Used to
-   *  compute "this round's gross" = cumulative_billed - priorBilledGross. */
+  /** ORIGINAL contract value (before COs). This is the denominator for
+   *  base-contract progress billing — the rendered invoice's progress
+   *  summary uses the same figure so % numbers never reshape after a CO
+   *  lands. Falls back to contractValue when absent (older callers). */
+  baseContractValue?: number;
+  /** Sum of subtotals on prior non-void BASE-TRACK invoices (not linked to
+   *  any CO) for this project. Used to compute "this round's gross" =
+   *  cumulative_billed - priorBilledGross. CO-linked invoices track their
+   *  own priors on InvoiceFormChangeOrderOption. */
   priorBilledGross?: number;
-  /** Sum of (subtotal − retainage) on prior non-void invoices. Shown on the
-   *  rendered invoice as "Less previously paid (net)". */
+  /** Sum of (subtotal − retainage) on prior non-void base-track invoices.
+   *  Shown on the rendered invoice as "Less previously paid (net)". */
   priorBilledNet?: number;
-  /** Number of prior non-void invoices on this project. Used to label this
-   *  invoice as "Billing #N" in the progress breakdown. */
+  /** Number of prior non-void base-track invoices on this project. Used to
+   *  label this invoice as "Billing #N" in the progress breakdown. */
   priorInvoiceCount?: number;
   /** Retention % from the most-recent prior invoice on this project. The
    *  form pre-fills the Retainage % field with this so progress draws stay
@@ -82,6 +92,19 @@ export type InvoiceFormChangeOrderOption = {
   id: string;
   label: string;
   projectId: string;
+  /** The CO's total value. When this CO is linked on the invoice, progress
+   *  billing (% of contract) bills against THIS value — never the project
+   *  total — so a 50% draw on a $10k CO is $5k regardless of the base
+   *  contract size. */
+  total?: number;
+  /** Sum of subtotals on prior non-void invoices linked to this CO. */
+  priorBilledGross?: number;
+  /** Sum of (subtotal − retainage) on prior non-void invoices linked to
+   *  this CO. */
+  priorBilledNet?: number;
+  /** Number of prior non-void invoices linked to this CO — labels the
+   *  invoice "Billing #N" on the CO's own track. */
+  priorInvoiceCount?: number;
 };
 export type InvoiceFormTemplateOption = {
   id: string;
@@ -385,41 +408,44 @@ export function InvoiceForm({
     [projects, projectId],
   );
 
-  // Progress mode kicks in when (a) we're in lump-sum, (b) a project with a
-  // non-zero contract value is selected, and (c) the operator entered a %
-  // of contract. In that mode the Amount field is auto-derived as
-  // `cumulative_billed - priorBilledGross` and a breakdown card replaces
+  // The CO this invoice is linked to (if any). A linked CO carves out its
+  // own billing track: % progress applies to the CO's value and only
+  // invoices linked to the SAME CO count as "previously billed".
+  const activeCO = useMemo(
+    () =>
+      changeOrderId
+        ? changeOrders.find((c) => c.id === changeOrderId)
+        : undefined,
+    [changeOrders, changeOrderId],
+  );
+
+  // The contract base this invoice bills against. CO linked → the CO's own
+  // value/priors (NEVER falls back to the project total — billing 50% of a
+  // CO must mean 50% of the CO). No CO → the ORIGINAL contract value with
+  // base-track priors, matching the rendered invoice's progress summary.
+  const progressSource = useMemo(
+    () => resolveProgressSource(activeCO, activeProject),
+    [activeCO, activeProject],
+  );
+
+  // Progress mode kicks in when (a) we're in lump-sum, (b) the billing
+  // source (linked CO, else base contract) has a non-zero value, and (c)
+  // the operator entered a %. In that mode the Amount field is auto-derived
+  // as `cumulative_billed - priorBilledGross` and a breakdown card replaces
   // the manual entry.
   const progressMode =
     isLumpSum &&
     percentOfContract.trim() !== '' &&
-    !!activeProject?.contractValue &&
-    activeProject.contractValue > 0;
+    !!progressSource &&
+    progressSource.value > 0;
 
-  const progressNumbers = useMemo(() => {
-    if (!progressMode || !activeProject?.contractValue) return null;
-    const contract = activeProject.contractValue;
-    const pct = Number(percentOfContract) || 0;
-    const priorGross = activeProject.priorBilledGross ?? 0;
-    const priorNet = activeProject.priorBilledNet ?? 0;
-    const priorCount = activeProject.priorInvoiceCount ?? 0;
-    const retentionPct = Number(retainagePercent) || 0;
-    const cumulativeBilled = (pct / 100) * contract;
-    const thisRoundGross = Math.max(0, cumulativeBilled - priorGross);
-    const cumulativeRetention = (retentionPct / 100) * cumulativeBilled;
-    return {
-      contract,
-      pct,
-      priorGross,
-      priorNet,
-      priorCount,
-      retentionPct,
-      cumulativeBilled: Math.round(cumulativeBilled * 100) / 100,
-      thisRoundGross: Math.round(thisRoundGross * 100) / 100,
-      cumulativeRetention: Math.round(cumulativeRetention * 100) / 100,
-      billingNumber: priorCount + 1,
-    };
-  }, [progressMode, activeProject, percentOfContract, retainagePercent]);
+  const progressNumbers = useMemo(
+    () =>
+      progressMode
+        ? computeProgressNumbers(progressSource, percentOfContract, retainagePercent)
+        : null,
+    [progressMode, progressSource, percentOfContract, retainagePercent],
+  );
 
   // Sync the lump-sum amount field whenever the progress math changes so
   // the totals strip + persistence stay consistent. Manual edits to the
@@ -515,7 +541,9 @@ export function InvoiceForm({
   // so the rendered invoice carries the context even if the operator
   // leaves the Description field blank.
   const progressDefaultDescription = progressNumbers
-    ? `Billing #${progressNumbers.billingNumber} — ${progressNumbers.pct.toFixed(2)}% Progress`
+    ? progressNumbers.sourceKind === 'co'
+      ? `Billing #${progressNumbers.billingNumber} — ${progressNumbers.pct.toFixed(2)}% of ${progressNumbers.sourceLabel}`
+      : `Billing #${progressNumbers.billingNumber} — ${progressNumbers.pct.toFixed(2)}% Progress`
     : '';
   const linesPayload = isLumpSum
     ? [
@@ -823,7 +851,9 @@ export function InvoiceForm({
             Single-line draw — enter what you&apos;re billing and the amount.
             To bill a percentage of the contract value (with auto prior-billed
             tracking), fill in &quot;% of contract&quot; once a project is
-            selected.
+            selected. When a change order is linked above, the % bills against
+            that CO&apos;s value on its own track — it never totals from the
+            project.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <div className="md:col-span-6">
@@ -853,7 +883,9 @@ export function InvoiceForm({
               />
             </div>
             <div className="md:col-span-3">
-              <Label className="text-xs">% of contract</Label>
+              <Label className="text-xs">
+                {activeCO ? `% of ${activeCO.label}` : '% of contract'}
+              </Label>
               <Input
                 type="number"
                 step="0.001"
@@ -875,12 +907,11 @@ export function InvoiceForm({
           {!progressMode &&
             isLumpSum &&
             percentOfContract.trim() !== '' &&
-            (!activeProject ||
-              !activeProject.contractValue ||
-              activeProject.contractValue <= 0) && (
+            (!progressSource || progressSource.value <= 0) && (
               <p className="text-xs text-amber-700">
-                Pick a project with a non-zero contract value to enable
-                automatic progress-billing math.
+                {activeCO
+                  ? `${activeCO.label} has no value — automatic progress-billing math needs a non-zero change-order total.`
+                  : 'Pick a project with a non-zero contract value to enable automatic progress-billing math.'}
               </p>
             )}
         </fieldset>
@@ -1345,6 +1376,8 @@ function ProgressBreakdown({
     thisRoundGross: number;
     cumulativeRetention: number;
     billingNumber: number;
+    sourceKind: 'base' | 'co';
+    sourceLabel: string;
   };
   taxRate: number;
   showRetainage: boolean;
@@ -1363,11 +1396,20 @@ function ProgressBreakdown({
   const finalTotal = invoiceTotal + vat;
   return (
     <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs">
-      <p className="font-medium text-emerald-900 mb-2">
-        Progress billing breakdown
-      </p>
+      <div className="flex items-center justify-between flex-wrap gap-1 mb-2">
+        <p className="font-medium text-emerald-900">
+          Progress billing breakdown
+        </p>
+        <span className="uppercase tracking-wide text-[10px] text-emerald-700">
+          Bills against {data.sourceLabel}
+        </span>
+      </div>
       <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
-        <span className="text-slate-700">Contract value</span>
+        <span className="text-slate-700">
+          {data.sourceKind === 'co'
+            ? `${data.sourceLabel} value`
+            : 'Contract value'}
+        </span>
         <span className="text-slate-900 text-right">
           {formatMoney(data.contract)}
         </span>
