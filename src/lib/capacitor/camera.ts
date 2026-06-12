@@ -83,21 +83,24 @@ export async function captureNativePhoto(
 
   if (!photo.dataUrl) return null;
 
-  // Convert "data:image/jpeg;base64,..." → Blob → File. The native
-  // plugin doesn't expose a file name, so we synthesize one with a
-  // timestamp so the server-side storage uploader has something
-  // sensible to log.
-  const response = await fetch(photo.dataUrl);
-  const blob = await response.blob();
+  // Convert "data:image/jpeg;base64,..." → Blob → File by decoding the
+  // base64 payload directly. (This used to fetch() the data URL, but
+  // fetching data: URLs is inconsistently supported inside iOS/Android
+  // WebViews — a silent point of failure on the exact devices the field
+  // crew uses.) The native plugin doesn't expose a file name, so we
+  // synthesize one with a timestamp so the server-side storage uploader
+  // has something sensible to log.
+  const comma = photo.dataUrl.indexOf(',');
+  if (comma < 0) return null;
+  const header = photo.dataUrl.slice(0, comma);
+  const mime = /^data:([^;]+)/.exec(header)?.[1] ?? 'image/jpeg';
+  const binary = atob(photo.dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
   const ext =
-    blob.type === 'image/png'
-      ? 'png'
-      : blob.type === 'image/webp'
-        ? 'webp'
-        : 'jpg';
+    mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
   const name = `field-${Date.now()}.${ext}`;
-  const file = new File([blob], name, {
-    type: blob.type || 'image/jpeg',
-  });
-  return { file, mimeType: file.type || 'image/jpeg' };
+  const file = new File([blob], name, { type: mime });
+  return { file, mimeType: mime };
 }

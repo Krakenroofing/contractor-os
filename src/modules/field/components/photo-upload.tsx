@@ -10,12 +10,15 @@
 //     capture="environment" (opens the camera) and one without (opens the
 //     gallery / file picker).
 //
-// Whichever source the worker picks, the chosen File is copied into a single
-// hidden "carrier" input (name="photo") and the form is submitted, so the
-// server action sees one identical FormData shape in every case.
+// Whichever source the worker picks, the File is downscaled client-side
+// (Vercel rejects bodies over ~4.5MB BEFORE the server action runs — see
+// downscale-photo.ts) and the action is invoked imperatively so transport
+// failures surface as a visible error instead of dying silently. That
+// silent death is exactly how weeks of field photos went missing: the
+// worker saw the spinner stop and assumed "saved".
 
-import { useActionState, useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -24,9 +27,8 @@ import {
   captureNativePhoto,
   type NativePhotoSource,
 } from '@/lib/capacitor/camera';
+import { downscalePhotoForUpload } from '@/lib/images/downscale-photo';
 import type { PhotoActionState } from '@/modules/daily-reports/actions';
-
-const initial: PhotoActionState = {};
 
 type Action = (
   prev: PhotoActionState,
@@ -34,13 +36,13 @@ type Action = (
 ) => Promise<PhotoActionState>;
 
 export function FieldPhotoUpload({ action }: { action: Action }) {
-  const [state, formAction, pending] = useActionState(action, initial);
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  // The single input that actually submits (name="photo"). Trigger inputs
-  // below copy their chosen file into this one before submit.
-  const carrierRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
   // Show the chosen filename so the worker can see something selected
   // before submission, then clear when the upload completes.
   const [chosenName, setChosenName] = useState<string | null>(null);
@@ -48,71 +50,80 @@ export function FieldPhotoUpload({ action }: { action: Action }) {
   // populated by the native bridge before the bundle executes, but
   // server-render can't know that. Default to "web" until we confirm.
   const [native, setNative] = useState(false);
-  const [nativeError, setNativeError] = useState<string | null>(null);
 
   useEffect(() => {
     setNative(isCapacitorNative());
   }, []);
 
-  // Copy a chosen File into the carrier input and submit. DataTransfer is
-  // the standards-compliant way to set a file input's value (direct
-  // assignment to input.files is read-only).
-  function submitFile(file: File) {
-    if (!carrierRef.current || !formRef.current) return;
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    carrierRef.current.files = dt.files;
+  // Downscale + upload via a direct action call (NOT a form action). A
+  // form action that fails in transit (413 at the platform edge, dropped
+  // cell signal) never updates state, so the worker gets zero feedback.
+  // Awaiting the action ourselves lets us catch transport failures and
+  // show a retry message.
+  async function submitFile(file: File) {
+    if (pending) return;
+    setPending(true);
+    setFormError(null);
+    setOk(false);
     setChosenName(file.name);
-    formRef.current.requestSubmit();
+    try {
+      const upload = await downscalePhotoForUpload(file);
+      const fd = formRef.current
+        ? new FormData(formRef.current)
+        : new FormData();
+      fd.set('photo', upload);
+      const result = await action({}, fd);
+      if (result.formError) {
+        setFormError(result.formError);
+      } else {
+        setOk(true);
+        setChosenName(null);
+        formRef.current?.reset();
+        // The gallery above this uploader is server-rendered — refresh so
+        // the new photo appears immediately as proof it saved.
+        router.refresh();
+      }
+    } catch {
+      setFormError(
+        'Upload failed — the photo never reached the server. Check your signal and tap the button to try again.',
+      );
+    } finally {
+      setPending(false);
+    }
   }
 
   function onTriggerChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     // Reset the trigger so picking the SAME file again still fires change.
     e.target.value = '';
-    if (file) submitFile(file);
+    if (file) void submitFile(file);
   }
 
   // Native capture path. Open the OS camera or gallery via
-  // @capacitor/camera, get back a File, and submit through the carrier.
+  // @capacitor/camera, get back a File, and upload it.
   async function onNativeTap(source: NativePhotoSource) {
-    setNativeError(null);
+    setFormError(null);
     try {
       const result = await captureNativePhoto(source);
       if (!result) return; // user cancelled
-      submitFile(result.file);
+      await submitFile(result.file);
     } catch (err) {
-      setNativeError(
+      setFormError(
         err instanceof Error ? err.message : 'Could not open the photo picker.',
       );
     }
   }
 
-  // After a successful upload, clear the chosen-name + reset the form
-  // so the worker can add another photo without re-mounting the component.
-  if (state.ok && chosenName !== null) {
-    setChosenName(null);
-    formRef.current?.reset();
-  }
-
   const busyLabel = chosenName ? `Uploading ${chosenName}…` : 'Uploading…';
 
   return (
-    <form
-      ref={formRef}
-      action={formAction}
-      // multipart needed because the photo is a real File blob; without
-      // enctype Next would serialise to RSC action format which can't
-      // ship raw bytes.
-      encType="multipart/form-data"
-      className="space-y-3"
-    >
-      {state.formError && (
+    <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-3">
+      {formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
-          {state.formError}
+          {formError}
         </div>
       )}
-      {state.ok && (
+      {ok && (
         <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
           ✓ Photo uploaded.
         </div>
@@ -147,17 +158,8 @@ export function FieldPhotoUpload({ action }: { action: Action }) {
         </div>
       </div>
 
-      {nativeError && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-          {nativeError}
-        </div>
-      )}
-
-      {/* The carrier input that actually submits. Never opened directly. */}
-      <input ref={carrierRef} name="photo" type="file" accept="image/*" className="sr-only" />
-
-      {/* Web trigger inputs (one per source). Nameless so they don't submit;
-          their file is copied into the carrier above. */}
+      {/* Web trigger inputs (one per source). Nameless so they never end up
+          in the FormData; their file goes through submitFile directly. */}
       {!native && (
         <>
           <input
@@ -226,7 +228,9 @@ export function FieldPhotoUpload({ action }: { action: Action }) {
       <input type="hidden" name="visibleToClient" value="on" />
 
       <p className="text-[11px] text-slate-500 text-center">
-        Take a new photo or upload one from your gallery — it uploads right away.
+        Take a new photo or upload one from your gallery — it uploads right
+        away. Wait for the green &quot;Photo uploaded&quot; check before
+        closing the app.
       </p>
     </form>
   );
