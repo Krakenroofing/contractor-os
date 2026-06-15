@@ -21,6 +21,7 @@ export * from './daily-reports';
 export * from './project-documents';
 export * from './job-cost-forecasts';
 export * from './accounting-accounts';
+export * from './general-ledger';
 export * from './bank-accounts';
 export * from './statement-imports';
 export * from './banking-rules';
