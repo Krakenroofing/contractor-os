@@ -332,6 +332,11 @@ export default async function BankAccountDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canEdit && (
+            <Link href={{ pathname: `/banking/accounts/${account.id}/categorize` }}>
+              <Button variant="outline">Categorize to jobs</Button>
+            </Link>
+          )}
           <Link href={{ pathname: '/banking/rules' }}>
             <Button variant="outline">Rules</Button>
           </Link>

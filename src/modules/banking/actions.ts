@@ -29,6 +29,7 @@ import {
 } from '@/lib/data/statement-imports';
 import {
   bulkApplyRuleToTransactions,
+  bulkCategorizeTransactions,
   getImportedTransaction,
   listRecentTransactionsForRules,
   replaceImportedTransactionLines,
@@ -1083,6 +1084,67 @@ export async function bulkApplyRuleAction(input: {
     scanned: txns.length,
     skipped: targetIds.length - applied,
   };
+}
+
+/**
+ * Manual bulk categorize — stamp project / category / cost code / vendor onto
+ * a set of hand-picked transactions in one action. Powers the "Categorize to
+ * jobs" tool: the fastest way to get a bank feed's spend assigned to projects
+ * so it flows into job costs and the WIP report. Only the fields the operator
+ * set are written; split rows and ignored rows are skipped server-side.
+ */
+export async function bulkCategorizeTransactionsAction(input: {
+  bankAccountId: string;
+  transactionIds: string[];
+  accountingAccountId?: string | null;
+  projectId?: string | null;
+  costCodeId?: string | null;
+  vendorId?: string | null;
+  markReviewed?: boolean;
+}): Promise<{ ok: boolean; applied?: number; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission to categorize transactions.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  const ids = Array.isArray(input.transactionIds)
+    ? input.transactionIds.filter((x) => typeof x === 'string' && x !== '')
+    : [];
+  if (ids.length === 0) {
+    return { ok: false, error: 'Select at least one transaction.' };
+  }
+
+  const patch: {
+    accountingAccountId?: string;
+    projectId?: string;
+    costCodeId?: string;
+    vendorId?: string;
+  } = {};
+  if (input.accountingAccountId) patch.accountingAccountId = input.accountingAccountId;
+  if (input.projectId) patch.projectId = input.projectId;
+  if (input.costCodeId) patch.costCodeId = input.costCodeId;
+  if (input.vendorId) patch.vendorId = input.vendorId;
+
+  const markReviewed = Boolean(input.markReviewed);
+  if (Object.keys(patch).length === 0 && !markReviewed) {
+    return {
+      ok: false,
+      error: 'Choose a project, category, cost code, or vendor to assign.',
+    };
+  }
+
+  const applied = await bulkCategorizeTransactions(
+    companyId,
+    ids,
+    patch,
+    markReviewed,
+  );
+
+  revalidatePath(`/banking/accounts/${input.bankAccountId}`);
+  revalidatePath(`/banking/accounts/${input.bankAccountId}/categorize`);
+  return { ok: true, applied };
 }
 
 // Keep the import referenced so future-phase code paths don't have to

@@ -564,5 +564,51 @@ export async function bulkApplyRuleToTransactions(
   });
 }
 
+/**
+ * Manual bulk categorize — stamp the provided fields onto the selected
+ * transactions in one UPDATE. Unlike bulkApplyRuleToTransactions this does NOT
+ * apply the rule "never overwrite" guard (the operator explicitly picked these
+ * rows, and may be re-categorizing), but it DOES:
+ *   - skip ignored rows, and
+ *   - skip split rows (NOT EXISTS lines) — their per-line categories are the
+ *     source of truth, so the parent fields must stay null.
+ * Only fields present in `patch` are written. Returns the count updated.
+ */
+export async function bulkCategorizeTransactions(
+  companyId: string,
+  ids: string[],
+  patch: {
+    accountingAccountId?: string | null;
+    projectId?: string | null;
+    costCodeId?: string | null;
+    vendorId?: string | null;
+  },
+  markReviewed: boolean,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const db = requireDb();
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.accountingAccountId !== undefined)
+    set.accountingAccountId = patch.accountingAccountId;
+  if (patch.projectId !== undefined) set.projectId = patch.projectId;
+  if (patch.costCodeId !== undefined) set.costCodeId = patch.costCodeId;
+  if (patch.vendorId !== undefined) set.vendorId = patch.vendorId;
+  if (markReviewed) set.isReviewed = true;
+
+  const rows = await db
+    .update(importedTransactions)
+    .set(set)
+    .where(
+      and(
+        eq(importedTransactions.companyId, companyId),
+        inArray(importedTransactions.id, ids),
+        eq(importedTransactions.isIgnored, false),
+        sql`NOT EXISTS (SELECT 1 FROM ${importedTransactionLines} l WHERE l.imported_transaction_id = ${importedTransactions.id})`,
+      ),
+    )
+    .returning({ id: importedTransactions.id });
+  return rows.length;
+}
+
 void asc;
 void isNotNull;
