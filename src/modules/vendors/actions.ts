@@ -12,12 +12,33 @@ import {
   softDeleteVendor,
   updateVendor,
 } from '@/lib/data/vendors';
-import { vendorFormSchema } from './schema';
+import { vendorFormSchema, vendorTypeValues } from './schema';
 
 export type CreateVendorState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
+
+// Shape returned to the inline "+ Add new vendor" pickers. Carries the
+// defaults each picker may prefill (VAT rate, GL account, cost code/type) so a
+// just-created vendor behaves like an existing one without a page reload.
+export type InlineVendor = {
+  id: string;
+  name: string;
+  vatRatePercent: number | null;
+  defaultAccountingAccountId: string | null;
+  defaultCostCodeId: string | null;
+  defaultCostType: string | null;
+};
+
+export type InlineCreateVendorResult =
+  | { ok: true; vendor: InlineVendor }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+const inlineVendorSchema = z.object({
+  name: z.string().trim().min(1, 'Vendor name is required').max(200),
+  vendorType: z.enum(vendorTypeValues).optional().default('supplier'),
+});
 
 export type UpdateVendorState = {
   errors?: Record<string, string[]>;
@@ -104,6 +125,70 @@ export async function createVendorAction(
 
   revalidatePath('/vendors');
   redirect(`/vendors/${createdId}`);
+}
+
+/**
+ * Inline vendor create for the "+ Add new vendor" pickers. Unlike
+ * createVendorAction it does NOT redirect — it returns the created vendor so
+ * the open form can inject and select it in place. Minimal by design (name +
+ * type); the rest of the vendor record is filled in later on /vendors.
+ */
+export async function createVendorInlineAction(input: {
+  name: string;
+  vendorType?: string;
+}): Promise<InlineCreateVendorResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'vendors')) {
+    return { ok: false, error: 'You do not have permission to create vendors.' };
+  }
+  const parsed = inlineVendorSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const vendor = await createVendor(companyId, {
+      name: parsed.data.name,
+      primaryContactName: null,
+      email: null,
+      phone: null,
+      addressLine1: null,
+      addressLine2: null,
+      city: null,
+      state: null,
+      postalCode: null,
+      defaultTerms: null,
+      taxIdLast4: null,
+      isSubcontractor: parsed.data.vendorType === 'subcontractor',
+      w9OnFile: false,
+      notes: null,
+      vatRatePercent: null,
+      defaultCostCodeId: null,
+      defaultCostType: null,
+      defaultAccountingAccountId: null,
+    });
+    // Refresh the surfaces that render vendor pickers so a full reload also
+    // shows the new vendor (the picker injects it client-side immediately).
+    revalidatePath('/vendors');
+    revalidatePath('/purchase-orders/new');
+    revalidatePath('/banking/receipts');
+    return {
+      ok: true,
+      vendor: {
+        id: vendor.id,
+        name: vendor.name,
+        vatRatePercent:
+          vendor.vatRatePercent != null ? Number(vendor.vatRatePercent) : null,
+        defaultAccountingAccountId: vendor.defaultAccountingAccountId ?? null,
+        defaultCostCodeId: vendor.defaultCostCodeId ?? null,
+        defaultCostType: vendor.defaultCostType ?? null,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create vendor: ${message}` };
+  }
 }
 
 const idSchema = z.string().uuid('Missing or invalid id');

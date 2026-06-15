@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   createVendorExpenseAction,
   type CostEntryActionState,
@@ -74,14 +75,14 @@ export function VendorExpenseForm({
         </div>
         <div className="md:col-span-4">
           <Label className="text-xs">Vendor</Label>
-          <Select name="vendorId" required className="bg-white">
-            <option value="">Choose vendor…</option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </Select>
+          <VendorPicker
+            name="vendorId"
+            required
+            allowNone={false}
+            placeholder="Choose vendor…"
+            className="bg-white"
+            vendors={vendors}
+          />
           {state.errors?.vendorId && (
             <p className="text-xs text-red-600 mt-1">{state.errors.vendorId[0]}</p>
           )}

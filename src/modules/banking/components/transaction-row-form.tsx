@@ -13,6 +13,10 @@ import {
   type AccountingAccountOption,
 } from '@/modules/accounting/components/accounting-account-picker';
 import { computeVatSplit, round2 } from '../lib/vat-split';
+import {
+  VendorPicker,
+  type VendorPickerOption,
+} from '@/modules/vendors/components/vendor-picker';
 
 type Option = { id: string; label: string };
 
@@ -122,13 +126,11 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
 
   // Picking a vendor prefills the (single) category from its default when the
   // operator hasn't already chosen one — never overwrites an existing pick.
-  function onVendorChange(nextVendorId: string) {
+  // The picked option is passed through (so a just-created vendor works too).
+  function onVendorChange(nextVendorId: string, vendor?: VendorPickerOption) {
     setVendorId(nextVendorId);
-    if (!accountingAccountId) {
-      const v = props.vendors.find((x) => x.id === nextVendorId);
-      if (v?.defaultAccountingAccountId) {
-        setAccountingAccountId(v.defaultAccountingAccountId);
-      }
+    if (!accountingAccountId && vendor?.defaultAccountingAccountId) {
+      setAccountingAccountId(vendor.defaultAccountingAccountId);
     }
   }
 
@@ -209,18 +211,17 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
             Payee / Vendor{' '}
             <span className="normal-case text-slate-400">(optional)</span>
           </FieldLabel>
-          <Select
+          <VendorPicker
             name="vendorId"
             value={vendorId}
-            onChange={(e) => onVendorChange(e.target.value)}
-          >
-            <option value="">— no vendor —</option>
-            {props.vendors.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+            vendors={props.vendors.map((o) => ({
+              id: o.id,
+              name: o.label,
+              defaultAccountingAccountId: o.defaultAccountingAccountId,
+              vatRatePercent: o.vatRatePercent,
+            }))}
+            onChange={onVendorChange}
+          />
         </div>
 
         {!split ? (

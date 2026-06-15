@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import { calcLandedCost, formatMoney } from '@/lib/money';
 import {
   CARRIERS,
@@ -234,21 +235,16 @@ export function LandedCostForm({
             </Select>
           </Field>
           <Field label="Vendor (optional)" error={err('vendorId')}>
-            <Select
+            <VendorPicker
               name="vendorId"
               value={vendorId}
-              onChange={(e) => {
-                setVendorId(e.target.value);
+              vendors={vendors.map((v) => ({ id: v.id, name: v.label }))}
+              onChange={(id) => {
+                setVendorId(id);
                 setPurchaseOrderId('');
               }}
-            >
-              <option value="">— None —</option>
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </Select>
+              noneLabel="— None —"
+            />
           </Field>
           <Field label="Linked purchase order (optional)" error={err('purchaseOrderId')}>
             <Select

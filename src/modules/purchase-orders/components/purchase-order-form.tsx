@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import { calcPOTotals, formatMoney, multiply } from '@/lib/money';
 import {
   createPurchaseOrderAction,
@@ -369,21 +370,14 @@ export function PurchaseOrderForm({
         </Field>
 
         <Field label="Vendor" error={err('vendorId')} required>
-          <Select
+          <VendorPicker
             name="vendorId"
             required
+            allowNone={false}
             value={vendorId}
-            onChange={(e) => setVendorId(e.target.value)}
-          >
-            <option value="" disabled>
-              {vendors.length === 0 ? 'No vendors yet' : 'Select a vendor'}
-            </option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
+            vendors={vendors.map((v) => ({ id: v.id, name: v.label }))}
+            onChange={(id) => setVendorId(id)}
+          />
         </Field>
 
         <Field label="Project" error={err('projectId')} required>

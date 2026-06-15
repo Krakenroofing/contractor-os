@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   applyExtractedToReceiptAction,
   extractFromAttachmentAction,
@@ -185,19 +185,14 @@ export function OcrPanel(props: OcrPanelProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <Label>Vendor</Label>
-              <Select
+              <VendorPicker
                 value={suggestion.formVendorId}
-                onChange={(e) =>
-                  setSuggestion({ ...suggestion, formVendorId: e.target.value })
+                vendors={props.vendors.map((v) => ({ id: v.id, name: v.label }))}
+                onChange={(id) =>
+                  setSuggestion({ ...suggestion, formVendorId: id })
                 }
-              >
-                <option value="">— none —</option>
-                {props.vendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.label}
-                  </option>
-                ))}
-              </Select>
+                noneLabel="— none —"
+              />
               {suggestion.vendorName && (
                 <p className="mt-1 text-[10px] text-slate-500">
                   OCR read: <span className="italic">{suggestion.vendorName}</span>

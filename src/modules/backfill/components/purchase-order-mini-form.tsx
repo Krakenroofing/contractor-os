@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   backfillPurchaseOrderAction,
   type BackfillState,
@@ -48,16 +49,13 @@ export function PurchaseOrderMiniForm({
             </Select>
           </Field>
           <Field label="Vendor" error={err('vendorId')} required>
-            <Select name="vendorId" required defaultValue="">
-              <option value="" disabled>
-                {vendors.length === 0 ? 'No vendors on file yet' : 'Pick a vendor'}
-              </option>
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </Select>
+            <VendorPicker
+              name="vendorId"
+              required
+              allowNone={false}
+              placeholder="Pick a vendor"
+              vendors={vendors}
+            />
           </Field>
           <Field label="PO number" error={err('number')} required>
             <Input name="number" required maxLength={50} placeholder="PO-2026-001" />

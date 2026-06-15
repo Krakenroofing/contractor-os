@@ -7,6 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import {
+  VendorPicker,
+  type VendorPickerOption,
+} from '@/modules/vendors/components/vendor-picker';
+import {
   upsertReceiptAction,
   type ReceiptActionState,
 } from '../actions';
@@ -239,7 +243,11 @@ export function ReceiptForm(props: ReceiptFormProps) {
 
   // Prefill blanks on FIRST line from a vendor's defaults. Never overwrites
   // values the operator already picked (Phase-1 contract).
-  function applyVendorDefaults(v: VendorOption) {
+  function applyVendorDefaults(v: {
+    defaultCostCodeId?: string | null;
+    defaultCostType?: string | null;
+    defaultAccountingAccountId?: string | null;
+  }) {
     const first = lines[0];
     if (!first) return;
     const patch: Partial<LineState> = {};
@@ -252,9 +260,8 @@ export function ReceiptForm(props: ReceiptFormProps) {
     if (Object.keys(patch).length > 0) updateLine(first.key, patch);
   }
 
-  function onVendorChange(id: string) {
+  function onVendorChange(id: string, v?: VendorPickerOption) {
     setVendorId(id);
-    const v = props.vendors.find((x) => x.id === id);
     if (v) applyVendorDefaults(v);
   }
 
@@ -337,19 +344,20 @@ export function ReceiptForm(props: ReceiptFormProps) {
         </div>
         <div>
           <Label htmlFor="vendorId">Vendor (optional)</Label>
-          <Select
+          <VendorPicker
             id="vendorId"
             name="vendorId"
             value={vendorId}
-            onChange={(e) => onVendorChange(e.target.value)}
-          >
-            <option value="">—</option>
-            {props.vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
+            vendors={props.vendors.map((v) => ({
+              id: v.id,
+              name: v.label,
+              defaultCostCodeId: v.defaultCostCodeId || null,
+              defaultCostType: v.defaultCostType || null,
+              defaultAccountingAccountId: v.defaultAccountingAccountId || null,
+            }))}
+            onChange={onVendorChange}
+            noneLabel="—"
+          />
           {defaultsDiffer && (
             <button
               type="button"

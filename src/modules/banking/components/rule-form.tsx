@@ -29,6 +29,7 @@ import {
   AccountingAccountPicker,
   type AccountingAccountOption,
 } from '@/modules/accounting/components/accounting-account-picker';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 
 export type RuleFormProps = {
   initial?: {
@@ -359,21 +360,16 @@ export function RuleForm(props: RuleFormProps) {
         </p>
         <div>
           <Label htmlFor="action_vendorId">Payee / Vendor</Label>
-          <Select
+          <VendorPicker
             id="action_vendorId"
             name="action_vendorId"
             value={(actions.vendorId as string) ?? ''}
-            onChange={(e) =>
-              setActions((a) => ({ ...a, vendorId: e.target.value || null }))
+            vendors={props.vendors.map((v) => ({ id: v.id, name: v.label }))}
+            onChange={(vendorId) =>
+              setActions((a) => ({ ...a, vendorId: vendorId || null }))
             }
-          >
-            <option value="">— none —</option>
-            {props.vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
+            noneLabel="— none —"
+          />
           <p className="mt-1 text-[11px] text-slate-500">
             Stamped on matched transactions. With Auto-VAT split on, this
             vendor&apos;s VAT rate is used unless you set an override below.

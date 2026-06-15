@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ListToolbar } from '@/components/ui/list-toolbar';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   compareValues,
   type SortState,
@@ -331,14 +332,12 @@ function CostEntryTableRow({
               </div>
               <div className="md:col-span-3">
                 <Label className="text-xs">Vendor</Label>
-                <Select name="vendorId" defaultValue={entry.vendorId ?? ''}>
-                  <option value="">—</option>
-                  {vendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
+                <VendorPicker
+                  name="vendorId"
+                  defaultValue={entry.vendorId ?? ''}
+                  noneLabel="—"
+                  vendors={vendors}
+                />
               </div>
 
               <div className="md:col-span-12">

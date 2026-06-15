@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   createCostEntryAction,
   type CostEntryActionState,
@@ -104,14 +105,12 @@ export function CostEntryForm({
         </div>
         <div className="md:col-span-3">
           <Label className="text-xs">Vendor (optional)</Label>
-          <Select name="vendorId" defaultValue="" className="bg-white">
-            <option value="">—</option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </Select>
+          <VendorPicker
+            name="vendorId"
+            noneLabel="—"
+            className="bg-white"
+            vendors={vendors}
+          />
         </div>
 
         <div className="md:col-span-12">
