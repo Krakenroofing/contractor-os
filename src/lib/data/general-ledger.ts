@@ -281,6 +281,94 @@ export async function getTrialBalance(
   };
 }
 
+export type BalanceSheetLine = {
+  accountId: string;
+  name: string;
+  amount: number;
+};
+
+export type BalanceSheet = {
+  assets: BalanceSheetLine[];
+  liabilities: BalanceSheetLine[];
+  equity: BalanceSheetLine[];
+  /** Current net income (income − cogs − opex) — folds into equity. */
+  netIncome: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  /** Equity accounts + current net income. */
+  totalEquity: number;
+  /** assets − (liabilities + equity). ~0 in a consistent ledger. */
+  difference: number;
+  asOf: string | null;
+};
+
+/**
+ * Balance Sheet derived from the GL trial balance: assets (debit-normal),
+ * liabilities (credit-normal), equity (credit-normal) + current net income
+ * (the P&L accounts rolled up). VAT Input is an asset, VAT Payable a
+ * liability (split out of the vat_tax group by account type). Ties out because
+ * the ledger's debits equal its credits.
+ */
+export async function buildBalanceSheet(
+  companyId: string,
+  asOf?: string | null,
+): Promise<BalanceSheet> {
+  const tb = await getTrialBalance(companyId, asOf);
+  const assets: BalanceSheetLine[] = [];
+  const liabilities: BalanceSheetLine[] = [];
+  const equity: BalanceSheetLine[] = [];
+  let income = 0;
+  let expense = 0;
+
+  for (const r of tb.rows) {
+    const debitNormal = r.balance; // debit − credit
+    const creditNormal = -r.balance; // credit − debit
+    const line = (amount: number): BalanceSheetLine => ({
+      accountId: r.accountId,
+      name: r.name,
+      amount,
+    });
+    const isAsset =
+      r.rollupGroup === 'asset' ||
+      (r.rollupGroup === 'vat_tax' && r.type === 'vat_input');
+    const isLiability =
+      r.rollupGroup === 'liability' ||
+      (r.rollupGroup === 'vat_tax' && r.type !== 'vat_input');
+
+    if (isAsset) {
+      if (Math.abs(debitNormal) > 0.005) assets.push(line(debitNormal));
+    } else if (isLiability) {
+      if (Math.abs(creditNormal) > 0.005) liabilities.push(line(creditNormal));
+    } else if (r.rollupGroup === 'equity') {
+      if (Math.abs(creditNormal) > 0.005) equity.push(line(creditNormal));
+    } else if (r.rollupGroup === 'income') {
+      income = round2(income + creditNormal);
+    } else if (r.rollupGroup === 'cogs' || r.rollupGroup === 'opex') {
+      expense = round2(expense + debitNormal);
+    }
+  }
+
+  const netIncome = round2(income - expense);
+  const totalAssets = round2(assets.reduce((s, a) => s + a.amount, 0));
+  const totalLiabilities = round2(
+    liabilities.reduce((s, a) => s + a.amount, 0),
+  );
+  const totalEquity = round2(
+    equity.reduce((s, a) => s + a.amount, 0) + netIncome,
+  );
+  return {
+    assets,
+    liabilities,
+    equity,
+    netIncome,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    difference: round2(totalAssets - (totalLiabilities + totalEquity)),
+    asOf: asOf ?? null,
+  };
+}
+
 export type JournalEntryWithLines = JournalEntry & {
   lines: Array<JournalLine & { accountName: string; accountCode: string | null }>;
 };

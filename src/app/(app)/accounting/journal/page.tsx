@@ -34,6 +34,9 @@ export default async function JournalPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canEdit && <RebuildGlButton />}
+          <Link href={{ pathname: '/reports/balance-sheet' }}>
+            <Button variant="outline">Balance Sheet</Button>
+          </Link>
           <Link href={{ pathname: '/reports/trial-balance' }}>
             <Button variant="outline">Trial Balance</Button>
           </Link>
