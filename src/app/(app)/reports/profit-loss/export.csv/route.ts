@@ -31,13 +31,15 @@ export async function GET(req: NextRequest) {
     [],
     ['Section', 'Category', 'Amount'],
 
-    // Income block — single row for now (no per-account split yet).
-    ['INCOME', 'Invoiced revenue (ex-VAT)', report.income.total],
-    [
+    // Income block — split by revenue category (ex-VAT).
+    ...report.income.accounts.map((a): CsvCell[] => [
       'INCOME',
-      `(${report.income.invoiceCount} invoice${report.income.invoiceCount === 1 ? '' : 's'})`,
-      '',
-    ],
+      a.accountName,
+      a.amount,
+    ]),
+    ...(report.income.uncategorized.total > 0
+      ? ([['INCOME', 'Uncategorized revenue', report.income.uncategorized.total]] as CsvCell[][])
+      : []),
     ['INCOME', 'Total', report.income.total],
     [],
 

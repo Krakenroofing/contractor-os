@@ -29,6 +29,9 @@ import { getChangeOrder } from '@/lib/data/change-orders';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
+import { InvoiceRevenueCategoryPicker } from '@/modules/invoices/components/invoice-revenue-category-picker';
 import {
   listCreditMemosForInvoice,
   getInvoiceCreditApplicationsMap,
@@ -70,6 +73,13 @@ export default async function InvoiceDetailPage({
     : undefined;
   const lines = await getInvoiceLineItems(invoice.id);
   const payments = await getInvoicePayments(invoice.id);
+  // Revenue categories (income-rollup accounts) for the P&L revenue-by-service
+  // -type split. Internal classification — not printed on the invoice.
+  const incomeAccounts = toAccountingAccountOptions(
+    (await listAccountingAccounts(companyId)).filter(
+      (a) => a.rollupGroup === 'income',
+    ),
+  );
 
   // Phase 1: pull the active company for the wire-instructions / TIN block,
   // and all prior invoices on the same project for the account-history /
@@ -461,6 +471,29 @@ export default async function InvoiceDetailPage({
               valueClassName={
                 balance <= 0 ? 'text-emerald-700' : 'text-amber-700'
               }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Internal: revenue category for the P&L (not part of the printed
+          invoice). Lets revenue split by service type on the income statement. */}
+      <Card className="print:hidden">
+        <CardHeader>
+          <CardTitle>Revenue category</CardTitle>
+        </CardHeader>
+        <CardContent className="p-6 space-y-2">
+          <p className="text-xs text-slate-500">
+            Internal only — sets which income line this invoice&apos;s revenue
+            shows under on the P&amp;L (Roofing / Waterproofing / Windows &amp;
+            Doors / …). Doesn&apos;t change the invoice or any totals.
+          </p>
+          <div className="max-w-sm">
+            <InvoiceRevenueCategoryPicker
+              invoiceId={invoice.id}
+              current={invoice.accountingAccountId ?? ''}
+              accounts={incomeAccounts}
+              canEdit={allowCreate}
             />
           </div>
         </CardContent>

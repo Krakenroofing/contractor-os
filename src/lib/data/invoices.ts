@@ -191,6 +191,26 @@ export async function updateInvoiceHeader(
 }
 
 /**
+ * Set just the revenue category (income-rollup accounting_account) on an
+ * invoice. A reporting classification only — doesn't touch money or status —
+ * so it's editable any time, including on already-sent invoices.
+ */
+export async function setInvoiceRevenueCategory(
+  companyId: string,
+  id: string,
+  accountingAccountId: string | null,
+): Promise<Invoice | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .update(invoices)
+    .set({ accountingAccountId, updatedAt: new Date() })
+    .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+    .returning();
+  return rows[0];
+}
+
+/**
  * Full-form invoice update: lines + totals + retainage + tax + dates +
  * notes. Customer/project/invoice-number are intentionally NOT in the
  * patch — those changes are forbidden via the action layer because they

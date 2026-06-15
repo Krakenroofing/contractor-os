@@ -15,6 +15,7 @@ import { changeOrders } from './change-orders';
 import { invoiceTemplates } from './invoice-templates';
 import { costCodes } from './cost-codes';
 import { inventoryItems } from './inventory-items';
+import { accountingAccounts } from './accounting-accounts';
 import {
   invoiceStatusEnum,
   invoiceBillingTypeEnum,
@@ -40,6 +41,13 @@ export const invoices = pgTable(
     templateId: uuid('template_id').references(() => invoiceTemplates.id, {
       onDelete: 'set null',
     }),
+    // Phase 2.x: revenue category (income-rollup accounting_account) so the
+    // P&L can split revenue by service type. Per-invoice — the income side is
+    // subtotal-driven and lump-sum draws carry no detailed lines.
+    accountingAccountId: uuid('accounting_account_id').references(
+      () => accountingAccounts.id,
+      { onDelete: 'set null' },
+    ),
     number: text('number').notNull(),
     status: invoiceStatusEnum('status').notNull().default('draft'),
     billingType: invoiceBillingTypeEnum('billing_type').notNull().default('progress'),

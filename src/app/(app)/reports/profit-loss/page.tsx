@@ -98,29 +98,59 @@ export default async function ProfitLossReportPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Income</CardTitle>
+          <CardTitle>Income — {formatMoney(report.income.total)}</CardTitle>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-0 overflow-x-auto">
           {report.income.total === 0 ? (
-            <p className="text-sm text-slate-500">
+            <p className="p-6 text-sm text-slate-500">
               No invoices in this date range (excluding draft + void).
             </p>
           ) : (
-            <div className="flex items-baseline justify-between gap-4 text-sm">
-              <span className="text-slate-700">
-                Invoiced revenue ({report.income.invoiceCount} invoice
-                {report.income.invoiceCount === 1 ? '' : 's'}, ex-VAT)
-              </span>
-              <span className="font-medium tabular-nums text-slate-900">
-                {formatMoney(report.income.total)}
-              </span>
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Revenue category</TableHead>
+                  <TableHead className="text-right">Invoices</TableHead>
+                  <TableHead className="text-right">Amount (ex-VAT)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.income.accounts.map((a) => (
+                  <TableRow key={a.accountId}>
+                    <TableCell className="text-slate-900">
+                      {a.accountName}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {a.entryCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {formatMoney(a.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {report.income.uncategorized.total > 0 && (
+                  <TableRow>
+                    <TableCell className="text-amber-800">
+                      Uncategorized revenue
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {report.income.uncategorized.invoiceCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium text-amber-800">
+                      {formatMoney(report.income.uncategorized.total)}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           )}
-          <p className="text-xs text-slate-500 mt-3">
-            v1 income side is a single total. Future Phase 2.x adds
-            accountingAccountId to invoice line items so revenue can split by
-            service type (Roofing / Waterproofing / Windows &amp; Doors / etc.).
-          </p>
+          {report.income.uncategorized.total > 0 &&
+            report.income.accounts.length === 0 && (
+              <p className="p-4 text-xs text-slate-500">
+                Set a “Revenue category” on invoices to split revenue by service
+                type (Roofing / Waterproofing / Windows &amp; Doors / …) here.
+              </p>
+            )}
         </CardContent>
       </Card>
 

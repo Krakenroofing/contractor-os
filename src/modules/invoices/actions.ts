@@ -21,9 +21,11 @@ import {
   deleteDraftInvoice,
   DuplicateInvoiceNumberError,
   getInvoice,
+  setInvoiceRevenueCategory,
   updateInvoiceFull,
   updateInvoiceHeader,
 } from '@/lib/data/invoices';
+import { getAccountingAccount } from '@/lib/data/accounting-accounts';
 import { reconcileAllInvoices } from '@/lib/data/invoice-reconcile';
 import {
   applyCreditMemoToInvoice,
@@ -45,6 +47,46 @@ export type UpdateInvoiceHeaderState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
+
+/**
+ * Set an invoice's revenue category (income-rollup account) for the P&L
+ * revenue-by-service-type split. A reporting tag — editable any time from the
+ * invoice detail page, including on sent invoices.
+ */
+export async function setInvoiceRevenueCategoryAction(input: {
+  invoiceId: string;
+  accountingAccountId: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { ok: false, error: 'No permission to edit invoices.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const id = z.string().uuid().safeParse(input.invoiceId);
+  if (!id.success) return { ok: false, error: 'Invalid invoice.' };
+
+  let accountingAccountId: string | null = null;
+  if (input.accountingAccountId) {
+    const a = z.string().uuid().safeParse(input.accountingAccountId);
+    if (!a.success) return { ok: false, error: 'Invalid category.' };
+    const account = await getAccountingAccount(companyId, a.data);
+    if (!account || account.rollupGroup !== 'income') {
+      return { ok: false, error: 'Pick an income (revenue) category.' };
+    }
+    accountingAccountId = a.data;
+  }
+
+  const updated = await setInvoiceRevenueCategory(
+    companyId,
+    id.data,
+    accountingAccountId,
+  );
+  if (!updated) return { ok: false, error: 'Invoice not found.' };
+  revalidatePath(`/invoices/${id.data}`);
+  revalidatePath('/reports/profit-loss');
+  return { ok: true };
+}
 
 function emptyToNull(v: string | null | undefined): string | null {
   if (v === null || v === undefined) return null;

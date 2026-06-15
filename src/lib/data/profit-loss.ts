@@ -49,6 +49,12 @@ export type ProfitLossReport = {
   income: {
     total: number;
     invoiceCount: number;
+    /** Revenue split by income category (invoices carrying a revenue
+     *  category). Empty until invoices are categorized. */
+    accounts: ProfitLossAccountRow[];
+    /** Invoices with no revenue category — shown as one "Uncategorized
+     *  revenue" line so the income still ties to the total. */
+    uncategorized: { total: number; invoiceCount: number };
   };
   cogs: {
     total: number;
@@ -107,7 +113,12 @@ export async function buildProfitLossReport(
   const empty: ProfitLossReport = {
     from: filters.from || null,
     to: filters.to || null,
-    income: { total: 0, invoiceCount: 0 },
+    income: {
+      total: 0,
+      invoiceCount: 0,
+      accounts: [],
+      uncategorized: { total: 0, invoiceCount: 0 },
+    },
     cogs: { total: 0, accounts: [] },
     opex: { total: 0, accounts: [] },
     uncategorized: { total: 0, entryCount: 0 },
@@ -140,15 +151,54 @@ export async function buildProfitLossReport(
   ];
   if (filters.from) incomeConds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) incomeConds.push(lte(invoices.invoiceDate, filters.to));
+  // Group by the invoice's revenue category (income-rollup account). Left join
+  // so uncategorized invoices (accounting_account_id IS NULL) still aggregate.
   const incomeRows = await db
     .select({
+      accountId: invoices.accountingAccountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
       total: sql<string>`COALESCE(SUM(${invoices.subtotal}), 0)`,
       count: sql<number>`COUNT(*)::int`,
     })
     .from(invoices)
-    .where(and(...incomeConds));
-  const incomeTotal = Number(incomeRows[0]?.total ?? '0');
-  const incomeInvoiceCount = Number(incomeRows[0]?.count ?? 0);
+    .leftJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, invoices.accountingAccountId),
+    )
+    .where(and(...incomeConds))
+    .groupBy(
+      invoices.accountingAccountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+
+  let incomeTotal = 0;
+  let incomeInvoiceCount = 0;
+  const incomeAccounts: ProfitLossAccountRow[] = [];
+  let uncatIncomeTotal = 0;
+  let uncatIncomeCount = 0;
+  for (const r of incomeRows) {
+    const amount = Number(r.total);
+    const count = Number(r.count ?? 0);
+    incomeTotal += amount;
+    incomeInvoiceCount += count;
+    if (r.accountId && r.accountName) {
+      incomeAccounts.push({
+        accountId: r.accountId,
+        accountName: r.accountName,
+        rollupGroup: (r.rollupGroup as RollupGroup) ?? 'income',
+        amount,
+        entryCount: count,
+      });
+    } else {
+      uncatIncomeTotal += amount;
+      uncatIncomeCount += count;
+    }
+  }
+  incomeAccounts.sort((a, b) => b.amount - a.amount);
+  incomeTotal = Math.round(incomeTotal * 100) / 100;
+  uncatIncomeTotal = Math.round(uncatIncomeTotal * 100) / 100;
 
   // ----- Expense side: grouped by accounting_account_id -----
   const costConds = [
@@ -305,7 +355,15 @@ export async function buildProfitLossReport(
   return {
     from: filters.from || null,
     to: filters.to || null,
-    income: { total: incomeTotal, invoiceCount: incomeInvoiceCount },
+    income: {
+      total: incomeTotal,
+      invoiceCount: incomeInvoiceCount,
+      accounts: incomeAccounts,
+      uncategorized: {
+        total: uncatIncomeTotal,
+        invoiceCount: uncatIncomeCount,
+      },
+    },
     cogs: { total: cogsTotal, accounts: cogsAccounts },
     opex: { total: opexTotal, accounts: opexAccounts },
     uncategorized: {
