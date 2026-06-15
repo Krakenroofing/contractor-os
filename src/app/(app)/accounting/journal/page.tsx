@@ -8,6 +8,7 @@ import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listJournalEntries } from '@/lib/data/general-ledger';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
+import { RebuildGlButton } from '@/modules/accounting/components/rebuild-gl-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,8 @@ export default async function JournalPage() {
             entry here; the Trial Balance and statements read from it.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && <RebuildGlButton />}
           <Link href={{ pathname: '/reports/trial-balance' }}>
             <Button variant="outline">Trial Balance</Button>
           </Link>

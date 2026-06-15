@@ -11,6 +11,7 @@ import {
   reverseJournalEntry,
   UnbalancedJournalEntryError,
 } from '@/lib/data/general-ledger';
+import { rebuildGlFromInvoicesAndPayments } from './lib/gl-posting';
 
 export type PostJournalEntryResult =
   | { ok: true; id: string }
@@ -83,6 +84,38 @@ export async function postManualJournalEntryAction(input: {
           ? err.message
           : 'Could not post the entry.';
     return { ok: false, error };
+  }
+}
+
+export type RebuildGlState = {
+  ok: boolean;
+  postedInvoices?: number;
+  postedPayments?: number;
+  failures?: string[];
+  error?: string;
+};
+
+/**
+ * Backfill / resync the GL from all non-void invoices + their payments
+ * (Phase 3.2). Idempotent — safe to re-run after invoices change.
+ */
+export async function rebuildGlAction(): Promise<RebuildGlState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { ok: false, error: 'You do not have permission to rebuild the ledger.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const res = await rebuildGlFromInvoicesAndPayments(companyId);
+    revalidatePath('/accounting/journal');
+    revalidatePath('/reports/trial-balance');
+    return { ok: true, ...res };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Rebuild failed.',
+    };
   }
 }
 
