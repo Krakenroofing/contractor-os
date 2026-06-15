@@ -512,6 +512,153 @@ export async function getGeneralLedgerDetail(
   return { accounts, from: opts.from ?? null, to: opts.to ?? null };
 }
 
+export type CashFlowLine = { accountId: string; name: string; amount: number };
+export type CashFlowSection = { lines: CashFlowLine[]; total: number };
+export type CashFlow = {
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  netChange: number;
+  openingCash: number;
+  closingCash: number;
+  from: string | null;
+  to: string | null;
+};
+
+// Which cash-flow section a counter account belongs to. Equity → financing;
+// debt-looking liabilities → financing, other liabilities (AP/VAT) → operating;
+// fixed-asset-looking assets → investing, other assets (AR/retainage) →
+// operating; income/cogs/opex/vat → operating.
+function cashFlowSection(
+  name: string,
+  rollupGroup: string,
+): 'operating' | 'investing' | 'financing' {
+  const n = name.toLowerCase();
+  if (rollupGroup === 'equity') return 'financing';
+  if (rollupGroup === 'liability') {
+    return /loan|note payable|line of credit|mortgage|financing/.test(n)
+      ? 'financing'
+      : 'operating';
+  }
+  if (rollupGroup === 'asset') {
+    return /equipment|vehicle|fixed asset|property|machinery/.test(n)
+      ? 'investing'
+      : 'operating';
+  }
+  return 'operating';
+}
+
+/**
+ * Cash Flow statement from the GL (direct method). For every journal entry
+ * that moves cash (bank accounts + Undeposited Funds), the cash delta is
+ * attributed to the offsetting accounts, classified into operating / investing
+ * / financing. Ties out: the three sections sum to the net change in cash, and
+ * opening + net change = closing cash.
+ */
+export async function buildCashFlow(
+  companyId: string,
+  opts: { from?: string | null; to?: string | null } = {},
+): Promise<CashFlow> {
+  const from = opts.from ?? null;
+  const to = opts.to ?? null;
+  const emptySection = (): CashFlowSection => ({ lines: [], total: 0 });
+  const empty: CashFlow = {
+    operating: emptySection(),
+    investing: emptySection(),
+    financing: emptySection(),
+    netChange: 0,
+    openingCash: 0,
+    closingCash: 0,
+    from,
+    to,
+  };
+  if (!isDatabaseConfigured()) return empty;
+  const db = getDb()!;
+
+  const conds = [eq(journalLines.companyId, companyId)];
+  if (to) conds.push(lte(journalEntries.entryDate, to));
+
+  const rows = await db
+    .select({
+      entryId: journalEntries.id,
+      date: journalEntries.entryDate,
+      accountId: accountingAccounts.id,
+      name: accountingAccounts.name,
+      type: accountingAccounts.type,
+      rollupGroup: accountingAccounts.rollupGroup,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+    })
+    .from(journalLines)
+    .innerJoin(
+      journalEntries,
+      eq(journalEntries.id, journalLines.journalEntryId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, journalLines.accountId),
+    )
+    .where(and(...conds));
+
+  type R = (typeof rows)[number];
+  const isCash = (r: R) => r.type === 'bank' || r.name === 'Undeposited Funds';
+  const byEntry = new Map<string, { date: string; lines: R[] }>();
+  for (const r of rows) {
+    const e = byEntry.get(r.entryId) ?? { date: r.date, lines: [] };
+    e.lines.push(r);
+    byEntry.set(r.entryId, e);
+  }
+
+  let opening = 0;
+  let netChange = 0;
+  const acc = {
+    operating: new Map<string, CashFlowLine>(),
+    investing: new Map<string, CashFlowLine>(),
+    financing: new Map<string, CashFlowLine>(),
+  };
+
+  for (const entry of byEntry.values()) {
+    const cashLines = entry.lines.filter(isCash);
+    if (cashLines.length === 0) continue; // no cash impact → not in cash flow
+    const cashDelta = round2(
+      cashLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0),
+    );
+    if (from && entry.date < from) {
+      opening = round2(opening + cashDelta);
+      continue;
+    }
+    netChange = round2(netChange + cashDelta);
+    for (const l of entry.lines) {
+      if (isCash(l)) continue;
+      const contrib = round2(Number(l.credit) - Number(l.debit));
+      if (Math.abs(contrib) < 0.005) continue;
+      const section = cashFlowSection(l.name, l.rollupGroup);
+      const m = acc[section];
+      const cur = m.get(l.accountId) ?? { accountId: l.accountId, name: l.name, amount: 0 };
+      cur.amount = round2(cur.amount + contrib);
+      m.set(l.accountId, cur);
+    }
+  }
+
+  const toSection = (m: Map<string, CashFlowLine>): CashFlowSection => {
+    const lines = [...m.values()]
+      .filter((l) => Math.abs(l.amount) > 0.005)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    return { lines, total: round2(lines.reduce((s, l) => s + l.amount, 0)) };
+  };
+
+  return {
+    operating: toSection(acc.operating),
+    investing: toSection(acc.investing),
+    financing: toSection(acc.financing),
+    netChange,
+    openingCash: opening,
+    closingCash: round2(opening + netChange),
+    from,
+    to,
+  };
+}
+
 export type JournalEntryWithLines = JournalEntry & {
   lines: Array<JournalLine & { accountName: string; accountCode: string | null }>;
 };

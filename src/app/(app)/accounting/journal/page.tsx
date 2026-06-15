@@ -40,6 +40,9 @@ export default async function JournalPage() {
           <Link href={{ pathname: '/reports/trial-balance' }}>
             <Button variant="outline">Trial Balance</Button>
           </Link>
+          <Link href={{ pathname: '/reports/cash-flow' }}>
+            <Button variant="outline">Cash Flow</Button>
+          </Link>
           <Link href={{ pathname: '/reports/general-ledger' }}>
             <Button variant="outline">GL Detail</Button>
           </Link>
