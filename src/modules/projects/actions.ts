@@ -173,6 +173,38 @@ export async function createProjectInlineAction(input: {
   }
 }
 
+/**
+ * Set a project's single budget (current_budget) — the per-job cost baseline
+ * that drives % complete and WIP earned revenue when there's no detailed
+ * line-item estimate. Powers the fast "Set job budgets" editor.
+ */
+export async function setProjectBudgetAction(input: {
+  projectId: string;
+  budget: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'projects')) {
+    return { ok: false, error: 'No permission to edit projects.' };
+  }
+  const id = z.string().uuid().safeParse(input.projectId);
+  if (!id.success) return { ok: false, error: 'Invalid project.' };
+  const n = Number(input.budget);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, error: 'Enter a budget of 0 or more.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const updated = await updateProject(companyId, id.data, {
+    currentBudget: n.toFixed(2),
+  });
+  if (!updated) return { ok: false, error: 'Project not found.' };
+  revalidatePath('/reports/wip');
+  revalidatePath('/reports/wip/budgets');
+  revalidatePath('/reports/profit-loss');
+  revalidatePath(`/projects/${id.data}`);
+  return { ok: true };
+}
+
 const idSchema = z.string().uuid('Missing or invalid id');
 
 export async function updateProjectAction(

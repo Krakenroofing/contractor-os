@@ -42,6 +42,10 @@ export type ProjectFinancials = {
   approvedChangeOrders: number;
   revisedContractValue: number;
   estimatedCost: number;
+  /** The project's single per-job budget (current_budget). Used as the
+   *  projected-final-cost baseline when there's no detailed estimate or
+   *  forecast — lets % complete / WIP earned revenue work from one number. */
+  budget: number;
   committedCost: number;
   actualCost: number;
   // Phase 3: PO money already ordered but not yet received. Helpful for PMs
@@ -181,9 +185,15 @@ export async function computeProjectFinancials(
     ? await sumCostToCompleteForProject(companyId, projectId)
     : 0;
   const hasForecast = costToComplete > 0;
+  // No forecast → prefer a detailed estimate; if there's no estimate either,
+  // fall back to the project's single budget number so % complete and WIP
+  // earned revenue work without a full line-item estimate.
+  const budget = parseMoney(project.currentBudget);
+  const estimateBaseline =
+    estimatedCost > 0 ? add(estimatedCost, landedCostSurcharge) : budget;
   const projectedFinalCost = hasForecast
     ? add(actualCost, costToComplete)
-    : add(estimatedCost, landedCostSurcharge);
+    : estimateBaseline;
 
   const margin = calcMargin(revisedContractValue, projectedFinalCost);
   const projectedGrossProfit = margin.profit;
@@ -198,6 +208,7 @@ export async function computeProjectFinancials(
     approvedChangeOrders,
     revisedContractValue,
     estimatedCost,
+    budget,
     committedCost,
     actualCost,
     openCommitments,

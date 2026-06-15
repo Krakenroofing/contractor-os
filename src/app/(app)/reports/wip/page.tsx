@@ -46,6 +46,15 @@ export default async function WipReportPage({
       projects={projects.map((p) => ({ id: p.id, label: p.name }))}
       companyName={company.name}
     >
+      <div className="flex justify-end print:hidden">
+        <Link
+          href={{ pathname: '/reports/wip/budgets' }}
+          className="text-sm text-blue-700 underline underline-offset-2 hover:text-blue-900"
+        >
+          Set job budgets →
+        </Link>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPI
           label="Contract value"
