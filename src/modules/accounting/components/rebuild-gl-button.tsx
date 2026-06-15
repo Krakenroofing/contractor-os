@@ -36,7 +36,7 @@ export function RebuildGlButton() {
               ? ` · ${res.failures.length} skipped`
               : '';
             setMsg(
-              `Posted ${res.postedInvoices} invoices, ${res.postedPayments} payments, ${res.postedBankTxns} bank txns, ${res.postedOpenings} openings${failed}.`,
+              `Posted ${res.postedInvoices} invoices, ${res.postedPayments} payments, ${res.postedReceipts} receipts, ${res.postedBankTxns} bank txns, ${res.postedOpenings} openings${failed}.`,
             );
             router.refresh();
           })

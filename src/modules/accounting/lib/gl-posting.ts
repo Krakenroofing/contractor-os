@@ -5,7 +5,15 @@ import type {
   ImportedTransactionLine,
   Invoice,
   InvoicePayment,
+  Receipt,
+  ReceiptLine,
 } from '@/db/schema';
+import {
+  getReceipt,
+  listReceipts,
+  listReceiptLines,
+  listReceiptLinesForReceiptIds,
+} from '@/lib/data/receipts';
 import {
   insertAccountingAccount,
   listAccountingAccounts,
@@ -37,6 +45,8 @@ import {
 //     (cash sits in Undeposited Funds until the bank deposit posts in 3.3 —
 //      avoids double-counting cash with bank transactions.)
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 export type GlSystemAccounts = {
   ar: string;
   undepositedFunds: string;
@@ -47,6 +57,8 @@ export type GlSystemAccounts = {
   openingEquity: string;
   uncatIncome: string;
   uncatExpense: string;
+  accountsPayable: string;
+  vatInput: string;
 };
 
 /** Find-or-create the system accounts the invoice/payment postings need. */
@@ -131,6 +143,18 @@ export async function resolveGlSystemAccounts(
     rollupGroup: 'opex',
     parentId: null,
   });
+  const accountsPayable = await ensure(() => byName('Accounts Payable'), {
+    name: 'Accounts Payable',
+    type: 'liability',
+    rollupGroup: 'liability',
+    parentId: null,
+  });
+  const vatInput = await ensure(() => byType('vat_input'), {
+    name: 'VAT Input (Recoverable)',
+    type: 'vat_input',
+    rollupGroup: 'vat_tax',
+    parentId: null,
+  });
 
   return {
     ar,
@@ -142,6 +166,8 @@ export async function resolveGlSystemAccounts(
     openingEquity,
     uncatIncome,
     uncatExpense,
+    accountsPayable,
+    vatInput,
   };
 }
 
@@ -236,6 +262,58 @@ export async function postPaymentToGl(
   return true;
 }
 
+/**
+ * (Re)post a posted receipt: Dr expense per line (net; net+VAT when VAT isn't
+ * recoverable) + Dr VAT Input (recoverable VAT) / Cr Accounts Payable. The
+ * bank txn matched to the receipt later clears the AP. Only `posted` receipts
+ * post.
+ */
+export async function postReceiptToGl(
+  companyId: string,
+  receipt: Receipt,
+  lines: ReceiptLine[],
+  accounts: GlSystemAccounts,
+): Promise<boolean> {
+  await deleteJournalEntriesForSource(companyId, 'receipt', receipt.id);
+  if (receipt.status !== 'posted') return false;
+  const recoverable = receipt.vatRecoverable;
+  const jlines: JournalLineInput[] = [];
+  let totalVat = 0;
+  let apCredit = 0;
+  for (const l of lines) {
+    const net = round2(Number(l.subtotal));
+    const vat = round2(Number(l.vatAmount));
+    apCredit = round2(apCredit + round2(Number(l.total)));
+    totalVat = round2(totalVat + vat);
+    const expenseDr = recoverable ? net : round2(net + vat);
+    if (expenseDr > 0) {
+      jlines.push({
+        accountId: l.accountingAccountId ?? accounts.uncatExpense,
+        debit: expenseDr,
+        credit: 0,
+        projectId: l.projectId,
+      });
+    }
+  }
+  if (recoverable && totalVat > 0) {
+    jlines.push({ accountId: accounts.vatInput, debit: totalVat, credit: 0 });
+  }
+  if (apCredit <= 0 || jlines.length === 0) return false;
+  jlines.push({
+    accountId: accounts.accountsPayable,
+    debit: 0,
+    credit: apCredit,
+  });
+  await postJournalEntry(companyId, {
+    entryDate: receipt.receiptDate,
+    memo: `Receipt — ${receipt.receiptDate}`,
+    sourceType: 'receipt',
+    sourceId: receipt.id,
+    lines: jlines,
+  });
+  return true;
+}
+
 /** Opening balance for a bank/credit-card account: Dr Cash / Cr Opening
  *  Balance Equity (reversed for a negative/overdraft/CC opening). */
 export async function postBankOpeningToGl(
@@ -305,6 +383,13 @@ export async function postBankTxnToGl(
         ? { accountId: accounts.undepositedFunds, debit: 0, credit: abs }
         : { accountId: accounts.undepositedFunds, debit: abs, credit: 0 },
     );
+  } else if (matchType === 'receipt') {
+    // The receipt posted Dr Expense / Cr AP; this bank payment clears the AP.
+    lines.push(
+      isDeposit
+        ? { accountId: accounts.accountsPayable, debit: 0, credit: abs }
+        : { accountId: accounts.accountsPayable, debit: abs, credit: 0 },
+    );
   } else if (splitLines.length > 0) {
     for (const l of splitLines) {
       const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;
@@ -342,6 +427,7 @@ export async function postBankTxnToGl(
 export type RebuildGlResult = {
   postedInvoices: number;
   postedPayments: number;
+  postedReceipts: number;
   postedBankTxns: number;
   postedOpenings: number;
   failures: string[];
@@ -366,6 +452,7 @@ export async function rebuildGlFromInvoicesAndPayments(
   const failures: string[] = [];
   let postedInvoices = 0;
   let postedPayments = 0;
+  let postedReceipts = 0;
   let postedBankTxns = 0;
   let postedOpenings = 0;
 
@@ -385,6 +472,41 @@ export async function rebuildGlFromInvoicesAndPayments(
       failures.push(
         `Payment ${p.paymentNumber || p.id}: ${err instanceof Error ? err.message : 'failed'}`,
       );
+    }
+  }
+
+  // ----- Receipts (expenses): Dr expense + VAT Input / Cr AP -----
+  const receipts = await listReceipts(companyId, {
+    status: 'posted',
+    limit: 5000,
+  });
+  if (receipts.length > 0) {
+    const receiptLines = await listReceiptLinesForReceiptIds(
+      companyId,
+      receipts.map((r) => r.id),
+    );
+    const linesByReceipt = new Map<string, ReceiptLine[]>();
+    for (const l of receiptLines) {
+      const arr = linesByReceipt.get(l.receiptId) ?? [];
+      arr.push(l);
+      linesByReceipt.set(l.receiptId, arr);
+    }
+    for (const r of receipts) {
+      try {
+        if (
+          await postReceiptToGl(
+            companyId,
+            r,
+            linesByReceipt.get(r.id) ?? [],
+            accounts,
+          )
+        )
+          postedReceipts++;
+      } catch (err) {
+        failures.push(
+          `Receipt ${r.id.slice(0, 8)}: ${err instanceof Error ? err.message : 'failed'}`,
+        );
+      }
     }
   }
 
@@ -443,6 +565,7 @@ export async function rebuildGlFromInvoicesAndPayments(
   return {
     postedInvoices,
     postedPayments,
+    postedReceipts,
     postedBankTxns,
     postedOpenings,
     failures,
@@ -479,5 +602,19 @@ export async function syncPaymentGl(
   }
   const accounts = await resolveGlSystemAccounts(companyId);
   await postPaymentToGl(companyId, payment, accounts);
+}
+
+export async function syncReceiptGl(
+  companyId: string,
+  receiptId: string,
+): Promise<void> {
+  const receipt = await getReceipt(companyId, receiptId);
+  if (!receipt || receipt.status !== 'posted') {
+    await deleteJournalEntriesForSource(companyId, 'receipt', receiptId);
+    return;
+  }
+  const lines = await listReceiptLines(companyId, receiptId);
+  const accounts = await resolveGlSystemAccounts(companyId);
+  await postReceiptToGl(companyId, receipt, lines, accounts);
 }
 

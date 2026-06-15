@@ -9,6 +9,7 @@ import {
 } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
+import { syncReceiptGl } from '@/modules/accounting/lib/gl-posting';
 import {
   can,
   canApproveReceipt,
@@ -791,6 +792,13 @@ export async function postReceiptAction(input: {
     rejectionReason: null,
   });
 
+  // Post the receipt to the GL (Dr expense + VAT Input / Cr AP). Best-effort.
+  try {
+    await syncReceiptGl(company.id, receipt.id);
+  } catch {
+    /* best-effort — Rebuild can resync */
+  }
+
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
   return { ok: true };
@@ -834,6 +842,14 @@ export async function unpostReceiptAction(input: {
     approvedAt: null,
     approvedByUserId: null,
   });
+
+  // Clear the receipt's GL entry now it's back to draft. Best-effort.
+  try {
+    await syncReceiptGl(companyId, receipt.id);
+  } catch {
+    /* best-effort */
+  }
+
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
   return { ok: true };

@@ -91,6 +91,7 @@ export type RebuildGlState = {
   ok: boolean;
   postedInvoices?: number;
   postedPayments?: number;
+  postedReceipts?: number;
   postedBankTxns?: number;
   postedOpenings?: number;
   failures?: string[];
