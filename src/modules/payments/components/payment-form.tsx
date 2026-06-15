@@ -45,7 +45,6 @@ export function PaymentForm({
 }) {
   const [state, formAction, pending] = useActionState(createPaymentAction, initialState);
   const [invoiceId, setInvoiceId] = useState(defaultInvoiceId ?? '');
-  const [amount, setAmount] = useState('');
 
   const selectedInvoice = useMemo(
     () => invoices.find((i) => i.id === invoiceId),
@@ -56,8 +55,35 @@ export function PaymentForm({
     ? subtract(parseMoney(selectedInvoice.total), parseMoney(selectedInvoice.amountPaid))
     : 0;
 
+  // Prefill the amount with the preselected invoice's balance due so a
+  // deep-link from an invoice's "Record payment" lands ready to confirm —
+  // matching the dropdown's onChange behavior. Stays fully editable for the
+  // common case where the client paid the wrong amount.
+  const [amount, setAmount] = useState(() => {
+    const inv = invoices.find((i) => i.id === (defaultInvoiceId ?? ''));
+    if (!inv) return '';
+    const bal = subtract(parseMoney(inv.total), parseMoney(inv.amountPaid));
+    return bal > 0 ? bal.toFixed(2) : '';
+  });
+
   const enteredAmount = Number(amount) || 0;
   const newBalance = selectedInvoice ? subtract(balanceDue, enteredAmount) : 0;
+
+  const fillFull = () => {
+    if (balanceDue > 0) setAmount(balanceDue.toFixed(2));
+  };
+
+  // Live classification of the entered amount against the balance due, so the
+  // operator sees whether they're recording a full, partial, or over payment
+  // before they submit.
+  const paymentKind: 'full' | 'partial' | 'over' | null =
+    !selectedInvoice || enteredAmount <= 0
+      ? null
+      : newBalance <= -0.005
+        ? 'over'
+        : newBalance <= 0.005
+          ? 'full'
+          : 'partial';
 
   const err = (key: string) => state.errors?.[key]?.[0];
 
@@ -170,6 +196,33 @@ export function PaymentForm({
               placeholder="0.00"
               required
             />
+            {selectedInvoice && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <button
+                  type="button"
+                  onClick={fillFull}
+                  disabled={balanceDue <= 0}
+                  className="underline text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:no-underline"
+                >
+                  Paid in full ({formatMoney(balanceDue)})
+                </button>
+                {paymentKind === 'partial' && (
+                  <span className="text-amber-700">
+                    · Partial — {formatMoney(newBalance)} will remain due
+                  </span>
+                )}
+                {paymentKind === 'full' && (
+                  <span className="text-emerald-700">
+                    · Pays this invoice in full
+                  </span>
+                )}
+                {paymentKind === 'over' && (
+                  <span className="text-slate-700">
+                    · Overpayment — {formatMoney(-newBalance)} credit
+                  </span>
+                )}
+              </div>
+            )}
           </Field>
           <Field label="Method" error={err('method')} required>
             <Select name="method" defaultValue="ach">
