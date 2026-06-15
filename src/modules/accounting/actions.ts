@@ -34,6 +34,9 @@ const GROUP_META: Record<
   income: { header: 'Income', type: 'income', rollup: 'income' },
   cogs: { header: 'Cost of Goods Sold', type: 'cogs_job_cost', rollup: 'cogs' },
   opex: { header: 'Operating Expense', type: 'expense', rollup: 'opex' },
+  asset: { header: 'Assets', type: 'asset', rollup: 'asset' },
+  liability: { header: 'Liabilities', type: 'liability', rollup: 'liability' },
+  equity: { header: 'Equity', type: 'equity', rollup: 'equity' },
 };
 
 export type CategoryActionResult = { ok: true } | { ok: false; error: string };
@@ -118,7 +121,14 @@ async function loadManageableLeaf(
   if (account.parentId === null) {
     return { ok: false, error: 'Section headers cannot be edited.' };
   }
-  const managed: AccountingAccount['type'][] = ['income', 'expense', 'cogs_job_cost'];
+  const managed: AccountingAccount['type'][] = [
+    'income',
+    'expense',
+    'cogs_job_cost',
+    'asset',
+    'liability',
+    'equity',
+  ];
   if (!managed.includes(account.type)) {
     return { ok: false, error: 'This account is managed by the system.' };
   }

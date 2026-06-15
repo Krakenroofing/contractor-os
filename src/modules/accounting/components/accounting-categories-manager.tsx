@@ -111,7 +111,9 @@ export function AccountingCategoriesManager({
         </div>
         <p className="mt-2 text-xs text-slate-500">
           Income shows on the P&amp;L as revenue, Cost of Goods Sold as
-          job costs, Operating Expense as overhead.
+          job costs, Operating Expense as overhead. Assets, Liabilities, and
+          Equity are balance-sheet categories &mdash; use them for things like
+          loan payments, equipment purchases, and owner draws.
         </p>
       </div>
 

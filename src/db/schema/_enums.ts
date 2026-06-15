@@ -201,6 +201,13 @@ export const accountingAccountTypeEnum = pgEnum('accounting_account_type', [
   'owner_equity',
   'uncategorized_income',
   'uncategorized_expense',
+  // Generic balance-sheet leaf types for operator-managed categories. The
+  // rollup_group enum already carries the statement section; these give the
+  // `type` column a neutral value for Asset / Liability / Equity categories
+  // (reserved system types like owner_equity/bank/credit_card stay distinct).
+  'asset',
+  'liability',
+  'equity',
 ]);
 
 // Phase 1 operational accounting: every account also belongs to one of the

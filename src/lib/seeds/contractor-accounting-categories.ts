@@ -2,11 +2,13 @@
 // for a company. Idempotent — skips names already present, so callers can
 // re-run safely to pick up additions to this file.
 //
-// Structure: 3 section-header accounts (Income, COGS, OpEx) seeded as
-// parent rows, then the operational lines hung underneath each via
-// parent_id. Asset / Liability / Equity / VAT-Tax aren't seeded as
-// headers — they exist as rollup_group tags on the bank/credit-card/VAT
-// accounts that the banking + VAT modules auto-create elsewhere.
+// Structure: section-header accounts (Income, COGS, OpEx, plus the
+// balance-sheet groups Assets, Liabilities, Equity) seeded as parent rows,
+// then the operational lines hung underneath each via parent_id. VAT-Tax
+// isn't seeded here — it stays as rollup_group tags on the VAT accounts the
+// VAT module auto-creates. The system "Owner's Equity" account (type
+// owner_equity, seeded by the banking COA) is left untouched; our Equity
+// header is a separate, operator-managed bucket.
 
 import 'server-only';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -16,13 +18,17 @@ import { getDb, isDatabaseConfigured } from '@/db';
 type RollupGroup = 'income' | 'cogs' | 'opex' | 'asset' | 'liability' | 'equity' | 'vat_tax';
 
 // AccountingAccountType from the existing enum; we use these specific
-// values for seed rows so existing reports / filters keep working.
+// values for seed rows so existing reports / filters keep working. The
+// generic asset/liability/equity types back the balance-sheet categories.
 type LegacyType =
   | 'income'
   | 'expense'
   | 'cogs_job_cost'
   | 'uncategorized_income'
-  | 'uncategorized_expense';
+  | 'uncategorized_expense'
+  | 'asset'
+  | 'liability'
+  | 'equity';
 
 type CategoryDef = {
   name: string;
@@ -36,6 +42,9 @@ const HEADERS: CategoryDef[] = [
   { name: 'Income', rollupGroup: 'income', type: 'income', isHeader: true },
   { name: 'Cost of Goods Sold', rollupGroup: 'cogs', type: 'cogs_job_cost', isHeader: true },
   { name: 'Operating Expense', rollupGroup: 'opex', type: 'expense', isHeader: true },
+  { name: 'Assets', rollupGroup: 'asset', type: 'asset', isHeader: true },
+  { name: 'Liabilities', rollupGroup: 'liability', type: 'liability', isHeader: true },
+  { name: 'Equity', rollupGroup: 'equity', type: 'equity', isHeader: true },
 ];
 
 // ---- Operational lines (parent name → child names) ----
@@ -86,6 +95,23 @@ const CHILDREN: Record<string, { name: string; type: LegacyType }[]> = {
     { name: 'Utilities', type: 'expense' },
     { name: 'Bank Fees', type: 'expense' },
     { name: 'Phone/Internet', type: 'expense' },
+  ],
+  Assets: [
+    { name: 'Equipment / Fixed Assets', type: 'asset' },
+    { name: 'Vehicles', type: 'asset' },
+    { name: 'Retainage Receivable', type: 'asset' },
+    { name: 'Security Deposits', type: 'asset' },
+    { name: 'Employee Advances', type: 'asset' },
+  ],
+  Liabilities: [
+    { name: 'Loan / Note Payable', type: 'liability' },
+    { name: 'Line of Credit', type: 'liability' },
+    { name: 'Credit Card Payable', type: 'liability' },
+    { name: 'Retainage Payable', type: 'liability' },
+  ],
+  Equity: [
+    { name: 'Owner Draw', type: 'equity' },
+    { name: 'Owner Contribution', type: 'equity' },
   ],
 };
 

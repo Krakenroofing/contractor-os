@@ -3,11 +3,21 @@
 // only export async functions, and out of the client component so the server
 // action can share the same source of truth.
 
-export const CATEGORY_GROUPS = ['income', 'cogs', 'opex'] as const;
+export const CATEGORY_GROUPS = [
+  'income',
+  'cogs',
+  'opex',
+  'asset',
+  'liability',
+  'equity',
+] as const;
 export type CategoryGroup = (typeof CATEGORY_GROUPS)[number];
 
 export const CATEGORY_GROUP_LABEL: Record<CategoryGroup, string> = {
   income: 'Income',
   cogs: 'Cost of Goods Sold',
   opex: 'Operating Expense',
+  asset: 'Assets',
+  liability: 'Liabilities',
+  equity: 'Equity',
 };

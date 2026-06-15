@@ -13,13 +13,26 @@ import type { CategoryGroup } from '@/modules/accounting/categories';
 
 export const dynamic = 'force-dynamic';
 
-// rollup_group → operator-facing group. Only these three are user-managed.
+// rollup_group → operator-facing group. P&L groups plus the balance-sheet
+// groups; vat_tax stays system-managed (no entry here).
 const ROLLUP_TO_GROUP: Record<string, CategoryGroup | undefined> = {
   income: 'income',
   cogs: 'cogs',
   opex: 'opex',
+  asset: 'asset',
+  liability: 'liability',
+  equity: 'equity',
 };
-const MANAGED_TYPES = new Set(['income', 'expense', 'cogs_job_cost']);
+// Leaf types the operator may manage. Reserved system types (owner_equity,
+// bank, credit_card, vat_*) are intentionally excluded so they stay protected.
+const MANAGED_TYPES = new Set([
+  'income',
+  'expense',
+  'cogs_job_cost',
+  'asset',
+  'liability',
+  'equity',
+]);
 
 export default async function AccountingCategoriesPage() {
   const role = await getActiveRole();
