@@ -98,7 +98,15 @@ export default async function ProfitLossReportPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Income — {formatMoney(report.income.total)}</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Income — {formatMoney(report.income.total)}</CardTitle>
+            <Link
+              href={'/invoices/categorize-revenue' as never}
+              className="text-sm text-blue-700 underline underline-offset-2 hover:text-blue-900 print:hidden"
+            >
+              Categorize revenue →
+            </Link>
+          </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {report.income.total === 0 ? (

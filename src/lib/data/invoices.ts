@@ -5,7 +5,7 @@
 // module is just CRUD.
 
 import 'server-only';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import {
   invoiceLineItems,
   invoicePayments,
@@ -188,6 +188,26 @@ export async function updateInvoiceHeader(
     return rows[0];
   }
   return mockUpdateHeader(companyId, id, patch);
+}
+
+/**
+ * Bulk-set the revenue category on many invoices in one UPDATE. Powers the
+ * "Categorize revenue" tool. Reporting tag only — doesn't touch money/status.
+ * Returns the count updated.
+ */
+export async function bulkSetInvoiceRevenueCategory(
+  companyId: string,
+  ids: string[],
+  accountingAccountId: string | null,
+): Promise<number> {
+  if (ids.length === 0 || !isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .update(invoices)
+    .set({ accountingAccountId, updatedAt: new Date() })
+    .where(and(eq(invoices.companyId, companyId), inArray(invoices.id, ids)))
+    .returning({ id: invoices.id });
+  return rows.length;
 }
 
 /**

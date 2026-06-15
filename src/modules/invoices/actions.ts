@@ -17,6 +17,7 @@ import {
   toQuantityString,
 } from '@/lib/money';
 import {
+  bulkSetInvoiceRevenueCategory,
   createInvoice,
   deleteDraftInvoice,
   DuplicateInvoiceNumberError,
@@ -86,6 +87,52 @@ export async function setInvoiceRevenueCategoryAction(input: {
   revalidatePath(`/invoices/${id.data}`);
   revalidatePath('/reports/profit-loss');
   return { ok: true };
+}
+
+/**
+ * Bulk-set the revenue category on a hand-picked set of invoices — powers the
+ * "Categorize revenue" tool, the fast way to split historical revenue by
+ * service type across many invoices at once.
+ */
+export async function bulkSetInvoiceRevenueCategoryAction(input: {
+  invoiceIds: string[];
+  accountingAccountId: string | null;
+}): Promise<{ ok: boolean; applied?: number; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { ok: false, error: 'No permission to edit invoices.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  const ids = Array.isArray(input.invoiceIds)
+    ? input.invoiceIds.filter(
+        (x): x is string => typeof x === 'string' && x !== '',
+      )
+    : [];
+  if (ids.length === 0) return { ok: false, error: 'Select at least one invoice.' };
+
+  let accountingAccountId: string | null = null;
+  if (input.accountingAccountId) {
+    const a = z.string().uuid().safeParse(input.accountingAccountId);
+    if (!a.success) return { ok: false, error: 'Invalid category.' };
+    const account = await getAccountingAccount(companyId, a.data);
+    if (!account || account.rollupGroup !== 'income') {
+      return { ok: false, error: 'Pick an income (revenue) category.' };
+    }
+    accountingAccountId = a.data;
+  } else {
+    return { ok: false, error: 'Pick a revenue category to assign.' };
+  }
+
+  const applied = await bulkSetInvoiceRevenueCategory(
+    companyId,
+    ids,
+    accountingAccountId,
+  );
+  revalidatePath('/invoices/categorize-revenue');
+  revalidatePath('/reports/profit-loss');
+  return { ok: true, applied };
 }
 
 function emptyToNull(v: string | null | undefined): string | null {
