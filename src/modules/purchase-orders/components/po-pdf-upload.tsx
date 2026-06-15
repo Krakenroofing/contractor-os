@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   Table,
   TableBody,
@@ -667,25 +668,19 @@ function PreviewPhase({
         </Field>
 
         <Field label="Vendor" error={err('vendorId')} required>
-          <Select
+          <VendorPicker
             name="vendorId"
-            value={vendorId}
-            onChange={(e) => setVendorId(e.target.value)}
             required
-          >
-            <option value="" disabled>
-              {vendors.length === 0 ? 'No vendors yet' : 'Select a vendor'}
-            </option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </Select>
+            allowNone={false}
+            placeholder="Select a vendor"
+            value={vendorId}
+            vendors={vendors}
+            onChange={(id) => setVendorId(id)}
+          />
           {extracted.vendorName && (
             <p className="text-xs text-slate-500">
               Extracted vendor: &quot;{extracted.vendorName}&quot;
-              {autoVendorId === '' && ' (no match in your vendor list — pick one or add the vendor first)'}
+              {autoVendorId === '' && ' (no match — pick one, or use “+ Add new vendor”)'}
             </p>
           )}
         </Field>
