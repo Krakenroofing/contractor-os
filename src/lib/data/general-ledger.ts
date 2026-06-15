@@ -369,6 +369,149 @@ export async function buildBalanceSheet(
   };
 }
 
+export type GlDetailLine = {
+  entryId: string;
+  date: string;
+  memo: string | null;
+  sourceType: string;
+  description: string | null;
+  debit: number;
+  credit: number;
+  /** Account balance after this line (opening + cumulative debit−credit). */
+  runningBalance: number;
+};
+
+export type GlDetailAccount = {
+  accountId: string;
+  code: string | null;
+  name: string;
+  rollupGroup: string;
+  /** Net balance of lines dated before `from` (0 when no `from`). */
+  openingBalance: number;
+  lines: GlDetailLine[];
+  closingBalance: number;
+  totalDebit: number;
+  totalCredit: number;
+};
+
+export type GeneralLedgerDetail = {
+  accounts: GlDetailAccount[];
+  from: string | null;
+  to: string | null;
+};
+
+/**
+ * General-ledger detail: every journal line per account in date order, with a
+ * running balance. Optional date range (opening balance = net of lines before
+ * `from`) and single-account filter.
+ */
+export async function getGeneralLedgerDetail(
+  companyId: string,
+  opts: { from?: string | null; to?: string | null; accountId?: string | null } = {},
+): Promise<GeneralLedgerDetail> {
+  const empty: GeneralLedgerDetail = {
+    accounts: [],
+    from: opts.from ?? null,
+    to: opts.to ?? null,
+  };
+  if (!isDatabaseConfigured()) return empty;
+  const db = getDb()!;
+
+  const conds = [eq(journalLines.companyId, companyId)];
+  if (opts.to) conds.push(lte(journalEntries.entryDate, opts.to));
+  if (opts.accountId) conds.push(eq(journalLines.accountId, opts.accountId));
+
+  const rows = await db
+    .select({
+      accountId: accountingAccounts.id,
+      code: accountingAccounts.code,
+      name: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      entryId: journalEntries.id,
+      date: journalEntries.entryDate,
+      memo: journalEntries.memo,
+      sourceType: journalEntries.sourceType,
+      createdAt: journalEntries.createdAt,
+      description: journalLines.description,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+    })
+    .from(journalLines)
+    .innerJoin(
+      journalEntries,
+      eq(journalEntries.id, journalLines.journalEntryId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, journalLines.accountId),
+    )
+    .where(and(...conds));
+
+  type Row = (typeof rows)[number];
+  const byAccount = new Map<string, Row[]>();
+  for (const r of rows) {
+    const arr = byAccount.get(r.accountId) ?? [];
+    arr.push(r);
+    byAccount.set(r.accountId, arr);
+  }
+
+  const accounts: GlDetailAccount[] = [];
+  for (const [accountId, accountRows] of byAccount) {
+    accountRows.sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) || +a.createdAt - +b.createdAt,
+    );
+    const first = accountRows[0];
+    let opening = 0;
+    let running = 0;
+    let started = false;
+    let totalDebit = 0;
+    let totalCredit = 0;
+    const lines: GlDetailLine[] = [];
+    for (const r of accountRows) {
+      const debit = round2(Number(r.debit));
+      const credit = round2(Number(r.credit));
+      if (opts.from && r.date < opts.from) {
+        opening = round2(opening + debit - credit);
+        continue;
+      }
+      if (!started) {
+        running = opening;
+        started = true;
+      }
+      running = round2(running + debit - credit);
+      totalDebit = round2(totalDebit + debit);
+      totalCredit = round2(totalCredit + credit);
+      lines.push({
+        entryId: r.entryId,
+        date: r.date,
+        memo: r.memo,
+        sourceType: r.sourceType,
+        description: r.description,
+        debit,
+        credit,
+        runningBalance: running,
+      });
+    }
+    accounts.push({
+      accountId,
+      code: first.code,
+      name: first.name,
+      rollupGroup: first.rollupGroup,
+      openingBalance: opening,
+      lines,
+      closingBalance: round2(opening + totalDebit - totalCredit),
+      totalDebit,
+      totalCredit,
+    });
+  }
+
+  accounts.sort((a, b) =>
+    (a.code ?? a.name).localeCompare(b.code ?? b.name),
+  );
+  return { accounts, from: opts.from ?? null, to: opts.to ?? null };
+}
+
 export type JournalEntryWithLines = JournalEntry & {
   lines: Array<JournalLine & { accountName: string; accountCode: string | null }>;
 };
