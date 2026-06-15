@@ -47,6 +47,10 @@ export type RuleFormProps = {
   categories: AccountingAccountOption[];
   projects: Option[];
   costCodes: Option[];
+  vendors: Option[];
+  /** True when the company is VAT-active AND a VAT Input account exists, so an
+   *  auto-VAT-split rule has somewhere to post the VAT half. */
+  canVatSplit: boolean;
 };
 
 const FIELD_LABEL: Record<MatcherField, string> = {
@@ -90,6 +94,9 @@ export function RuleForm(props: RuleFormProps) {
       projectId: null,
       costCodeId: null,
       notes: null,
+      vendorId: null,
+      autoVatSplit: false,
+      vatRateOverride: null,
     },
   );
 
@@ -348,11 +355,35 @@ export function RuleForm(props: RuleFormProps) {
         <h3 className="text-sm font-medium text-slate-900">Then auto-fill</h3>
         <p className="text-xs text-slate-500">
           Applies only to transactions that are not yet reviewed and not yet
-          categorized. Phase 1 never overwrites manual work.
+          categorized. Never overwrites manual work.
         </p>
+        <div>
+          <Label htmlFor="action_vendorId">Payee / Vendor</Label>
+          <Select
+            id="action_vendorId"
+            name="action_vendorId"
+            value={(actions.vendorId as string) ?? ''}
+            onChange={(e) =>
+              setActions((a) => ({ ...a, vendorId: e.target.value || null }))
+            }
+          >
+            <option value="">— none —</option>
+            {props.vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Stamped on matched transactions. With Auto-VAT split on, this
+            vendor&apos;s VAT rate is used unless you set an override below.
+          </p>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <Label htmlFor="action_accountingAccountId">Category</Label>
+            <Label htmlFor="action_accountingAccountId">
+              {actions.autoVatSplit ? 'Net / cost category' : 'Category'}
+            </Label>
             <AccountingAccountPicker
               id="action_accountingAccountId"
               name="action_accountingAccountId"
@@ -418,6 +449,63 @@ export function RuleForm(props: RuleFormProps) {
             }
             placeholder="Optional. Rule name is always appended automatically."
           />
+        </div>
+
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="action_autoVatSplit"
+              checked={Boolean(actions.autoVatSplit)}
+              disabled={!props.canVatSplit}
+              onChange={(e) =>
+                setActions((a) => ({ ...a, autoVatSplit: e.target.checked }))
+              }
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Auto-VAT split matched transactions (cost + VAT Input)
+          </label>
+          {props.canVatSplit ? (
+            actions.autoVatSplit && (
+              <div className="space-y-2 pl-6">
+                <p className="text-[11px] text-slate-500">
+                  Each matched transaction is split into a net line (→ the cost
+                  category above) and a VAT Input line. Rate = override → vendor
+                  rate → company standard.
+                </p>
+                <div className="w-40">
+                  <Label htmlFor="action_vatRateOverride">
+                    VAT rate override %
+                  </Label>
+                  <Input
+                    id="action_vatRateOverride"
+                    name="action_vatRateOverride"
+                    inputMode="decimal"
+                    value={
+                      actions.vatRateOverride == null
+                        ? ''
+                        : String(actions.vatRateOverride)
+                    }
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const n = Number(raw);
+                      setActions((a) => ({
+                        ...a,
+                        vatRateOverride:
+                          raw === '' || !Number.isFinite(n) ? null : n,
+                      }));
+                    }}
+                    placeholder="vendor / company"
+                  />
+                </div>
+              </div>
+            )
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Turn on VAT (Settings) and add a VAT Input account to enable
+              auto-splitting.
+            </p>
+          )}
         </div>
       </div>
 

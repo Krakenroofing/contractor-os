@@ -9,6 +9,7 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
+import { listVendors } from '@/lib/data/vendors';
 import { RuleForm } from '@/modules/banking/components/rule-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { RulePreviewPanel } from '@/modules/banking/components/rule-preview-panel';
@@ -30,14 +31,18 @@ export default async function EditBankingRulePage({
   const rule = await getBankingRule(company.id, id);
   if (!rule) notFound();
 
-  const [accounts, accountingAccounts, projects, costCodes] = await Promise.all(
-    [
+  const [accounts, accountingAccounts, projects, costCodes, vendors] =
+    await Promise.all([
       listBankAccounts(company.id),
       listAccountingAccounts(company.id),
       listProjects(company.id),
       listCostCodes(company.id),
-    ],
-  );
+      listVendors(company.id),
+    ]);
+
+  const canVatSplit =
+    company.isVatActive &&
+    accountingAccounts.some((a) => a.type === 'vat_input' && !a.isArchived);
 
   const view = toRuleForMatching(rule);
 
@@ -116,6 +121,8 @@ export default async function EditBankingRulePage({
               id: c.id,
               label: `${c.code} — ${c.description}`,
             }))}
+            vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+            canVatSplit={canVatSplit}
           />
         </CardContent>
       </Card>

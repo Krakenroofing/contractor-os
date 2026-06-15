@@ -43,6 +43,11 @@ export type RuleActionPayload = {
   projectId?: string | null;
   costCodeId?: string | null;
   notes?: string | null;
+  // Phase 2: stamp a payee, and optionally auto-split each matched
+  // (VAT-inclusive) transaction into net cost + VAT Input lines.
+  vendorId?: string | null;
+  autoVatSplit?: boolean;
+  vatRateOverride?: number | null;
   [k: string]: unknown;
 };
 

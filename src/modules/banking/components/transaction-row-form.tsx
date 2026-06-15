@@ -12,6 +12,7 @@ import {
   AccountingAccountPicker,
   type AccountingAccountOption,
 } from '@/modules/accounting/components/accounting-account-picker';
+import { computeVatSplit, round2 } from '../lib/vat-split';
 
 type Option = { id: string; label: string };
 
@@ -73,7 +74,6 @@ function money(n: number, currency: string): string {
   }
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const emptyLine = (): LineDraft => ({
   accountingAccountId: '',
@@ -151,8 +151,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
     const rate = selectedVendor?.vatRatePercent ?? 0;
     if (!rate || !props.vatInputAccountId) return;
     const gross = props.grossAmount;
-    const net = round2(gross / (1 + rate / 100));
-    const vat = round2(gross - net);
+    const { net, vat } = computeVatSplit(gross, rate);
     const costAccount =
       accountingAccountId || selectedVendor?.defaultAccountingAccountId || '';
     setLines([

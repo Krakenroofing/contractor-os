@@ -147,6 +147,14 @@ export const ruleActionPayloadSchema = z.object({
     .optional()
     .default('')
     .transform((v) => (v === '' ? null : v)),
+  // Optional payee the rule stamps on matched transactions.
+  vendorId: nullableUuid,
+  // When set, the rule splits each matched (VAT-inclusive) transaction into a
+  // net cost line (→ accountingAccountId) + a VAT Input line.
+  autoVatSplit: z.coerce.boolean().optional().default(false),
+  // Explicit rate override for the split. When null, the engine falls back to
+  // the stamped vendor's rate, then the company standard VAT rate.
+  vatRateOverride: nullableAmount,
 });
 export type RuleActionPayloadInput = z.infer<typeof ruleActionPayloadSchema>;
 

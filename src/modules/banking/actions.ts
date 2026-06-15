@@ -52,6 +52,7 @@ import {
   reverseMatchAtomic,
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { getVendor } from '@/lib/data/vendors';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
 import { listProjects } from '@/lib/data/projects';
@@ -71,11 +72,13 @@ import {
 } from './schema';
 import {
   type MatchReason,
+  type RuleActionPayload,
   type RuleForMatching,
   matchRule,
   toRuleForMatching,
   toTxnForMatching,
 } from './lib/rules';
+import { computeVatSplit } from './lib/vat-split';
 
 export type BankingActionState = {
   formError?: string;
@@ -539,6 +542,11 @@ function parseRuleForm(formData: FormData) {
       projectId: formData.get('action_projectId') ?? '',
       costCodeId: formData.get('action_costCodeId') ?? '',
       notes: formData.get('action_notes') ?? '',
+      vendorId: formData.get('action_vendorId') ?? '',
+      autoVatSplit:
+        formData.get('action_autoVatSplit') === 'on' ||
+        formData.get('action_autoVatSplit') === 'true',
+      vatRateOverride: formData.get('action_vatRateOverride') ?? '',
     },
   });
 }
@@ -561,6 +569,15 @@ export async function upsertRuleAction(
     };
   }
   const d = parsed.data;
+
+  // An auto-VAT-split rule needs a net/cost category to post the ex-VAT line
+  // to — the VAT half always goes to the VAT Input account.
+  if (d.actions.autoVatSplit && !d.actions.accountingAccountId) {
+    return {
+      formError:
+        'Auto-VAT split needs a net / cost category — that is where the ex-VAT amount posts.',
+    };
+  }
 
   const values = {
     companyId,
@@ -620,6 +637,141 @@ export async function deleteRuleAction(input: {
   if (!updated) return { ok: false, error: 'Rule not found.' };
   revalidatePath('/banking/rules');
   return { ok: true };
+}
+
+// ===== Rule application internals (shared by single + bulk apply) =====
+
+type RuleVatContext = {
+  vatInputAccountId: string | null;
+  /** Rate from the rule's stamped vendor, if any. */
+  vendorRatePercent: number | null;
+  /** Company standard VAT rate (0 when not VAT-active). */
+  companyRatePercent: number;
+  isVatActive: boolean;
+};
+
+/** Resolve everything an auto-VAT-split rule needs ONCE, so bulk apply doesn't
+ *  re-query per row. Returns an inert context when the rule isn't splitting. */
+async function resolveRuleVatContext(
+  company: { id: string; isVatActive: boolean; vatRatePercent: string | null },
+  actions: RuleActionPayload,
+): Promise<RuleVatContext> {
+  if (!actions.autoVatSplit || !company.isVatActive) {
+    return {
+      vatInputAccountId: null,
+      vendorRatePercent: null,
+      companyRatePercent: 0,
+      isVatActive: company.isVatActive,
+    };
+  }
+  const accounts = await listAccountingAccounts(company.id);
+  const vatInputAccountId =
+    accounts.find((a) => a.type === 'vat_input' && !a.isArchived)?.id ?? null;
+  let vendorRatePercent: number | null = null;
+  if (actions.vendorId) {
+    const vendor = await getVendor(company.id, actions.vendorId);
+    vendorRatePercent =
+      vendor?.vatRatePercent != null ? Number(vendor.vatRatePercent) : null;
+  }
+  return {
+    vatInputAccountId,
+    vendorRatePercent,
+    companyRatePercent: company.vatRatePercent ? Number(company.vatRatePercent) : 0,
+    isVatActive: true,
+  };
+}
+
+/** Override → stamped-vendor rate → company standard. Null when nothing
+ *  resolves to a positive rate (caller then writes a single category). */
+function resolveRuleVatRate(
+  actions: RuleActionPayload,
+  ctx: RuleVatContext,
+): number | null {
+  if (!ctx.isVatActive) return null;
+  const candidates = [
+    typeof actions.vatRateOverride === 'number' ? actions.vatRateOverride : null,
+    ctx.vendorRatePercent,
+    ctx.companyRatePercent > 0 ? ctx.companyRatePercent : null,
+  ];
+  return candidates.find((r) => r != null && r > 0) ?? null;
+}
+
+type ApplyTargetTxn = {
+  id: string;
+  amount: string;
+  notes: string | null;
+  vendorId: string | null;
+};
+
+/** Write a rule's actions onto a single (already matched + triagable) txn.
+ *  Splits into a net cost line + a VAT Input line when the rule asks for it
+ *  and a rate + VAT Input account resolve; otherwise stamps a single category.
+ *  Always stamps the payee and the applied-rule audit fields. */
+async function writeRuleToTransaction(
+  companyId: string,
+  rule: { id: string; name: string },
+  actions: RuleActionPayload,
+  txn: ApplyTargetTxn,
+  ctx: RuleVatContext,
+): Promise<void> {
+  const noteSuffix = `\n— rule: ${rule.name}`;
+  const notes = (
+    actions.notes
+      ? `${actions.notes}${noteSuffix}`
+      : (txn.notes ?? '') + noteSuffix
+  ).trim();
+  const vendorId = actions.vendorId ?? txn.vendorId ?? null;
+
+  const rate = actions.autoVatSplit ? resolveRuleVatRate(actions, ctx) : null;
+  const canSplit =
+    rate != null &&
+    ctx.vatInputAccountId != null &&
+    actions.accountingAccountId != null;
+
+  if (actions.autoVatSplit && canSplit) {
+    const gross = Math.abs(Number(txn.amount));
+    const { net, vat } = computeVatSplit(gross, rate);
+    const lines: ImportedTransactionLineInput[] = [
+      {
+        accountingAccountId: actions.accountingAccountId!,
+        projectId: actions.projectId ?? null,
+        costCodeId: actions.costCodeId ?? null,
+        description: 'Cost (ex-VAT)',
+        amount: toMoneyString(net),
+      },
+      {
+        accountingAccountId: ctx.vatInputAccountId,
+        projectId: null,
+        costCodeId: null,
+        description: `VAT input @ ${rate}%`,
+        amount: toMoneyString(vat),
+      },
+    ];
+    await replaceImportedTransactionLines(companyId, txn.id, lines);
+    // Lines are the source of truth → clear the single-category fields.
+    await updateImportedTransaction(companyId, txn.id, {
+      accountingAccountId: null,
+      projectId: null,
+      costCodeId: null,
+      vendorId,
+      notes,
+      appliedRuleId: rule.id,
+      appliedRuleAt: new Date(),
+    });
+    return;
+  }
+
+  // Single category → drop any stale split lines and stamp the fields.
+  await replaceImportedTransactionLines(companyId, txn.id, []);
+  await updateImportedTransaction(companyId, txn.id, {
+    accountingAccountId: actions.accountingAccountId ?? null,
+    projectId: actions.projectId ?? null,
+    costCodeId: actions.costCodeId ?? null,
+    vendorId,
+    notes,
+    appliedRuleId: rule.id,
+    appliedRuleAt: new Date(),
+  });
 }
 
 /**
@@ -692,20 +844,16 @@ export async function applyRuleAction(input: {
     };
   }
 
-  const a = ruleForMatch.actions;
-  const ruleNoteSuffix = `\n— rule: ${rule.name}`;
-  const newNotes = a.notes
-    ? `${a.notes}${ruleNoteSuffix}`
-    : (txn.notes ?? '') + ruleNoteSuffix;
-
-  await updateImportedTransaction(companyId, txn.id, {
-    accountingAccountId: a.accountingAccountId ?? null,
-    projectId: a.projectId ?? null,
-    costCodeId: a.costCodeId ?? null,
-    notes: newNotes.trim(),
-    appliedRuleId: rule.id,
-    appliedRuleAt: new Date(),
-  });
+  const actions = ruleForMatch.actions;
+  const company = await getActiveCompany();
+  const vatCtx = await resolveRuleVatContext(company, actions);
+  await writeRuleToTransaction(
+    companyId,
+    { id: rule.id, name: rule.name },
+    actions,
+    { id: txn.id, amount: txn.amount, notes: txn.notes, vendorId: txn.vendorId },
+    vatCtx,
+  );
   await bumpMatchCount(companyId, rule.id);
 
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
@@ -890,23 +1038,39 @@ export async function bulkApplyRuleAction(input: {
     return { ok: true, applied: 0, scanned: txns.length, skipped: 0 };
   }
 
-  const a = ruleForMatch.actions;
-  const noteSuffix = `\n— rule: ${rule.name}`;
-  const newNotes = ((a.notes ?? '') + noteSuffix).trim();
+  const actions = ruleForMatch.actions;
+  let applied = 0;
 
-  const applied = await bulkApplyRuleToTransactions(
-    companyId,
-    rule.id,
-    targetIds,
-    {
-      accountingAccountId: a.accountingAccountId ?? null,
-      projectId: a.projectId ?? null,
-      costCodeId: a.costCodeId ?? null,
+  if (actions.autoVatSplit) {
+    // Each row's gross differs, so the split can't be batched in one UPDATE —
+    // apply per row, re-guarding triagability against a stale snapshot.
+    const company = await getActiveCompany();
+    const vatCtx = await resolveRuleVatContext(company, actions);
+    for (const id of targetIds) {
+      const t = await getImportedTransaction(companyId, id);
+      if (!t || t.isReviewed || t.isIgnored || t.accountingAccountId) continue;
+      await writeRuleToTransaction(
+        companyId,
+        { id: rule.id, name: rule.name },
+        actions,
+        { id: t.id, amount: t.amount, notes: t.notes, vendorId: t.vendorId },
+        vatCtx,
+      );
+      applied++;
+    }
+  } else {
+    const noteSuffix = `\n— rule: ${rule.name}`;
+    const newNotes = ((actions.notes ?? '') + noteSuffix).trim();
+    applied = await bulkApplyRuleToTransactions(companyId, rule.id, targetIds, {
+      accountingAccountId: actions.accountingAccountId ?? null,
+      projectId: actions.projectId ?? null,
+      costCodeId: actions.costCodeId ?? null,
+      vendorId: actions.vendorId ?? null,
       notes: newNotes,
       appliedRuleId: rule.id,
       appliedRuleAt: new Date(),
-    },
-  );
+    });
+  }
 
   if (applied > 0) await bumpMatchCount(companyId, rule.id, applied);
 

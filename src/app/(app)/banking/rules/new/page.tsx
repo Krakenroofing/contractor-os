@@ -8,6 +8,7 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
+import { listVendors } from '@/lib/data/vendors';
 import { getImportedTransaction } from '@/lib/data/statement-imports';
 import { RuleForm } from '@/modules/banking/components/rule-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
@@ -85,12 +86,20 @@ export default async function NewBankingRulePage({
   const sp = await searchParams;
   const fromTxnId = typeof sp.fromTxn === 'string' ? sp.fromTxn : null;
 
-  const [accounts, accountingAccounts, projects, costCodes] = await Promise.all([
-    listBankAccounts(company.id),
-    listAccountingAccounts(company.id),
-    listProjects(company.id),
-    listCostCodes(company.id),
-  ]);
+  const [accounts, accountingAccounts, projects, costCodes, vendors] =
+    await Promise.all([
+      listBankAccounts(company.id),
+      listAccountingAccounts(company.id),
+      listProjects(company.id),
+      listCostCodes(company.id),
+      listVendors(company.id),
+    ]);
+
+  // Auto-VAT split needs the company VAT-active AND a VAT Input account to
+  // post the VAT half to.
+  const canVatSplit =
+    company.isVatActive &&
+    accountingAccounts.some((a) => a.type === 'vat_input' && !a.isArchived);
 
   let initial:
     | {
@@ -184,6 +193,8 @@ export default async function NewBankingRulePage({
               id: c.id,
               label: `${c.code} — ${c.description}`,
             }))}
+            vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+            canVatSplit={canVatSplit}
           />
         </CardContent>
       </Card>
