@@ -13,7 +13,7 @@ import {
   updateProject,
 } from '@/lib/data/projects';
 import { recomputeProjectContractTotalsFromCOs } from '@/lib/data/change-orders';
-import { projectFormSchema } from './schema';
+import { projectFormSchema, projectStatusValues } from './schema';
 
 export type CreateProjectState = {
   errors?: Record<string, string[]>;
@@ -100,6 +100,77 @@ export async function createProjectAction(
 
   revalidatePath('/projects');
   redirect(`/projects/${createdId}`);
+}
+
+// Returned to the inline "+ Add new project" pickers.
+export type InlineProject = { id: string; name: string; customerId: string };
+
+export type InlineCreateProjectResult =
+  | { ok: true; project: InlineProject }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+const inlineProjectSchema = z.object({
+  name: z.string().trim().min(1, 'Project name is required').max(200),
+  customerId: z.string().uuid('Pick a customer'),
+  status: z.enum(projectStatusValues).optional().default('lead'),
+});
+
+/**
+ * Inline project create for the "+ Add new project" pickers. Returns the
+ * created project instead of redirecting. A project needs a customer (NOT
+ * NULL FK), so the quick-add drawer collects one — financials default to 0
+ * and are set later on the project page.
+ */
+export async function createProjectInlineAction(input: {
+  name: string;
+  customerId: string;
+  status?: string;
+}): Promise<InlineCreateProjectResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'projects')) {
+    return { ok: false, error: 'You do not have permission to create projects.' };
+  }
+  const parsed = inlineProjectSchema.safeParse(input);
+  if (!parsed.success) {
+    const fe = parsed.error.flatten().fieldErrors;
+    return { ok: false, errors: fe, error: fe.customerId?.[0] ?? fe.name?.[0] };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const project = await createProject(companyId, {
+      customerId: parsed.data.customerId,
+      name: parsed.data.name,
+      status: parsed.data.status,
+      jobsiteAddressLine1: null,
+      jobsiteAddressLine2: null,
+      jobsiteCity: null,
+      jobsiteState: null,
+      jobsitePostalCode: null,
+      projectManagerId: null,
+      estimatorId: null,
+      startDate: null,
+      targetCompletionDate: null,
+      actualCompletionDate: null,
+      contractValue: '0',
+      originalContractValue: '0',
+      totalChangeOrders: '0',
+      currentBudget: '0',
+      notes: null,
+    });
+    revalidatePath('/projects');
+    return {
+      ok: true,
+      project: {
+        id: project.id,
+        name: project.name,
+        customerId: parsed.data.customerId,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create project: ${message}` };
+  }
 }
 
 const idSchema = z.string().uuid('Missing or invalid id');

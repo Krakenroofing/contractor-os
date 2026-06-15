@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { formatMoney } from '@/lib/money';
 import { calcEstimateTotals, lineTotal } from '../lib/calc';
 import { createEstimateAction, type CreateEstimateState } from '../actions';
@@ -63,11 +65,13 @@ function newEmptyLine(): LineDraft {
 
 export function EstimateForm({
   projects,
+  customers,
   costCodes,
   products,
   defaultNumber,
 }: {
   projects: ProjectOption[];
+  customers: CustomerPickerOption[];
   costCodes: CostCodeOption[];
   products: ProductPickerOption[];
   defaultNumber: string;
@@ -234,23 +238,16 @@ export function EstimateForm({
         </Field>
 
         <Field label="Project" error={err('projectId')} className="md:col-span-2" required>
-          <Select
+          <ProjectPicker
             name="projectId"
             required
+            allowNone={false}
+            placeholder="Select a project"
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="" disabled>
-              {projects.length === 0
-                ? 'No projects — create one first'
-                : 'Select a project'}
-            </option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+            projects={projects.map((p) => ({ id: p.id, name: p.label }))}
+            customers={customers}
+            onChange={(id) => setProjectId(id)}
+          />
         </Field>
 
         <Field label="Valid until" error={err('validUntil')}>

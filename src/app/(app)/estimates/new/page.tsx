@@ -7,7 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listEstimates } from '@/lib/data/estimates';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { listInventoryItems } from '@/lib/data/inventory-items';
 import { listProjects } from '@/lib/data/projects';
 
@@ -38,6 +38,10 @@ export default async function NewEstimatePage() {
       };
     }),
   );
+  const customers = (await listCustomers(companyId)).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
   const costCodes = (await listCostCodes(companyId)).map((c) => ({
     id: c.id,
     code: c.code,
@@ -69,6 +73,7 @@ export default async function NewEstimatePage() {
 
       <EstimateForm
         projects={projects}
+        customers={customers}
         costCodes={costCodes}
         products={products}
         defaultNumber={await nextEstimateNumber(companyId)}

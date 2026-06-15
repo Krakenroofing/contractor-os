@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { CustomerPicker } from '@/modules/customers/components/customer-picker';
 import {
   createProjectAction,
   updateProjectAction,
@@ -98,18 +99,14 @@ export function ProjectForm({
         </Field>
 
         <Field label="Customer" error={err('customerId')} required>
-          <Select name="customerId" required defaultValue={values.customerId}>
-            <option value="" disabled>
-              {customers.length === 0
-                ? 'No customers — create one first'
-                : 'Select a customer'}
-            </option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+          <CustomerPicker
+            name="customerId"
+            required
+            allowNone={false}
+            placeholder="Select a customer"
+            defaultValue={values.customerId}
+            customers={customers}
+          />
         </Field>
 
         <Field label="Status" error={err('status')}>

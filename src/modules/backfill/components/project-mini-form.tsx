@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { CustomerPicker } from '@/modules/customers/components/customer-picker';
 import { backfillProjectAction, type BackfillState } from '@/modules/backfill/actions';
 import { Field, FormShell } from './form-shell';
 
@@ -26,18 +27,13 @@ export function ProjectMiniForm({
       <FormShell state={state} pending={pending} submitLabel="Add project">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Customer" error={err('customerId')} required>
-            <Select name="customerId" required defaultValue="">
-              <option value="" disabled>
-                {customers.length === 0
-                  ? 'No customers yet — finish step 1 first'
-                  : 'Pick a customer'}
-              </option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
+            <CustomerPicker
+              name="customerId"
+              required
+              allowNone={false}
+              placeholder="Pick a customer"
+              customers={customers}
+            />
           </Field>
           <Field label="Project number" error={err('number')} required>
             <Input name="number" required maxLength={50} placeholder="2026-001" />

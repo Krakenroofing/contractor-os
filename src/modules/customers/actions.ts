@@ -13,12 +13,24 @@ import {
   updateCustomer,
 } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
-import { customerFormSchema } from './schema';
+import { customerFormSchema, customerTypeValues } from './schema';
 
 export type CreateCustomerState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
+
+// Returned to the inline "+ Add new customer" pickers.
+export type InlineCustomer = { id: string; name: string };
+
+export type InlineCreateCustomerResult =
+  | { ok: true; customer: InlineCustomer }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+const inlineCustomerSchema = z.object({
+  name: z.string().trim().min(1, 'Customer name is required').max(200),
+  customerType: z.enum(customerTypeValues).optional().default('residential'),
+});
 
 export type UpdateCustomerState = {
   errors?: Record<string, string[]>;
@@ -93,6 +105,49 @@ export async function createCustomerAction(
 
   revalidatePath('/customers');
   redirect(`/customers/${createdId}`);
+}
+
+/**
+ * Inline customer create for the "+ Add new customer" pickers. Returns the
+ * created customer instead of redirecting, so the open form can inject and
+ * select it in place. Minimal (name + type); fill the rest in later.
+ */
+export async function createCustomerInlineAction(input: {
+  name: string;
+  customerType?: string;
+}): Promise<InlineCreateCustomerResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'customers')) {
+    return { ok: false, error: 'You do not have permission to create customers.' };
+  }
+  const parsed = inlineCustomerSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const customer = await createCustomer(companyId, {
+      name: parsed.data.name,
+      customerType: parsed.data.customerType,
+      primaryContactName: null,
+      email: null,
+      phone: null,
+      billingAddressLine1: null,
+      billingAddressLine2: null,
+      billingCity: null,
+      billingState: null,
+      billingPostalCode: null,
+      tinNumber: null,
+      notes: null,
+    });
+    revalidatePath('/customers');
+    revalidatePath('/projects/new');
+    return { ok: true, customer: { id: customer.id, name: customer.name } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create customer: ${message}` };
+  }
 }
 
 const idSchema = z.string().uuid('Missing or invalid id');
