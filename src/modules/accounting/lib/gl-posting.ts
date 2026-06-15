@@ -1,11 +1,23 @@
 import 'server-only';
-import type { Invoice, InvoicePayment } from '@/db/schema';
+import type {
+  BankAccount,
+  ImportedTransaction,
+  ImportedTransactionLine,
+  Invoice,
+  InvoicePayment,
+} from '@/db/schema';
 import {
   insertAccountingAccount,
   listAccountingAccounts,
 } from '@/lib/data/accounting-accounts';
 import { listInvoices } from '@/lib/data/invoices';
 import { listPayments } from '@/lib/data/invoice-payments';
+import { listBankAccounts } from '@/lib/data/bank-accounts';
+import {
+  listImportedTransactions,
+  listLinesForTransactionIds,
+} from '@/lib/data/statement-imports';
+import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import {
   deleteJournalEntriesForSource,
   postJournalEntry,
@@ -32,6 +44,9 @@ export type GlSystemAccounts = {
   vatPayable: string;
   changeOrderRevenue: string;
   defaultRevenue: string;
+  openingEquity: string;
+  uncatIncome: string;
+  uncatExpense: string;
 };
 
 /** Find-or-create the system accounts the invoice/payment postings need. */
@@ -98,6 +113,25 @@ export async function resolveGlSystemAccounts(
     },
   );
 
+  const openingEquity = await ensure(() => byName('Opening Balance Equity'), {
+    name: 'Opening Balance Equity',
+    type: 'equity',
+    rollupGroup: 'equity',
+    parentId: null,
+  });
+  const uncatIncome = await ensure(() => byType('uncategorized_income'), {
+    name: 'Uncategorized Income',
+    type: 'uncategorized_income',
+    rollupGroup: 'income',
+    parentId: null,
+  });
+  const uncatExpense = await ensure(() => byType('uncategorized_expense'), {
+    name: 'Uncategorized Expense',
+    type: 'uncategorized_expense',
+    rollupGroup: 'opex',
+    parentId: null,
+  });
+
   return {
     ar,
     undepositedFunds,
@@ -105,6 +139,9 @@ export async function resolveGlSystemAccounts(
     vatPayable,
     changeOrderRevenue,
     defaultRevenue,
+    openingEquity,
+    uncatIncome,
+    uncatExpense,
   };
 }
 
@@ -199,9 +236,114 @@ export async function postPaymentToGl(
   return true;
 }
 
+/** Opening balance for a bank/credit-card account: Dr Cash / Cr Opening
+ *  Balance Equity (reversed for a negative/overdraft/CC opening). */
+export async function postBankOpeningToGl(
+  companyId: string,
+  bank: BankAccount,
+  accounts: GlSystemAccounts,
+): Promise<boolean> {
+  await deleteJournalEntriesForSource(companyId, 'opening', bank.id);
+  const opening = Number(bank.openingBalance);
+  if (!opening || !bank.accountingAccountId || !bank.openingDate) return false;
+  const abs = Math.abs(opening);
+  const lines: JournalLineInput[] =
+    opening > 0
+      ? [
+          { accountId: bank.accountingAccountId, debit: abs, credit: 0 },
+          { accountId: accounts.openingEquity, debit: 0, credit: abs },
+        ]
+      : [
+          { accountId: accounts.openingEquity, debit: abs, credit: 0 },
+          { accountId: bank.accountingAccountId, debit: 0, credit: abs },
+        ];
+  await postJournalEntry(companyId, {
+    entryDate: bank.openingDate,
+    memo: `Opening balance — ${bank.name}`,
+    sourceType: 'opening',
+    sourceId: bank.id,
+    lines,
+  });
+  return true;
+}
+
+/**
+ * Post one bank transaction's cash movement. The bank side always posts (cash
+ * is real regardless of categorization); the other side is:
+ *   - matched to an invoice payment → Undeposited Funds (clears the parking
+ *     account the payment posted to — no double-count of revenue/cash),
+ *   - split → each line to its category,
+ *   - single category → that account,
+ *   - uncategorized → Uncategorized Income/Expense suspense.
+ * (Transfers net out through suspense; owner draw/contribution are categorized
+ *  to owner-equity on the txn so they post there.)
+ */
+export async function postBankTxnToGl(
+  companyId: string,
+  txn: ImportedTransaction,
+  splitLines: ImportedTransactionLine[],
+  matchType: string | undefined,
+  bankAccountId: string | null | undefined,
+  accounts: GlSystemAccounts,
+): Promise<boolean> {
+  await deleteJournalEntriesForSource(companyId, 'bank', txn.id);
+  if (txn.isIgnored || !bankAccountId) return false;
+  const amount = Number(txn.amount);
+  const abs = Math.round(Math.abs(amount) * 100) / 100;
+  if (abs === 0) return false;
+  const isDeposit = amount > 0;
+
+  const lines: JournalLineInput[] = [
+    isDeposit
+      ? { accountId: bankAccountId, debit: abs, credit: 0 }
+      : { accountId: bankAccountId, debit: 0, credit: abs },
+  ];
+
+  if (matchType === 'invoice_payment') {
+    lines.push(
+      isDeposit
+        ? { accountId: accounts.undepositedFunds, debit: 0, credit: abs }
+        : { accountId: accounts.undepositedFunds, debit: abs, credit: 0 },
+    );
+  } else if (splitLines.length > 0) {
+    for (const l of splitLines) {
+      const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;
+      if (amt <= 0) continue;
+      const acct =
+        l.accountingAccountId ??
+        (isDeposit ? accounts.uncatIncome : accounts.uncatExpense);
+      lines.push(
+        isDeposit
+          ? { accountId: acct, debit: 0, credit: amt, projectId: l.projectId }
+          : { accountId: acct, debit: amt, credit: 0, projectId: l.projectId },
+      );
+    }
+  } else {
+    const acct =
+      txn.accountingAccountId ??
+      (isDeposit ? accounts.uncatIncome : accounts.uncatExpense);
+    lines.push(
+      isDeposit
+        ? { accountId: acct, debit: 0, credit: abs, projectId: txn.projectId }
+        : { accountId: acct, debit: abs, credit: 0, projectId: txn.projectId },
+    );
+  }
+
+  await postJournalEntry(companyId, {
+    entryDate: txn.transactionDate,
+    memo: `Bank — ${(txn.description ?? '').slice(0, 180)}`,
+    sourceType: 'bank',
+    sourceId: txn.id,
+    lines,
+  });
+  return true;
+}
+
 export type RebuildGlResult = {
   postedInvoices: number;
   postedPayments: number;
+  postedBankTxns: number;
+  postedOpenings: number;
   failures: string[];
 };
 
@@ -224,6 +366,8 @@ export async function rebuildGlFromInvoicesAndPayments(
   const failures: string[] = [];
   let postedInvoices = 0;
   let postedPayments = 0;
+  let postedBankTxns = 0;
+  let postedOpenings = 0;
 
   for (const inv of invoices) {
     try {
@@ -244,5 +388,63 @@ export async function rebuildGlFromInvoicesAndPayments(
     }
   }
 
-  return { postedInvoices, postedPayments, failures };
+  // ----- Cash + expense side: bank opening balances + transactions -----
+  const banks = await listBankAccounts(companyId);
+  const bankAcctById = new Map(
+    banks.map((b) => [b.id, b.accountingAccountId]),
+  );
+  for (const b of banks) {
+    try {
+      if (await postBankOpeningToGl(companyId, b, accounts)) postedOpenings++;
+    } catch (err) {
+      failures.push(
+        `Opening ${b.name}: ${err instanceof Error ? err.message : 'failed'}`,
+      );
+    }
+  }
+
+  const txns = await listImportedTransactions(companyId, {
+    includeIgnored: false,
+    limit: 5000,
+  });
+  const splitLines = await listLinesForTransactionIds(
+    companyId,
+    txns.map((t) => t.id),
+  );
+  const linesByTxn = new Map<string, ImportedTransactionLine[]>();
+  for (const l of splitLines) {
+    const arr = linesByTxn.get(l.importedTransactionId) ?? [];
+    arr.push(l);
+    linesByTxn.set(l.importedTransactionId, arr);
+  }
+  const matches = await listActiveMatchesForCompany(companyId);
+  const matchByTxn = new Map(
+    matches.map((m) => [m.importedTransactionId, m.matchType]),
+  );
+
+  for (const t of txns) {
+    try {
+      const did = await postBankTxnToGl(
+        companyId,
+        t,
+        linesByTxn.get(t.id) ?? [],
+        matchByTxn.get(t.id),
+        bankAcctById.get(t.bankAccountId),
+        accounts,
+      );
+      if (did) postedBankTxns++;
+    } catch (err) {
+      failures.push(
+        `Bank txn ${t.id.slice(0, 8)}: ${err instanceof Error ? err.message : 'failed'}`,
+      );
+    }
+  }
+
+  return {
+    postedInvoices,
+    postedPayments,
+    postedBankTxns,
+    postedOpenings,
+    failures,
+  };
 }
