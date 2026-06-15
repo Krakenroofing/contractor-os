@@ -27,6 +27,7 @@ import {
   updateInvoiceHeader,
 } from '@/lib/data/invoices';
 import { getAccountingAccount } from '@/lib/data/accounting-accounts';
+import { syncInvoiceGl } from '@/modules/accounting/lib/gl-posting';
 import { reconcileAllInvoices } from '@/lib/data/invoice-reconcile';
 import {
   applyCreditMemoToInvoice,
@@ -323,6 +324,13 @@ export async function createInvoiceAction(
     }
   }
 
+  // Post to the GL if created already-sent (drafts no-op). Best-effort.
+  try {
+    await syncInvoiceGl(companyId, createdId);
+  } catch {
+    /* best-effort — Rebuild can resync */
+  }
+
   revalidatePath('/invoices');
   revalidatePath(`/projects/${data.projectId}`);
   revalidatePath('/dashboard');
@@ -564,6 +572,13 @@ export async function updateInvoiceFullAction(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to save invoice: ${message}` };
+  }
+
+  // Re-post the edited invoice to the GL (idempotent). Best-effort.
+  try {
+    await syncInvoiceGl(companyId, data.id);
+  } catch {
+    /* best-effort — Rebuild can resync */
   }
 
   revalidatePath('/invoices');

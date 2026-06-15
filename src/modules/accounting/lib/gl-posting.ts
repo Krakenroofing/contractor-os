@@ -10,8 +10,8 @@ import {
   insertAccountingAccount,
   listAccountingAccounts,
 } from '@/lib/data/accounting-accounts';
-import { listInvoices } from '@/lib/data/invoices';
-import { listPayments } from '@/lib/data/invoice-payments';
+import { getInvoice, listInvoices } from '@/lib/data/invoices';
+import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import {
   listImportedTransactions,
@@ -448,3 +448,36 @@ export async function rebuildGlFromInvoicesAndPayments(
     failures,
   };
 }
+
+// ===== Live sync (3.2b) — keep the GL current as invoices/payments change =====
+//
+// Call after any invoice/payment mutation. Idempotent: posts the entry when the
+// record is active, clears it when draft/void/deleted. Callers wrap in
+// try/catch — GL posting must NEVER block the core invoice/payment action.
+
+export async function syncInvoiceGl(
+  companyId: string,
+  invoiceId: string,
+): Promise<void> {
+  const invoice = await getInvoice(companyId, invoiceId);
+  if (!invoice || invoice.status === 'draft' || invoice.status === 'void') {
+    await deleteJournalEntriesForSource(companyId, 'invoice', invoiceId);
+    return;
+  }
+  const accounts = await resolveGlSystemAccounts(companyId);
+  await postInvoiceToGl(companyId, invoice, accounts);
+}
+
+export async function syncPaymentGl(
+  companyId: string,
+  paymentId: string,
+): Promise<void> {
+  const payment = await getPayment(companyId, paymentId);
+  if (!payment) {
+    await deleteJournalEntriesForSource(companyId, 'payment', paymentId);
+    return;
+  }
+  const accounts = await resolveGlSystemAccounts(companyId);
+  await postPaymentToGl(companyId, payment, accounts);
+}
+

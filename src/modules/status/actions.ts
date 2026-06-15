@@ -129,6 +129,19 @@ export async function transitionStatusAction(
     return { formError: `Failed to update status: ${message}` };
   }
 
+  // Keep the GL current on invoice send / void / mark-paid (best-effort —
+  // a GL hiccup must never block the status change; Rebuild can resync).
+  if (entityRaw === 'invoice') {
+    try {
+      const { syncInvoiceGl } = await import(
+        '@/modules/accounting/lib/gl-posting'
+      );
+      await syncInvoiceGl(companyId, entityId);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   // Append activity log entry.
   const fromDisplay = statusDisplay(entityRaw, previousStatus).label;
   const toDisplay = statusDisplay(entityRaw, transition.to).label;

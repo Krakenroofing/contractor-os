@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { toMoneyString } from '@/lib/money';
 import { getInvoice } from '@/lib/data/invoices';
+import { syncPaymentGl } from '@/modules/accounting/lib/gl-posting';
 import {
   createPayment,
   deleteOrphanedPaymentsForVoidedInvoice,
@@ -83,6 +84,13 @@ export async function createPaymentAction(
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to record payment: ${message}` };
+  }
+
+  // Post the payment to the GL (Dr Undeposited Funds / Cr AR). Best-effort.
+  try {
+    await syncPaymentGl(companyId, createdId);
+  } catch {
+    /* best-effort — Rebuild can resync */
   }
 
   revalidatePath('/payments');
