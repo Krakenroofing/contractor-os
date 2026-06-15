@@ -70,6 +70,34 @@ export async function GET(req: NextRequest) {
 
     // Net income
     ['NET INCOME', '', report.netIncome],
+    [],
+
+    // Revenue recognition (WIP, % complete) — cumulative as of today across
+    // all contracts; intentionally NOT bounded by the date range above.
+    [
+      'WIP (% COMPLETE)',
+      `As of ${report.wip.asOf.slice(0, 10)} · ${report.wip.projectCount} contract(s)`,
+      '',
+    ],
+    ...(report.wip.costBasisAvailable
+      ? ([
+          ['WIP (% COMPLETE)', 'Earned to date', report.wip.earnedRevenue],
+          ['WIP (% COMPLETE)', 'Billed to date (ex-VAT)', report.wip.billedToDate],
+          [
+            'WIP (% COMPLETE)',
+            report.wip.overUnderBilled >= 0
+              ? 'Under-billed (contract asset)'
+              : 'Over-billed (deferred revenue)',
+            report.wip.overUnderBilled,
+          ],
+        ] as CsvCell[][])
+      : ([
+          [
+            'WIP (% COMPLETE)',
+            'No cost basis (no job costs / estimates) — earned revenue not computable',
+            '',
+          ],
+        ] as CsvCell[][])),
   ];
 
   // Uncategorized footer (warning) if any.

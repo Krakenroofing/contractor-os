@@ -23,6 +23,7 @@ import {
   jobCostEntries,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { buildWipReport } from '@/modules/reports/lib/wip';
 
 export type RollupGroup =
   | 'income'
@@ -66,6 +67,26 @@ export type ProfitLossReport = {
   grossProfit: number;
   grossMarginPercent: number; // 0–100
   netIncome: number;
+  /** Cumulative work-in-progress revenue-recognition position as of `asOf`.
+   *  NOT period-bounded — earned revenue is % complete to date — so it sits
+   *  as a separate "as of today" reconciliation under the period income
+   *  statement, showing earned vs billed and the resulting balance-sheet
+   *  position (contract asset when under-billed, deferred revenue when over). */
+  wip: {
+    earnedRevenue: number;
+    billedToDate: number;
+    /** + = under-billed (work done > billed → contract asset / unbilled
+     *  receivable). − = over-billed (billed ahead of work → deferred revenue
+     *  liability). */
+    overUnderBilled: number;
+    projectCount: number;
+    /** False when no project has any cost basis (no job costs and no cost
+     *  estimate) — % complete is then undefined, so earned revenue and the
+     *  over/under-billing position are NOT meaningful and must not be shown
+     *  as real figures. The page renders a "needs cost data" note instead. */
+    costBasisAvailable: boolean;
+    asOf: string; // ISO timestamp
+  };
 };
 
 export type ProfitLossFilters = {
@@ -93,6 +114,14 @@ export async function buildProfitLossReport(
     grossProfit: 0,
     grossMarginPercent: 0,
     netIncome: 0,
+    wip: {
+      earnedRevenue: 0,
+      billedToDate: 0,
+      overUnderBilled: 0,
+      projectCount: 0,
+      costBasisAvailable: false,
+      asOf: new Date().toISOString(),
+    },
   };
   if (!isDatabaseConfigured()) return empty;
   const db = getDb()!;
@@ -263,6 +292,16 @@ export async function buildProfitLossReport(
     incomeTotal > 0 ? Math.round((grossProfit / incomeTotal) * 1000) / 10 : 0;
   const netIncome = grossProfit - opexTotal;
 
+  // Cumulative WIP position (as of today, all projects) — earned revenue is
+  // % complete to date, so it is intentionally NOT bounded by the P&L date
+  // range. Reuses the WIP report so the two surfaces always agree.
+  const wipReport = await buildWipReport(companyId, {
+    from: '',
+    to: '',
+    projectId: '',
+    customerId: '',
+  });
+
   return {
     from: filters.from || null,
     to: filters.to || null,
@@ -276,6 +315,16 @@ export async function buildProfitLossReport(
     grossProfit,
     grossMarginPercent,
     netIncome,
+    wip: {
+      earnedRevenue: wipReport.summary.revenueEarned,
+      billedToDate: wipReport.summary.billedToDate,
+      overUnderBilled: wipReport.summary.overUnderBilled,
+      projectCount: wipReport.summary.projectCount,
+      // No cost-to-date anywhere AND no estimate → projectedFinalCost is 0, so
+      // % complete (and earned revenue) can't be computed for any project.
+      costBasisAvailable: wipReport.summary.projectedFinalCost > 0,
+      asOf: wipReport.asOf.toISOString(),
+    },
   };
 }
 

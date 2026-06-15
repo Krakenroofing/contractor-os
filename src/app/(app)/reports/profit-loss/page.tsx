@@ -169,6 +169,73 @@ export default async function ProfitLossReportPage({
           />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Revenue recognition — WIP (% complete)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 p-6">
+          {report.wip.projectCount === 0 ? (
+            <p className="text-sm text-slate-500">
+              No active contracts with a contract value to report. Add a
+              contract value and cost estimate to a project to see earned
+              revenue here.
+            </p>
+          ) : !report.wip.costBasisAvailable ? (
+            <p className="text-sm text-slate-500">
+              Earned revenue needs a cost basis. Your{' '}
+              {report.wip.projectCount} contract
+              {report.wip.projectCount === 1 ? '' : 's'} have contract values
+              and billings, but no job costs or cost estimates yet — so
+              percent-complete (and therefore earned revenue) can&apos;t be
+              computed. Add cost estimates or post job costs to projects, and
+              this section will show earned vs billed and the
+              contract-asset / deferred-revenue position. Until then the P&amp;L
+              above reflects billed revenue.
+            </p>
+          ) : (
+            <>
+              <p className="-mt-1 text-xs text-slate-500">
+                Across {report.wip.projectCount} contract
+                {report.wip.projectCount === 1 ? '' : 's'} — cumulative as of{' '}
+                {report.wip.asOf.slice(0, 10)}, a percentage-of-completion view
+                that is intentionally <em>not</em> bounded by the date range
+                above.{' '}
+                <Link
+                  href={'/reports/wip' as never}
+                  className="underline underline-offset-2"
+                >
+                  Full WIP schedule →
+                </Link>
+              </p>
+              <Row
+                label="Earned to date (% complete × contract)"
+                value={formatMoney(report.wip.earnedRevenue)}
+              />
+              <Row
+                label="Billed to date (ex-VAT)"
+                value={formatMoney(report.wip.billedToDate)}
+              />
+              <Row
+                label={
+                  report.wip.overUnderBilled >= 0
+                    ? '= Under-billed — contract asset (unbilled)'
+                    : '= Over-billed — deferred revenue (liability)'
+                }
+                value={formatMoney(report.wip.overUnderBilled)}
+                tone={report.wip.overUnderBilled >= 0 ? 'emerald' : 'amber'}
+                bold
+                border
+              />
+              <p className="text-xs text-slate-500">
+                {report.wip.overUnderBilled >= 0
+                  ? `${formatMoney(report.wip.overUnderBilled)} of completed work is not yet invoiced — recognize as an unbilled receivable (contract asset).`
+                  : `${formatMoney(-report.wip.overUnderBilled)} invoiced ahead of work completed — carry as deferred revenue (a liability) until earned.`}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </ReportShell>
   );
 }
