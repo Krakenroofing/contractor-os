@@ -19,10 +19,18 @@ import { toMoneyString, toPercentString } from '@/lib/money';
 import {
   ALLOWED_RECEIPT_MIME,
   MAX_RECEIPT_BYTES,
+  RECEIPT_FILES_BUCKET,
   ReceiptStorageNotConfiguredError,
+  extForUpload,
   uploadReceiptFile,
   deleteReceiptBlob,
+  downloadReceiptBlob,
 } from '@/lib/storage/receipt-files';
+import {
+  createSignedUploadForBucket,
+  removeStorageObject,
+  statStorageObject,
+} from '@/lib/storage/signed-upload';
 import {
   createReceipt,
   createReceiptAttachment,
@@ -289,6 +297,157 @@ async function replaceReceiptLines(
 
 // ===== File attachments =====
 
+// ===========================================================================
+// Direct-to-storage uploads
+// ===========================================================================
+//
+// Vercel rejects request bodies over ~4.5MB before a server action runs,
+// so big receipt PDFs/photos posted through a form action die silently.
+// Instead the client asks this action for signed upload URLs, PUTs the
+// files straight to the receipt-files bucket, and passes path refs to the
+// finalize actions below (which re-stat each blob server-side — client
+// metadata is never trusted).
+
+export type UploadUrlGrant = {
+  fileName: string;
+  storagePath?: string;
+  signedUrl?: string;
+  error?: string;
+};
+
+export type CreateUploadUrlsState = {
+  formError?: string;
+  uploads?: UploadUrlGrant[];
+};
+
+const uploadUrlRequestsSchema = z
+  .array(
+    z.object({
+      fileName: z.string().min(1).max(300),
+      mimeType: z.string().min(1).max(100),
+      byteSize: z.number().int().positive(),
+    }),
+  )
+  .min(1)
+  .max(50);
+
+export async function createReceiptUploadUrlsAction(
+  requests: unknown,
+): Promise<CreateUploadUrlsState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'receipts')) {
+    return { formError: 'No permission to upload files.' };
+  }
+  const parsed = uploadUrlRequestsSchema.safeParse(requests);
+  if (!parsed.success) {
+    return { formError: 'Invalid upload request.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const when = new Date();
+  const year = when.getUTCFullYear().toString();
+  const month = String(when.getUTCMonth() + 1).padStart(2, '0');
+
+  const uploads: UploadUrlGrant[] = [];
+  for (const req of parsed.data) {
+    const mime = req.mimeType.toLowerCase();
+    if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+      uploads.push({
+        fileName: req.fileName,
+        error: `Unsupported file type (${req.mimeType}).`,
+      });
+      continue;
+    }
+    if (req.byteSize > MAX_RECEIPT_BYTES) {
+      uploads.push({
+        fileName: req.fileName,
+        error: `Too large (${(req.byteSize / 1024 / 1024).toFixed(1)}MB — max 25MB).`,
+      });
+      continue;
+    }
+    try {
+      const grant = await createSignedUploadForBucket({
+        bucket: RECEIPT_FILES_BUCKET,
+        companyId,
+        scopeSegments: [year, month],
+        ext: extForUpload(req.fileName, mime),
+      });
+      if (!grant) {
+        return { formError: new ReceiptStorageNotConfiguredError().message };
+      }
+      uploads.push({
+        fileName: req.fileName,
+        storagePath: grant.storagePath,
+        signedUrl: grant.signedUrl,
+      });
+    } catch (err) {
+      uploads.push({
+        fileName: req.fileName,
+        error: err instanceof Error ? err.message : 'Could not start upload.',
+      });
+    }
+  }
+  return { uploads };
+}
+
+const directUploadRefSchema = z.object({
+  storagePath: z.string().min(1).max(500),
+  fileName: z.string().min(1).max(300),
+  mimeType: z.string().min(1).max(100),
+  byteSize: z.number().int().nonnegative(),
+});
+type DirectUploadRef = z.infer<typeof directUploadRefSchema>;
+
+/** Parse the `uploads` JSON field (path refs from directUploadFiles). */
+function parseUploadRefs(formData: FormData): DirectUploadRef[] {
+  const raw = formData.get('uploads');
+  if (typeof raw !== 'string' || raw.trim() === '') return [];
+  try {
+    const parsed = z
+      .array(directUploadRefSchema)
+      .max(50)
+      .safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Server-side verification of a direct-uploaded blob: tenant prefix, blob
+ * existence, true size (over-cap blobs are deleted). Returns trusted
+ * metadata or an error string.
+ */
+async function verifyReceiptUploadRef(
+  companyId: string,
+  ref: DirectUploadRef,
+): Promise<
+  | { ok: true; byteSize: number; mimeType: string }
+  | { ok: false; error: string }
+> {
+  if (!ref.storagePath.startsWith(`${companyId}/`)) {
+    return { ok: false, error: 'Invalid upload path.' };
+  }
+  const stat = await statStorageObject(RECEIPT_FILES_BUCKET, ref.storagePath);
+  if (!stat) {
+    return { ok: false, error: 'Upload not found in storage — retry.' };
+  }
+  if (stat.byteSize > MAX_RECEIPT_BYTES) {
+    await removeStorageObject(RECEIPT_FILES_BUCKET, ref.storagePath);
+    return { ok: false, error: 'Too large (max 25MB).' };
+  }
+  const mime = (
+    stat.mimeType && stat.mimeType !== 'application/octet-stream'
+      ? stat.mimeType
+      : ref.mimeType
+  ).toLowerCase();
+  if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+    await removeStorageObject(RECEIPT_FILES_BUCKET, ref.storagePath);
+    return { ok: false, error: `Unsupported file type (${mime}).` };
+  }
+  return { ok: true, byteSize: stat.byteSize, mimeType: mime };
+}
+
 export async function uploadReceiptAttachmentAction(
   receiptId: string,
   _prev: ReceiptActionState,
@@ -308,10 +467,43 @@ export async function uploadReceiptAttachmentAction(
   const files = formData
     .getAll('file')
     .filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) return { formError: 'Choose a file to upload.' };
+  const refs = parseUploadRefs(formData);
+  if (files.length === 0 && refs.length === 0) {
+    return { formError: 'Choose a file to upload.' };
+  }
 
   const failures: string[] = [];
   let okCount = 0;
+
+  // Direct-to-storage refs: blob already in the bucket — verify + record.
+  for (const ref of refs) {
+    const verified = await verifyReceiptUploadRef(companyId, ref);
+    if (!verified.ok) {
+      failures.push(`${ref.fileName}: ${verified.error}`);
+      continue;
+    }
+    try {
+      await createReceiptAttachment({
+        companyId,
+        receiptId: receipt.id,
+        storagePath: ref.storagePath,
+        mimeType: verified.mimeType,
+        byteSize: verified.byteSize,
+        originalFilename: ref.fileName,
+        kind:
+          verified.mimeType === 'application/pdf'
+            ? 'supplier_invoice'
+            : 'receipt_image',
+        uploadedByUserId: user.id,
+      });
+      okCount++;
+    } catch (err) {
+      failures.push(
+        `${ref.fileName}: ${err instanceof Error ? err.message : 'failed to record.'}`,
+      );
+    }
+  }
+
   for (const file of files) {
     if (file.size > MAX_RECEIPT_BYTES) {
       failures.push(`${file.name}: too large.`);
@@ -724,12 +916,70 @@ export async function bulkCreateReceiptDraftsAction(
   const files = formData
     .getAll('file')
     .filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) {
+  const refs = parseUploadRefs(formData);
+  if (files.length === 0 && refs.length === 0) {
     return { formError: 'Choose one or more files to upload.' };
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const results: BulkImportResultRow[] = [];
+
+  // Direct-to-storage refs: blob already in the bucket — verify, then
+  // create the draft receipt + line + attachment around it.
+  for (const ref of refs) {
+    const row: BulkImportResultRow = { fileName: ref.fileName };
+    try {
+      const verified = await verifyReceiptUploadRef(company.id, ref);
+      if (!verified.ok) {
+        row.error = verified.error;
+        results.push(row);
+        continue;
+      }
+      const receipt = await createReceipt({
+        companyId: company.id,
+        receiptDate: today,
+        currency: company.defaultCurrency,
+        paymentSourceType: 'cash',
+        vatIncluded: true,
+        vatRecoverable: true,
+        vatRatePercent: company.isVatActive
+          ? toPercentString(Number(company.vatRatePercent) || 0)
+          : null,
+        vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(today) : null,
+        subtotal: '0',
+        vatAmount: '0',
+        total: '0',
+        uploadedByUserId: user.id,
+      });
+      await createReceiptLine({
+        companyId: company.id,
+        receiptId: receipt.id,
+        sortOrder: 0,
+        subtotal: '0',
+        vatAmount: '0',
+        total: '0',
+        isBillable: false,
+        isReimbursable: false,
+      });
+      await createReceiptAttachment({
+        companyId: company.id,
+        receiptId: receipt.id,
+        storagePath: ref.storagePath,
+        mimeType: verified.mimeType,
+        byteSize: verified.byteSize,
+        originalFilename: ref.fileName,
+        kind:
+          verified.mimeType === 'application/pdf'
+            ? 'supplier_invoice'
+            : 'receipt_image',
+        uploadedByUserId: user.id,
+      });
+      row.receiptId = receipt.id;
+    } catch (err) {
+      row.error = err instanceof Error ? err.message : 'Upload failed.';
+    }
+    results.push(row);
+  }
 
   for (const file of files) {
     const row: BulkImportResultRow = { fileName: file.name };
@@ -864,19 +1114,54 @@ export async function bulkExtractMultiReceiptPdfAction(
   }
   const company = await getActiveCompany();
 
-  const file = formData.get('file');
-  if (!(file instanceof File) || file.size === 0) {
-    return { formError: 'Choose a PDF to upload.' };
-  }
-  if (file.size > MAX_RECEIPT_BYTES) {
-    return { formError: 'PDF too large (max 25 MB).' };
-  }
-  const mime = (file.type || 'application/octet-stream').toLowerCase();
-  if (mime !== 'application/pdf') {
-    return { formError: 'Multi-receipt extraction only supports PDF files.' };
+  // Source PDF arrives either as a direct-to-storage ref (preferred — no
+  // transport size cap) or as an inline File (legacy ≤4.5MB path).
+  const refs = parseUploadRefs(formData);
+  const sourceRef = refs[0];
+  let pdfBytes: Uint8Array;
+  let sourceName: string;
+  // Temp blob to delete once split succeeds — the per-page PDFs become the
+  // receipts' attachments; the full source isn't kept (matches the legacy
+  // inline path, which never stored the source either).
+  let tempSourcePath: string | null = null;
+
+  if (sourceRef) {
+    const verified = await verifyReceiptUploadRef(company.id, sourceRef);
+    if (!verified.ok) {
+      return { formError: `${sourceRef.fileName}: ${verified.error}` };
+    }
+    if (verified.mimeType !== 'application/pdf') {
+      return { formError: 'Multi-receipt extraction only supports PDF files.' };
+    }
+    const blob = await downloadReceiptBlob(sourceRef.storagePath);
+    if (!blob) {
+      return { formError: 'Could not read the uploaded PDF from storage — retry.' };
+    }
+    pdfBytes = blob.bytes;
+    sourceName = sourceRef.fileName;
+    tempSourcePath = sourceRef.storagePath;
+  } else {
+    const file = formData.get('file');
+    if (!(file instanceof File) || file.size === 0) {
+      return { formError: 'Choose a PDF to upload.' };
+    }
+    if (file.size > MAX_RECEIPT_BYTES) {
+      return { formError: 'PDF too large (max 25 MB).' };
+    }
+    const mime = (file.type || 'application/octet-stream').toLowerCase();
+    if (mime !== 'application/pdf') {
+      return { formError: 'Multi-receipt extraction only supports PDF files.' };
+    }
+    pdfBytes = new Uint8Array(await file.arrayBuffer());
+    sourceName = file.name;
   }
 
-  const pdfBytes = new Uint8Array(await file.arrayBuffer());
+  // Early returns must not leave the direct-uploaded temp source behind.
+  const cleanupTempSource = async () => {
+    if (tempSourcePath) {
+      await removeStorageObject(RECEIPT_FILES_BUCKET, tempSourcePath);
+    }
+  };
 
   // Lazy-load pdf-lib to keep the module graph trim — it's only needed
   // when this action actually fires.
@@ -885,6 +1170,7 @@ export async function bulkExtractMultiReceiptPdfAction(
   try {
     sourceDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   } catch (err) {
+    await cleanupTempSource();
     return {
       formError:
         err instanceof Error
@@ -894,9 +1180,11 @@ export async function bulkExtractMultiReceiptPdfAction(
   }
   const totalPages = sourceDoc.getPageCount();
   if (totalPages === 0) {
+    await cleanupTempSource();
     return { formError: 'PDF has no pages.' };
   }
   if (totalPages > MAX_PAGES_PER_BATCH) {
+    await cleanupTempSource();
     return {
       formError: `PDF has ${totalPages} pages — split into batches of ${MAX_PAGES_PER_BATCH} or fewer and re-upload.`,
       pageCount: totalPages,
@@ -906,7 +1194,7 @@ export async function bulkExtractMultiReceiptPdfAction(
   const ocrEnabled = isOcrConfigured();
   const today = new Date().toISOString().slice(0, 10);
   const vendors = ocrEnabled ? await listVendors(company.id) : [];
-  const baseName = file.name.replace(/\.pdf$/i, '');
+  const baseName = sourceName.replace(/\.pdf$/i, '');
 
   const results: BulkPdfExtractResultRow[] = [];
 
@@ -1045,6 +1333,10 @@ export async function bulkExtractMultiReceiptPdfAction(
     }
     results.push(row);
   }
+
+  // The per-page PDFs are now the receipts' attachments — drop the temp
+  // full-source blob from the direct-upload path.
+  await cleanupTempSource();
 
   revalidatePath('/banking/receipts');
   return { results, pageCount: totalPages, ocrEnabled };

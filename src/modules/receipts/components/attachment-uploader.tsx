@@ -1,34 +1,78 @@
 'use client';
 
-import { useActionState, useRef } from 'react';
+// Receipt attachment uploader. Files go DIRECTLY to Supabase Storage via
+// signed upload URLs (bypassing the ~4.5MB Vercel action body cap that
+// silently killed large uploads), then a finalize action verifies each
+// blob and records the attachment. Images are downscaled client-side
+// first — a 6MB phone photo becomes ~0.5MB, so camera captures upload
+// fast even on cell signal.
+
+import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { directUploadFiles } from '@/lib/storage/direct-upload-client';
 import {
+  createReceiptUploadUrlsAction,
   uploadReceiptAttachmentAction,
-  type ReceiptActionState,
 } from '../actions';
 
 const ACCEPT =
   'application/pdf,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif';
 
 export function ReceiptAttachmentUploader({ receiptId }: { receiptId: string }) {
-  const bound = uploadReceiptAttachmentAction.bind(null, receiptId);
-  const [state, action, pending] = useActionState<ReceiptActionState, FormData>(
-    bound,
-    {},
-  );
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  if (state.ok && !state.formError && formRef.current) {
-    formRef.current.reset();
+  const [pending, setPending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
+
+  async function uploadFiles(files: File[]) {
+    if (pending || files.length === 0) return;
+    setPending(true);
+    setFormError(null);
+    setOk(false);
+    try {
+      const outcome = await directUploadFiles({
+        files,
+        requestUrls: createReceiptUploadUrlsAction,
+      });
+      if (outcome.formError) {
+        setFormError(outcome.formError);
+        return;
+      }
+      let finalizeError: string | undefined;
+      if (outcome.refs.length > 0) {
+        const fd = new FormData();
+        fd.set('uploads', JSON.stringify(outcome.refs));
+        const result = await uploadReceiptAttachmentAction(receiptId, {}, fd);
+        finalizeError = result.formError;
+      }
+      const problems = [
+        ...(finalizeError ? [finalizeError] : []),
+        ...outcome.failures,
+      ];
+      if (problems.length > 0) {
+        setFormError(problems.join(' / '));
+      } else {
+        setOk(true);
+        formRef.current?.reset();
+        router.refresh();
+      }
+    } catch {
+      setFormError(
+        'Upload failed — the files never reached the server. Check your connection and try again.',
+      );
+    } finally {
+      setPending(false);
+    }
   }
+
   return (
     <div className="space-y-3">
       {/* Quick photo capture — mobile-friendly. */}
-      <form
-        action={action}
-        className="rounded-md border border-slate-200 bg-white p-3 flex flex-col sm:flex-row sm:items-center gap-3"
-      >
+      <div className="rounded-md border border-slate-200 bg-white p-3 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1 text-sm">
           <div className="font-medium text-slate-900">Quick photo</div>
           <div className="text-xs text-slate-500">
@@ -39,23 +83,28 @@ export function ReceiptAttachmentUploader({ receiptId }: { receiptId: string }) 
           {pending ? 'Uploading…' : '📷 Take photo'}
           <input
             type="file"
-            name="file"
             accept="image/*"
             capture="environment"
             className="sr-only"
             disabled={pending}
             onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                e.target.form?.requestSubmit();
-              }
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              void uploadFiles(files);
             }}
           />
         </label>
-      </form>
+      </div>
 
       <form
         ref={formRef}
-        action={action}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const input = e.currentTarget.elements.namedItem(
+            'file',
+          ) as HTMLInputElement | null;
+          void uploadFiles(Array.from(input?.files ?? []));
+        }}
         className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 space-y-3"
       >
         <div>
@@ -74,10 +123,8 @@ export function ReceiptAttachmentUploader({ receiptId }: { receiptId: string }) 
         <Button type="submit" disabled={pending}>
           {pending ? 'Uploading…' : 'Upload'}
         </Button>
-        {state.formError && (
-          <p className="text-xs text-red-600">{state.formError}</p>
-        )}
-        {state.ok && !state.formError && (
+        {formError && <p className="text-xs text-red-600">{formError}</p>}
+        {ok && !formError && (
           <p className="text-xs text-emerald-700">Uploaded.</p>
         )}
       </form>

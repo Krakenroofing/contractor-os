@@ -40,10 +40,12 @@ import {
 import {
   ALLOWED_RECEIPT_MIME,
   MAX_RECEIPT_BYTES,
+  RECEIPT_FILES_BUCKET,
   deleteReceiptBlob,
   downloadReceiptBlob,
   uploadReceiptFile,
 } from '@/lib/storage/receipt-files';
+import { statStorageObject } from '@/lib/storage/signed-upload';
 import { uploadProjectDocument } from '@/lib/storage/project-documents';
 import {
   createPoFromExtractedSchema,
@@ -418,21 +420,83 @@ export async function extractPoPdfAction(
     };
   }
 
-  const file = formData.get('file');
-  if (!(file instanceof File) || file.size === 0) {
-    return { formError: 'Choose a PDF (or image) of the estimate to upload.' };
-  }
-  if (file.size > MAX_RECEIPT_BYTES) {
-    return { formError: 'File too large (max 25 MB).' };
-  }
-  const mime = (file.type || 'application/octet-stream').toLowerCase();
-  if (!ALLOWED_RECEIPT_MIME.has(mime)) {
-    return {
-      formError: `Unsupported file type ${mime}. Use PDF or a phone photo (JPG/PNG/HEIC).`,
-    };
-  }
+  // The source arrives either as a direct-to-storage ref (preferred — the
+  // client PUT the file straight into the receipt-files bucket via a
+  // signed URL, so the ~4.5MB Vercel action body cap doesn't apply) or as
+  // an inline File (legacy small-file path).
+  const companyIdEarly = await getActiveCompanyId();
+  const refRaw = formData.get('uploads');
+  let bytes: Uint8Array;
+  let mime: string;
+  let fileName: string;
+  /** Set when the blob is already parked in receipt-files (direct path). */
+  let parkedPath: string | null = null;
 
-  let bytes = new Uint8Array(await file.arrayBuffer());
+  if (typeof refRaw === 'string' && refRaw.trim() !== '') {
+    const parsedRef = z
+      .object({
+        storagePath: z.string().min(1).max(500),
+        fileName: z.string().min(1).max(300),
+        mimeType: z.string().min(1).max(100),
+      })
+      .safeParse((() => {
+        try {
+          const arr = JSON.parse(refRaw);
+          return Array.isArray(arr) ? arr[0] : arr;
+        } catch {
+          return null;
+        }
+      })());
+    if (!parsedRef.success) {
+      return { formError: 'Invalid upload reference — retry the upload.' };
+    }
+    const ref = parsedRef.data;
+    if (!ref.storagePath.startsWith(`${companyIdEarly}/`)) {
+      return { formError: 'Invalid upload path.' };
+    }
+    const stat = await statStorageObject(RECEIPT_FILES_BUCKET, ref.storagePath);
+    if (!stat) {
+      return { formError: 'Upload not found in storage — retry the upload.' };
+    }
+    if (stat.byteSize > MAX_RECEIPT_BYTES) {
+      await deleteReceiptBlob(ref.storagePath).catch(() => {});
+      return { formError: 'File too large (max 25 MB).' };
+    }
+    mime = (
+      stat.mimeType && stat.mimeType !== 'application/octet-stream'
+        ? stat.mimeType
+        : ref.mimeType
+    ).toLowerCase();
+    if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+      await deleteReceiptBlob(ref.storagePath).catch(() => {});
+      return {
+        formError: `Unsupported file type ${mime}. Use PDF or a phone photo (JPG/PNG/HEIC).`,
+      };
+    }
+    const blob = await downloadReceiptBlob(ref.storagePath);
+    if (!blob) {
+      return { formError: 'Could not read the uploaded file from storage — retry.' };
+    }
+    bytes = blob.bytes;
+    fileName = ref.fileName;
+    parkedPath = ref.storagePath;
+  } else {
+    const file = formData.get('file');
+    if (!(file instanceof File) || file.size === 0) {
+      return { formError: 'Choose a PDF (or image) of the estimate to upload.' };
+    }
+    if (file.size > MAX_RECEIPT_BYTES) {
+      return { formError: 'File too large (max 25 MB).' };
+    }
+    mime = (file.type || 'application/octet-stream').toLowerCase();
+    if (!ALLOWED_RECEIPT_MIME.has(mime)) {
+      return {
+        formError: `Unsupported file type ${mime}. Use PDF or a phone photo (JPG/PNG/HEIC).`,
+      };
+    }
+    bytes = new Uint8Array(await file.arrayBuffer());
+    fileName = file.name;
+  }
 
   // Document AI's processor backend can return a malformed gRPC status
   // when the source PDF has structural quirks (encryption-with-empty-
@@ -471,21 +535,25 @@ export async function extractPoPdfAction(
     }
   }
 
-  const companyId = await getActiveCompanyId();
   // Park the source in the receipt-files bucket while the user reviews the
   // extracted preview. On PO creation we re-upload to project-documents
-  // (tied to the chosen project) and delete this temp copy.
+  // (tied to the chosen project) and delete this temp copy. Direct-upload
+  // refs are ALREADY parked there — reuse the blob as-is.
   let upload: { storagePath: string };
-  try {
-    upload = await uploadReceiptFile({
-      companyId,
-      bytes,
-      mimeType: mime,
-      originalFileName: file.name,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return { formError: `Could not stash the file for processing: ${message}` };
+  if (parkedPath) {
+    upload = { storagePath: parkedPath };
+  } else {
+    try {
+      upload = await uploadReceiptFile({
+        companyId: companyIdEarly,
+        bytes,
+        mimeType: mime,
+        originalFileName: fileName,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      return { formError: `Could not stash the file for processing: ${message}` };
+    }
   }
 
   let extracted: ExtractedPo;
@@ -517,7 +585,7 @@ export async function extractPoPdfAction(
     extracted,
     source: {
       storagePath: upload.storagePath,
-      fileName: file.name,
+      fileName,
       mimeType: mime,
       byteSize: bytes.byteLength,
     },
@@ -684,6 +752,7 @@ export async function createPoFromExtractedAction(
       entityId: createdId,
       kind: 'po_created_from_pdf',
       summary: `Source PDF for PO ${finalNumber} could not be attached — re-upload it in project documents.`,
+      actorRole: ROLE_LABELS[role],
     });
   }
 

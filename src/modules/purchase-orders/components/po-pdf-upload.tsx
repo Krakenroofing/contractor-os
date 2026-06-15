@@ -39,6 +39,8 @@ import {
   clearDraft,
   formatDraftTime,
 } from '@/lib/form-draft';
+import { directUploadFiles } from '@/lib/storage/direct-upload-client';
+import { createReceiptUploadUrlsAction } from '@/modules/receipts/actions';
 import {
   createPoFromExtractedAction,
   extractPoPdfAction,
@@ -100,12 +102,47 @@ export function PoPdfUpload({
   costCodes: CostCodeOption[];
   products: InventoryMatchCandidate[];
 }) {
-  const [extractState, extractAction, extractPending] = useActionState(
-    extractPoPdfAction,
-    initialExtract,
-  );
+  // The estimate file goes DIRECTLY to storage via a signed upload URL
+  // (bypassing the ~4.5MB Vercel action body cap that silently killed
+  // bigger estimate PDFs), then extractPoPdfAction gets a path ref and
+  // reads the bytes server-side. Managed manually (not useActionState) so
+  // transport failures surface as a visible error.
+  const [extractState, setExtractState] =
+    useState<ExtractPoPdfState>(initialExtract);
+  const [extractPending, setExtractPending] = useState(false);
   const [restored, setRestored] = useState<PoPdfDraft | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+
+  async function onFileChosen(file: File) {
+    if (extractPending) return;
+    setExtractPending(true);
+    setExtractState({});
+    try {
+      const outcome = await directUploadFiles({
+        files: [file],
+        requestUrls: createReceiptUploadUrlsAction,
+      });
+      if (outcome.formError || outcome.refs.length === 0) {
+        setExtractState({
+          formError:
+            outcome.formError ??
+            outcome.failures.join(' / ') ??
+            'Upload failed — try again.',
+        });
+        return;
+      }
+      const fd = new FormData();
+      fd.set('uploads', JSON.stringify(outcome.refs));
+      setExtractState(await extractPoPdfAction({}, fd));
+    } catch {
+      setExtractState({
+        formError:
+          'Upload failed — the file never reached the server. Check your connection and try again.',
+      });
+    } finally {
+      setExtractPending(false);
+    }
+  }
 
   useEffect(() => {
     const d = loadDraft<PoPdfDraft>(DRAFT_KEY);
@@ -151,7 +188,7 @@ export function PoPdfUpload({
           )}
           <UploadPhase
             state={extractState}
-            formAction={extractAction}
+            onFileChosen={onFileChosen}
             pending={extractPending}
           />
         </>
@@ -171,11 +208,11 @@ export function PoPdfUpload({
 
 function UploadPhase({
   state,
-  formAction,
+  onFileChosen,
   pending,
 }: {
   state: ExtractPoPdfState;
-  formAction: (formData: FormData) => void;
+  onFileChosen: (file: File) => void;
   pending: boolean;
 }) {
   const [diag, diagAction, diagPending] = useActionState<
@@ -185,7 +222,7 @@ function UploadPhase({
 
   return (
     <div className="space-y-4">
-      <form action={formAction} className="space-y-4">
+      <div className="space-y-4">
         {state.formError && (
           <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {state.formError}
@@ -202,14 +239,13 @@ function UploadPhase({
             </span>
             <input
               type="file"
-              name="file"
               required
               accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.gif,application/pdf,image/*"
               className="mt-4 block mx-auto text-sm"
               onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  e.currentTarget.form?.requestSubmit();
-                }
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onFileChosen(file);
               }}
               disabled={pending}
             />
@@ -220,7 +256,7 @@ function UploadPhase({
             </div>
           )}
         </div>
-      </form>
+      </div>
 
       <details className="rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm">
         <summary className="cursor-pointer text-slate-700 font-medium">

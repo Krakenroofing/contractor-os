@@ -16,10 +16,17 @@ import {
 } from '@/lib/data/project-documents';
 import {
   uploadProjectDocument,
+  extForUpload,
   ALLOWED_DOCUMENT_MIME,
   MAX_DOCUMENT_BYTES,
+  PROJECT_DOCUMENTS_BUCKET,
   DocumentStorageNotConfiguredError,
 } from '@/lib/storage/project-documents';
+import {
+  createSignedUploadForBucket,
+  removeStorageObject,
+  statStorageObject,
+} from '@/lib/storage/signed-upload';
 import {
   documentCategoryValues,
   uploadMetadataSchema,
@@ -49,6 +56,117 @@ function pickCategory(raw: unknown): (typeof documentCategoryValues)[number] {
   return (documentCategoryValues as readonly string[]).includes(s)
     ? (s as (typeof documentCategoryValues)[number])
     : 'other';
+}
+
+// =============================================================================
+// Direct-to-storage uploads. Vercel rejects request bodies over ~4.5MB
+// before a server action runs, so posting Files through the action capped
+// every "≤100MB" document at ~4.5MB — silently. The client now asks for
+// signed upload URLs, PUTs straight to the project-documents bucket, and
+// passes path refs to uploadDocumentsAction, which re-stats each blob
+// server-side (client metadata is never trusted).
+// =============================================================================
+
+export type DocumentUploadUrlGrant = {
+  fileName: string;
+  storagePath?: string;
+  signedUrl?: string;
+  error?: string;
+};
+
+export type CreateDocumentUploadUrlsState = {
+  formError?: string;
+  uploads?: DocumentUploadUrlGrant[];
+};
+
+const uploadUrlRequestsSchema = z
+  .array(
+    z.object({
+      fileName: z.string().min(1).max(300),
+      mimeType: z.string().min(1).max(100),
+      byteSize: z.number().int().positive(),
+    }),
+  )
+  .min(1)
+  .max(50);
+
+export async function createDocumentUploadUrlsAction(
+  projectId: string,
+  requests: unknown,
+): Promise<CreateDocumentUploadUrlsState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'documents')) {
+    return { formError: 'You do not have permission to upload documents.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const project = await getProject(companyId, projectId);
+  if (!project) return { formError: 'Project not found in the active company.' };
+  const parsed = uploadUrlRequestsSchema.safeParse(requests);
+  if (!parsed.success) return { formError: 'Invalid upload request.' };
+
+  const uploads: DocumentUploadUrlGrant[] = [];
+  for (const req of parsed.data) {
+    const mime = req.mimeType.toLowerCase();
+    if (!ALLOWED_DOCUMENT_MIME.has(mime)) {
+      uploads.push({
+        fileName: req.fileName,
+        error: `Unsupported file type (${req.mimeType}).`,
+      });
+      continue;
+    }
+    if (req.byteSize > MAX_DOCUMENT_BYTES) {
+      uploads.push({
+        fileName: req.fileName,
+        error: `Too large (${bytesToMb(req.byteSize)}MB — max ${Math.round(MAX_DOCUMENT_BYTES / 1024 / 1024)}MB).`,
+      });
+      continue;
+    }
+    try {
+      const grant = await createSignedUploadForBucket({
+        bucket: PROJECT_DOCUMENTS_BUCKET,
+        companyId,
+        scopeSegments: [project.id],
+        ext: extForUpload(req.fileName, mime),
+      });
+      if (!grant) {
+        return { formError: new DocumentStorageNotConfiguredError().message };
+      }
+      uploads.push({
+        fileName: req.fileName,
+        storagePath: grant.storagePath,
+        signedUrl: grant.signedUrl,
+      });
+    } catch (err) {
+      uploads.push({
+        fileName: req.fileName,
+        error: err instanceof Error ? err.message : 'Could not start upload.',
+      });
+    }
+  }
+  return { uploads };
+}
+
+const directUploadRefSchema = z.object({
+  storagePath: z.string().min(1).max(500),
+  fileName: z.string().min(1).max(300),
+  mimeType: z.string().min(1).max(100),
+  byteSize: z.number().int().nonnegative(),
+});
+type DirectUploadRef = z.infer<typeof directUploadRefSchema>;
+
+function parseUploadRefs(formData: FormData): DirectUploadRef[] {
+  const raw = formData.get('uploads');
+  if (typeof raw !== 'string' || raw.trim() === '') return [];
+  try {
+    const parsed = z
+      .array(directUploadRefSchema)
+      .max(50)
+      .safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
 }
 
 // =============================================================================
@@ -84,12 +202,68 @@ export async function uploadDocumentsAction(
   }
 
   const files = formData.getAll('file').filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) {
+  const refs = parseUploadRefs(formData);
+  if (files.length === 0 && refs.length === 0) {
     return { formError: 'Choose at least one file to upload.' };
   }
 
   const failures: string[] = [];
   let successCount = 0;
+
+  // Direct-to-storage refs: blob already in the bucket — verify + record.
+  for (const ref of refs) {
+    if (!ref.storagePath.startsWith(`${companyId}/${project.id}/`)) {
+      failures.push(`${ref.fileName}: invalid upload path.`);
+      continue;
+    }
+    const stat = await statStorageObject(PROJECT_DOCUMENTS_BUCKET, ref.storagePath);
+    if (!stat) {
+      failures.push(`${ref.fileName}: upload not found in storage — retry.`);
+      continue;
+    }
+    if (stat.byteSize > MAX_DOCUMENT_BYTES) {
+      await removeStorageObject(PROJECT_DOCUMENTS_BUCKET, ref.storagePath);
+      failures.push(`${ref.fileName}: too large (${bytesToMb(stat.byteSize)}MB).`);
+      continue;
+    }
+    const mime = (
+      stat.mimeType && stat.mimeType !== 'application/octet-stream'
+        ? stat.mimeType
+        : ref.mimeType
+    ).toLowerCase();
+    if (!ALLOWED_DOCUMENT_MIME.has(mime)) {
+      await removeStorageObject(PROJECT_DOCUMENTS_BUCKET, ref.storagePath);
+      failures.push(`${ref.fileName}: unsupported file type (${mime}).`);
+      continue;
+    }
+    try {
+      await createProjectDocument({
+        companyId,
+        projectId: project.id,
+        uploadedBy: user.id,
+        fileName: ref.fileName,
+        originalFileName: ref.fileName,
+        storagePath: ref.storagePath,
+        mimeType: mime,
+        byteSize: stat.byteSize,
+        category: meta.data.category,
+        description: emptyToNull(meta.data.description),
+        visibleToClient: meta.data.visibleToClient,
+        parentDocumentId: null,
+        versionNumber: 1,
+        isCurrentVersion: true,
+        sortOrder: 0,
+      });
+      successCount += 1;
+    } catch (err) {
+      if (err instanceof ProjectDocumentsNotAvailableInDemoError) {
+        return { formError: err.message };
+      }
+      failures.push(
+        `${ref.fileName}: ${err instanceof Error ? err.message : 'failed to record.'}`,
+      );
+    }
+  }
 
   for (const file of files) {
     if (file.size > MAX_DOCUMENT_BYTES) {

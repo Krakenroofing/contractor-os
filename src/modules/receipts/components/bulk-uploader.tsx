@@ -1,12 +1,14 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/money';
+import { directUploadFiles } from '@/lib/storage/direct-upload-client';
 import {
   bulkCreateReceiptDraftsAction,
   bulkExtractMultiReceiptPdfAction,
+  createReceiptUploadUrlsAction,
   type BulkImportActionState,
   type BulkPdfExtractActionState,
 } from '../actions';
@@ -23,9 +25,9 @@ const ACCEPT =
  *                     date / total. Only available when exactly one PDF is
  *                     selected.
  *
- * The mode is exposed via a hidden `mode` field on the form so the server
- * action picks the right code path. Submitting routes through one of two
- * useActionState hooks so the result rendering can differ per mode.
+ * Submitting uploads the files directly to storage (signed URLs), then
+ * routes the path refs to the matching server action; results render per
+ * mode from locally-managed state.
  */
 export function ReceiptBulkUploader() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,14 +35,13 @@ export function ReceiptBulkUploader() {
   const [splitMode, setSplitMode] = useState(false);
   const [ocrEnabled, setOcrEnabled] = useState<boolean | null>(null);
 
-  const [filesState, filesAction, filesPending] = useActionState<
-    BulkImportActionState,
-    FormData
-  >(bulkCreateReceiptDraftsAction, {});
-  const [pdfState, pdfAction, pdfPending] = useActionState<
-    BulkPdfExtractActionState,
-    FormData
-  >(bulkExtractMultiReceiptPdfAction, {});
+  // Files upload DIRECTLY to storage (signed URLs — no ~4.5MB transport
+  // cap), then the bulk action gets path refs to verify + record. Action
+  // results are managed manually so transport failures surface as errors
+  // instead of dying silently.
+  const [filesState, setFilesState] = useState<BulkImportActionState>({});
+  const [pdfState, setPdfState] = useState<BulkPdfExtractActionState>({});
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,20 +71,59 @@ export function ReceiptBulkUploader() {
     if (inputRef.current) inputRef.current.value = '';
   }
 
-  const pending = filesPending || pdfPending;
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (pending || selected.length === 0) return;
+    setPending(true);
+    setFilesState({});
+    setPdfState({});
+    const setError = (msg: string) =>
+      effectiveSplitMode
+        ? setPdfState({ formError: msg })
+        : setFilesState({ formError: msg });
+    try {
+      const outcome = await directUploadFiles({
+        files: selected,
+        requestUrls: createReceiptUploadUrlsAction,
+      });
+      if (outcome.formError) {
+        setError(outcome.formError);
+        return;
+      }
+      if (outcome.refs.length === 0) {
+        setError(outcome.failures.join(' / ') || 'Nothing was uploaded.');
+        return;
+      }
+      const fd = new FormData();
+      fd.set('uploads', JSON.stringify(outcome.refs));
+      if (effectiveSplitMode) {
+        const result = await bulkExtractMultiReceiptPdfAction({}, fd);
+        setPdfState(result);
+      } else {
+        const result = await bulkCreateReceiptDraftsAction({}, fd);
+        // Surface per-file upload failures alongside the action's results.
+        if (outcome.failures.length > 0) {
+          result.formError = [result.formError, ...outcome.failures]
+            .filter(Boolean)
+            .join(' / ');
+        }
+        setFilesState(result);
+      }
+      clearSelection();
+    } catch {
+      setError(
+        'Upload failed — the files never reached the server. Check your connection and try again.',
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
   const submitDisabled = pending || selected.length === 0;
 
   return (
     <div className="space-y-4">
-      <form
-        action={effectiveSplitMode ? pdfAction : filesAction}
-        className="space-y-4"
-      >
-        <input
-          type="hidden"
-          name="mode"
-          value={effectiveSplitMode ? 'split-pdf' : 'files'}
-        />
+      <form onSubmit={onSubmit} className="space-y-4">
 
         <div className="rounded-md border-2 border-dashed border-slate-300 p-6 text-center space-y-2">
           <input
