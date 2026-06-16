@@ -32,6 +32,7 @@ import {
 import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import { ProjectPicker } from '@/modules/projects/components/project-picker';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import { BankAccountPicker } from './bank-account-picker';
 import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 
 export type RuleFormProps = {
@@ -220,19 +221,14 @@ export function RuleForm(props: RuleFormProps) {
         </div>
         <div>
           <Label htmlFor="bankAccountId">Bank account</Label>
-          <Select
+          <BankAccountPicker
             id="bankAccountId"
             name="bankAccountId"
             value={bankAccountId}
-            onChange={(e) => setBankAccountId(e.target.value)}
-          >
-            <option value="">All accounts</option>
-            {props.bankAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
-            ))}
-          </Select>
+            accounts={props.bankAccounts}
+            noneLabel="All accounts"
+            onChange={(id) => setBankAccountId(id)}
+          />
         </div>
         <div>
           <Label htmlFor="amountMin">Amount min (abs)</Label>

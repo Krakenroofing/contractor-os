@@ -4,11 +4,11 @@ import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import {
   uploadStatementAction,
   type BankingActionState,
 } from '../actions';
+import { BankAccountPicker } from './bank-account-picker';
 import { BANK_ACCOUNT_TYPE_LABEL } from '../schema';
 
 type AccountOption = {
@@ -34,14 +34,19 @@ export function UploadStatementForm({
     <form action={action} className="space-y-4 max-w-xl">
       <div>
         <Label htmlFor="bankAccountId">Bank account</Label>
-        <Select id="bankAccountId" name="bankAccountId" required>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name} — {BANK_ACCOUNT_TYPE_LABEL[a.type]}
-              {a.last4 ? ` (****${a.last4})` : ''}
-            </option>
-          ))}
-        </Select>
+        <BankAccountPicker
+          id="bankAccountId"
+          name="bankAccountId"
+          required
+          allowNone={false}
+          placeholder="Select an account…"
+          accounts={accounts.map((a) => ({
+            id: a.id,
+            label: `${a.name} — ${BANK_ACCOUNT_TYPE_LABEL[a.type]}${
+              a.last4 ? ` (****${a.last4})` : ''
+            }`,
+          }))}
+        />
       </div>
       <div>
         <Label htmlFor="file">Statement file (CSV or XLSX, ≤ 10 MB)</Label>

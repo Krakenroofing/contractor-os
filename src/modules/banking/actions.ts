@@ -66,6 +66,7 @@ import {
 import { parseStatementBytes } from './lib/parse';
 import { commitImport, previewMapping } from './lib/import';
 import {
+  BANK_ACCOUNT_TYPE_LABEL,
   createBankAccountSchema,
   mappingSettingsSchema,
   updateImportedTransactionSchema,
@@ -130,6 +131,89 @@ export async function createBankAccountAction(
   });
   revalidatePath('/banking');
   return { ok: true };
+}
+
+// Shape handed back to inline callers (statement upload, receipt payment,
+// reimbursement payout, rule scope). Superset of the {id,label} and
+// {id,name,type,last4} option shapes used across the consuming forms.
+export type InlineBankAccount = {
+  id: string;
+  name: string;
+  type: 'bank' | 'credit_card';
+  last4: string | null;
+  label: string;
+};
+
+export type InlineCreateBankAccountResult =
+  | { ok: true; item: InlineBankAccount }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+// RPC-style create used by the "+ Add new bank account" drawer. Mirrors
+// createBankAccountAction (incl. the paired accounting-account creation) but
+// returns the created account instead of redirecting, so the caller can select
+// it inline and keep the rest of the form intact.
+export async function createBankAccountInlineAction(input: {
+  name: string;
+  type?: string;
+  last4?: string;
+  openingBalance?: string;
+}): Promise<InlineCreateBankAccountResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'bank_accounts')) {
+    return {
+      ok: false,
+      error: 'You do not have permission to create bank accounts.',
+    };
+  }
+  const company = await getActiveCompany();
+  const parsed = createBankAccountSchema.safeParse({
+    name: input.name ?? '',
+    type: input.type ?? 'bank',
+    last4: input.last4 ?? '',
+    currency: company.defaultCurrency,
+    openingBalance: input.openingBalance ?? '0',
+    openingDate: '',
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+  try {
+    await ensureDefaultCoaForCompany(company);
+    const paired = await createPairedAccountingAccount({
+      companyId: company.id,
+      name: parsed.data.name,
+      type: parsed.data.type,
+      currency: parsed.data.currency,
+    });
+    const account = await createBankAccount({
+      companyId: company.id,
+      accountingAccountId: paired.id,
+      name: parsed.data.name,
+      type: parsed.data.type,
+      last4: parsed.data.last4,
+      currency: parsed.data.currency,
+      openingBalance: toMoneyString(Number(parsed.data.openingBalance || 0)),
+      openingDate: parsed.data.openingDate,
+    });
+    revalidatePath('/banking');
+    const last4 = account.last4 ?? null;
+    return {
+      ok: true,
+      item: {
+        id: account.id,
+        name: account.name,
+        type: account.type,
+        last4,
+        label: `${account.name} — ${BANK_ACCOUNT_TYPE_LABEL[account.type]}${
+          last4 ? ` (****${last4})` : ''
+        }`,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create bank account: ${message}` };
+  }
 }
 
 // ===== Statement upload =====

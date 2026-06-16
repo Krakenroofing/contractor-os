@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { EmployeePicker } from '@/modules/employees/components/employee-picker';
 import { ROLE_LABELS, ROLES } from '@/lib/permissions';
 import {
   createInvitationAction,
@@ -103,14 +104,16 @@ export function InviteForm({
             <Label htmlFor="employeeId" className="text-amber-900">
               Link to employee record
             </Label>
-            <Select name="employeeId" defaultValue="" id="employeeId">
-              <option value="">— Not linked (link later) —</option>
-              {linkableEmployees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.label}
-                </option>
-              ))}
-            </Select>
+            <EmployeePicker
+              id="employeeId"
+              name="employeeId"
+              defaultValue=""
+              employees={linkableEmployees.map((e) => ({
+                id: e.id,
+                label: e.label,
+              }))}
+              noneLabel="— Not linked (link later) —"
+            />
             <p className="text-xs text-amber-800">
               Field users sign in on their phone and see the mobile app. Pick
               the matching payroll record so clock-ins, daily reports, and

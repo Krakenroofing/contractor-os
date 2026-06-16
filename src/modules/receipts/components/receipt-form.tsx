@@ -12,6 +12,7 @@ import {
 } from '@/modules/vendors/components/vendor-picker';
 import { ProjectPicker } from '@/modules/projects/components/project-picker';
 import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
+import { BankAccountPicker } from '@/modules/banking/components/bank-account-picker';
 import {
   upsertReceiptAction,
   type ReceiptActionState,
@@ -417,19 +418,14 @@ export function ReceiptForm(props: ReceiptFormProps) {
           {(paymentSourceType === 'bank' || paymentSourceType === 'credit_card') && (
             <div>
               <Label htmlFor="bankAccountId">Bank / card account</Label>
-              <Select
+              <BankAccountPicker
                 id="bankAccountId"
                 name="bankAccountId"
                 value={bankAccountId}
-                onChange={(e) => setBankAccountId(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {props.bankAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </Select>
+                accounts={props.bankAccounts}
+                noneLabel="— none —"
+                onChange={(id) => setBankAccountId(id)}
+              />
             </div>
           )}
         </div>

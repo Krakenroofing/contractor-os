@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import { EmployeePicker } from '@/modules/employees/components/employee-picker';
 import {
   createTimeEntryAction,
   updateTimeEntryAction,
@@ -102,9 +103,16 @@ export function TimeEntryForm({
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(
     values.employeeId,
   );
+  // Employees created inline via the picker, merged so a just-added worker
+  // resolves for the pay-basis hints below.
+  const [extraEmployees, setExtraEmployees] = useState<EmployeeOption[]>([]);
+  const allEmployees = useMemo(
+    () => [...extraEmployees, ...employees],
+    [extraEmployees, employees],
+  );
   const employeeMap = useMemo(
-    () => new Map(employees.map((e) => [e.id, e])),
-    [employees],
+    () => new Map(allEmployees.map((e) => [e.id, e])),
+    [allEmployees],
   );
   const selectedEmployee = employeeMap.get(selectedEmployeeId);
   const entryType: 'hours' | 'amount' = isEdit
@@ -156,21 +164,27 @@ export function TimeEntryForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Employee" error={err('employeeId')} required>
-          <Select
+          <EmployeePicker
             name="employeeId"
             value={selectedEmployeeId}
-            onChange={(e) => setSelectedEmployeeId(e.target.value)}
+            employees={allEmployees.map((e) => ({
+              id: e.id,
+              label: `${e.label} · ${EMPLOYMENT_TYPE_LABEL[e.employmentType]}`,
+              employmentType: e.employmentType,
+            }))}
+            allowNone={false}
+            placeholder="— Pick an employee —"
             required
-          >
-            <option value="">— Pick an employee —</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.label}
-                {' · '}
-                {EMPLOYMENT_TYPE_LABEL[e.employmentType]}
-              </option>
-            ))}
-          </Select>
+            onChange={(id, emp) => {
+              setSelectedEmployeeId(id);
+              if (emp && !employeeMap.has(emp.id) && emp.employmentType) {
+                setExtraEmployees((prev) => [
+                  { id: emp.id, label: emp.label, employmentType: emp.employmentType! },
+                  ...prev,
+                ]);
+              }
+            }}
+          />
           {selectedEmployee && !isEdit && (
             <p className="text-[11px] text-slate-500 mt-1">
               {entryType === 'hours'

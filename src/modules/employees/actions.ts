@@ -12,12 +12,87 @@ import {
   softDeleteEmployee,
   updateEmployee,
 } from '@/lib/data/employees';
-import { employeeFormSchema } from './schema';
+import { employeeFormSchema, type EmploymentType } from './schema';
 
 export type CreateEmployeeState = {
   errors?: Record<string, string[]>;
   formError?: string;
 };
+
+// Shape handed back to inline callers (time entry, invite link). A superset of
+// the {id,label} option shape plus employmentType so the timesheet form can
+// drive its pay-basis hints off a just-created employee.
+export type InlineEmployee = {
+  id: string;
+  label: string;
+  employmentType: EmploymentType;
+};
+
+export type InlineCreateEmployeeResult =
+  | { ok: true; item: InlineEmployee }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+// RPC-style create used by the "+ Add new employee" drawer. Does NOT redirect —
+// returns the created employee so the caller can select it inline.
+export async function createEmployeeInlineAction(input: {
+  firstName: string;
+  lastName: string;
+  employmentType?: string;
+  payRate?: string;
+}): Promise<InlineCreateEmployeeResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'employees')) {
+    return { ok: false, error: 'You do not have permission to create employees.' };
+  }
+  const parsed = employeeFormSchema.safeParse({
+    firstName: input.firstName ?? '',
+    lastName: input.lastName ?? '',
+    nibNumber: '',
+    email: '',
+    phone: '',
+    employmentType: input.employmentType ?? 'hourly',
+    payRate: input.payRate ?? '0',
+    hireDate: '',
+    terminationDate: '',
+    active: true,
+    nibExempt: false,
+    notes: '',
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+  const data = parsed.data;
+  const companyId = await getActiveCompanyId();
+  try {
+    const employee = await createEmployee(companyId, {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      nibNumber: null,
+      email: null,
+      phone: null,
+      employmentType: data.employmentType,
+      payRate: data.payRate,
+      hireDate: null,
+      terminationDate: null,
+      active: data.active,
+      nibExempt: data.nibExempt,
+      notes: null,
+    });
+    revalidatePath('/employees');
+    return {
+      ok: true,
+      item: {
+        id: employee.id,
+        label: `${employee.firstName} ${employee.lastName}`.trim(),
+        employmentType: employee.employmentType as EmploymentType,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create employee: ${message}` };
+  }
+}
 export type UpdateEmployeeState = CreateEmployeeState;
 export type ArchiveEmployeeState = { formError?: string };
 

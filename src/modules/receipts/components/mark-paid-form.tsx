@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { BankAccountPicker } from '@/modules/banking/components/bank-account-picker';
 import { markReimbursementPaidAction } from '../payout-actions';
 
 export type MarkPaidFormProps = {
@@ -117,18 +118,13 @@ export function MarkPaidForm(props: MarkPaidFormProps) {
         </div>
         <div className="md:col-span-2">
           <Label htmlFor="mp-bank">From bank account (optional)</Label>
-          <Select
+          <BankAccountPicker
             id="mp-bank"
             value={bankAccountId}
-            onChange={(e) => setBankAccountId(e.target.value)}
-          >
-            <option value="">— none —</option>
-            {props.bankAccounts.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.label}
-              </option>
-            ))}
-          </Select>
+            accounts={props.bankAccounts}
+            noneLabel="— none —"
+            onChange={(id) => setBankAccountId(id)}
+          />
         </div>
         <div className="md:col-span-3">
           <Label htmlFor="mp-notes">Notes (optional)</Label>
