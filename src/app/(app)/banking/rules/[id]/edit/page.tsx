@@ -10,6 +10,7 @@ import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listProjects } from '@/lib/data/projects';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listVendors } from '@/lib/data/vendors';
+import { listCustomers } from '@/lib/data/customers';
 import { RuleForm } from '@/modules/banking/components/rule-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { RulePreviewPanel } from '@/modules/banking/components/rule-preview-panel';
@@ -31,13 +32,14 @@ export default async function EditBankingRulePage({
   const rule = await getBankingRule(company.id, id);
   if (!rule) notFound();
 
-  const [accounts, accountingAccounts, projects, costCodes, vendors] =
+  const [accounts, accountingAccounts, projects, costCodes, vendors, customers] =
     await Promise.all([
       listBankAccounts(company.id),
       listAccountingAccounts(company.id),
       listProjects(company.id),
       listCostCodes(company.id),
       listVendors(company.id),
+      listCustomers(company.id),
     ]);
 
   const canVatSplit =
@@ -122,6 +124,7 @@ export default async function EditBankingRulePage({
               label: `${c.code} — ${c.description}`,
             }))}
             vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+            customers={customers.map((c) => ({ id: c.id, name: c.name }))}
             canVatSplit={canVatSplit}
           />
         </CardContent>

@@ -17,7 +17,7 @@ import {
   getPurchaseOrderLines,
   listPurchaseOrders,
 } from '@/lib/data/purchase-orders';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
 
@@ -84,6 +84,10 @@ export default async function NewPurchaseOrderPage({
     }),
   );
   const vendors = (await listVendors(companyId)).map((v) => ({ id: v.id, label: v.name }));
+  const customers = (await listCustomers(companyId)).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
   const costCodes = (await listCostCodes(companyId)).map((c) => ({
     id: c.id,
     code: c.code,
@@ -137,6 +141,7 @@ export default async function NewPurchaseOrderPage({
       <PurchaseOrderForm
         projects={projects}
         vendors={vendors}
+        customers={customers}
         costCodes={costCodes}
         landedCosts={landedCosts}
         products={products}

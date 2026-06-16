@@ -6,6 +6,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listVendors } from '@/lib/data/vendors';
 import { listProjects } from '@/lib/data/projects';
+import { listCustomers } from '@/lib/data/customers';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
@@ -23,15 +24,23 @@ export default async function NewReceiptPage() {
   }
   const company = await getActiveCompany();
   const currentUser = await requireAuth();
-  const [vendors, projects, costCodes, accountingAccounts, bankAccounts, members] =
-    await Promise.all([
-      listVendors(company.id),
-      listProjects(company.id),
-      listCostCodes(company.id),
-      listAccountingAccounts(company.id),
-      listBankAccounts(company.id),
-      listMembersForCompany(company.id),
-    ]);
+  const [
+    vendors,
+    projects,
+    customers,
+    costCodes,
+    accountingAccounts,
+    bankAccounts,
+    members,
+  ] = await Promise.all([
+    listVendors(company.id),
+    listProjects(company.id),
+    listCustomers(company.id),
+    listCostCodes(company.id),
+    listAccountingAccounts(company.id),
+    listBankAccounts(company.id),
+    listMembersForCompany(company.id),
+  ]);
 
   return (
     <div className="p-6 space-y-6">
@@ -72,6 +81,7 @@ export default async function NewReceiptPage() {
               id: p.id,
               label: p.name,
             }))}
+            customers={customers.map((c) => ({ id: c.id, name: c.name }))}
             costCodes={costCodes.map((c) => ({
               id: c.id,
               label: `${c.code} — ${c.description}`,

@@ -3,7 +3,6 @@
 import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import {
   updateImportedTransactionAction,
   type BankingActionState,
@@ -18,6 +17,8 @@ import {
   type VendorPickerOption,
 } from '@/modules/vendors/components/vendor-picker';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 
 type Option = { id: string; label: string };
 
@@ -64,6 +65,7 @@ export type TransactionRowFormProps = {
   projects: Option[];
   costCodes: Option[];
   vendors: VendorOption[];
+  customers: CustomerPickerOption[];
   vatInputAccountId: string | null;
   canEdit: boolean;
 };
@@ -242,18 +244,14 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
                 Project{' '}
                 <span className="normal-case text-slate-400">(optional)</span>
               </FieldLabel>
-              <Select
+              <ProjectPicker
                 name="projectId"
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-              >
-                <option value="">— no project —</option>
-                {props.projects.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
+                projects={props.projects.map((o) => ({ id: o.id, name: o.label }))}
+                customers={props.customers}
+                noneLabel="— no project —"
+                onChange={(id) => setProjectId(id)}
+              />
             </div>
             <div className="md:col-span-3">
               <FieldLabel>
@@ -322,17 +320,16 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
                 />
               </div>
               <div className="md:col-span-2">
-                <Select
-                  value={l.projectId}
-                  onChange={(e) => setLine(i, { projectId: e.target.value })}
-                >
-                  <option value="">— no project —</option>
-                  {props.projects.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
+                <ProjectPicker
+                  value={l.projectId ?? ''}
+                  projects={props.projects.map((o) => ({
+                    id: o.id,
+                    name: o.label,
+                  }))}
+                  customers={props.customers}
+                  noneLabel="— no project —"
+                  onChange={(id) => setLine(i, { projectId: id })}
+                />
               </div>
               <div className="md:col-span-3">
                 <Input

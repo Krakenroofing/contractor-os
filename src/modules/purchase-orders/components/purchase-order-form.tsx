@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { calcPOTotals, formatMoney, multiply } from '@/lib/money';
 import {
   createPurchaseOrderAction,
@@ -106,6 +108,7 @@ type PoManualDraft = {
 export function PurchaseOrderForm({
   projects,
   vendors,
+  customers,
   costCodes,
   landedCosts,
   products,
@@ -114,6 +117,7 @@ export function PurchaseOrderForm({
 }: {
   projects: ProjectOption[];
   vendors: VendorOption[];
+  customers: CustomerPickerOption[];
   costCodes: CostCodeOption[];
   landedCosts: LandedCostOption[];
   products: ProductPickerOption[];
@@ -390,21 +394,18 @@ export function PurchaseOrderForm({
         </Field>
 
         <Field label="Project" error={err('projectId')} required>
-          <Select
+          <ProjectPicker
             name="projectId"
             required
+            allowNone={false}
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="" disabled>
-              {projects.length === 0 ? 'No projects yet' : 'Select a project'}
-            </option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+            projects={projects.map((p) => ({ id: p.id, name: p.label }))}
+            customers={customers}
+            onChange={(id) => setProjectId(id)}
+            placeholder={
+              projects.length === 0 ? 'No projects yet' : 'Select a project'
+            }
+          />
         </Field>
 
         <Field

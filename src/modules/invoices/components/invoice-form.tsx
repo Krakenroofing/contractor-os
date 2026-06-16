@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { add, formatMoney, multiply, subtract } from '@/lib/money';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import {
   computeProgressNumbers,
   resolveProgressSource,
@@ -205,6 +207,7 @@ export function InvoiceForm({
   changeOrders,
   templates,
   products = [],
+  customers,
   defaultNumber,
   defaultInvoiceDate,
   defaultDueDate,
@@ -215,6 +218,7 @@ export function InvoiceForm({
   changeOrders: InvoiceFormChangeOrderOption[];
   templates: InvoiceFormTemplateOption[];
   products?: ProductPickerOption[];
+  customers: CustomerPickerOption[];
   defaultNumber: string;
   defaultInvoiceDate: string;
   defaultDueDate: string;
@@ -658,21 +662,20 @@ export function InvoiceForm({
             </Select>
           </Field>
           <Field label="Project" error={err('projectId')} required>
-            <Select
+            <ProjectPicker
               name="projectId"
-              required
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="" disabled>
-                {projects.length === 0 ? 'No projects' : 'Select a project'}
-              </option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
+              projects={projects.map((p) => ({ id: p.id, name: p.label }))}
+              customers={customers}
+              onChange={(id) => setProjectId(id)}
+              allowNone={false}
+              placeholder={
+                projects.length === 0
+                  ? 'No projects — create one first'
+                  : 'Select a project'
+              }
+              required
+            />
             {/* Phase 1.5: customer-credit auto-apply prompt. Appears only
                 when the picked project's customer has unconsumed credit. */}
             {(() => {

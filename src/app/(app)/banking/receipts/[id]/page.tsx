@@ -14,6 +14,7 @@ import {
 } from '@/lib/data/receipts';
 import { listVendors } from '@/lib/data/vendors';
 import { listProjects } from '@/lib/data/projects';
+import { listCustomers } from '@/lib/data/customers';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
@@ -100,6 +101,7 @@ export default async function ReceiptDetailPage({
     attachments,
     vendors,
     projects,
+    customers,
     costCodes,
     accountingAccounts,
     bankAccounts,
@@ -110,6 +112,7 @@ export default async function ReceiptDetailPage({
     listReceiptAttachments(company.id, receipt.id),
     listVendors(company.id),
     listProjects(company.id),
+    listCustomers(company.id),
     listCostCodes(company.id),
     listAccountingAccounts(company.id),
     listBankAccounts(company.id),
@@ -233,6 +236,7 @@ export default async function ReceiptDetailPage({
                   id: p.id,
                   label: p.name,
                 }))}
+                customers={customers.map((c) => ({ id: c.id, name: c.name }))}
                 costCodes={costCodes.map((c) => ({
                   id: c.id,
                   label: `${c.code} — ${c.description}`,

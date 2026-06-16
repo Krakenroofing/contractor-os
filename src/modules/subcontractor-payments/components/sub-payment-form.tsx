@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { formatMoney } from '@/lib/money';
 import {
   createSubPaymentAction,
@@ -56,11 +59,13 @@ export function SubPaymentForm({
   initial,
   subcontractors,
   projects,
+  customers,
 }: {
   mode?: Mode;
   initial?: SubPaymentFormInitialValues;
   subcontractors: Option[];
   projects: Option[];
+  customers: CustomerPickerOption[];
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -99,25 +104,24 @@ export function SubPaymentForm({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Subcontractor" error={err('vendorId')} required>
-          <Select name="vendorId" defaultValue={values.vendorId} required>
-            <option value="">— Pick a subcontractor —</option>
-            {subcontractors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </Select>
+          <VendorPicker
+            name="vendorId"
+            required
+            allowNone={false}
+            defaultValue={values.vendorId}
+            vendors={subcontractors.map((v) => ({ id: v.id, name: v.label }))}
+            placeholder="Select a subcontractor"
+          />
         </Field>
 
         <Field label="Project (optional)" error={err('projectId')}>
-          <Select name="projectId" defaultValue={values.projectId}>
-            <option value="">— Unassigned —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+          <ProjectPicker
+            name="projectId"
+            defaultValue={values.projectId}
+            projects={projects.map((p) => ({ id: p.id, name: p.label }))}
+            customers={customers}
+            noneLabel="— Unassigned —"
+          />
         </Field>
 
         <Field

@@ -30,6 +30,9 @@ import {
   type AccountingAccountOption,
 } from '@/modules/accounting/components/accounting-account-picker';
 import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 
 export type RuleFormProps = {
   initial?: {
@@ -49,6 +52,7 @@ export type RuleFormProps = {
   projects: Option[];
   costCodes: Option[];
   vendors: Option[];
+  customers: CustomerPickerOption[];
   /** True when the company is VAT-active AND a VAT Input account exists, so an
    *  auto-VAT-split rule has somewhere to post the VAT half. */
   canVatSplit: boolean;
@@ -396,42 +400,32 @@ export function RuleForm(props: RuleFormProps) {
           </div>
           <div>
             <Label htmlFor="action_projectId">Project</Label>
-            <Select
+            <ProjectPicker
               id="action_projectId"
               name="action_projectId"
               value={actions.projectId ?? ''}
-              onChange={(e) =>
-                setActions((a) => ({ ...a, projectId: e.target.value || null }))
+              projects={props.projects.map((o) => ({ id: o.id, name: o.label }))}
+              customers={props.customers}
+              noneLabel="— none —"
+              onChange={(id) =>
+                setActions((a) => ({ ...a, projectId: id || null }))
               }
-            >
-              <option value="">— none —</option>
-              {props.projects.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
           <div>
             <Label htmlFor="action_costCodeId">Cost code</Label>
-            <Select
-              id="action_costCodeId"
+            <CostCodePicker
               name="action_costCodeId"
               value={actions.costCodeId ?? ''}
-              onChange={(e) =>
+              options={props.costCodes}
+              emptyLabel="— none —"
+              onValueChange={(id) =>
                 setActions((a) => ({
                   ...a,
-                  costCodeId: e.target.value || null,
+                  costCodeId: id || null,
                 }))
               }
-            >
-              <option value="">— none —</option>
-              {props.costCodes.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
         </div>
         <div>

@@ -10,7 +10,7 @@ import { listInventoryItems } from '@/lib/data/inventory-items';
 import { listInvoices } from '@/lib/data/invoices';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
@@ -175,6 +175,11 @@ export default async function NewInvoicePage() {
     defaultCost: Number(p.defaultCost),
   }));
 
+  const customers = (await listCustomers(companyId)).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
+
   const today = new Date().toISOString().slice(0, 10);
   const due = (() => {
     const d = new Date();
@@ -211,6 +216,7 @@ export default async function NewInvoicePage() {
         changeOrders={changeOrders}
         templates={templates}
         products={products}
+        customers={customers}
         defaultNumber={await nextInvoiceNumber(companyId)}
         defaultInvoiceDate={today}
         defaultDueDate={due}

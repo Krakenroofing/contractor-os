@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { formatMoney } from '@/lib/money';
 import { calcEstimateTotals, lineTotal } from '@/modules/estimates/lib/calc';
 import {
@@ -75,12 +77,14 @@ export function ChangeOrderForm({
   projects,
   proposals,
   costCodes,
+  customers,
   defaultNumber,
   initial,
 }: {
   projects: ProjectOption[];
   proposals: ProposalOption[];
   costCodes: CostCodeOption[];
+  customers: CustomerPickerOption[];
   defaultNumber: string;
   /** When provided, the form runs in edit mode against this CO id. */
   initial?: ChangeOrderFormInitial;
@@ -199,23 +203,20 @@ export function ChangeOrderForm({
         </Field>
 
         <Field label="Project" error={err('projectId')} required>
-          <Select
+          <ProjectPicker
             name="projectId"
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            required
-          >
-            <option value="" disabled>
-              {projects.length === 0
+            projects={projects.map((p) => ({ id: p.id, name: p.label }))}
+            customers={customers}
+            onChange={(id) => setProjectId(id)}
+            allowNone={false}
+            placeholder={
+              projects.length === 0
                 ? 'No projects — create one first'
-                : 'Select a project'}
-            </option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+                : 'Select a project'
+            }
+            required
+          />
         </Field>
 
         <Field label="Linked proposal (optional)" error={err('proposalId')}>

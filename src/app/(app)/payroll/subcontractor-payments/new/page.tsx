@@ -6,6 +6,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
+import { listCustomers } from '@/lib/data/customers';
 import { SubPaymentForm } from '@/modules/subcontractor-payments/components/sub-payment-form';
 
 export const dynamic = 'force-dynamic';
@@ -15,10 +16,12 @@ export default async function NewSubPaymentPage() {
   if (!canCreate(role, 'payroll')) redirect('/payroll');
 
   const companyId = await getActiveCompanyId();
-  const [projects, vendors] = await Promise.all([
+  const [projects, vendors, customersList] = await Promise.all([
     listProjects(companyId),
     listVendors(companyId),
+    listCustomers(companyId),
   ]);
+  const customers = customersList.map((c) => ({ id: c.id, name: c.name }));
 
   // Only show subcontractors in the picker — issuing a sub-payment to a
   // pure supplier would muddle the books.
@@ -58,6 +61,7 @@ export default async function NewSubPaymentPage() {
         <SubPaymentForm
           subcontractors={subcontractors}
           projects={projects.map((p) => ({ id: p.id, label: p.name }))}
+          customers={customers}
         />
       )}
     </div>

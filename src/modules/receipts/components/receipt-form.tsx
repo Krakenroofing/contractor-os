@@ -10,6 +10,8 @@ import {
   VendorPicker,
   type VendorPickerOption,
 } from '@/modules/vendors/components/vendor-picker';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import {
   upsertReceiptAction,
   type ReceiptActionState,
@@ -78,6 +80,7 @@ export type ReceiptFormProps = {
   currentUserId?: string;
   vendors: VendorOption[];
   projects: Option[];
+  customers: CustomerPickerOption[];
   costCodes: Option[];
   accountingAccounts: AccountingAccountOption[];
   bankAccounts: Option[];
@@ -511,6 +514,7 @@ export function ReceiptForm(props: ReceiptFormProps) {
             canRemove={lines.length > 1 && !l.reimbursementPayoutId}
             vatActive={props.vatActive}
             projects={props.projects}
+            customers={props.customers}
             costCodes={props.costCodes}
             accountingAccounts={props.accountingAccounts}
             members={props.members}
@@ -573,6 +577,7 @@ function LineEditor(props: {
   canRemove: boolean;
   vatActive: boolean;
   projects: Option[];
+  customers: CustomerPickerOption[];
   costCodes: Option[];
   accountingAccounts: AccountingAccountOption[];
   members: Array<{ id: string; label: string }>;
@@ -617,17 +622,13 @@ function LineEditor(props: {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <Label>Project</Label>
-          <Select
+          <ProjectPicker
             value={l.projectId}
-            onChange={(e) => props.onChange({ projectId: e.target.value })}
-          >
-            <option value="">— none —</option>
-            {props.projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+            projects={props.projects.map((p) => ({ id: p.id, name: p.label }))}
+            customers={props.customers}
+            onChange={(id) => props.onChange({ projectId: id })}
+            noneLabel="— none —"
+          />
         </div>
         <div>
           <Label>Cost code</Label>

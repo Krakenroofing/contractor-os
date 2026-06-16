@@ -6,6 +6,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
+import { listCustomers } from '@/lib/data/customers';
 import { getSubcontractorPayment } from '@/lib/data/subcontractor-payments';
 import { SubPaymentForm } from '@/modules/subcontractor-payments/components/sub-payment-form';
 import { DeleteSubPaymentButton } from '@/modules/subcontractor-payments/components/delete-sub-payment-button';
@@ -26,10 +27,12 @@ export default async function EditSubPaymentPage({
   const payment = await getSubcontractorPayment(companyId, id);
   if (!payment) notFound();
 
-  const [projects, vendors] = await Promise.all([
+  const [projects, vendors, customersList] = await Promise.all([
     listProjects(companyId),
     listVendors(companyId),
+    listCustomers(companyId),
   ]);
+  const customers = customersList.map((c) => ({ id: c.id, name: c.name }));
 
   // Edit view still shows the row's current vendor even if they've been
   // marked non-subcontractor since — otherwise the picker would render
@@ -77,6 +80,7 @@ export default async function EditSubPaymentPage({
         }}
         subcontractors={subcontractors}
         projects={projects.map((p) => ({ id: p.id, label: p.name }))}
+        customers={customers}
       />
     </div>
   );

@@ -308,6 +308,7 @@ export default async function BankAccountDetailPage({
     defaultAccountingAccountId: v.defaultAccountingAccountId ?? null,
     vatRatePercent: v.vatRatePercent ? Number(v.vatRatePercent) : null,
   }));
+  const customerOptions = customers.map((c) => ({ id: c.id, name: c.name }));
 
   const canEdit = canCreate(role, 'statement_imports');
 
@@ -712,6 +713,7 @@ export default async function BankAccountDetailPage({
                             projects={projectOptions}
                             costCodes={costCodeOptions}
                             vendors={vendorOptions}
+                            customers={customerOptions}
                             vatInputAccountId={vatInputAccountId}
                             canEdit={canEdit}
                           />

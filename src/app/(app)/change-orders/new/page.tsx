@@ -8,7 +8,7 @@ import { canCreate } from '@/lib/permissions';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listProposals } from '@/lib/data/proposals';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +48,10 @@ export default async function NewChangeOrderPage() {
     code: c.code,
     description: c.description,
   }));
+  const customers = (await listCustomers(companyId)).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
 
   return (
     <div className="p-8 max-w-6xl space-y-6">
@@ -69,6 +73,7 @@ export default async function NewChangeOrderPage() {
         projects={projects}
         proposals={proposals}
         costCodes={costCodes}
+        customers={customers}
         defaultNumber={await nextChangeOrderNumber(companyId)}
       />
     </div>
