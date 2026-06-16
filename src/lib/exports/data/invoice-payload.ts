@@ -4,6 +4,7 @@ import {
   getInvoiceLineItems,
   listInvoicesForProject,
 } from '@/lib/data/invoices';
+import { getInvoicePayments } from '@/lib/data/invoice-payments';
 import { listChangeOrders } from '@/lib/data/change-orders';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
 import { getProject } from '@/lib/data/projects';
@@ -43,6 +44,22 @@ export async function buildInvoicePayload(
   const netOfRetainage = subtract(subtotal, retainageAmount);
   const total = parseMoney(invoice.total);
   const balance = subtract(total, parseMoney(invoice.amountPaid));
+
+  // Split settlement into actual cash vs credit-memo applications. A credit
+  // memo applied to an invoice books a contra payment with method
+  // 'credit_memo'; lumping that under "Amount paid" reads as cash received —
+  // it isn't (it's a discount / back-charge credit), so it gets its own
+  // "Credit applied" line below.
+  const payments = await getInvoicePayments(invoice.id);
+  const creditApplied = payments
+    .filter(
+      (p) =>
+        p.method === 'credit_memo' &&
+        (p.status === 'applied' || p.status === 'received'),
+    )
+    .reduce((acc, p) => add(acc, parseMoney(p.amount)), 0);
+  const amountPaidTotal = parseMoney(invoice.amountPaid);
+  const cashPaid = subtract(amountPaidTotal, creditApplied);
 
   // Track classification: every invoice on a project sits on either the
   // BASE CONTRACT track or the CHANGE ORDER track. This drives:
@@ -178,6 +195,20 @@ export async function buildInvoicePayload(
   // Invoice Total / VAT / Final Total — matching the construction-industry
   // AIA-style progress payment certificate format.
   const totals: DocumentTotalsRow[] = [];
+  // Shared settlement rows: cash payments and credit-memo applications shown
+  // separately so a credit reads as a credit, not as cash paid.
+  const pushSettlementRows = () => {
+    if (cashPaid > 0 || creditApplied === 0) {
+      totals.push({ label: 'Amount paid', value: cashPaid });
+    }
+    if (creditApplied > 0) {
+      totals.push({
+        label: 'Credit applied',
+        value: creditApplied,
+        negative: true,
+      });
+    }
+  };
   const showVatRow = template ? template.showTaxVat : true;
   const showRetainageRow =
     (template ? template.showRetainage : true) && retainageAmount > 0;
@@ -218,10 +249,7 @@ export async function buildInvoicePayload(
       totals.push({ label: vatLabel, value: vatAmount });
     }
     totals.push({ label: 'Final total', value: total, bold: true });
-    totals.push({
-      label: 'Amount paid',
-      value: parseMoney(invoice.amountPaid),
-    });
+    pushSettlementRows();
     totals.push({ label: 'Balance due', value: balance, bold: true });
   } else {
     totals.push({ label: 'Subtotal', value: subtotal });
@@ -247,7 +275,7 @@ export async function buildInvoicePayload(
       totals.push({ label: vatLabel, value: vatAmount });
     }
     totals.push({ label: 'Net amount due', value: total, bold: true });
-    totals.push({ label: 'Amount paid', value: parseMoney(invoice.amountPaid) });
+    pushSettlementRows();
     totals.push({ label: 'Balance due', value: balance, bold: true });
   }
 
