@@ -17,6 +17,7 @@
 import 'server-only';
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
+  companies,
   creditMemos,
   creditMemoApplications,
   invoicePayments,
@@ -327,11 +328,16 @@ export async function getInvoiceCreditApplicationsMap(
 }
 
 /**
- * Per-project sum of credit memos that are linked to a deduct change order
- * (i.e. refunds for canceled/reduced scope). Reporting subtracts these from
- * the project's billed-net so "still billable" stays coherent: the linked CO
- * already lowered the revised contract by the same amount, and the original
- * invoice is left intact at full value. Void credits are excluded.
+ * Per-project NET sum of credit memos linked to a deduct change order (refunds
+ * for canceled/reduced scope). Reporting subtracts these from the project's
+ * billed-NET so "still billable" stays coherent: the linked CO already lowered
+ * the revised contract (NET) by the same amount, and the original invoice is
+ * left intact at full value. Void credits are excluded.
+ *
+ * Refund credit memos are stored GROSS (base + VAT already collected was handed
+ * back). The contract and billed figures are NET, so we de-VAT the credit using
+ * the company's VAT rate before netting — comparing net-to-net. (A 0% / exempt
+ * company has factor 1, so gross == net.)
  */
 export async function getContractReductionRefundByProjectMap(
   companyId: string,
@@ -342,9 +348,10 @@ export async function getContractReductionRefundByProjectMap(
   const rows = await db
     .select({
       projectId: creditMemos.projectId,
-      total: sql<string>`COALESCE(SUM(${creditMemos.amount}), 0)`,
+      total: sql<string>`COALESCE(SUM(${creditMemos.amount} / (1 + ${companies.vatRatePercent} / 100.0)), 0)`,
     })
     .from(creditMemos)
+    .innerJoin(companies, eq(companies.id, creditMemos.companyId))
     .where(
       and(
         eq(creditMemos.companyId, companyId),
@@ -355,7 +362,7 @@ export async function getContractReductionRefundByProjectMap(
     )
     .groupBy(creditMemos.projectId);
   for (const r of rows) {
-    if (r.projectId) map.set(r.projectId, Number(r.total));
+    if (r.projectId) map.set(r.projectId, Math.round(Number(r.total) * 100) / 100);
   }
   return map;
 }
@@ -422,6 +429,24 @@ export async function applyCreditMemoToInvoice(
       })
       .where(eq(creditMemos.id, creditMemoId));
 
+    // VAT-recompute settlement. A credit applied to an unpaid invoice is
+    // VAT-exclusive: input.amount is NET. Crediting net work also removes the
+    // VAT that would have been due on it (never collected), so the receivable
+    // drops by net + its VAT. We settle the contra payment at
+    // amount × (1 + invoice VAT rate). The credit memo itself is consumed in
+    // NET terms (appliedAmount/application.amount above), so its face value and
+    // open balance stay net — only the receivable settlement is grossed up.
+    // A 0% / exempt invoice has factor 1 (flat settlement).
+    const [invForVat] = await tx
+      .select({ subtotal: invoices.subtotal, taxAmount: invoices.taxAmount })
+      .from(invoices)
+      .where(eq(invoices.id, input.invoiceId))
+      .limit(1);
+    const invSubtotal = invForVat ? Number(invForVat.subtotal) : 0;
+    const invTax = invForVat ? Number(invForVat.taxAmount) : 0;
+    const vatFactor = invSubtotal > 0 ? 1 + invTax / invSubtotal : 1;
+    const settlement = Math.round(input.amount * vatFactor * 100) / 100;
+
     // Settle the receivable: a credit application is a non-cash settlement
     // of the invoice. Write a contra payment row (method 'credit_memo') and
     // recompute the invoice — this is what actually reduces the invoice
@@ -431,7 +456,7 @@ export async function applyCreditMemoToInvoice(
       invoiceId: input.invoiceId,
       paymentNumber: '',
       paidDate: input.appliedAt,
-      amount: input.amount.toFixed(2),
+      amount: settlement.toFixed(2),
       method: CREDIT_MEMO_PAYMENT_METHOD,
       reference: cm.number,
       bankAccount: null,
@@ -589,8 +614,9 @@ export async function unapplyCreditMemoApplication(
 
     // Reverse the contra payment this application wrote against the invoice
     // (cash refunds never wrote one), then recompute so the invoice balance
-    // and AR come back. Match on invoice + credit-memo method + number +
-    // amount, delete one.
+    // and AR come back. Match on invoice + credit-memo method + number (NOT
+    // amount — the contra is grossed up to net + VAT, so it no longer equals
+    // the application's net amount), delete one.
     if (app.kind === 'invoice_application' && app.invoiceId) {
       const [contra] = await tx
         .select({ id: invoicePayments.id })
@@ -600,7 +626,6 @@ export async function unapplyCreditMemoApplication(
             eq(invoicePayments.invoiceId, app.invoiceId),
             eq(invoicePayments.method, CREDIT_MEMO_PAYMENT_METHOD),
             eq(invoicePayments.reference, cm.number),
-            eq(invoicePayments.amount, app.amount),
           ),
         )
         .limit(1);

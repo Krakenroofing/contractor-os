@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
@@ -112,9 +112,19 @@ export async function issueCreditMemoAction(
   try {
     let changeOrderId: string | null = null;
     if (reduceContract && projectId) {
+      // The refund amount is GROSS (base + VAT being handed back), but a
+      // contract is stored NET — so the deduct CO must reduce the contract by
+      // the NET portion only. De-VAT using the company rate (factor 1 when not
+      // VAT-active). The credit memo itself stays gross; reporting de-VATs it
+      // when netting out of billed (getContractReductionRefundByProjectMap).
+      const company = await getActiveCompany();
+      const vatFactor = company.isVatActive
+        ? 1 + Number(company.vatRatePercent) / 100
+        : 1;
+      const netAmount = Math.round((amountNum / vatFactor) * 100) / 100;
       const co = await createDeductChangeOrderForRefund(companyId, {
         projectId,
-        amount: amountNum,
+        amount: netAmount,
         issueDate: data.issueDate,
         description: `Deduct CO — refund of canceled/reduced scope. ${data.reason}`,
       });

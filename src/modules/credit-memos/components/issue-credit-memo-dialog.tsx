@@ -218,6 +218,11 @@ export function IssueCreditMemoDialog({
                 {state.errors?.amount?.[0] && (
                   <p className="text-xs text-red-600">{state.errors.amount[0]}</p>
                 )}
+                <p className="text-xs text-slate-500">
+                  {mode === 'refund_cash'
+                    ? 'Refund of a paid invoice — enter the GROSS amount (base + VAT already collected).'
+                    : 'Credit on an unpaid invoice — enter the NET amount (VAT-exclusive). The balance drops by the net plus its VAT.'}
+                </p>
               </div>
             </div>
 
