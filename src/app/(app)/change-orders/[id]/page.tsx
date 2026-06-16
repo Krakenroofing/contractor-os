@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { CompanyStandardTerms } from '@/components/company-standard-terms';
 import { DocumentBranding } from '@/components/document-branding';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -76,6 +77,7 @@ export default async function ChangeOrderDetailPage({
           </Button>
         </Link>
         <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="change_order" id={co.id} />
           {allowCreate && co.status !== 'void' && (
             <Link href={{ pathname: `/change-orders/${co.id}/edit` }}>
               <Button size="sm" variant="outline">

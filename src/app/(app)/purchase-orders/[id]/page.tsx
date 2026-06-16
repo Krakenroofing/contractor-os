@@ -15,6 +15,7 @@ import {
 import { formatMoney } from '@/lib/money';
 import { CompanyStandardTerms } from '@/components/company-standard-terms';
 import { DocumentBranding } from '@/components/document-branding';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -89,6 +90,7 @@ export default async function PurchaseOrderDetailPage({
           </Button>
         </Link>
         <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="purchase_order" id={po.id} />
           {allowCreate && po.status === 'draft' && (
             <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
               <Button size="sm" variant="outline">

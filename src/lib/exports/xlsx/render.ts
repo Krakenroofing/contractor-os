@@ -62,8 +62,12 @@ export async function renderDocumentXlsx(
       payload.customer.tinLabel && payload.customer.tinLabel.trim() !== ''
         ? payload.customer.tinLabel
         : 'TIN';
-    row = writeKeyValueBlock(ws, row, 'Bill to', [
-      ['Customer', payload.customer.name],
+    const recipientHeading =
+      payload.recipientLabel && payload.recipientLabel.trim() !== ''
+        ? payload.recipientLabel
+        : 'Bill to';
+    row = writeKeyValueBlock(ws, row, recipientHeading, [
+      [recipientHeading === 'Bill to' ? 'Customer' : recipientHeading, payload.customer.name],
       payload.customer.contact ? [attentionLabel, payload.customer.contact] : null,
       payload.customer.email ? ['Email', payload.customer.email] : null,
       payload.customer.phone ? ['Phone', payload.customer.phone] : null,

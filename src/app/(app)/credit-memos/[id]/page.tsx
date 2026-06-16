@@ -23,6 +23,7 @@ import {
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getInvoice, listInvoicesForProject } from '@/lib/data/invoices';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 import { CreditMemoDetailActions } from '@/modules/credit-memos/components/credit-memo-detail-actions';
 
 export const dynamic = 'force-dynamic';
@@ -80,11 +81,14 @@ export default async function CreditMemoDetailPage({
         ]}
       />
 
-      <Link href="/invoices">
-        <Button variant="outline" size="sm">
-          ← Back
-        </Button>
-      </Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link href="/invoices">
+          <Button variant="outline" size="sm">
+            ← Back
+          </Button>
+        </Link>
+        <DocumentDownloadButtons type="credit_memo" id={cm.id} />
+      </div>
 
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>

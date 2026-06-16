@@ -326,7 +326,11 @@ function PartiesBlock({ payload }: { payload: DocumentPayload }) {
     <View style={[styles.section, styles.twoCol]}>
       {cust ? (
         <View style={styles.col}>
-          <Text style={styles.sectionLabel}>Bill to</Text>
+          <Text style={styles.sectionLabel}>
+            {payload.recipientLabel && payload.recipientLabel.trim() !== ''
+              ? payload.recipientLabel
+              : 'Bill to'}
+          </Text>
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>{cust.name}</Text>
           {cust.contact ? (
             <Text style={styles.muted}>{attentionLabel}: {cust.contact}</Text>

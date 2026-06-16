@@ -4,7 +4,15 @@
 // app data or DB code directly.
 
 export type ExportFormat = 'pdf' | 'xlsx';
-export type DocumentType = 'invoice' | 'estimate' | 'proposal' | 'daily_report';
+export type DocumentType =
+  | 'invoice'
+  | 'estimate'
+  | 'proposal'
+  | 'daily_report'
+  | 'change_order'
+  | 'credit_memo'
+  | 'purchase_order'
+  | 'payment';
 
 export type Money = number;
 
@@ -129,6 +137,12 @@ export interface DocumentPayload {
 
   company: CompanyInfo;
   customer?: CustomerInfo;
+  /**
+   * Heading shown above the recipient (customer/vendor) block. Defaults to
+   * "Bill to". Purchase orders set "Vendor" since the recipient is the
+   * supplier, not a billed customer.
+   */
+  recipientLabel?: string;
   project?: ProjectInfo;
 
   // Top-of-document metadata pairs (date, due date, valid until, etc.)

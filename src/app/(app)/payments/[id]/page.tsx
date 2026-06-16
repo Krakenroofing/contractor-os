@@ -12,6 +12,7 @@ import { getInvoice } from '@/lib/data/invoices';
 import { getPayment } from '@/lib/data/invoice-payments';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
+import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 import {
   METHOD_LABEL,
   STATUS_LABEL,
@@ -63,11 +64,14 @@ export default async function PaymentDetailPage({
             ← Back to Payments
           </Button>
         </Link>
-        {allowCreate && (
-          <Link href="/payments/new">
-            <Button size="sm">Record Payment</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <DocumentDownloadButtons type="payment" id={payment.id} />
+          {allowCreate && (
+            <Link href="/payments/new">
+              <Button size="sm">Record Payment</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-4">
