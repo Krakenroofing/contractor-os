@@ -23,6 +23,7 @@ import {
   ProductPicker,
   type ProductPickerOption,
 } from '@/modules/inventory/components/product-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 
 const initialState: CreateEstimateState = {};
 
@@ -85,6 +86,13 @@ export function EstimateForm({
   const [status, setStatus] = useState<string>('draft');
   const [projectId, setProjectId] = useState<string>('');
   const [validUntil, setValidUntil] = useState<string>('');
+  // Cost codes created inline via the picker, merged ahead of the loaded
+  // list so a code added on one line is pickable on the others.
+  const [extraCostCodes, setExtraCostCodes] = useState<CostCodeOption[]>([]);
+  const allCostCodes: CostCodeOption[] = useMemo(
+    () => [...extraCostCodes, ...costCodes],
+    [extraCostCodes, costCodes],
+  );
 
   // Local Save-draft / Resume (Path 1).
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
@@ -155,7 +163,7 @@ export function EstimateForm({
   };
 
   const onCostCodeChange = (rowId: string, costCodeId: string) => {
-    const code = costCodes.find((c) => c.id === costCodeId);
+    const code = allCostCodes.find((c) => c.id === costCodeId);
     setLines((prev) =>
       prev.map((l) =>
         l.rowId === rowId
@@ -312,19 +320,18 @@ export function EstimateForm({
                     });
                   }}
                 />
-                <Select
+                <CostCodePicker
                   value={line.costCodeId}
-                  onChange={(e) => onCostCodeChange(line.rowId, e.target.value)}
-                >
-                  <option value="" disabled>
-                    Select code
-                  </option>
-                  {costCodes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.description}
-                    </option>
-                  ))}
-                </Select>
+                  options={allCostCodes}
+                  seedDescription={line.description}
+                  onValueChange={(id) => onCostCodeChange(line.rowId, id)}
+                  onCreated={(item) =>
+                    setExtraCostCodes((prev) => [
+                      { id: item.id, code: item.code, description: item.description },
+                      ...prev,
+                    ])
+                  }
+                />
                 <Input
                   value={line.description}
                   onChange={(e) => updateLine(line.rowId, { description: e.target.value })}

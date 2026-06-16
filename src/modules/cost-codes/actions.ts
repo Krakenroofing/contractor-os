@@ -18,6 +18,89 @@ export type CreateCostCodeState = {
   formError?: string;
 };
 
+// Shape handed back to inline callers. A superset of every form's cost-code
+// option shape ({id,code,description} and {id,label}) plus defaultCost, so a
+// picker can append + select the new code without reshaping.
+export type InlineCostCode = {
+  id: string;
+  code: string;
+  description: string;
+  label: string;
+  category: string;
+  defaultCost: number | null;
+};
+
+export type InlineCreateCostCodeResult =
+  | { ok: true; item: InlineCostCode }
+  | { ok: false; error?: string; errors?: Record<string, string[]> };
+
+// RPC-style create used by the "+ Add new cost code" drawer. Unlike
+// createCostCodeAction it does NOT redirect — it returns the created code so
+// the caller (a half-filled estimate / CO / PO / time entry) can select it
+// inline and keep every other field intact.
+export async function createCostCodeInlineAction(input: {
+  code: string;
+  description: string;
+  category?: string;
+  defaultCost?: string;
+}): Promise<InlineCreateCostCodeResult> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'cost_codes')) {
+    return { ok: false, error: 'You do not have permission to manage cost codes.' };
+  }
+
+  const parsed = costCodeFormSchema.safeParse({
+    code: input.code,
+    description: input.description,
+    category: input.category ?? 'material',
+    division: '',
+    sortOrder: '',
+    defaultCost: input.defaultCost ?? '',
+    notes: '',
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const data = parsed.data;
+  const companyId = await getActiveCompanyId();
+  try {
+    const created = await createCostCode(companyId, {
+      code: data.code,
+      description: data.description,
+      category: data.category,
+      division: data.division ?? null,
+      sortOrder: data.sortOrder,
+      defaultCost: data.defaultCost,
+      notes: data.notes ?? null,
+    });
+    revalidatePath('/cost-codes');
+    return {
+      ok: true,
+      item: {
+        id: created.id,
+        code: created.code,
+        description: created.description,
+        label: `${created.code} — ${created.description}`,
+        category: created.category,
+        defaultCost:
+          created.defaultCost !== null ? Number(created.defaultCost) : null,
+      },
+    };
+  } catch (err) {
+    if (err instanceof DuplicateCostCodeError) {
+      return {
+        ok: false,
+        errors: {
+          code: ['That code already exists in your library or the global library'],
+        },
+      };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to create cost code: ${message}` };
+  }
+}
+
 export async function createCostCodeAction(
   _prev: CreateCostCodeState,
   formData: FormData,

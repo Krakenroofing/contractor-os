@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import { formatMoney } from '@/lib/money';
 import { calcEstimateTotals, lineTotal } from '@/modules/estimates/lib/calc';
 import {
@@ -104,6 +105,14 @@ export function ChangeOrderForm({
   );
   const [projectId, setProjectId] = useState<string>(initial?.projectId ?? '');
   const [status, setStatus] = useState<string>(initial?.status ?? 'draft');
+  // Cost codes created inline via the picker's "+ Add new" drawer. Merged
+  // ahead of the server-loaded list so a code added on one line is also
+  // pickable on the others.
+  const [extraCostCodes, setExtraCostCodes] = useState<CostCodeOption[]>([]);
+  const allCostCodes: CostCodeOption[] = useMemo(
+    () => [...extraCostCodes, ...costCodes],
+    [extraCostCodes, costCodes],
+  );
 
   const filteredProposals = useMemo(
     () => (projectId ? proposals.filter((p) => p.projectId === projectId) : proposals),
@@ -136,7 +145,7 @@ export function ChangeOrderForm({
   };
 
   const onCostCodeChange = (rowId: string, costCodeId: string) => {
-    const code = costCodes.find((c) => c.id === costCodeId);
+    const code = allCostCodes.find((c) => c.id === costCodeId);
     setLines((prev) =>
       prev.map((l) =>
         l.rowId === rowId
@@ -302,19 +311,18 @@ export function ChangeOrderForm({
                 key={line.rowId}
                 className="grid grid-cols-1 md:grid-cols-[1.4fr_2fr_0.7fr_0.6fr_0.9fr_0.7fr_1fr_auto] gap-2 items-start"
               >
-                <Select
+                <CostCodePicker
                   value={line.costCodeId}
-                  onChange={(e) => onCostCodeChange(line.rowId, e.target.value)}
-                >
-                  <option value="" disabled>
-                    Select code
-                  </option>
-                  {costCodes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.description}
-                    </option>
-                  ))}
-                </Select>
+                  options={allCostCodes}
+                  seedDescription={line.description}
+                  onValueChange={(id) => onCostCodeChange(line.rowId, id)}
+                  onCreated={(item) =>
+                    setExtraCostCodes((prev) => [
+                      { id: item.id, code: item.code, description: item.description },
+                      ...prev,
+                    ])
+                  }
+                />
                 <Input
                   value={line.description}
                   onChange={(e) => updateLine(line.rowId, { description: e.target.value })}

@@ -4,7 +4,7 @@ import { useActionState, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
   createLaborEntryAction,
   type CostEntryActionState,
@@ -65,14 +65,13 @@ export function LaborEntryForm({
         </div>
         <div className="md:col-span-4">
           <Label className="text-xs">Cost code</Label>
-          <Select name="costCodeId" required className="bg-white">
-            <option value="">Choose…</option>
-            {costCodes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code} — {c.description}
-              </option>
-            ))}
-          </Select>
+          <CostCodePicker
+            name="costCodeId"
+            required
+            placeholder="Choose…"
+            className="bg-white"
+            options={costCodes}
+          />
           {state.errors?.costCodeId && (
             <p className="text-xs text-red-600 mt-1">{state.errors.costCodeId[0]}</p>
           )}

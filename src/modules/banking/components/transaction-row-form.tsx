@@ -17,6 +17,7 @@ import {
   VendorPicker,
   type VendorPickerOption,
 } from '@/modules/vendors/components/vendor-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 
 type Option = { id: string; label: string };
 
@@ -259,18 +260,13 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
                 Cost code{' '}
                 <span className="normal-case text-slate-400">(optional)</span>
               </FieldLabel>
-              <Select
+              <CostCodePicker
                 name="costCodeId"
                 value={costCodeId}
-                onChange={(e) => setCostCodeId(e.target.value)}
-              >
-                <option value="">— no cost code —</option>
-                {props.costCodes.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
+                options={props.costCodes}
+                emptyLabel="— no cost code —"
+                onValueChange={setCostCodeId}
+              />
             </div>
           </>
         ) : (

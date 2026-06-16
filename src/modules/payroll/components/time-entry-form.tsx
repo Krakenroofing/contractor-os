@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
   createTimeEntryAction,
   updateTimeEntryAction,
@@ -374,19 +375,12 @@ function CreateAllocationFields({
 
             <div className="md:col-span-4">
               <Label className="text-xs">Cost code</Label>
-              <Select
+              <CostCodePicker
                 value={row.costCodeId}
-                onChange={(e) =>
-                  onUpdate(idx, { costCodeId: e.target.value })
-                }
-              >
-                <option value="">— None —</option>
-                {costCodes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </Select>
+                options={costCodes}
+                emptyLabel="— None —"
+                onValueChange={(id) => onUpdate(idx, { costCodeId: id })}
+              />
             </div>
 
             <div className="md:col-span-2">
@@ -474,14 +468,12 @@ function EditAllocationFields({
       </Field>
 
       <Field label="Cost code (optional)" error={err('costCodeId')}>
-        <Select name="costCodeId" defaultValue={initial.costCodeId}>
-          <option value="">— None —</option>
-          {costCodes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </Select>
+        <CostCodePicker
+          name="costCodeId"
+          defaultValue={initial.costCodeId}
+          options={costCodes}
+          emptyLabel="— None —"
+        />
       </Field>
     </div>
   );

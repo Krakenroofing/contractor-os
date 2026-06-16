@@ -10,6 +10,7 @@ import {
   AccountingAccountPicker,
   type AccountingAccountOption,
 } from '@/modules/accounting/components/accounting-account-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
   createVendorAction,
   updateVendorAction,
@@ -232,17 +233,12 @@ export function VendorForm({
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="Default cost code" error={err('defaultCostCodeId')}>
-            <Select
+            <CostCodePicker
               name="defaultCostCodeId"
               defaultValue={values.defaultCostCodeId}
-            >
-              <option value="">— none —</option>
-              {costCodes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
+              options={costCodes}
+              emptyLabel="— none —"
+            />
           </Field>
           <Field label="Default cost type" error={err('defaultCostType')}>
             <Select

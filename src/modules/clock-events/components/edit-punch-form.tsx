@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import { editPunchAction, type EditPunchState } from '../actions';
 
 type Option = { id: string; label: string };
@@ -70,18 +71,14 @@ export function EditPunchForm({
         <label className="block text-xs font-medium text-slate-700 mb-1">
           Cost code
         </label>
-        <select
-          name="costCodeId"
-          defaultValue={defaults.costCodeId}
-          className="w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm bg-white"
-        >
-          <option value="">— No cost code —</option>
-          {costCodes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <div className="max-w-md">
+          <CostCodePicker
+            name="costCodeId"
+            defaultValue={defaults.costCodeId}
+            options={costCodes}
+            emptyLabel="— No cost code —"
+          />
+        </div>
       </div>
 
       <div>

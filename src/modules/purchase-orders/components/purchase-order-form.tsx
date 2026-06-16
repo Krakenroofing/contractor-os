@@ -24,6 +24,7 @@ import {
   ProductPicker,
   type ProductPickerOption,
 } from '@/modules/inventory/components/product-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
   PoLinesExcelImportDialog,
   type ImportedLine,
@@ -143,6 +144,14 @@ export function PurchaseOrderForm({
   const [shipping, setShipping] = useState(defaults?.shipping ?? '0');
   const [projectId, setProjectId] = useState<string>(defaults?.projectId ?? '');
   const [excelOpen, setExcelOpen] = useState(false);
+  // Cost codes created inline via the picker, merged ahead of the loaded list
+  // so a code added on one line is pickable on the others (and resolves for
+  // default-cost inheritance + the update-defaults dialog).
+  const [extraCostCodes, setExtraCostCodes] = useState<CostCodeOption[]>([]);
+  const allCostCodes: CostCodeOption[] = useMemo(
+    () => [...extraCostCodes, ...costCodes],
+    [extraCostCodes, costCodes],
+  );
 
   // Header fields are controlled so a saved draft can fully restore them.
   const [poNumber, setPoNumber] = useState(defaultNumber);
@@ -278,7 +287,7 @@ export function PurchaseOrderForm({
   };
 
   const onCostCodeChange = (rowId: string, costCodeId: string) => {
-    const code = costCodes.find((c) => c.id === costCodeId);
+    const code = allCostCodes.find((c) => c.id === costCodeId);
     setLines((prev) =>
       prev.map((l) => {
         if (l.rowId !== rowId) return l;
@@ -473,7 +482,7 @@ export function PurchaseOrderForm({
                     }
                     // Inheritance chain for unitCost when the line is still
                     // empty: inventory item > cost code > leave zero.
-                    const costCodeRow = costCodes.find(
+                    const costCodeRow = allCostCodes.find(
                       (c) => c.id === line.costCodeId,
                     );
                     const fallbackFromCostCode =
@@ -498,19 +507,23 @@ export function PurchaseOrderForm({
                     });
                   }}
                 />
-                <Select
+                <CostCodePicker
                   value={line.costCodeId}
-                  onChange={(e) => onCostCodeChange(line.rowId, e.target.value)}
-                >
-                  <option value="" disabled>
-                    Select code
-                  </option>
-                  {costCodes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.description}
-                    </option>
-                  ))}
-                </Select>
+                  options={allCostCodes}
+                  seedDescription={line.description}
+                  onValueChange={(id) => onCostCodeChange(line.rowId, id)}
+                  onCreated={(item) =>
+                    setExtraCostCodes((prev) => [
+                      {
+                        id: item.id,
+                        code: item.code,
+                        description: item.description,
+                        defaultCost: item.defaultCost,
+                      },
+                      ...prev,
+                    ])
+                  }
+                />
                 <Input
                   value={line.description}
                   onChange={(e) =>
@@ -542,7 +555,7 @@ export function PurchaseOrderForm({
                       consent for each target. */}
                   {(() => {
                     const product = products.find((p) => p.id === line.inventoryItemId);
-                    const code = costCodes.find((c) => c.id === line.costCodeId);
+                    const code = allCostCodes.find((c) => c.id === line.costCodeId);
                     const itemForDialog = product
                       ? {
                           id: product.id,

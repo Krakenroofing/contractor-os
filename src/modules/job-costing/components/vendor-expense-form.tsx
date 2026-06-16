@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
   createVendorExpenseAction,
   type CostEntryActionState,
@@ -118,14 +119,13 @@ export function VendorExpenseForm({
 
         <div className="md:col-span-6">
           <Label className="text-xs">Cost code (applies to all sub-lines)</Label>
-          <Select name="costCodeId" required className="bg-white">
-            <option value="">Choose…</option>
-            {costCodes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code} — {c.description}
-              </option>
-            ))}
-          </Select>
+          <CostCodePicker
+            name="costCodeId"
+            required
+            placeholder="Choose…"
+            className="bg-white"
+            options={costCodes}
+          />
           {state.errors?.costCodeId && (
             <p className="text-xs text-red-600 mt-1">{state.errors.costCodeId[0]}</p>
           )}
