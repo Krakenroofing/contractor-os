@@ -32,7 +32,10 @@ import {
 } from '@/lib/data/purchase-orders';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import { listChangeOrders } from '@/lib/data/change-orders';
-import { getContractReductionRefundByProjectMap } from '@/lib/data/credit-memos';
+import {
+  getContractReductionRefundByProjectMap,
+  listCreditNotesForVat,
+} from '@/lib/data/credit-memos';
 import { getVendor, listVendors } from '@/lib/data/vendors';
 // listVendors is consumed by the VAT-quarterly expenses pane (Phase B).
 import {
@@ -113,7 +116,21 @@ export type VatQuarterlyQuarterRow = {
   expenseNet: number;
   inputVat: number;
   expenseGross: number;
-  netVatDue: number; // vatDue − inputVat
+  // Credit notes (credit memos) issued this quarter reduce output VAT.
+  creditNoteCount: number;
+  creditNoteNet: number;
+  creditNoteVat: number;
+  netVatDue: number; // (vatDue − creditNoteVat) − inputVat
+};
+
+export type VatQuarterlyCreditNoteRow = {
+  id: string;
+  number: string;
+  issueDate: string;
+  quarterKey: string;
+  reason: string;
+  netReduction: number;
+  vatRelief: number;
 };
 
 export type VatQuarterlyExpenseRow = {
@@ -137,6 +154,7 @@ export type VatQuarterlyReport = {
   quarters: VatQuarterlyQuarterRow[];
   invoices: VatQuarterlyInvoiceRow[];
   expenses: VatQuarterlyExpenseRow[];
+  creditNotes: VatQuarterlyCreditNoteRow[];
   totals: {
     invoiceCount: number;
     subtotal: number;
@@ -148,6 +166,10 @@ export type VatQuarterlyReport = {
     expenseNet: number;
     inputVat: number;
     expenseGross: number;
+    // Credit note totals
+    creditNoteCount: number;
+    creditNoteNet: number;
+    creditNoteVat: number;
     netVatDue: number;
   };
 };
@@ -180,6 +202,7 @@ export async function buildVatQuarterlyReport(
       quarters: [],
       invoices: [],
       expenses: [],
+      creditNotes: [],
       totals: {
         invoiceCount: 0,
         subtotal: 0,
@@ -190,6 +213,9 @@ export async function buildVatQuarterlyReport(
         expenseNet: 0,
         inputVat: 0,
         expenseGross: 0,
+        creditNoteCount: 0,
+        creditNoteNet: 0,
+        creditNoteVat: 0,
         netVatDue: 0,
       },
     };
@@ -277,6 +303,9 @@ export async function buildVatQuarterlyReport(
       expenseNet: 0,
       inputVat: 0,
       expenseGross: 0,
+      creditNoteCount: 0,
+      creditNoteNet: 0,
+      creditNoteVat: 0,
       netVatDue: 0,
     };
     byQuarter.set(quarterKey, fresh);
@@ -336,9 +365,39 @@ export async function buildVatQuarterlyReport(
   }
   expenseRows.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate));
 
-  // Net VAT due = output − input, per quarter.
+  // ===== Credit notes: reduce output VAT =====
+  //
+  // A credit note (credit memo) lowers output VAT in the quarter it's issued.
+  // Bucket by issueDate so it lands with the invoices it relates to.
+  const creditNoteRows: VatQuarterlyCreditNoteRow[] = [];
+  for (const cn of await listCreditNotesForVat(companyId)) {
+    if (filters.from || filters.to) {
+      if (!isInRange(cn.issueDate, filters)) continue;
+    }
+    // Skip fully-unapplied credits (no relief realized yet).
+    if (cn.netReduction === 0 && cn.vatRelief === 0) continue;
+    const { key, label } = quarterKeyForDate(cn.issueDate);
+    creditNoteRows.push({
+      id: cn.id,
+      number: cn.number,
+      issueDate: cn.issueDate,
+      quarterKey: key,
+      reason: cn.reason,
+      netReduction: cn.netReduction,
+      vatRelief: cn.vatRelief,
+    });
+    const q = ensureQuarter(key, label);
+    q.creditNoteCount += 1;
+    q.creditNoteNet = add(q.creditNoteNet, cn.netReduction);
+    q.creditNoteVat = add(q.creditNoteVat, cn.vatRelief);
+  }
+  creditNoteRows.sort((a, b) => b.issueDate.localeCompare(a.issueDate));
+
+  // Net VAT due = (output − credit-note VAT) − input, per quarter.
   for (const q of byQuarter.values()) {
-    q.netVatDue = round2(subtract(q.vatDue, q.inputVat));
+    q.netVatDue = round2(
+      subtract(subtract(q.vatDue, q.creditNoteVat), q.inputVat),
+    );
   }
 
   const quarters = Array.from(byQuarter.values()).sort((a, b) =>
@@ -356,6 +415,9 @@ export async function buildVatQuarterlyReport(
       expenseNet: acc.expenseNet,
       inputVat: acc.inputVat,
       expenseGross: acc.expenseGross,
+      creditNoteCount: acc.creditNoteCount,
+      creditNoteNet: acc.creditNoteNet,
+      creditNoteVat: acc.creditNoteVat,
       netVatDue: acc.netVatDue,
     }),
     {
@@ -368,6 +430,9 @@ export async function buildVatQuarterlyReport(
       expenseNet: 0,
       inputVat: 0,
       expenseGross: 0,
+      creditNoteCount: 0,
+      creditNoteNet: 0,
+      creditNoteVat: 0,
       netVatDue: 0,
     },
   );
@@ -380,7 +445,15 @@ export async function buildVatQuarterlyReport(
       totals.inputVat = add(totals.inputVat, e.inputVat);
     }
   }
-  totals.netVatDue = round2(subtract(totals.vatDue, totals.inputVat));
+  // Fold in the credit-note totals.
+  for (const cn of creditNoteRows) {
+    totals.creditNoteCount += 1;
+    totals.creditNoteNet = add(totals.creditNoteNet, cn.netReduction);
+    totals.creditNoteVat = add(totals.creditNoteVat, cn.vatRelief);
+  }
+  totals.netVatDue = round2(
+    subtract(subtract(totals.vatDue, totals.creditNoteVat), totals.inputVat),
+  );
 
   // Strip the internal `_label` helper before returning.
   const cleanRows: VatQuarterlyInvoiceRow[] = invoiceRows.map((r) => {
@@ -398,6 +471,7 @@ export async function buildVatQuarterlyReport(
     quarters,
     invoices: cleanRows,
     expenses: expenseRows,
+    creditNotes: creditNoteRows,
     totals,
   };
 }

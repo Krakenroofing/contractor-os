@@ -367,6 +367,71 @@ export async function getContractReductionRefundByProjectMap(
   return map;
 }
 
+export type CreditNoteVatRow = {
+  id: string;
+  number: string;
+  issueDate: string;
+  reason: string;
+  /** NET amount credited (ex-VAT) — reduces taxable sales. */
+  netReduction: number;
+  /** VAT relief on the credit — reduces output VAT on the return. */
+  vatRelief: number;
+};
+
+/**
+ * Credit notes (non-void credit memos) with their NET reduction and VAT relief,
+ * for the VAT return. A credit note reduces output VAT in the period it's
+ * issued: applied/refunded amounts are split into net + VAT using the company
+ * rate (single-rate company). invoice_application amounts are net (VAT =
+ * net × rate); cash_refund amounts are gross (VAT = gross × rate / (1 + rate)).
+ * Only consumed (applied/refunded) amounts generate relief.
+ */
+export async function listCreditNotesForVat(
+  companyId: string,
+): Promise<CreditNoteVatRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const rows = await db
+    .select({
+      id: creditMemos.id,
+      number: creditMemos.number,
+      issueDate: creditMemos.issueDate,
+      reason: creditMemos.reason,
+      net: sql<string>`COALESCE(SUM(
+        CASE WHEN ${creditMemoApplications.kind} = 'invoice_application'
+             THEN ${creditMemoApplications.amount}
+             ELSE ${creditMemoApplications.amount} / (1 + ${companies.vatRatePercent} / 100.0)
+        END), 0)`,
+      vat: sql<string>`COALESCE(SUM(
+        CASE WHEN ${creditMemoApplications.kind} = 'invoice_application'
+             THEN ${creditMemoApplications.amount} * (${companies.vatRatePercent} / 100.0)
+             ELSE ${creditMemoApplications.amount} * (${companies.vatRatePercent} / 100.0)
+                  / (1 + ${companies.vatRatePercent} / 100.0)
+        END), 0)`,
+    })
+    .from(creditMemoApplications)
+    .innerJoin(creditMemos, eq(creditMemos.id, creditMemoApplications.creditMemoId))
+    .innerJoin(companies, eq(companies.id, creditMemos.companyId))
+    .where(
+      and(eq(creditMemos.companyId, companyId), ne(creditMemos.status, 'void')),
+    )
+    .groupBy(
+      creditMemos.id,
+      creditMemos.number,
+      creditMemos.issueDate,
+      creditMemos.reason,
+    );
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    issueDate: r.issueDate,
+    reason: r.reason,
+    netReduction: r2(Number(r.net)),
+    vatRelief: r2(Number(r.vat)),
+  }));
+}
+
 export type ApplyCreditToInvoiceInput = {
   appliedAt: string;
   amount: number;

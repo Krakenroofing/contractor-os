@@ -102,6 +102,20 @@ export default async function VatQuarterlyReportPage({
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Less credit notes
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-700">
+                        {current.creditNoteVat > 0
+                          ? `(${formatMoney(current.creditNoteVat)})`
+                          : formatMoney(0)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {current.creditNoteCount} credit note
+                        {current.creditNoteCount === 1 ? '' : 's'} this quarter
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
                         Input VAT (offset from receipts)
                       </p>
                       <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-700">
@@ -112,7 +126,7 @@ export default async function VatQuarterlyReportPage({
                         {current.receiptCount === 1 ? '' : 's'} this quarter
                       </p>
                     </div>
-                    <div className="md:col-span-2">
+                    <div>
                       <p className="text-xs uppercase tracking-wide text-slate-500">
                         Net VAT {isDue ? 'due to government' : 'reclaim balance'}
                       </p>
@@ -124,8 +138,11 @@ export default async function VatQuarterlyReportPage({
                         {formatMoney(Math.abs(current.netVatDue))}
                       </p>
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        Output {formatMoney(current.vatDue)} − Input{' '}
-                        {formatMoney(current.inputVat)} ={' '}
+                        Output {formatMoney(current.vatDue)}
+                        {current.creditNoteVat > 0
+                          ? ` − Credit ${formatMoney(current.creditNoteVat)}`
+                          : ''}{' '}
+                        − Input {formatMoney(current.inputVat)} ={' '}
                         {isDue ? '+' : '−'}
                         {formatMoney(Math.abs(current.netVatDue))}
                       </p>
@@ -151,6 +168,16 @@ export default async function VatQuarterlyReportPage({
               hint={`${report.totals.receiptCount} posted receipt(s)`}
             />
             <KPI
+              label="Credit notes VAT"
+              value={
+                report.totals.creditNoteVat > 0
+                  ? `(${formatMoney(report.totals.creditNoteVat)})`
+                  : formatMoney(0)
+              }
+              valueClassName="text-slate-700"
+              hint={`${report.totals.creditNoteCount} credit note(s)`}
+            />
+            <KPI
               label="Net VAT due"
               value={formatMoney(report.totals.netVatDue)}
               valueClassName={
@@ -172,11 +199,13 @@ export default async function VatQuarterlyReportPage({
 
           <p className="text-xs text-slate-500">
             Accrual basis. Output VAT = VAT on every non-draft / non-void
-            invoice, bucketed by <strong>invoice date</strong>. Input VAT = VAT
-            on every <strong>posted receipt</strong> marked recoverable.
-            <strong> Net VAT due = output − input</strong> — positive means you
-            pay the government for the quarter; negative means a reclaim
-            balance.
+            invoice, bucketed by <strong>invoice date</strong>, less VAT on{' '}
+            <strong>credit notes</strong> issued in the quarter (a credit on an
+            unpaid invoice removes the VAT that was never collected). Input VAT =
+            VAT on every <strong>posted receipt</strong> marked recoverable.
+            <strong> Net VAT due = output − credit notes − input</strong> —
+            positive means you pay the government for the quarter; negative means
+            a reclaim balance.
           </p>
 
           <Card>
@@ -195,6 +224,7 @@ export default async function VatQuarterlyReportPage({
                       <TableHead>Quarter</TableHead>
                       <TableHead className="text-right">Invoices</TableHead>
                       <TableHead className="text-right">Output VAT</TableHead>
+                      <TableHead className="text-right">Credit VAT</TableHead>
                       <TableHead className="text-right">Receipts</TableHead>
                       <TableHead className="text-right">Input VAT</TableHead>
                       <TableHead className="text-right">Net VAT due</TableHead>
@@ -213,6 +243,11 @@ export default async function VatQuarterlyReportPage({
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium text-amber-700">
                           {formatMoney(q.vatDue)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {q.creditNoteVat > 0
+                            ? `(${formatMoney(q.creditNoteVat)})`
+                            : '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {q.receiptCount}
@@ -313,6 +348,52 @@ export default async function VatQuarterlyReportPage({
               )}
             </CardContent>
           </Card>
+
+          {report.creditNotes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Credit note detail (reduces output VAT)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Credit note</TableHead>
+                      <TableHead>Issue date</TableHead>
+                      <TableHead>Quarter</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead className="text-right">Net reduction</TableHead>
+                      <TableHead className="text-right">VAT relief</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {report.creditNotes.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-mono text-xs text-slate-700">
+                          {c.number}
+                        </TableCell>
+                        <TableCell className="text-slate-600">
+                          {c.issueDate}
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {c.quarterKey.replace(/^(\d{4})-(Q\d)$/, '$2 $1')}
+                        </TableCell>
+                        <TableCell className="text-slate-600">
+                          {c.reason}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-700">
+                          ({formatMoney(c.netReduction)})
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-medium text-slate-700">
+                          ({formatMoney(c.vatRelief)})
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
