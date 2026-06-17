@@ -36,7 +36,7 @@ export class DailyReportsNotAvailableInDemoError extends Error {
 
 export class DuplicateDailyReportDateError extends Error {
   constructor() {
-    super('A daily report already exists for this project on that date.');
+    super('You already have a daily report for this project on that date.');
     this.name = 'DuplicateDailyReportDateError';
   }
 }
@@ -168,18 +168,24 @@ export async function getManpowerForReport(
 
 /**
  * Checks whether a non-voided, non-deleted report already exists for this
- * project + date. Mirrors the DB's partial unique index so we can surface a
- * friendly form error instead of a raw constraint violation.
+ * (project, date, creator). Mirrors the DB's partial unique index so we can
+ * surface a friendly form error instead of a raw constraint violation. The
+ * check is per-creator: each employee files their own report for the same
+ * job/day. A null creator can't collide (the DB index treats NULLs as
+ * distinct), so we skip the check for those.
  */
 async function reportExistsForDate(
   projectId: string,
   reportDate: string,
+  createdBy: string | null,
   excludeId?: string,
 ): Promise<boolean> {
+  if (!createdBy) return false;
   const db = requireDb();
   const conds = [
     eq(dailyReports.projectId, projectId),
     eq(dailyReports.reportDate, reportDate),
+    eq(dailyReports.createdBy, createdBy),
     isNull(dailyReports.deletedAt),
     ne(dailyReports.status, 'void' as const),
   ];
@@ -197,7 +203,13 @@ export async function createDailyReport(
   manpower: ManpowerRowInput[],
 ): Promise<DailyReport> {
   const db = requireDb();
-  if (await reportExistsForDate(input.projectId, input.reportDate)) {
+  if (
+    await reportExistsForDate(
+      input.projectId,
+      input.reportDate,
+      input.createdBy ?? null,
+    )
+  ) {
     throw new DuplicateDailyReportDateError();
   }
   const [created] = await db.insert(dailyReports).values(input).returning();
@@ -229,7 +241,14 @@ export async function updateDailyReport(
   if (patch.reportDate) {
     const existing = await getDailyReport(companyId, id);
     if (existing && existing.reportDate !== patch.reportDate) {
-      if (await reportExistsForDate(existing.projectId, patch.reportDate, id)) {
+      if (
+        await reportExistsForDate(
+          existing.projectId,
+          patch.reportDate,
+          existing.createdBy,
+          id,
+        )
+      ) {
         throw new DuplicateDailyReportDateError();
       }
     }

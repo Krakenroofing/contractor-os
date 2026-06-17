@@ -87,11 +87,12 @@ export const dailyReports = pgTable(
     companyIdx: index('daily_reports_company_idx').on(t.companyId),
     projectIdx: index('daily_reports_project_idx').on(t.projectId),
     dateIdx: index('daily_reports_date_idx').on(t.reportDate),
-    // Partial unique index — voided / soft-deleted rows are excluded so an
-    // operator can void a mistaken report and re-create one for the same
-    // (project, date). Matches the SQL migration's partial index.
-    projectDateUniq: uniqueIndex('daily_reports_project_date_uniq')
-      .on(t.projectId, t.reportDate)
+    // Partial unique index — one report per (project, date, CREATOR) so every
+    // employee can file their own daily report for the same job/day. Voided /
+    // soft-deleted rows are excluded so a worker can void a mistake and re-file
+    // for the same day. Matches the SQL migration's partial index.
+    projectDateCreatorUniq: uniqueIndex('daily_reports_project_date_creator_uniq')
+      .on(t.projectId, t.reportDate, t.createdBy)
       .where(sql`${t.deletedAt} IS NULL AND ${t.status} <> 'void'`),
   }),
 );

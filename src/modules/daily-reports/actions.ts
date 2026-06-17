@@ -455,10 +455,15 @@ export async function startFieldReportAction(
 
   const today = todayISOInTZ();
 
-  // Resume an existing report for this (project, today) if there is one.
+  // Resume THIS worker's own report for (project, today) if they already have
+  // one — each employee files their own daily report for the same job/day, so
+  // we never drop them into a coworker's report.
   const existing = await listDailyReportsForProject(companyId, project.id);
   const open = existing.find(
-    (r) => r.reportDate === today && r.status !== 'void',
+    (r) =>
+      r.reportDate === today &&
+      r.status !== 'void' &&
+      r.createdBy === user.id,
   );
   if (open) {
     await cleanupBlankDrafts(companyId, user.id, existing, open.id);
@@ -548,11 +553,15 @@ export async function startFieldReportAction(
     );
     newId = created.id;
   } catch (err) {
-    // Lost a race (another tab created today's report first) — resume it.
+    // Lost a race (this worker double-tapped / a second tab created their
+    // today report first) — resume their own.
     if (err instanceof DuplicateDailyReportDateError) {
       const again = await listDailyReportsForProject(companyId, project.id);
       const dupe = again.find(
-        (r) => r.reportDate === today && r.status !== 'void',
+        (r) =>
+          r.reportDate === today &&
+          r.status !== 'void' &&
+          r.createdBy === user.id,
       );
       if (dupe) redirect(`/field/reports/${dupe.id}` as never);
     }
