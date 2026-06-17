@@ -2,6 +2,14 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
@@ -9,6 +17,7 @@ import { canCreate, canView, ROLE_LABELS } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dashboard';
 import { buildAccountingSummary } from '@/modules/dashboard/lib/accounting-summary';
+import { buildRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
 
 export const dynamic = 'force-dynamic';
@@ -16,9 +25,13 @@ export const dynamic = 'force-dynamic';
 export default async function DashboardPage() {
   const company = await getActiveCompany();
   const role = await getActiveRole();
-  const [data, accounting] = await Promise.all([
+  const canSeeRemainingBillable = canView(role, 'invoices');
+  const [data, accounting, remainingBillable] = await Promise.all([
     buildDashboardData(company.id),
     buildAccountingSummary(company.id),
+    canSeeRemainingBillable
+      ? buildRemainingBillable(company.id)
+      : Promise.resolve(null),
   ]);
   const { kpis, alerts, revenueByQuarter } = data;
   const canSeeBanking = canView(role, 'bank_accounts');
@@ -112,6 +125,16 @@ export default async function DashboardPage() {
             value={formatMoney(kpis.totalContractValue)}
             highlight
           />
+          {remainingBillable && (
+            <KPI
+              label="Remaining billable (net)"
+              value={formatMoney(remainingBillable.totalRemaining)}
+              hint={`across ${remainingBillable.rows.length} active job${
+                remainingBillable.rows.length === 1 ? '' : 's'
+              }`}
+              valueClassName="text-blue-700"
+            />
+          )}
           {canSeeChangeOrders && (
             <KPI
               label="Approved change orders"
@@ -140,6 +163,93 @@ export default async function DashboardPage() {
           )}
         </div>
       </section>
+
+      {remainingBillable && remainingBillable.rows.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
+              Remaining billable by job (net)
+            </h2>
+            <p className="text-xs text-slate-400 tabular-nums">
+              Total: {formatMoney(remainingBillable.totalRemaining)}
+            </p>
+          </div>
+          <Card>
+            <CardContent className="p-0 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead className="text-right">Revised contract</TableHead>
+                    <TableHead className="text-right">Billed (net)</TableHead>
+                    <TableHead className="text-right">Remaining billable</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {remainingBillable.rows.map((r) => (
+                    <TableRow key={r.projectId}>
+                      <TableCell className="font-medium text-slate-900">
+                        <Link
+                          href={{ pathname: `/projects/${r.projectId}` }}
+                          className="hover:underline"
+                        >
+                          {r.projectName}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {r.customerName ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-700">
+                        {formatMoney(r.revisedContract)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-slate-700">
+                        {formatMoney(r.billedNet)}
+                        {r.refundsCredited > 0 && (
+                          <span className="ml-1 text-[11px] text-slate-400">
+                            (less {formatMoney(r.refundsCredited)} refunded)
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums font-semibold ${
+                          r.remainingBillable > 0
+                            ? 'text-blue-700'
+                            : r.remainingBillable < 0
+                              ? 'text-amber-700'
+                              : 'text-slate-500'
+                        }`}
+                      >
+                        {formatMoney(r.remainingBillable)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="border-t-2 border-slate-300">
+                    <TableCell className="font-semibold text-slate-900">
+                      Total
+                    </TableCell>
+                    <TableCell />
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {formatMoney(remainingBillable.totalRevisedContract)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {formatMoney(remainingBillable.totalBilledNet)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold text-blue-700">
+                      {formatMoney(remainingBillable.totalRemaining)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <p className="text-[11px] text-slate-400">
+            Active jobs only (in progress / won). Remaining billable = revised
+            contract (net) − net billed, with scope-reduction refunds netted
+            back. Ties to the still-billable column on the customer summary.
+          </p>
+        </section>
+      )}
 
       {canSeeInvoices && (
         <section className="space-y-3">

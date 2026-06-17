@@ -17,7 +17,8 @@ import { RecomputeTotalsButton } from '@/modules/projects/components/recompute-t
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, parseMoney } from '@/lib/money';
+import { computeRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
 import { computeProjectStatusCounts } from '@/lib/status-machine';
 import {
   computeProjectInvoiceSummary,
@@ -26,7 +27,10 @@ import {
 } from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
 import { listChangeOrdersForProject } from '@/lib/data/change-orders';
-import { listCreditMemosForProject } from '@/lib/data/credit-memos';
+import {
+  getContractReductionRefundByProjectMap,
+  listCreditMemosForProject,
+} from '@/lib/data/credit-memos';
 import { IssueCreditMemoDialog } from '@/modules/credit-memos/components/issue-credit-memo-dialog';
 import { listEstimatesForProject } from '@/lib/data/estimates';
 import { listLandedCostsForProject } from '@/lib/data/landed-costs';
@@ -155,6 +159,17 @@ export default async function ProjectDetailPage({
     : invoices.filter((i) => i.status !== 'void');
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
   const invoicesBySource = await computeProjectInvoicesByContractSource(project.id);
+  // Remaining billable on this job = revised contract (net) − net billed,
+  // netting back scope-reduction refunds. Same math as the dashboard's
+  // collective "Remaining billable" so the per-job number ties to the total.
+  const refundsCreditedForProject =
+    (await getContractReductionRefundByProjectMap(companyId)).get(project.id) ??
+    0;
+  const remainingBillable = computeRemainingBillable(
+    parseMoney(project.contractValue),
+    invoiceSummary.totalInvoicedNet,
+    refundsCreditedForProject,
+  );
   const coById = new Map(changeOrders.map((co) => [co.id, co]));
   const projectPayments = (
     await Promise.all(
@@ -718,7 +733,23 @@ export default async function ProjectDetailPage({
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
+            <Stat
+              label="Remaining billable (net)"
+              value={formatMoney(remainingBillable)}
+              valueClassName={
+                remainingBillable > 0
+                  ? 'text-blue-700'
+                  : remainingBillable < 0
+                    ? 'text-amber-700'
+                    : 'text-slate-900'
+              }
+              sub={`revised contract ${formatMoney(parseMoney(project.contractValue))} − net billed${
+                refundsCreditedForProject > 0
+                  ? ` (less ${formatMoney(refundsCreditedForProject)} refunded)`
+                  : ''
+              }`}
+            />
             <Stat
               label="Revenue invoiced (net)"
               value={formatMoney(invoiceSummary.totalInvoicedNet)}
