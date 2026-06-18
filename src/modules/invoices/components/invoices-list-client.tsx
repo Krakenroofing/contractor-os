@@ -332,7 +332,7 @@ export function InvoicesListClient({
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
