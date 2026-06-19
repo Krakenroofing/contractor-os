@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,10 +45,14 @@ const KIND_LABEL: Record<string, string> = {
 
 export default async function CreditMemoDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowEdit = canCreate(role, 'invoices');
@@ -76,17 +81,21 @@ export default async function CreditMemoDetailPage({
     <div className="p-8 max-w-4xl space-y-6">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/invoices', label: 'Invoices' },
           { label: cm.number },
         ]}
       />
 
       <div className="flex items-center justify-between gap-2">
-        <Link href="/invoices">
-          <Button variant="outline" size="sm">
-            ← Back
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/invoices"
+          listLabel="Invoices"
+          projectId={fromProject ? project?.id : null}
+          projectName={project?.name}
+        />
         <DocumentDownloadButtons type="credit_memo" id={cm.id} />
       </div>
 

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,10 +28,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function PaymentDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'payments');
@@ -53,17 +58,21 @@ export default async function PaymentDetailPage({
     <div className="p-8 max-w-4xl space-y-6">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/payments', label: 'Payments' },
           { label: payment.paymentNumber || 'Payment' },
         ]}
       />
 
       <div className="flex items-center justify-between">
-        <Link href="/payments">
-          <Button variant="outline" size="sm">
-            ← Back to Payments
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/payments"
+          listLabel="Payments"
+          projectId={fromProject ? project?.id : null}
+          projectName={project?.name}
+        />
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="payment" id={payment.id} />
           {allowCreate && (

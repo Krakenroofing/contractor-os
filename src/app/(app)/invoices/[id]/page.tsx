@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { CompanyStandardTerms } from '@/components/company-standard-terms';
@@ -49,10 +50,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function InvoiceDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'invoices');
@@ -148,17 +153,21 @@ export default async function InvoiceDetailPage({
     <div className="p-8 space-y-6 max-w-5xl">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/invoices', label: 'Invoices' },
           { label: invoice.number },
         ]}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/invoices">
-          <Button variant="outline" size="sm">
-            ← Back to Invoices
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/invoices"
+          listLabel="Invoices"
+          projectId={fromProject ? invoice.projectId : null}
+          projectName={project?.name}
+        />
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="invoice" id={invoice.id} />
           <InvoiceActionsBar

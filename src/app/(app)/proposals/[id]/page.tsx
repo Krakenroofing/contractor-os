@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,10 +30,14 @@ function formatDate(d: Date | string | null) {
 
 export default async function ProposalDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'proposals');
@@ -51,17 +56,21 @@ export default async function ProposalDetailPage({
     <div className="p-8 space-y-6 max-w-5xl">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/proposals', label: 'Proposals' },
           { label: proposal.number },
         ]}
       />
 
       <div className="flex items-center justify-between">
-        <Link href="/proposals">
-          <Button variant="outline" size="sm">
-            ← Back to Proposals
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/proposals"
+          listLabel="Proposals"
+          projectId={fromProject ? proposal.projectId : null}
+          projectName={project?.name}
+        />
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="proposal" id={proposal.id} />
           {allowCreate && (

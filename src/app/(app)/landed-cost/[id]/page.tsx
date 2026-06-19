@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { CalcBreakdown } from '@/components/calc-breakdown';
@@ -30,10 +31,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function LandedCostDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowEdit = canCreate(role, 'landed_cost');
@@ -56,17 +61,21 @@ export default async function LandedCostDetailPage({
     <div className="p-8 space-y-6 max-w-5xl">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/landed-cost', label: 'Landed Cost / Shipping' },
           { label: lc.name },
         ]}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/landed-cost">
-          <Button variant="outline" size="sm">
-            ← Back to Landed Cost
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/landed-cost"
+          listLabel="Landed Cost"
+          projectId={fromProject ? project?.id : null}
+          projectName={project?.name}
+        />
         {allowEdit && (
           <Link href={{ pathname: `/landed-cost/${lc.id}/edit` }}>
             <Button size="sm" variant="outline">

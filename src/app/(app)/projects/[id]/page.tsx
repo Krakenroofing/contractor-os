@@ -501,7 +501,7 @@ export default async function ProjectDetailPage({
                       {formatMoney(e.total)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/estimates/${e.id}`}>
+                      <Link href={{ pathname: `/estimates/${e.id}`, query: { from: 'project' } }}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
@@ -561,7 +561,7 @@ export default async function ProjectDetailPage({
                       {formatMoney(p.total)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/proposals/${p.id}`}>
+                      <Link href={{ pathname: `/proposals/${p.id}`, query: { from: 'project' } }}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
@@ -625,7 +625,7 @@ export default async function ProjectDetailPage({
                       {formatMoney(co.total)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/change-orders/${co.id}`}>
+                      <Link href={{ pathname: `/change-orders/${co.id}`, query: { from: 'project' } }}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
@@ -690,7 +690,7 @@ export default async function ProjectDetailPage({
                       <TableCell className="text-slate-600 text-xs">
                         {po.landedCostEntryId ? (
                           <Link
-                            href={`/landed-cost/${po.landedCostEntryId}`}
+                            href={{ pathname: `/landed-cost/${po.landedCostEntryId}`, query: { from: 'project' } }}
                             className="hover:underline"
                           >
                             linked
@@ -703,7 +703,7 @@ export default async function ProjectDetailPage({
                         {formatMoney(po.total)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/purchase-orders/${po.id}`}>
+                        <Link href={{ pathname: `/purchase-orders/${po.id}`, query: { from: 'project' } }}>
                           <Button size="sm" variant="outline">
                             View
                           </Button>
@@ -841,7 +841,7 @@ export default async function ProjectDetailPage({
                         <TableCell className="font-medium text-slate-900">
                           {co ? (
                             <Link
-                              href={`/change-orders/${co.id}`}
+                              href={{ pathname: `/change-orders/${co.id}`, query: { from: 'project' } }}
                               className="hover:underline"
                             >
                               {coLabel}
@@ -893,7 +893,7 @@ export default async function ProjectDetailPage({
                       <TableRow key={`unbilled-${co.id}`} className="opacity-70">
                         <TableCell className="font-medium text-slate-900">
                           <Link
-                            href={`/change-orders/${co.id}`}
+                            href={{ pathname: `/change-orders/${co.id}`, query: { from: 'project' } }}
                             className="hover:underline"
                           >
                             {co.number} — {co.description.slice(0, 40)}
@@ -1037,7 +1037,7 @@ export default async function ProjectDetailPage({
                         {formatMoney(balance)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/invoices/${inv.id}`}>
+                        <Link href={{ pathname: `/invoices/${inv.id}`, query: { from: 'project' } }}>
                           <Button size="sm" variant="outline">
                             View
                           </Button>
@@ -1103,7 +1103,7 @@ export default async function ProjectDetailPage({
                     <TableRow key={cm.id}>
                       <TableCell className="font-mono text-xs">
                         <Link
-                          href={{ pathname: `/credit-memos/${cm.id}` }}
+                          href={{ pathname: `/credit-memos/${cm.id}`, query: { from: 'project' } }}
                           className="text-blue-600 hover:underline"
                         >
                           {cm.number}
@@ -1192,7 +1192,7 @@ export default async function ProjectDetailPage({
                       {formatMoney(p.amount)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/payments/${p.id}`}>
+                      <Link href={{ pathname: `/payments/${p.id}`, query: { from: 'project' } }}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
@@ -1243,7 +1243,7 @@ export default async function ProjectDetailPage({
                       {formatMoney(l.perUnitCost)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/landed-cost/${l.id}`}>
+                      <Link href={{ pathname: `/landed-cost/${l.id}`, query: { from: 'project' } }}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>

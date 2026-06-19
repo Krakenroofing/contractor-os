@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,10 +36,14 @@ function formatDate(d: Date | string | null) {
 
 export default async function EstimateDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'estimates');
@@ -59,17 +64,21 @@ export default async function EstimateDetailPage({
     <div className="p-8 space-y-6 max-w-6xl">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/estimates', label: 'Estimates' },
           { label: estimate.number },
         ]}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/estimates">
-          <Button variant="outline" size="sm">
-            ← Back to Estimates
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/estimates"
+          listLabel="Estimates"
+          projectId={fromProject ? estimate.projectId : null}
+          projectName={project?.name}
+        />
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="estimate" id={estimate.id} />
           {allowCreate && estimate.status === 'draft' && (

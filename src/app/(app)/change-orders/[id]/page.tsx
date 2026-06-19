@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,10 +37,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function ChangeOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'change_orders');
@@ -65,17 +70,21 @@ export default async function ChangeOrderDetailPage({
     <div className="p-8 space-y-6 max-w-6xl">
       <Breadcrumbs
         items={[
+          ...(fromProject && project
+            ? [{ href: `/projects/${project.id}`, label: project.name }]
+            : []),
           { href: '/change-orders', label: 'Change Orders' },
           { label: co.number },
         ]}
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/change-orders">
-          <Button variant="outline" size="sm">
-            ← Back to Change Orders
-          </Button>
-        </Link>
+        <BackButton
+          listHref="/change-orders"
+          listLabel="Change Orders"
+          projectId={fromProject ? co.projectId : null}
+          projectName={project?.name}
+        />
         <div className="flex items-center gap-2">
           <DocumentDownloadButtons type="change_order" id={co.id} />
           {allowCreate && co.status !== 'void' && (
