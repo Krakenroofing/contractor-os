@@ -182,6 +182,11 @@ export default async function BankAccountDetailPage({
   const projectByIdMap = new Map(projects.map((p) => [p.id, p]));
   const vendorById = new Map(vendors.map((v) => [v.id, v]));
   const accountByIdMap = new Map(bankAccountList.map((b) => [b.id, b]));
+  // Accounting-account (category) names, so a categorized/split row can show
+  // WHAT it was categorized as — not just an "auto-filled" badge over blank
+  // columns. A VAT-split puts categories on the lines (header is null), so the
+  // row would otherwise look empty even though it's fully categorized.
+  const categoryNameById = new Map(accounts.map((a) => [a.id, a.name]));
 
   // Indices of records already claimed by an active match — passed to the
   // matcher to filter them out of candidate lists.
@@ -472,6 +477,26 @@ export default async function BankAccountDetailPage({
                   });
                   const matched = firstMatchingRule(txnLike, matcherRules);
                   const triage = triageState(txnLike, matched);
+                  // What this row was actually categorized as — shown in the
+                  // row so an "auto-filled"/categorized line isn't visually
+                  // blank. Split lines carry the categories (header is null).
+                  const rowLines = linesByTxn.get(t.id) ?? [];
+                  const categorySummary =
+                    rowLines.length > 0
+                      ? rowLines
+                          .map((l) =>
+                            l.accountingAccountId
+                              ? (categoryNameById.get(l.accountingAccountId) ??
+                                'Unknown')
+                              : 'Uncategorized',
+                          )
+                          .join(' + ')
+                      : t.accountingAccountId
+                        ? (categoryNameById.get(t.accountingAccountId) ?? null)
+                        : null;
+                  const vendorLabel = t.vendorId
+                    ? (vendorById.get(t.vendorId)?.name ?? null)
+                    : null;
                   const showRulePanel =
                     triage === 'suggested' ||
                     triage === 'auto_filled' ||
@@ -570,9 +595,15 @@ export default async function BankAccountDetailPage({
                               {t.memo}
                             </div>
                           )}
+                          {categorySummary && (
+                            <div className="mt-0.5 text-xs text-slate-600">
+                              <span className="text-slate-400">Category: </span>
+                              {rowLines.length > 1 ? `Split — ${categorySummary}` : categorySummary}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-slate-600">
-                          {t.payee ?? '—'}
+                          {vendorLabel ?? t.payee ?? '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-amber-700">
                           {t.debit !== null
