@@ -219,7 +219,15 @@ export function triageState(
   if (txn.isIgnored) return 'ignored';
   if (txn.reconciled === true) return 'reconciled';
   if (txn.isReviewed) return 'reviewed';
-  if (txn.appliedRuleId) return 'auto_filled';
+  if (txn.appliedRuleId) {
+    // Only "auto-filled" if the rule actually wrote a categorization (a
+    // category, or split lines — the caller encodes "has lines" by setting
+    // accountingAccountId to a sentinel). A routing rule that matched but
+    // wrote no category ("… → categorize") is NOT auto-filled — it still
+    // needs a human to categorize it, so don't claim otherwise.
+    if (txn.accountingAccountId) return 'auto_filled';
+    return 'uncategorized';
+  }
   if (txn.accountingAccountId) return 'manually_categorized';
   if (matched && matched.matched) return 'suggested';
   return 'uncategorized';

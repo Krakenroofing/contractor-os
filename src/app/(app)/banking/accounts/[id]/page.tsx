@@ -724,6 +724,15 @@ export default async function BankAccountDetailPage({
                           />
                         </TableCell>
                       </TableRow>
+                      {/* Separator between transactions — the per-row form
+                          blends into the next row otherwise (operator
+                          feedback). A thick band clearly delimits each txn. */}
+                      <TableRow aria-hidden className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={7}
+                          className="h-3 p-0 bg-slate-200/70 border-y border-slate-300"
+                        />
+                      </TableRow>
                     </Fragment>
                   );
                 })}
