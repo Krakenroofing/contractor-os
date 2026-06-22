@@ -58,7 +58,7 @@ import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
-import { getReceipt, listReceipts } from '@/lib/data/receipts';
+import { createReceipt, getReceipt, listReceipts } from '@/lib/data/receipts';
 import {
   ensureDefaultCoaForCompany,
   createPairedAccountingAccount,
@@ -1464,6 +1464,76 @@ export async function matchReceiptAction(input: {
   }
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
+}
+
+/**
+ * "Add receipt" on a bank transaction: create a documentary DRAFT receipt
+ * prefilled from the bank line and link it as the line's proof-of-purchase.
+ * The operator then uploads the picture(s) (the receipt page's existing
+ * multi-image uploader) and posts it later with project / cost code.
+ *
+ * Why a draft, not a posted receipt: posting requires a line with project +
+ * cost code (it writes a job_cost_entry), which would force categorization at
+ * upload time and could double-count if the bank line is already job-tagged.
+ * The documentary draft keeps "attach a receipt photo" fast. We link via the
+ * match primitive directly so matchReceiptAction's strict posted-only guard
+ * (used by the auto-suggest path) stays intact.
+ */
+export async function addReceiptToTransactionAction(input: {
+  transactionId: string;
+}): Promise<{ ok: boolean; receiptId?: string; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  if (Number(txn.amount) >= 0) {
+    return {
+      ok: false,
+      error: 'Receipts attach to money-out (debit) transactions.',
+    };
+  }
+  const company = await getActiveCompany();
+  const account = txn.bankAccountId
+    ? await getBankAccount(companyId, txn.bankAccountId)
+    : null;
+  const gross = toMoneyString(Math.abs(Number(txn.amount)));
+  let receiptId: string;
+  try {
+    const receipt = await createReceipt({
+      companyId,
+      receiptDate: txn.transactionDate,
+      currency: txn.currency,
+      // Header total reflects the bank line; line-level detail (and any VAT
+      // split) is added on the receipt page before posting.
+      subtotal: gross,
+      vatAmount: '0',
+      total: gross,
+      vatRatePercent:
+        company.isVatActive && company.vatRatePercent
+          ? company.vatRatePercent
+          : null,
+      vendorId: txn.vendorId ?? null,
+      bankAccountId: txn.bankAccountId ?? null,
+      paymentSourceType: account?.type === 'credit_card' ? 'credit_card' : 'bank',
+      status: 'draft',
+      notes: `From bank transaction: ${txn.description}`.slice(0, 500),
+      uploadedByUserId: user.id,
+    });
+    receiptId = receipt.id;
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'receipt',
+      receiptId: receipt.id,
+      confidence: 'manual',
+      matchedByUserId: user.id,
+      notes: 'Receipt added from bank transaction',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Could not add receipt: ${message}` };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true, receiptId };
 }
 
 export async function matchJobCostEntryAction(input: {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import {
+  addReceiptToTransactionAction,
   matchInvoicePaymentAction,
   matchJobCostEntryAction,
   matchOwnerEquityAction,
@@ -112,6 +113,22 @@ export function MatchPanel(props: MatchPanelProps) {
     setInvoiceResults([]);
     setInvoiceSearched(false);
     setErr(null);
+  }
+
+  // Create a documentary draft receipt from this bank line and jump to the
+  // receipt page to upload the picture(s). The line is linked immediately.
+  function addReceipt() {
+    setErr(null);
+    startTransition(async () => {
+      const res = await addReceiptToTransactionAction({
+        transactionId: props.transactionId,
+      });
+      if (!res.ok || !res.receiptId) {
+        setErr(res.error ?? 'Could not add receipt.');
+        return;
+      }
+      router.push(`/banking/receipts/${res.receiptId}`);
+    });
   }
 
   function runAndRefresh(fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -539,6 +556,17 @@ export function MatchPanel(props: MatchPanelProps) {
               }
             >
               Owner draw
+            </Button>
+          )}
+          {moneyOut && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending}
+              onClick={addReceipt}
+              title="Create a receipt from this line and upload its picture(s)"
+            >
+              + Add receipt
             </Button>
           )}
         </div>
