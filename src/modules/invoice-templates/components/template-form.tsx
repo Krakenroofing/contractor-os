@@ -27,10 +27,13 @@ type Defaults = Partial<InvoiceTemplate> & { name?: string };
 export function InvoiceTemplateForm({
   defaults,
   editId,
+  isVatActive = true,
 }: {
   defaults?: Defaults;
   /** When provided, switches the form to update mode against this id. */
   editId?: string;
+  /** Hide VAT/TIN config for non-VAT companies (e.g. Kraken Roofing LLC). */
+  isVatActive?: boolean;
 }) {
   const action = editId
     ? updateInvoiceTemplateAction.bind(null, editId)
@@ -120,7 +123,9 @@ export function InvoiceTemplateForm({
           Section visibility
         </legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {(Object.keys(SECTION_LABEL) as Array<keyof typeof SECTION_LABEL>).map(
+          {(Object.keys(SECTION_LABEL) as Array<keyof typeof SECTION_LABEL>)
+            .filter((key) => isVatActive || key !== 'showTaxVat')
+            .map(
             (key) => (
               <label key={key} className="flex items-center gap-2 text-sm">
                 <input
@@ -215,9 +220,13 @@ export function InvoiceTemplateForm({
           />
         </Field>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="TIN label">
-            <Input name="tinLabel" defaultValue={d.tinLabel} />
-          </Field>
+          {isVatActive ? (
+            <Field label="TIN label">
+              <Input name="tinLabel" defaultValue={d.tinLabel} />
+            </Field>
+          ) : (
+            <input type="hidden" name="tinLabel" value={d.tinLabel} />
+          )}
           <Field label="'Issued by' label">
             <Input name="issuedByLabel" defaultValue={d.issuedByLabel} />
           </Field>
@@ -300,26 +309,36 @@ export function InvoiceTemplateForm({
         </div>
       </fieldset>
 
-      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
-        <legend className="px-2 text-sm font-medium text-slate-700">
-          VAT row
-        </legend>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="VAT label" error={err('vatLabel')}>
-            <Input name="vatLabel" defaultValue={d.vatLabel} />
-          </Field>
-          <Field
-            label="VAT rate (%)"
-            error={err('vatRatePercent')}
-          >
-            <Input
-              name="vatRatePercent"
-              inputMode="decimal"
-              defaultValue={String(d.vatRatePercent ?? '0')}
-            />
-          </Field>
-        </div>
-      </fieldset>
+      {isVatActive ? (
+        <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+          <legend className="px-2 text-sm font-medium text-slate-700">
+            VAT row
+          </legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="VAT label" error={err('vatLabel')}>
+              <Input name="vatLabel" defaultValue={d.vatLabel} />
+            </Field>
+            <Field label="VAT rate (%)" error={err('vatRatePercent')}>
+              <Input
+                name="vatRatePercent"
+                inputMode="decimal"
+                defaultValue={String(d.vatRatePercent ?? '0')}
+              />
+            </Field>
+          </div>
+        </fieldset>
+      ) : (
+        // Non-VAT company: keep submitting valid values so the template saves,
+        // but hide the VAT config entirely.
+        <>
+          <input type="hidden" name="vatLabel" value={d.vatLabel} />
+          <input
+            type="hidden"
+            name="vatRatePercent"
+            value={String(d.vatRatePercent ?? '0')}
+          />
+        </>
+      )}
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">

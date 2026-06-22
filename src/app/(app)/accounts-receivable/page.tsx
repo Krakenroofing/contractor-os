@@ -1,5 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { isDevDemoMode } from '@/lib/auth';
 import { formatMoney } from '@/lib/money';
 import {
@@ -13,7 +13,8 @@ import { ARListClient } from '@/modules/accounts-receivable/components/ar-list-c
 export const dynamic = 'force-dynamic';
 
 export default async function AccountsReceivablePage() {
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
   const asOf = new Date();
   const rows = await buildAgingRowsForCompany(companyId, asOf);
   const summary = summarizeAging(rows);
@@ -43,10 +44,14 @@ export default async function AccountsReceivablePage() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPI
-          label="Total AR (gross)"
+          label={company.isVatActive ? 'Total AR (gross)' : 'Total AR'}
           value={formatMoney(summary.totalAR)}
           highlight
-          sub={`revenue ${formatMoney(summary.totalARNet)} · VAT ${formatMoney(summary.totalARVat)}`}
+          sub={
+            company.isVatActive
+              ? `revenue ${formatMoney(summary.totalARNet)} · VAT ${formatMoney(summary.totalARVat)}`
+              : undefined
+          }
         />
         <KPI
           label="Current"

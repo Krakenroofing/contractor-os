@@ -27,6 +27,8 @@ export default async function VendorVatReportPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  // Non-VAT company (e.g. Kraken Roofing LLC, US) → no VAT reports.
+  if (!company.isVatActive) redirect('/reports');
   const filters = parseReportFilters(await searchParams);
   const [report, projects] = await Promise.all([
     buildVendorVatReport(company.id, filters),

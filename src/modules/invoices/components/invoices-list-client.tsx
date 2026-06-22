@@ -80,9 +80,12 @@ function quarterLabelFromKey(key: string): string {
 export function InvoicesListClient({
   rows,
   allowCreate,
+  showVat = true,
 }: {
   rows: InvoiceListRow[];
   allowCreate: boolean;
+  /** Hide the per-row net/VAT breakdown for non-VAT companies. */
+  showVat?: boolean;
 }) {
   const [search, setSearch] = useState('');
   // Voided invoices are hidden by default — they're dead obligations and
@@ -516,7 +519,7 @@ export function InvoicesListClient({
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
                     <div>{formatMoney(r.total)}</div>
-                    {r.taxAmount > 0 && (
+                    {showVat && r.taxAmount > 0 && (
                       <div className="text-[11px] font-normal text-slate-500">
                         net {formatMoney(r.subtotal)} ·{' '}
                         VAT {formatMoney(r.taxAmount)}

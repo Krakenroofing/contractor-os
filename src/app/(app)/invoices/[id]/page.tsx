@@ -456,7 +456,7 @@ export default async function InvoiceDetailPage({
                 )}
               </>
             )}
-            {show('showTaxVat') && (
+            {show('showTaxVat') && company.isVatActive && (
               <Row
                 label={(() => {
                   const base = template?.vatLabel ?? 'VAT';

@@ -28,7 +28,14 @@ export default async function ReportsIndexPage() {
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
-  const others = REPORT_TYPES.filter((r) => !FEATURED.includes(r));
+  // VAT reports are meaningless for a non-VAT company (e.g. Kraken Roofing
+  // LLC, US) — hide them from the grid.
+  const VAT_REPORTS: ReportType[] = ['vat-quarterly', 'vendor-vat'];
+  const others = REPORT_TYPES.filter(
+    (r) =>
+      !FEATURED.includes(r) &&
+      (company.isVatActive || !VAT_REPORTS.includes(r)),
+  );
 
   return (
     <div className="p-8 max-w-[100rem] space-y-6">

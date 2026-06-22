@@ -271,7 +271,12 @@ export function InvoiceForm({
   // they only appear when the template explicitly enables them.
   const showOptIn = (flag: boolean | undefined): boolean => flag === true;
   const showLineItems = showSection(activeTemplate?.showLineItems);
-  const showTaxVat = showSection(activeTemplate?.showTaxVat);
+  // VAT only shows when the company actually charges it (rate > 0). A non-VAT
+  // company (e.g. Kraken Roofing LLC, US) never sees the Tax/VAT field, the
+  // totals VAT line, or the progress-breakdown VAT row — regardless of the
+  // template's showTaxVat flag.
+  const showTaxVat =
+    showSection(activeTemplate?.showTaxVat) && companyVatRatePercent > 0;
   const showRetainage = showSection(activeTemplate?.showRetainage);
   const showPaymentTerms = showSection(activeTemplate?.showPaymentTerms);
   const showNotes = showSection(activeTemplate?.showNotes);

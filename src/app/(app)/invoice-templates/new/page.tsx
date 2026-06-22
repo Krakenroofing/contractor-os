@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { getActiveRole } from '@/lib/active-role';
+import { getActiveCompany } from '@/lib/active-company';
 import { canCreate } from '@/lib/permissions';
 import { InvoiceTemplateForm } from '@/modules/invoice-templates/components/template-form';
 
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewInvoiceTemplatePage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'invoice_templates')) redirect('/invoice-templates');
+  const company = await getActiveCompany();
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
@@ -35,7 +37,7 @@ export default async function NewInvoiceTemplatePage() {
         </p>
       </header>
 
-      <InvoiceTemplateForm />
+      <InvoiceTemplateForm isVatActive={company.isVatActive} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
@@ -24,7 +24,9 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function InvoicesPage() {
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
+  const isVatActive = company.isVatActive;
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'invoices');
 
@@ -137,23 +139,39 @@ export default async function InvoicesPage() {
         <KPI
           label="Revenue invoiced (net)"
           value={formatMoney(totalInvoicedNet)}
-          sub={`VAT ${formatMoney(totalInvoicedVat)} · gross ${formatMoney(totalInvoiced)}`}
+          sub={
+            isVatActive
+              ? `VAT ${formatMoney(totalInvoicedVat)} · gross ${formatMoney(totalInvoiced)}`
+              : undefined
+          }
         />
         <KPI
           label="Revenue collected (net)"
           value={formatMoney(totalPaidNet)}
           valueClassName="text-emerald-700"
-          sub={`VAT collected ${formatMoney(totalPaidVat)} · gross ${formatMoney(totalPaid)}`}
+          sub={
+            isVatActive
+              ? `VAT collected ${formatMoney(totalPaidVat)} · gross ${formatMoney(totalPaid)}`
+              : undefined
+          }
         />
         <KPI
-          label="Outstanding balance (gross)"
+          label={isVatActive ? 'Outstanding balance (gross)' : 'Outstanding balance'}
           value={formatMoney(outstanding)}
           valueClassName={outstanding > 0 ? 'text-amber-700' : 'text-slate-900'}
-          sub={`net ${formatMoney(outstandingNet)} · VAT ${formatMoney(outstandingVat)}`}
+          sub={
+            isVatActive
+              ? `net ${formatMoney(outstandingNet)} · VAT ${formatMoney(outstandingVat)}`
+              : undefined
+          }
         />
       </div>
 
-      <InvoicesListClient rows={rows} allowCreate={allowCreate} />
+      <InvoicesListClient
+        rows={rows}
+        allowCreate={allowCreate}
+        showVat={isVatActive}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
@@ -18,7 +18,8 @@ export default async function EditInvoiceTemplatePage({
   const { id } = await params;
   const role = await getActiveRole();
   if (!canCreate(role, 'invoice_templates')) redirect('/invoice-templates');
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
   const tpl = await getInvoiceTemplate(companyId, id);
   if (!tpl) notFound();
 
@@ -48,7 +49,11 @@ export default async function EditInvoiceTemplatePage({
         </p>
       </header>
 
-      <InvoiceTemplateForm editId={tpl.id} defaults={tpl} />
+      <InvoiceTemplateForm
+        editId={tpl.id}
+        defaults={tpl}
+        isVatActive={company.isVatActive}
+      />
     </div>
   );
 }

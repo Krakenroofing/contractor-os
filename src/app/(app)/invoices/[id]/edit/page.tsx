@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { InvoiceEditForm } from '@/modules/invoices/components/invoice-edit-form';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getInvoice, getInvoiceLineItems } from '@/lib/data/invoices';
@@ -23,7 +23,8 @@ export default async function EditInvoicePage({
   const role = await getActiveRole();
   if (!canCreate(role, 'invoices')) redirect('/invoices');
 
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
   const invoice = await getInvoice(companyId, id);
   if (!invoice) notFound();
 
@@ -78,6 +79,7 @@ export default async function EditInvoicePage({
       </header>
 
       <InvoiceEditForm
+        showVat={company.isVatActive}
         initial={{
           id: invoice.id,
           number: invoice.number,

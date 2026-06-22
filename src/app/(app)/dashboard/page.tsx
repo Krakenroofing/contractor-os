@@ -36,6 +36,9 @@ export default async function DashboardPage() {
   const { kpis, alerts, revenueByQuarter } = data;
   const canSeeBanking = canView(role, 'bank_accounts');
   const canSeeReceipts = canView(role, 'receipts');
+  // Hide VAT chrome for non-VAT companies (e.g. Kraken Roofing LLC, US — no
+  // VAT). Only TRB (VAT-registered) should see VAT figures/labels.
+  const isVatActive = company.isVatActive;
 
   // Resource visibility flags — hide sections the active role can't see.
   const canSeeChangeOrders = canView(role, 'change_orders');
@@ -255,7 +258,7 @@ export default async function DashboardPage() {
         <section className="space-y-3">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
-              Revenue by quarter (ex-VAT)
+              Revenue by quarter{isVatActive ? ' (ex-VAT)' : ''}
             </h2>
             <p className="text-xs text-slate-400 tabular-nums">
               Total: {formatMoney(kpis.totalInvoicedNet)}
@@ -270,12 +273,14 @@ export default async function DashboardPage() {
                 hint={
                   q.invoiceCount === 0
                     ? 'No activity'
-                    : `${q.invoiceCount} invoice${q.invoiceCount === 1 ? '' : 's'} · VAT ${formatMoney(q.vat)}`
+                    : `${q.invoiceCount} invoice${q.invoiceCount === 1 ? '' : 's'}${
+                        isVatActive ? ` · VAT ${formatMoney(q.vat)}` : ''
+                      }`
                 }
                 valueClassName={
                   q.revenueNet > 0 ? 'text-slate-900' : 'text-slate-400'
                 }
-                href="/reports/vat-quarterly"
+                href={isVatActive ? '/reports/vat-quarterly' : '/reports/profit-loss'}
               />
             ))}
           </div>
@@ -288,13 +293,15 @@ export default async function DashboardPage() {
             Cash &amp; AR
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <KPI
-              label="VAT invoiced"
-              value={formatMoney(kpis.totalInvoicedVAT)}
-              hint="On-behalf-of-government — not income"
-              valueClassName={kpis.totalInvoicedVAT > 0 ? 'text-amber-700' : undefined}
-              href="/reports/vat-quarterly"
-            />
+            {isVatActive && (
+              <KPI
+                label="VAT invoiced"
+                value={formatMoney(kpis.totalInvoicedVAT)}
+                hint="On-behalf-of-government — not income"
+                valueClassName={kpis.totalInvoicedVAT > 0 ? 'text-amber-700' : undefined}
+                href="/reports/vat-quarterly"
+              />
+            )}
             <KPI
               label="Gross invoiced"
               value={formatMoney(kpis.totalInvoicedGross)}

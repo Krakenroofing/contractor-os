@@ -81,10 +81,13 @@ export function InvoiceEditForm({
   initial,
   changeOrderOptions,
   products = [],
+  showVat = true,
 }: {
   initial: InvoiceEditFormInitial;
   changeOrderOptions: InvoiceEditFormChangeOrderOption[];
   products?: ProductPickerOption[];
+  /** Hide the Tax/VAT field + totals line for non-VAT companies. */
+  showVat?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     updateInvoiceFullAction,
@@ -384,14 +387,18 @@ export function InvoiceEditForm({
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Totals</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Tax / VAT" error={err('taxAmount')}>
-            <Input
-              name="taxAmount"
-              inputMode="decimal"
-              value={taxAmount}
-              onChange={(e) => setTaxAmount(e.target.value)}
-            />
-          </Field>
+          {showVat ? (
+            <Field label="Tax / VAT" error={err('taxAmount')}>
+              <Input
+                name="taxAmount"
+                inputMode="decimal"
+                value={taxAmount}
+                onChange={(e) => setTaxAmount(e.target.value)}
+              />
+            </Field>
+          ) : (
+            <input type="hidden" name="taxAmount" value={taxAmount} />
+          )}
           <Field label="Retainage %" error={err('retainagePercent')}>
             <Input
               name="retainagePercent"
@@ -441,7 +448,7 @@ export function InvoiceEditForm({
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
-        <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />
+        {showVat && <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />}
         <Stat
           label={`Retainage held${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}
           value={formatMoney(totals.retainage)}

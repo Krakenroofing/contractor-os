@@ -209,7 +209,9 @@ export async function buildInvoicePayload(
       });
     }
   };
-  const showVatRow = template ? template.showTaxVat : true;
+  // Never render a VAT row for a non-VAT company (e.g. Kraken Roofing LLC,
+  // US) — otherwise the PDF shows a "VAT $0.00" line on every invoice.
+  const showVatRow = (template ? template.showTaxVat : true) && company.isVatActive;
   const showRetainageRow =
     (template ? template.showRetainage : true) && retainageAmount > 0;
 
