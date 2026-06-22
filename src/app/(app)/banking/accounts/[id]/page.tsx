@@ -715,6 +715,11 @@ export default async function BankAccountDetailPage({
                             vendors={vendorOptions}
                             customers={customerOptions}
                             vatInputAccountId={vatInputAccountId}
+                            companyVatRatePercent={
+                              company.vatRatePercent
+                                ? Number(company.vatRatePercent)
+                                : null
+                            }
                             canEdit={canEdit}
                           />
                         </TableCell>

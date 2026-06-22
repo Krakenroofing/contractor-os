@@ -447,7 +447,14 @@ export async function commitImportAction(
 // coerced from string|number and must be a positive money value; the per-line
 // total is validated against the parent's gross in the action.
 const splitLineParseSchema = z.object({
-  accountingAccountId: z.string().uuid('Pick a category for every line'),
+  // Category is OPTIONAL on a split line. This lets the operator auto-split
+  // VAT (net + VAT-input) on a transaction NOW and assign the cost category to
+  // the net line LATER — the workflow TRB wants. Empty string / null → null
+  // (uncategorized). The line table's accounting_account_id is nullable.
+  accountingAccountId: z
+    .union([z.string().uuid(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => (v && v !== '' ? v : null)),
   projectId: z.union([z.string(), z.null()]).optional(),
   costCodeId: z.union([z.string(), z.null()]).optional(),
   description: z.union([z.string().max(500), z.null()]).optional(),
@@ -513,7 +520,7 @@ export async function updateImportedTransactionAction(
     const result = splitLinesParseSchema.safeParse(rawLines);
     if (!result.success) {
       return {
-        formError: 'Each split line needs a category and an amount greater than zero.',
+        formError: 'Each split line needs an amount greater than zero.',
       };
     }
     const lines = result.data;

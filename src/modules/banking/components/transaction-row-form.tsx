@@ -67,6 +67,10 @@ export type TransactionRowFormProps = {
   vendors: VendorOption[];
   customers: CustomerPickerOption[];
   vatInputAccountId: string | null;
+  /** Company standard VAT rate (e.g. 10 for TRB). Used as the fallback rate
+   *  for Auto-VAT split when no VAT-registered vendor is selected, so a txn
+   *  can be split at the company rate and categorized later. */
+  companyVatRatePercent: number | null;
   canEdit: boolean;
 };
 
@@ -145,15 +149,20 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
     setLines((prev) => prev.filter((_, idx) => idx !== i));
 
   const selectedVendor = props.vendors.find((x) => x.id === vendorId);
-  const canAutoVat = Boolean(
-    selectedVendor?.vatRatePercent && props.vatInputAccountId,
-  );
+  // Rate resolution mirrors the rule engine: vendor rate first, then the
+  // company standard rate. So a TRB transaction splits at 10% even with no
+  // vendor picked — the operator can categorize the net line afterward.
+  const effectiveVatRate =
+    (selectedVendor?.vatRatePercent ?? 0) > 0
+      ? selectedVendor!.vatRatePercent!
+      : (props.companyVatRatePercent ?? 0);
+  const canAutoVat = Boolean(effectiveVatRate && props.vatInputAccountId);
 
-  // Fill the grid with the cost + VAT Input split derived from the vendor's
-  // rate. Cost line uses the current category (or the vendor default); VAT
-  // line goes to the resolved VAT Input account.
+  // Fill the grid with the cost + VAT Input split derived from the resolved
+  // rate. The cost line is left UNCATEGORIZED unless a category / vendor
+  // default is already set — the operator assigns it later.
   function autoVatSplit() {
-    const rate = selectedVendor?.vatRatePercent ?? 0;
+    const rate = effectiveVatRate;
     if (!rate || !props.vatInputAccountId) return;
     const gross = props.grossAmount;
     const { net, vat } = computeVatSplit(gross, rate);
@@ -294,8 +303,8 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40 hover:bg-slate-50"
             title={
               canAutoVat
-                ? "Fill cost + VAT Input lines from the vendor's VAT rate"
-                : 'Pick a VAT-registered vendor first (and ensure a VAT Input account exists)'
+                ? `Split into cost + VAT Input at ${effectiveVatRate}% — leave the cost line's category blank to set it later`
+                : 'No VAT rate available — set the company VAT rate (or pick a VAT-registered vendor) and ensure a VAT Input account exists'
             }
           >
             Auto-VAT split
