@@ -71,6 +71,9 @@ export function ProductPicker({
         value={value}
         placeholder={placeholder}
         disabled={disabled}
+        // Keep "+ Add new product…" visible even after typing a name that
+        // matches no existing product — the moment you most want to add one.
+        pinnedValues={[ADD_NEW]}
         onChange={(e) => {
           const next = e.target.value;
           if (next === ADD_NEW) {

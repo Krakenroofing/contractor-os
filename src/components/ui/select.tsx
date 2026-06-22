@@ -74,6 +74,11 @@ export type SelectProps = Omit<
 > & {
   onChange?: (e: SyntheticChangeEvent) => void;
   placeholder?: string;
+  /** Option values that must stay visible even when the typeahead filter
+   *  would otherwise hide them — e.g. a "+ Add new…" action. Without this, an
+   *  add-new row disappears the instant the operator types a name that doesn't
+   *  match an existing option, which is exactly when they want to add one. */
+  pinnedValues?: string[];
 };
 
 export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
@@ -89,6 +94,7 @@ export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
       disabled,
       onChange,
       placeholder,
+      pinnedValues,
     },
     ref,
   ) {
@@ -113,11 +119,19 @@ export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
     const listRef = React.useRef<HTMLUListElement>(null);
     const buttonRef = React.useRef<HTMLButtonElement>(null);
 
+    const pinned = React.useMemo(
+      () => new Set(pinnedValues ?? []),
+      [pinnedValues],
+    );
     const filtered = React.useMemo(() => {
       const q = query.trim().toLowerCase();
       if (!q) return options;
-      return options.filter((o) => o.searchText.includes(q));
-    }, [options, query]);
+      // Keep pinned options (e.g. "+ Add new…") even when the query matches
+      // nothing else — that's precisely when they're needed.
+      return options.filter(
+        (o) => o.searchText.includes(q) || pinned.has(o.value),
+      );
+    }, [options, query, pinned]);
 
     React.useEffect(() => {
       if (!open) return;
