@@ -105,9 +105,31 @@ export default async function ProfitLossAccountDetailPage({
                       {e.date}
                     </TableCell>
                     <TableCell className="text-slate-900">
-                      {e.description || '—'}
+                      {e.importedTransactionId ? (
+                        <Link
+                          href={`/banking/transactions/${e.importedTransactionId}`}
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                        >
+                          {e.description || '—'}
+                        </Link>
+                      ) : (
+                        e.description || '—'
+                      )}
                     </TableCell>
-                    <TableCell className="text-slate-500">{e.source}</TableCell>
+                    <TableCell className="text-slate-500">
+                      {e.importedTransactionId ? (
+                        <Link
+                          href={`/banking/transactions/${e.importedTransactionId}`}
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                        >
+                          {e.source} ↗
+                        </Link>
+                      ) : (
+                        e.source
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {formatMoney(e.amount)}
                     </TableCell>

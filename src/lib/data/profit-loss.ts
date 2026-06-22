@@ -397,6 +397,10 @@ export type ProfitLossAccountEntry = {
   description: string;
   amount: number;
   source: 'Bank transaction' | 'Job cost';
+  /** Source row id so the drill-down can deep-link to the full record.
+   *  Exactly one is set per entry, matching `source`. */
+  importedTransactionId?: string;
+  jobCostEntryId?: string;
 };
 
 export type ProfitLossAccountDetail = {
@@ -442,6 +446,7 @@ export async function listProfitLossAccountEntries(
   if (filters.to) jceConds.push(lte(jobCostEntries.entryDate, filters.to));
   const jceRows = await db
     .select({
+      id: jobCostEntries.id,
       date: jobCostEntries.entryDate,
       description: jobCostEntries.description,
       amount: jobCostEntries.amount,
@@ -462,6 +467,7 @@ export async function listProfitLossAccountEntries(
     btConds.push(lte(importedTransactions.transactionDate, filters.to));
   const btRows = await db
     .select({
+      id: importedTransactions.id,
       date: importedTransactions.transactionDate,
       description: importedTransactions.description,
       amount: importedTransactions.amount,
@@ -475,6 +481,7 @@ export async function listProfitLossAccountEntries(
       description: r.description,
       amount: Number(r.amount),
       source: 'Job cost' as const,
+      jobCostEntryId: r.id,
     })),
     ...btRows.map((r) => ({
       date: r.date,
@@ -482,6 +489,7 @@ export async function listProfitLossAccountEntries(
       // Stored signed (negative = debit); expense magnitude is -amount.
       amount: -Number(r.amount),
       source: 'Bank transaction' as const,
+      importedTransactionId: r.id,
     })),
   ];
   entries.sort((a, b) => a.date.localeCompare(b.date));
