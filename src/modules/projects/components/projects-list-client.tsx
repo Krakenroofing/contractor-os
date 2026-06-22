@@ -46,17 +46,28 @@ const STATUS_LABEL: Record<Project['status'], string> = {
   lost: 'Lost',
 };
 
+const TYPE_LABEL: Record<Project['projectType'], string> = {
+  production: 'Production',
+  service: 'Service / T&M',
+};
+
+const TYPE_TONE: Record<Project['projectType'], 'slate' | 'blue'> = {
+  production: 'slate',
+  service: 'blue',
+};
+
 export type ProjectRow = {
   id: string;
   name: string;
   status: Project['status'];
+  projectType: Project['projectType'];
   customerName: string;
   contractValue: string;
   currentBudget: string;
   totalChangeOrders: string;
 };
 
-type FilterKey = 'customer' | 'status';
+type FilterKey = 'customer' | 'status' | 'type';
 
 export function ProjectsListClient({
   projects,
@@ -69,6 +80,7 @@ export function ProjectsListClient({
   const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
     customer: new Set(),
     status: new Set(),
+    type: new Set(),
   });
   const [sort, setSort] = useState<SortState>(null);
 
@@ -86,6 +98,13 @@ export function ProjectsListClient({
       .map((s) => ({ value: s, label: STATUS_LABEL[s] }));
   }, [projects]);
 
+  const typeOptions = useMemo<FilterOption[]>(() => {
+    const present = new Set(projects.map((p) => p.projectType));
+    return Array.from(present)
+      .sort()
+      .map((t) => ({ value: t, label: TYPE_LABEL[t] }));
+  }, [projects]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const matches = (set: Set<string>, value: string) =>
@@ -98,7 +117,8 @@ export function ProjectsListClient({
       return (
         matchesSearch &&
         matches(filters.customer, p.customerName) &&
-        matches(filters.status, p.status)
+        matches(filters.status, p.status) &&
+        matches(filters.type, p.projectType)
       );
     });
 
@@ -111,6 +131,8 @@ export function ProjectsListClient({
             return p.customerName;
           case 'status':
             return p.status;
+          case 'type':
+            return p.projectType;
           case 'contract':
             return parseMoney(p.contractValue);
           case 'profit':
@@ -170,7 +192,7 @@ export function ProjectsListClient({
         searchPlaceholder="Search by name or customer…"
         onClear={() => {
           setSearch('');
-          setFilters({ customer: new Set(), status: new Set() });
+          setFilters({ customer: new Set(), status: new Set(), type: new Set() });
         }}
       />
 
@@ -224,6 +246,17 @@ export function ProjectsListClient({
                     onFilterChange={setFilter('status')}
                   />
                 </TableHead>
+                <TableHead>
+                  <ColumnHeader
+                    label="Type"
+                    sortKey="type"
+                    sort={sort}
+                    onSortChange={setSort}
+                    filterOptions={typeOptions}
+                    filterValues={filters.type}
+                    onFilterChange={setFilter('type')}
+                  />
+                </TableHead>
                 <TableHead className="text-right">
                   <ColumnHeader
                     label="Contract"
@@ -254,6 +287,11 @@ export function ProjectsListClient({
                     <TableCell className="text-slate-600">{p.customerName}</TableCell>
                     <TableCell>
                       <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone={TYPE_TONE[p.projectType]}>
+                        {TYPE_LABEL[p.projectType]}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(p.contractValue)}

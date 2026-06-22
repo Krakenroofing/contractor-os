@@ -40,6 +40,9 @@ function readForm(formData: FormData) {
     customerId: formData.get('customerId'),
     name: formData.get('name'),
     status: formData.get('status') ?? 'lead',
+    projectType: formData.get('projectType') ?? 'production',
+    tmLaborBillRate: formData.get('tmLaborBillRate') ?? '',
+    tmMaterialMarkupPct: formData.get('tmMaterialMarkupPct') ?? '',
     jobsiteAddressLine1: formData.get('jobsiteAddressLine1') ?? '',
     jobsiteCity: formData.get('jobsiteCity') ?? '',
     jobsiteState: formData.get('jobsiteState') ?? '',
@@ -76,6 +79,7 @@ export async function createProjectAction(
       customerId: data.customerId,
       name: data.name,
       status: data.status,
+      projectType: data.projectType,
       jobsiteAddressLine1: emptyToNull(data.jobsiteAddressLine1 ?? null),
       jobsiteAddressLine2: null,
       jobsiteCity: emptyToNull(data.jobsiteCity ?? null),
@@ -90,6 +94,8 @@ export async function createProjectAction(
       originalContractValue: data.contractValue,
       totalChangeOrders: '0',
       currentBudget: data.estimatedBudget,
+      tmLaborBillRate: data.tmLaborBillRate,
+      tmMaterialMarkupPct: data.tmMaterialMarkupPct,
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = project.id;
@@ -142,6 +148,7 @@ export async function createProjectInlineAction(input: {
       customerId: parsed.data.customerId,
       name: parsed.data.name,
       status: parsed.data.status,
+      projectType: 'production',
       jobsiteAddressLine1: null,
       jobsiteAddressLine2: null,
       jobsiteCity: null,
@@ -156,6 +163,8 @@ export async function createProjectInlineAction(input: {
       originalContractValue: '0',
       totalChangeOrders: '0',
       currentBudget: '0',
+      tmLaborBillRate: null,
+      tmMaterialMarkupPct: null,
       notes: null,
     });
     revalidatePath('/projects');
@@ -247,6 +256,7 @@ export async function updateProjectAction(
       customerId: data.customerId,
       name: data.name,
       status: data.status,
+      projectType: data.projectType,
       jobsiteAddressLine1: emptyToNull(data.jobsiteAddressLine1 ?? null),
       jobsiteAddressLine2: null,
       jobsiteCity: emptyToNull(data.jobsiteCity ?? null),
@@ -263,6 +273,8 @@ export async function updateProjectAction(
       originalContractValue: data.contractValue,
       contractValue: data.contractValue,
       currentBudget: data.estimatedBudget,
+      tmLaborBillRate: data.tmLaborBillRate,
+      tmMaterialMarkupPct: data.tmMaterialMarkupPct,
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

@@ -242,7 +242,12 @@ export default async function ProjectDetailPage({
             {address && <span>{address}</span>}
           </div>
         </div>
-        <Badge tone={STATUS_TONE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
+        <div className="flex items-center gap-2">
+          {project.projectType === 'service' && (
+            <Badge tone="blue">Service / T&amp;M</Badge>
+          )}
+          <Badge tone={STATUS_TONE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
+        </div>
       </div>
 
       {/* Quick navigation */}

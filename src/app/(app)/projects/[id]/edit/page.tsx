@@ -59,6 +59,7 @@ export default async function EditProjectPage({
           customerId: project.customerId,
           name: project.name,
           status: project.status,
+          projectType: project.projectType,
           jobsiteAddressLine1: project.jobsiteAddressLine1 ?? '',
           jobsiteCity: project.jobsiteCity ?? '',
           jobsiteState: project.jobsiteState ?? '',
@@ -72,6 +73,8 @@ export default async function EditProjectPage({
           // revised total in sync via recomputeProjectChangeOrderTotals.
           contractValue: project.originalContractValue,
           estimatedBudget: project.currentBudget,
+          tmLaborBillRate: project.tmLaborBillRate ?? '',
+          tmMaterialMarkupPct: project.tmMaterialMarkupPct ?? '',
           notes: project.notes ?? '',
         }}
       />

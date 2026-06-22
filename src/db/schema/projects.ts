@@ -10,7 +10,7 @@ import {
 import { companies } from './companies';
 import { customers } from './customers';
 import { users } from './users';
-import { projectStatusEnum } from './_enums';
+import { projectStatusEnum, projectTypeEnum } from './_enums';
 
 export const projects = pgTable(
   'projects',
@@ -24,6 +24,8 @@ export const projects = pgTable(
       .references(() => customers.id, { onDelete: 'restrict' }),
     name: text('name').notNull(),
     status: projectStatusEnum('status').notNull().default('lead'),
+    // production (default) vs service / T&M. See projectTypeEnum.
+    projectType: projectTypeEnum('project_type').notNull().default('production'),
     jobsiteAddressLine1: text('jobsite_address_line1'),
     jobsiteAddressLine2: text('jobsite_address_line2'),
     jobsiteCity: text('jobsite_city'),
@@ -51,6 +53,15 @@ export const projects = pgTable(
       .notNull()
       .default('0'),
     notes: text('notes'),
+    // Service / T&M billing defaults. Only meaningful when
+    // projectType = 'service'; NULL on production jobs.
+    //   tmLaborBillRate — default hourly *bill* rate charged to the customer
+    //     for T&M labor (distinct from employee pay/cost).
+    //   tmMaterialMarkupPct — default markup % applied to billable materials /
+    //     job costs when generating a T&M invoice (NULL → per-entry / company
+    //     default markup).
+    tmLaborBillRate: numeric('tm_labor_bill_rate', { precision: 12, scale: 2 }),
+    tmMaterialMarkupPct: numeric('tm_material_markup_pct', { precision: 6, scale: 3 }),
     // Reconciliation verification — set when an operator confirms the
     // project's financials match real-world numbers.
     reconciliationVerifiedAt: timestamp('reconciliation_verified_at', {

@@ -21,6 +21,7 @@ export default async function ProjectsPage() {
         id: p.id,
         name: p.name,
         status: p.status,
+        projectType: p.projectType,
         customerName: customer?.name ?? 'Unknown customer',
         contractValue: p.contractValue,
         currentBudget: p.currentBudget,

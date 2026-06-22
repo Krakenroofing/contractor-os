@@ -32,6 +32,12 @@ export const projectStatusEnum = pgEnum('project_status', [
   'lost',
 ]);
 
+// production = the classic fixed-contract + change-orders + draws job.
+// service    = T&M work (no contract value; billed from labor hours +
+//              materials actually spent, marked up). Both Kraken and TRB run
+//              service accounts; most service work is Time & Materials.
+export const projectTypeEnum = pgEnum('project_type', ['production', 'service']);
+
 export const costCodeCategoryEnum = pgEnum('cost_code_category', [
   'labor',
   'material',

@@ -185,6 +185,7 @@ export async function backfillProjectAction(
       customerId: data.customerId,
       name: data.name,
       status: data.status,
+      projectType: 'production',
       jobsiteAddressLine1: null,
       jobsiteAddressLine2: null,
       jobsiteCity: null,
@@ -199,6 +200,8 @@ export async function backfillProjectAction(
       originalContractValue: data.contractValue,
       totalChangeOrders: '0',
       currentBudget: data.contractValue,
+      tmLaborBillRate: null,
+      tmMaterialMarkupPct: null,
       notes: null,
     });
   } catch (err) {

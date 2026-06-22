@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,15 +13,17 @@ import {
   type CreateProjectState,
   type UpdateProjectState,
 } from '../actions';
-import { projectStatusValues } from '../schema';
+import { projectStatusValues, projectTypeValues } from '../schema';
 
 type ProjectStatus = (typeof projectStatusValues)[number];
+type ProjectType = (typeof projectTypeValues)[number];
 
 export type ProjectFormInitialValues = {
   id?: string;
   customerId: string;
   name: string;
   status: ProjectStatus;
+  projectType: ProjectType;
   jobsiteAddressLine1: string;
   jobsiteCity: string;
   jobsiteState: string;
@@ -30,6 +32,8 @@ export type ProjectFormInitialValues = {
   targetCompletionDate: string;
   contractValue: string;
   estimatedBudget: string;
+  tmLaborBillRate: string;
+  tmMaterialMarkupPct: string;
   notes: string;
 };
 
@@ -37,6 +41,7 @@ const blankInitial: ProjectFormInitialValues = {
   customerId: '',
   name: '',
   status: 'lead',
+  projectType: 'production',
   jobsiteAddressLine1: '',
   jobsiteCity: '',
   jobsiteState: '',
@@ -45,6 +50,8 @@ const blankInitial: ProjectFormInitialValues = {
   targetCompletionDate: '',
   contractValue: '0',
   estimatedBudget: '0',
+  tmLaborBillRate: '',
+  tmMaterialMarkupPct: '',
   notes: '',
 };
 
@@ -70,6 +77,12 @@ export function ProjectForm({
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
+
+  // Drives which billing fields show: production → contract value; service →
+  // T&M billing defaults. Tracked client-side so the form reshapes live; the
+  // selected value posts via the hidden Type radios below.
+  const [projectType, setProjectType] = useState<ProjectType>(values.projectType);
+  const isService = projectType === 'service';
 
   const initialState: CreateProjectState | UpdateProjectState = {};
   const [state, formAction, pending] = useActionState(
@@ -98,6 +111,26 @@ export function ProjectForm({
           />
         </Field>
 
+        <Field
+          label="Type"
+          error={err('projectType')}
+          className="md:col-span-2"
+          hint={
+            isService
+              ? 'Service / T&M job — billed from labor hours + materials actually spent. No signed contract value.'
+              : 'Production job — fixed contract value, change orders, and progress draws.'
+          }
+        >
+          <Select
+            name="projectType"
+            value={projectType}
+            onChange={(e) => setProjectType(e.target.value as ProjectType)}
+          >
+            <option value="production">Production job</option>
+            <option value="service">Service / T&amp;M</option>
+          </Select>
+        </Field>
+
         <Field label="Customer" error={err('customerId')} required>
           <CustomerPicker
             name="customerId"
@@ -119,6 +152,7 @@ export function ProjectForm({
           </Select>
         </Field>
 
+        {!isService && (
         <Field
           label="Base contract value (net, ex-VAT, before change orders)"
           error={err('contractValue')}
@@ -141,8 +175,42 @@ export function ProjectForm({
             defaultValue={values.contractValue}
           />
         </Field>
+        )}
 
-        <Field label="Estimated budget" error={err('estimatedBudget')}>
+        {isService && (
+          <>
+            <Field
+              label="Default labor bill rate ($/hr)"
+              error={err('tmLaborBillRate')}
+              hint="What the customer is charged per labor hour on this T&M job — separate from what crew costs you. Used as the default when billing T&M; leave blank to set rates at billing time."
+            >
+              <Input
+                name="tmLaborBillRate"
+                inputMode="decimal"
+                placeholder="e.g. 75.00"
+                defaultValue={values.tmLaborBillRate}
+              />
+            </Field>
+
+            <Field
+              label="Default material markup (%)"
+              error={err('tmMaterialMarkupPct')}
+              hint="Markup applied to billable materials / job costs when billing T&M. Leave blank to use per-entry or company default markup."
+            >
+              <Input
+                name="tmMaterialMarkupPct"
+                inputMode="decimal"
+                placeholder="e.g. 15"
+                defaultValue={values.tmMaterialMarkupPct}
+              />
+            </Field>
+          </>
+        )}
+
+        <Field
+          label={isService ? 'Estimated budget / not-to-exceed' : 'Estimated budget'}
+          error={err('estimatedBudget')}
+        >
           <Input
             name="estimatedBudget"
             inputMode="decimal"
