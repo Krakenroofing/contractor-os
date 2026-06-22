@@ -88,6 +88,16 @@ export type InvoiceFormProjectOption = {
    *  form pre-fills the Retainage % field with this so progress draws stay
    *  consistent across billings without re-typing. */
   lastRetainagePercent?: number;
+  /** 'production' (default) or 'service'. Service / T&M projects default the
+   *  billing type to Time & Materials and surface the T&M billing defaults
+   *  below the line-item editor. */
+  projectType?: 'production' | 'service';
+  /** Default hourly bill rate for T&M labor on a service project — used by the
+   *  "Add labor line" helper. */
+  tmLaborBillRate?: number | null;
+  /** Default markup % on billable materials for a service project — used by
+   *  the "Add material line" helper. */
+  tmMaterialMarkupPct?: number | null;
 };
 export type InvoiceFormProposalOption = { id: string; label: string; projectId: string };
 export type InvoiceFormChangeOrderOption = {
@@ -478,6 +488,24 @@ export function InvoiceForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Service / T&M project → bill from labor + materials. Default the billing
+  // type to Time & Materials when the operator selects a service project and
+  // hasn't already moved the billing-type control off its 'progress' default.
+  // Mirrors the retainage prefill: only fires on project change, never
+  // clobbers a manual choice.
+  const isServiceProject = activeProject?.projectType === 'service';
+  useEffect(() => {
+    if (isServiceProject && billingType === 'progress') {
+      setBillingType('t_m');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  function addLineFromDefaults(patch: Partial<LineDraft>) {
+    setLines((prev) => [...prev, { ...newEmptyLine(), ...patch }]);
+    setDirty(true);
+  }
 
   const totals = useMemo(() => {
     let subtotal = 0;
@@ -929,6 +957,18 @@ export function InvoiceForm({
         <legend className="px-2 text-sm font-medium text-slate-700">
           Billing breakdown
         </legend>
+        {isServiceProject && (
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-900">
+            <span className="font-medium">Time &amp; Materials.</span> Enter labor
+            and materials as line items.{' '}
+            {activeProject?.tmLaborBillRate != null && activeProject.tmLaborBillRate > 0
+              ? `Default labor bill rate ${formatMoney(activeProject.tmLaborBillRate)}/hr. `
+              : 'No default labor bill rate set on this project. '}
+            {activeProject?.tmMaterialMarkupPct != null && activeProject.tmMaterialMarkupPct > 0
+              ? `Bill materials at cost + ${activeProject.tmMaterialMarkupPct}% markup.`
+              : ''}
+          </div>
+        )}
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
         <div className="space-y-2">
           <div className="hidden md:grid grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
@@ -1012,7 +1052,7 @@ export function InvoiceForm({
             );
           })}
         </div>
-        <div>
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
@@ -1021,6 +1061,39 @@ export function InvoiceForm({
           >
             + Add line
           </Button>
+          {isServiceProject && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  addLineFromDefaults({
+                    description: 'Labor',
+                    unit: 'hr',
+                    quantity: '1',
+                    unitCost:
+                      activeProject?.tmLaborBillRate != null &&
+                      activeProject.tmLaborBillRate > 0
+                        ? activeProject.tmLaborBillRate.toString()
+                        : '0',
+                  })
+                }
+              >
+                + Add labor line
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  addLineFromDefaults({ description: 'Materials', unit: 'ea', quantity: '1' })
+                }
+              >
+                + Add material line
+              </Button>
+            </>
+          )}
         </div>
       </fieldset>
 

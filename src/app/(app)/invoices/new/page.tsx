@@ -115,6 +115,10 @@ export default async function NewInvoicePage() {
         priorBilledNet: sumNet(basePrior),
         priorInvoiceCount: basePrior.length,
         lastRetainagePercent,
+        projectType: p.projectType,
+        tmLaborBillRate: p.tmLaborBillRate != null ? parseMoney(p.tmLaborBillRate) : null,
+        tmMaterialMarkupPct:
+          p.tmMaterialMarkupPct != null ? Number(p.tmMaterialMarkupPct) : null,
       };
     }),
   );

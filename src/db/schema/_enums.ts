@@ -141,6 +141,9 @@ export const invoiceBillingTypeEnum = pgEnum('invoice_billing_type', [
   'change_order',
   'deposit',
   'lump_sum',
+  // Time & Materials — invoices on service projects (see projectTypeEnum).
+  // Added to the DB via 2026-06-22_invoice_billing_type_tm.sql.
+  't_m',
 ]);
 
 export const paymentStatusEnum = pgEnum('payment_status', [

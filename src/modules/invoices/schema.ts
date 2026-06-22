@@ -36,6 +36,7 @@ export const billingTypeValues = [
   'change_order',
   'deposit',
   'lump_sum',
+  't_m',
 ] as const;
 export type BillingType = (typeof billingTypeValues)[number];
 
@@ -47,6 +48,7 @@ export const BILLING_TYPE_LABEL: Record<BillingType, string> = {
   change_order: 'Change order',
   deposit: 'Deposit',
   lump_sum: 'Lump sum',
+  t_m: 'Time & Materials',
 };
 
 const optionalString = z.string().optional().or(z.literal(''));

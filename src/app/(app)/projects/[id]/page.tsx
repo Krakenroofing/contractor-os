@@ -250,6 +250,19 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
+      {project.projectType === 'service' && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <span className="font-medium">Time &amp; Materials job.</span> Billed from
+          labor hours + materials, not a fixed contract.{' '}
+          {project.tmLaborBillRate && Number(project.tmLaborBillRate) > 0
+            ? `Default labor bill rate ${formatMoney(project.tmLaborBillRate)}/hr.`
+            : 'No default labor bill rate set.'}{' '}
+          {project.tmMaterialMarkupPct && Number(project.tmMaterialMarkupPct) > 0
+            ? `Material markup ${project.tmMaterialMarkupPct}%.`
+            : ''}
+        </div>
+      )}
+
       {/* Quick navigation */}
       <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-wrap gap-2">
         <span className="text-xs uppercase tracking-wide text-slate-500 self-center mr-2">
