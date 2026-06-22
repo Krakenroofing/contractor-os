@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { downscaleLogoForUpload } from '@/lib/images/downscale-logo';
 import {
   uploadCompanyLogoAction,
   removeCompanyLogoAction,
@@ -31,6 +32,20 @@ export function CompanyLogoUploader({
 
   if (uploadState.ok && !uploadState.formError && uploadFormRef.current) {
     uploadFormRef.current.reset();
+  }
+
+  // Downscale the logo in the browser BEFORE it hits the server action. Large
+  // logos (>~4.5MB) are silently dropped at Vercel's edge before the action
+  // runs — the same cap that ate field photos — leaving logo_url null. Shrink
+  // first, then dispatch the action imperatively with the smaller file.
+  async function onUploadSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (uploadPending || !uploadFormRef.current) return;
+    const fd = new FormData(uploadFormRef.current);
+    const file = fd.get('logo');
+    if (!(file instanceof File) || file.size === 0) return;
+    fd.set('logo', await downscaleLogoForUpload(file));
+    uploadAction(fd);
   }
 
   const initials = companyName
@@ -66,7 +81,7 @@ export function CompanyLogoUploader({
       <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-3">
         <form
           ref={uploadFormRef}
-          action={uploadAction}
+          onSubmit={onUploadSubmit}
           className="flex flex-wrap items-end gap-3 flex-1 min-w-[220px]"
         >
           <div className="flex-1 min-w-[220px]">
