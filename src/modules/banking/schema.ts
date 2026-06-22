@@ -7,6 +7,7 @@ import {
   APPLIES_TO_VALUES,
   MATCHER_FIELDS,
   MATCHER_OPS,
+  RULE_MATCH_MODES,
 } from './lib/rules';
 
 export const bankAccountTypeValues = ['bank', 'credit_card'] as const;
@@ -164,6 +165,7 @@ export const upsertRuleSchema = z.object({
   enabled: z.coerce.boolean().optional().default(true),
   priority: z.coerce.number().int().min(0).max(10_000).default(100),
   appliesTo: z.enum(APPLIES_TO_VALUES).default('all'),
+  matchMode: z.enum(RULE_MATCH_MODES).default('all'),
   bankAccountId: nullableUuid,
   amountMin: nullableAmount,
   amountMax: nullableAmount,

@@ -33,6 +33,9 @@ export const bankingRules = pgTable(
     mode: text('mode').notNull().default('suggest'),
     // 'all' | 'debits' | 'credits'
     appliesTo: text('applies_to').notNull().default('all'),
+    // How the matchers combine: 'all' (every condition) or 'any' (at least
+    // one). 'any' lets one rule cover spelling variants, e.g. JBR / J B R.
+    matchMode: text('match_mode').notNull().default('all'),
     bankAccountId: uuid('bank_account_id').references(() => bankAccounts.id, {
       onDelete: 'cascade',
     }),

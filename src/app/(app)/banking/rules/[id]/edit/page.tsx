@@ -100,6 +100,7 @@ export default async function EditBankingRulePage({
               enabled: rule.enabled,
               priority: rule.priority,
               appliesTo: view.appliesTo,
+              matchMode: view.matchMode,
               bankAccountId: view.bankAccountId,
               amountMin: view.amountMin,
               amountMax: view.amountMax,

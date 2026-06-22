@@ -22,8 +22,9 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-function summarizeMatchers(matchers: Matcher[]): string {
+function summarizeMatchers(matchers: Matcher[], matchMode: string): string {
   if (matchers.length === 0) return '(no conditions)';
+  const joiner = matchMode === 'any' ? ' OR ' : ' AND ';
   return matchers
     .slice(0, 3)
     .map((m) =>
@@ -34,7 +35,7 @@ function summarizeMatchers(matchers: Matcher[]): string {
         matchedAgainst: '',
       }),
     )
-    .join(' AND ') + (matchers.length > 3 ? ` (+${matchers.length - 3} more)` : '');
+    .join(joiner) + (matchers.length > 3 ? ` (+${matchers.length - 3} more)` : '');
 }
 
 function summarizeActions(
@@ -83,7 +84,7 @@ export default async function BankingRulesPage() {
       scopeLabel: r.bankAccountId
         ? (accountById.get(r.bankAccountId) ?? 'unknown account')
         : 'All accounts',
-      conditionSummary: summarizeMatchers(view.matchers),
+      conditionSummary: summarizeMatchers(view.matchers, view.matchMode ?? 'all'),
       actionSummary: summarizeActions(
         view.actions as Record<string, unknown>,
         categoryById,

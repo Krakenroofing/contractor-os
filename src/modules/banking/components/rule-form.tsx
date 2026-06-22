@@ -13,12 +13,14 @@ import {
   APPLIES_TO_VALUES,
   MATCHER_FIELDS,
   MATCHER_OPS,
+  RULE_MATCH_MODES,
   type AppliesTo,
   type Matcher,
   type MatcherField,
   type MatcherOp,
   type RuleActionPayload,
   type RuleForMatching,
+  type RuleMatchMode,
   describeReason,
   matchRule,
 } from '../lib/rules';
@@ -42,6 +44,7 @@ export type RuleFormProps = {
     enabled: boolean;
     priority: number;
     appliesTo: AppliesTo;
+    matchMode?: RuleMatchMode;
     bankAccountId: string | null;
     amountMin: number | null;
     amountMax: number | null;
@@ -79,6 +82,9 @@ export function RuleForm(props: RuleFormProps) {
   const [priority, setPriority] = useState(initial?.priority ?? 100);
   const [appliesTo, setAppliesTo] = useState<AppliesTo>(
     initial?.appliesTo ?? 'all',
+  );
+  const [matchMode, setMatchMode] = useState<RuleMatchMode>(
+    initial?.matchMode ?? 'all',
   );
   const [bankAccountId, setBankAccountId] = useState(
     initial?.bankAccountId ?? '',
@@ -123,6 +129,7 @@ export function RuleForm(props: RuleFormProps) {
       enabled: true,
       priority,
       appliesTo,
+      matchMode,
       bankAccountId: bankAccountId || null,
       amountMin: amountMin === '' ? null : Number(amountMin) || null,
       amountMax: amountMax === '' ? null : Number(amountMax) || null,
@@ -149,6 +156,7 @@ export function RuleForm(props: RuleFormProps) {
     name,
     priority,
     appliesTo,
+    matchMode,
     bankAccountId,
     amountMin,
     amountMax,
@@ -266,9 +274,23 @@ export function RuleForm(props: RuleFormProps) {
       </label>
 
       <div className="rounded-md border border-slate-200 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-slate-900">
-            Match when ALL of these are true
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-sm font-medium text-slate-900">
+            <span>Match when</span>
+            <div className="w-28">
+              <Select
+                name="matchMode"
+                value={matchMode}
+                onChange={(e) => setMatchMode(e.target.value as RuleMatchMode)}
+              >
+                {RULE_MATCH_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 'all' ? 'ALL' : 'ANY'}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <span>of these are true</span>
           </h3>
           <Button type="button" variant="outline" size="sm" onClick={addMatcher}>
             + Add condition

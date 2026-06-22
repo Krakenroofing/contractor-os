@@ -30,6 +30,12 @@ export type AppliesTo = (typeof APPLIES_TO_VALUES)[number];
 export const RULE_MODES = ['suggest', 'auto_apply'] as const;
 export type RuleMode = (typeof RULE_MODES)[number];
 
+// How the rule's conditions combine. 'all' = every condition must hit (the
+// original behavior); 'any' = at least one hits, e.g. "JBR" OR "J B R" on one
+// rule instead of two.
+export const RULE_MATCH_MODES = ['all', 'any'] as const;
+export type RuleMatchMode = (typeof RULE_MATCH_MODES)[number];
+
 export type Matcher = {
   field: MatcherField;
   op: MatcherOp;
@@ -60,6 +66,8 @@ export type RuleForMatching = {
   bankAccountId: string | null;
   amountMin: number | null;
   amountMax: number | null;
+  /** How matchers combine. Optional for back-compat — defaults to 'all'. */
+  matchMode?: RuleMatchMode;
   matchers: Matcher[];
   actions: RuleActionPayload;
 };
@@ -172,17 +180,26 @@ export function matchRule(
     return { matched: false };
   }
 
+  const mode: RuleMatchMode = rule.matchMode ?? 'all';
   const reasons: MatchReason[] = [];
+  let anyHit = false;
   for (const m of rule.matchers) {
     const result = matcherHits(m, txn);
-    if (!result.hit) return { matched: false };
-    reasons.push({
-      field: m.field,
-      op: m.op,
-      value: m.value,
-      matchedAgainst: result.matchedAgainst,
-    });
+    if (result.hit) {
+      anyHit = true;
+      reasons.push({
+        field: m.field,
+        op: m.op,
+        value: m.value,
+        matchedAgainst: result.matchedAgainst,
+      });
+    } else if (mode === 'all') {
+      // ALL mode: a single miss fails the rule.
+      return { matched: false };
+    }
   }
+  // ANY mode: need at least one condition to have hit.
+  if (mode === 'any' && !anyHit) return { matched: false };
   return { matched: true, rule, reasons };
 }
 
@@ -248,6 +265,7 @@ export function toRuleForMatching(row: {
   bankAccountId: string | null;
   amountMin: string | null;
   amountMax: string | null;
+  matchMode?: string | null;
   matchers: unknown;
   actions: unknown;
 }): RuleForMatching {
@@ -255,6 +273,7 @@ export function toRuleForMatching(row: {
     row.appliesTo === 'debits' || row.appliesTo === 'credits'
       ? row.appliesTo
       : 'all';
+  const matchMode: RuleMatchMode = row.matchMode === 'any' ? 'any' : 'all';
   const matchers: Matcher[] = Array.isArray(row.matchers)
     ? (row.matchers as unknown[]).filter(isMatcher)
     : [];
@@ -276,6 +295,7 @@ export function toRuleForMatching(row: {
     bankAccountId: row.bankAccountId,
     amountMin: toNum(row.amountMin),
     amountMax: toNum(row.amountMax),
+    matchMode,
     matchers,
     actions,
   };
