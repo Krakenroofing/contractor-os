@@ -60,7 +60,12 @@ export async function buildRemainingBillable(
   const customerById = new Map(customers.map((c) => [c.id, c]));
 
   const rows: ProjectRemainingBillable[] = [];
-  for (const p of projects.filter((pr) => isActiveProject(pr.status))) {
+  // Service / T&M jobs have no contract value — exclude them from this
+  // contract-based "remaining billable" view (else a $0 contract billed as
+  // T&M reads as negative remaining).
+  for (const p of projects.filter(
+    (pr) => isActiveProject(pr.status) && pr.projectType !== 'service',
+  )) {
     const summary = await computeProjectInvoiceSummary(p.id);
     const revisedContract = r2(parseMoney(p.contractValue));
     const billedNet = r2(summary.totalInvoicedNet);

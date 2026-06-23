@@ -1896,9 +1896,18 @@ export async function buildCustomerSummaryReport(
     // each invoice. Comparing the net contract against gross billed makes
     // every VAT-active project look over-billed by the VAT amount, so the
     // comparison must be net-vs-net.
-    const stillBillable = round2(
-      subtract(revisedContractValue, subtract(totalInvoicedNet, refundsCredited)),
-    );
+    // Service / T&M jobs have no contract value — they're billed from actuals,
+    // so "still billable against a contract" is meaningless (and a $0 contract
+    // would make any billing look over-billed). Treat them as $0 remaining.
+    const stillBillable =
+      p.projectType === 'service'
+        ? 0
+        : round2(
+            subtract(
+              revisedContractValue,
+              subtract(totalInvoicedNet, refundsCredited),
+            ),
+          );
 
     projectRows.push({
       projectId: p.id,
