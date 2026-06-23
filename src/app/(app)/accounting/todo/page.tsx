@@ -116,7 +116,7 @@ function IssueSection({
                 </TableCell>
                 <TableCell className="text-right">
                   <Link
-                    href={`/banking/accounts/${i.bankAccountId}?q=${encodeURIComponent(
+                    href={`/banking/accounts/${i.bankAccountId}?reviewed=1&q=${encodeURIComponent(
                       i.description ?? '',
                     )}`}
                     className="text-blue-700 hover:underline"

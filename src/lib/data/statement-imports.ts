@@ -593,7 +593,16 @@ export async function bulkCategorizeTransactions(
   if (patch.projectId !== undefined) set.projectId = patch.projectId;
   if (patch.costCodeId !== undefined) set.costCodeId = patch.costCodeId;
   if (patch.vendorId !== undefined) set.vendorId = patch.vendorId;
-  if (markReviewed) set.isReviewed = true;
+  if (markReviewed) {
+    // Only mark reviewed rows that end up categorized — either a category is
+    // being applied now, or the row already has one. Uncategorized rows stay
+    // un-reviewed (they belong in the Accounting To-Do, not the books).
+    const applyingCategory =
+      patch.accountingAccountId != null && patch.accountingAccountId !== '';
+    set.isReviewed = applyingCategory
+      ? true
+      : sql`CASE WHEN ${importedTransactions.accountingAccountId} IS NOT NULL THEN true ELSE ${importedTransactions.isReviewed} END`;
+  }
 
   const rows = await db
     .update(importedTransactions)

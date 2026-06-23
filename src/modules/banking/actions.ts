@@ -31,6 +31,7 @@ import {
   bulkApplyRuleToTransactions,
   bulkCategorizeTransactions,
   getImportedTransaction,
+  listLinesForTransactionIds,
   listRecentTransactionsForRules,
   replaceImportedTransactionLines,
   updateImportedTransaction,
@@ -545,6 +546,18 @@ export async function updateImportedTransactionAction(
       };
     }
 
+    // Can't mark reviewed with any line still uncategorized (it wouldn't flow
+    // into the P&L / Balance Sheet). Saving uncategorized is fine — it lands in
+    // the Accounting To-Do. Transfers/reconciled + ignored are exempt.
+    if (
+      commonPatch.isReviewed &&
+      !commonPatch.isIgnored &&
+      !txn.reconciledAt &&
+      !lines.every((l) => l.accountingAccountId != null)
+    ) {
+      return { formError: REVIEW_NEEDS_CATEGORY_ERROR };
+    }
+
     const lineInputs: ImportedTransactionLineInput[] = lines.map((l) => ({
       accountingAccountId: l.accountingAccountId,
       projectId: l.projectId ? l.projectId : null,
@@ -563,6 +576,14 @@ export async function updateImportedTransactionAction(
     });
   } else {
     // Single category → drop any prior split lines and stamp the single fields.
+    if (
+      commonPatch.isReviewed &&
+      !commonPatch.isIgnored &&
+      !txn.reconciledAt &&
+      !parsed.data.accountingAccountId
+    ) {
+      return { formError: REVIEW_NEEDS_CATEGORY_ERROR };
+    }
     await replaceImportedTransactionLines(companyId, parsed.data.id, []);
     await updateImportedTransaction(companyId, parsed.data.id, {
       accountingAccountId: parsed.data.accountingAccountId,
@@ -589,6 +610,13 @@ export async function toggleImportedTransactionFlag(input: {
     return { ok: false, error: 'No permission.' };
   }
   const companyId = await getActiveCompanyId();
+  if (input.flag === 'reviewed' && input.value) {
+    const txn = await getImportedTransaction(companyId, input.id);
+    if (!txn) return { ok: false, error: 'Transaction not found.' };
+    if (!(await isReadyForReview(companyId, txn))) {
+      return { ok: false, error: REVIEW_NEEDS_CATEGORY_ERROR };
+    }
+  }
   const patch =
     input.flag === 'reviewed'
       ? { isReviewed: input.value }
@@ -954,6 +982,30 @@ export async function applyRuleAction(input: {
   return { ok: true };
 }
 
+// A transaction can be marked reviewed only when its money has a home in the
+// books — a single category, or a fully-categorized split — so every reviewed
+// expense/income flows into the P&L and Balance Sheet. Transfers / owner
+// equity (reconciled) and ignored rows are exempt: they legitimately carry no
+// category. Uncategorized rows can still be SAVED (they surface in the
+// Accounting To-Do); they just can't be marked reviewed/complete.
+const REVIEW_NEEDS_CATEGORY_ERROR =
+  'Categorize this transaction (every split line) before marking it reviewed — an uncategorized expense or income won’t flow into the P&L or Balance Sheet. Transfers are exempt.';
+
+async function isReadyForReview(
+  companyId: string,
+  txn: {
+    id: string;
+    isIgnored: boolean;
+    reconciledAt: Date | null;
+    accountingAccountId: string | null;
+  },
+): Promise<boolean> {
+  if (txn.isIgnored || txn.reconciledAt) return true;
+  if (txn.accountingAccountId) return true;
+  const lines = await listLinesForTransactionIds(companyId, [txn.id]);
+  return lines.length > 0 && lines.every((l) => l.accountingAccountId != null);
+}
+
 /**
  * Mark a transaction reviewed in one click. Used on auto-filled rows and on
  * manually-categorized rows. View-only roles cannot review.
@@ -968,6 +1020,13 @@ export async function markTransactionReviewedAction(input: {
     return { ok: false, error: 'No permission.' };
   }
   const companyId = await getActiveCompanyId();
+  if (input.reviewed) {
+    const txn = await getImportedTransaction(companyId, input.id);
+    if (!txn) return { ok: false, error: 'Transaction not found.' };
+    if (!(await isReadyForReview(companyId, txn))) {
+      return { ok: false, error: REVIEW_NEEDS_CATEGORY_ERROR };
+    }
+  }
   const updated = await updateImportedTransaction(companyId, input.id, {
     isReviewed: input.reviewed,
   });

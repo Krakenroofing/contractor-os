@@ -88,6 +88,9 @@ export default async function BankAccountDetailPage({
   // Reviewed transactions drop off the worklist by default (their data is
   // already saved); tick "Show reviewed" to bring them back for audit.
   const showReviewed = parseStr(sp.reviewed) === '1';
+  // Show ONLY reviewed transactions (audit view) — distinct from "show
+  // reviewed" which adds them to the unreviewed worklist.
+  const reviewedOnly = parseStr(sp.reviewedOnly) === '1';
   const onlyUncategorized = parseStr(sp.uncategorized) === '1';
 
   const [
@@ -114,7 +117,8 @@ export default async function BankAccountDetailPage({
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
       includeIgnored,
-      onlyUnreviewed: !showReviewed,
+      onlyUnreviewed: !showReviewed && !reviewedOnly,
+      onlyReviewed: reviewedOnly,
       onlyUncategorized,
       limit: 200,
     }),
@@ -388,6 +392,16 @@ export default async function BankAccountDetailPage({
                   className="h-4 w-4"
                 />
                 Show reviewed{reviewedCount > 0 ? ` (${reviewedCount})` : ''}
+              </label>
+              <label className="flex items-center gap-1 text-xs">
+                <input
+                  type="checkbox"
+                  name="reviewedOnly"
+                  value="1"
+                  defaultChecked={reviewedOnly}
+                  className="h-4 w-4"
+                />
+                Reviewed only
               </label>
             </div>
             <div className="flex items-end gap-2">
