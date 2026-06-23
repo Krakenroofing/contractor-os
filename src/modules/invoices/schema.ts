@@ -99,6 +99,12 @@ export const invoiceFormSchema = z.object({
     .optional()
     .or(z.literal('')),
   lines: z.array(invoiceLineSchema).min(1, 'At least one line item is required'),
+  // Bill the % draw against the revised contract (base + approved COs) with
+  // combined prior billings. Posted as 'true'/'false' string from the form.
+  billAgainstRevised: z
+    .union([z.literal('true'), z.literal('false')])
+    .optional()
+    .transform((v) => v === 'true'),
 });
 
 /**

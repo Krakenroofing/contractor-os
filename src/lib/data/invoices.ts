@@ -131,6 +131,7 @@ export async function createInvoice(
         purchaseOrderNumber: input.purchaseOrderNumber ?? null,
         billingLabel: input.billingLabel ?? null,
         percentOfContract: input.percentOfContract ?? null,
+        billAgainstRevised: input.billAgainstRevised ?? false,
         sentAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
         paidAt: input.status === 'paid' ? now : null,
       })

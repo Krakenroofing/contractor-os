@@ -28,10 +28,15 @@ export type ProgressSourceProject = {
   priorBilledGross?: number;
   priorBilledNet?: number;
   priorInvoiceCount?: number;
+  /** Prior billings across BOTH base + CO tracks — used when billing against
+   *  the revised contract so cumulative % isn't understated. */
+  totalPriorBilledGross?: number;
+  totalPriorBilledNet?: number;
+  totalPriorInvoiceCount?: number;
 };
 
 export type ProgressSource = {
-  kind: 'base' | 'co';
+  kind: 'base' | 'co' | 'revised';
   /** Display label — the CO number, or 'base contract'. */
   label: string;
   /** Contract base the % applies to. */
@@ -52,7 +57,10 @@ export type ProgressSource = {
 export function resolveProgressSource(
   changeOrder: ProgressSourceCO | undefined,
   project: ProgressSourceProject | undefined,
+  billAgainstRevised = false,
 ): ProgressSource | null {
+  // A linked CO always wins — it bills on its own track regardless of the
+  // revised-contract option.
   if (changeOrder) {
     return {
       kind: 'co',
@@ -64,6 +72,20 @@ export function resolveProgressSource(
     };
   }
   if (project) {
+    // Bill against the REVISED contract (original + approved COs), with prior
+    // billings combined across both tracks so cumulative % is correct.
+    if (billAgainstRevised) {
+      return {
+        kind: 'revised',
+        label: 'revised contract',
+        value: project.contractValue ?? project.baseContractValue ?? 0,
+        priorGross:
+          project.totalPriorBilledGross ?? project.priorBilledGross ?? 0,
+        priorNet: project.totalPriorBilledNet ?? project.priorBilledNet ?? 0,
+        priorCount:
+          project.totalPriorInvoiceCount ?? project.priorInvoiceCount ?? 0,
+      };
+    }
     return {
       kind: 'base',
       label: 'base contract',
@@ -87,7 +109,7 @@ export type ProgressNumbers = {
   thisRoundGross: number;
   cumulativeRetention: number;
   billingNumber: number;
-  sourceKind: 'base' | 'co';
+  sourceKind: 'base' | 'co' | 'revised';
   sourceLabel: string;
 };
 

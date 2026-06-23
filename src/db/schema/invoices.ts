@@ -6,6 +6,7 @@ import {
   numeric,
   date,
   integer,
+  boolean,
   index,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
@@ -83,6 +84,11 @@ export const invoices = pgTable(
     // Doesn't drive any math — the operator enters the actual amount on the
     // line. Rendered in the project metadata block when set.
     percentOfContract: numeric('percent_of_contract', { precision: 6, scale: 3 }),
+    // When true, this invoice's progress % bills against the REVISED contract
+    // (original + approved COs) with prior billings combined across base + CO
+    // tracks — instead of the default base-only track. Lets one draw cover the
+    // change order. See progress.ts / invoice-payload.ts.
+    billAgainstRevised: boolean('bill_against_revised').notNull().default(false),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

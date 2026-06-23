@@ -84,6 +84,11 @@ export type InvoiceFormProjectOption = {
   /** Number of prior non-void base-track invoices on this project. Used to
    *  label this invoice as "Billing #N" in the progress breakdown. */
   priorInvoiceCount?: number;
+  /** Prior billings across BOTH base + CO tracks — for the "bill against
+   *  revised contract" option. */
+  totalPriorBilledGross?: number;
+  totalPriorBilledNet?: number;
+  totalPriorInvoiceCount?: number;
   /** Retention % from the most-recent prior invoice on this project. The
    *  form pre-fills the Retainage % field with this so progress draws stay
    *  consistent across billings without re-typing. */
@@ -315,6 +320,7 @@ export function InvoiceForm({
   const [status, setStatus] = useState<string>('draft');
   const [proposalId, setProposalId] = useState<string>('');
   const [changeOrderId, setChangeOrderId] = useState<string>('');
+  const [billRevisedChecked, setBillRevisedChecked] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState<string>(defaultInvoiceDate);
   const [dueDate, setDueDate] = useState<string>(defaultDueDate);
   const isLumpSum = billingType === 'lump_sum';
@@ -442,9 +448,19 @@ export function InvoiceForm({
   // value/priors (NEVER falls back to the project total — billing 50% of a
   // CO must mean 50% of the CO). No CO → the ORIGINAL contract value with
   // base-track priors, matching the rendered invoice's progress summary.
+  // Bill the % draw against the REVISED contract (base + approved COs) with
+  // prior billings combined across tracks. Only meaningful when the project
+  // has approved COs and no specific CO is linked (a linked CO bills its own
+  // track). Project "has COs" when revised > base.
+  const projectHasCOs = !!(
+    activeProject &&
+    (activeProject.contractValue ?? 0) > (activeProject.baseContractValue ?? 0)
+  );
+  const canBillRevised = projectHasCOs && !activeCO;
+  const billAgainstRevised = canBillRevised && billRevisedChecked;
   const progressSource = useMemo(
-    () => resolveProgressSource(activeCO, activeProject),
-    [activeCO, activeProject],
+    () => resolveProgressSource(activeCO, activeProject, billAgainstRevised),
+    [activeCO, activeProject, billAgainstRevised],
   );
 
   // Progress mode kicks in when (a) we're in lump-sum, (b) the billing
@@ -920,7 +936,11 @@ export function InvoiceForm({
             </div>
             <div className="md:col-span-3">
               <Label className="text-xs">
-                {activeCO ? `% of ${activeCO.label}` : '% of contract'}
+                {activeCO
+                  ? `% of ${activeCO.label}`
+                  : billAgainstRevised
+                    ? '% of revised contract'
+                    : '% of contract'}
               </Label>
               <Input
                 type="number"
@@ -932,6 +952,30 @@ export function InvoiceForm({
               />
             </div>
           </div>
+          {/* Posts the option. canBillRevised gates visibility; the value is
+              only true when the project actually has COs + no CO linked. */}
+          <input
+            type="hidden"
+            name="billAgainstRevised"
+            value={billAgainstRevised ? 'true' : 'false'}
+          />
+          {canBillRevised && (
+            <label className="flex items-start gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={billRevisedChecked}
+                onChange={(e) => setBillRevisedChecked(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+              />
+              <span>
+                Bill against <strong>revised contract</strong> (base + approved
+                change orders ={' '}
+                {formatMoney(activeProject?.contractValue ?? 0)}). The % draw
+                totals from the revised contract and nets all prior billings
+                across base + CO — so this one draw covers the change order.
+              </span>
+            </label>
+          )}
           {progressMode && progressNumbers && (
             <ProgressBreakdown
               data={progressNumbers}
@@ -1457,7 +1501,7 @@ function ProgressBreakdown({
     thisRoundGross: number;
     cumulativeRetention: number;
     billingNumber: number;
-    sourceKind: 'base' | 'co';
+    sourceKind: 'base' | 'co' | 'revised';
     sourceLabel: string;
   };
   taxRate: number;

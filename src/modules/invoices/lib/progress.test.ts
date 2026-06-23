@@ -43,6 +43,42 @@ test('linked CO bills against the CO value, not the project total', () => {
   assert.equal(n.sourceLabel, 'CO-2026-003');
 });
 
+test('bill-against-revised uses the revised total + combined priors', () => {
+  const proj = {
+    contractValue: 258_322.29, // revised (base + CO)
+    baseContractValue: 228_194.93, // base
+    priorBilledGross: 136_916.96, // base-track prior only
+    priorBilledNet: 136_916.96,
+    priorInvoiceCount: 1,
+    // combined across base + CO
+    totalPriorBilledGross: 206_657.93,
+    totalPriorBilledNet: 206_657.93,
+    totalPriorInvoiceCount: 2,
+  };
+  const source = resolveProgressSource(undefined, proj, true);
+  assert.ok(source);
+  assert.equal(source.kind, 'revised');
+  assert.equal(source.value, 258_322.29);
+  assert.equal(source.priorGross, 206_657.93);
+  // 100% of revised = 258,322.29 cumulative; less 206,657.93 already billed
+  // across both tracks → this draw is 51,664.36 (covers the CO).
+  const n = computeProgressNumbers(source, 100, 0);
+  assert.ok(n);
+  assert.equal(n.cumulativeBilled, 258_322.29);
+  assert.equal(n.thisRoundGross, 51_664.36);
+});
+
+test('without the revised flag, a base draw still uses the base contract', () => {
+  const proj = {
+    contractValue: 258_322.29,
+    baseContractValue: 228_194.93,
+  };
+  const source = resolveProgressSource(undefined, proj);
+  assert.ok(source);
+  assert.equal(source.kind, 'base');
+  assert.equal(source.value, 228_194.93);
+});
+
 test('CO priors are CO-track only — project priors never deduct', () => {
   const freshCo = { ...co, priorBilledGross: 0, priorBilledNet: 0, priorInvoiceCount: 0 };
   const n = computeProgressNumbers(

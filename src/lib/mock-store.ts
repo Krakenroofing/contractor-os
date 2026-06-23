@@ -919,6 +919,7 @@ function buildInvoice(input: SeedInvoice): {
     billingLabel: null,
     purchaseOrderNumber: null,
     percentOfContract: null,
+    billAgainstRevised: false,
     sentAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
     paidAt: input.status === 'paid' ? now : null,
     createdAt: now,
@@ -2620,6 +2621,8 @@ export type CreateInvoiceInput = {
   billingLabel?: string | null;
   // Display-only "30% of contract" tag for lump-sum / progress draws.
   percentOfContract?: string | null;
+  // Bill the % draw against the revised contract (base + approved COs).
+  billAgainstRevised?: boolean;
   lines: Array<{
     costCodeId: string | null;
     inventoryItemId?: string | null;
@@ -2668,6 +2671,7 @@ export function createMockInvoice(
     billingLabel: input.billingLabel ?? null,
     purchaseOrderNumber: input.purchaseOrderNumber ?? null,
     percentOfContract: input.percentOfContract ?? null,
+    billAgainstRevised: input.billAgainstRevised ?? false,
     sentAt:
       input.status !== 'draft' && input.status !== 'void' ? now : null,
     paidAt: input.status === 'paid' ? now : null,

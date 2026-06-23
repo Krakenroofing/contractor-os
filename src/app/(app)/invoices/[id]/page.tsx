@@ -110,7 +110,6 @@ export default async function InvoiceDetailPage({
   const priorBilledOnProject = otherInvoices
     .filter((i) => i.invoiceDate <= invoice.invoiceDate)
     .reduce((sum, i) => sum + Number(i.total), 0);
-  void priorBilledOnProject;
 
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
 
@@ -514,15 +513,29 @@ export default async function InvoiceDetailPage({
           understates the % billed. Base-contract invoices compare against
           the original contract (NOT contract + COs) for the same reason. */}
       {template?.showProgressBilling && project && (() => {
+        // billRevised: base-track invoice that bills against the revised
+        // contract (base + approved COs) with prior billings combined.
+        const billRevised = invoice.billAgainstRevised && !invoice.changeOrderId;
         const sourceValue = invoice.changeOrderId && co
           ? Number(co.total)
-          : Number(project.originalContractValue);
+          : billRevised
+            ? Number(project.contractValue)
+            : Number(project.originalContractValue);
         const sourceLabel = co
           ? `Bills against ${co.number}`
-          : 'Bills against base contract';
+          : billRevised
+            ? 'Bills against revised contract'
+            : 'Bills against base contract';
         const sourceValueLabel = co
           ? `${co.number} value`
-          : template.contractValueLabel;
+          : billRevised
+            ? 'Revised contract value'
+            : template.contractValueLabel;
+        // Combined prior (all tracks) when billing against revised; else
+        // same-source prior.
+        const priorForSource = billRevised
+          ? priorBilledOnProject
+          : priorOnSameSource;
         return (
           <Card>
             <CardHeader>
@@ -553,7 +566,9 @@ export default async function InvoiceDetailPage({
                   bold
                 />
                 <Row
-                  label={`% billed against ${co ? co.number : 'base contract'} (this invoice)`}
+                  label={`% billed against ${
+                    co ? co.number : billRevised ? 'revised contract' : 'base contract'
+                  } (this invoice)`}
                   value={
                     sourceValue > 0
                       ? `${(
@@ -564,8 +579,10 @@ export default async function InvoiceDetailPage({
                   }
                 />
                 <Row
-                  label={`${template.priorBilledLabel} (${co ? co.number : 'base contract'})`}
-                  value={`(${formatMoney(priorOnSameSource)})`}
+                  label={`${template.priorBilledLabel} (${
+                    co ? co.number : billRevised ? 'revised contract' : 'base contract'
+                  })`}
+                  value={`(${formatMoney(priorForSource)})`}
                 />
                 {Number(invoice.retainageAmount) > 0 && (
                   <Row

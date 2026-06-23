@@ -114,6 +114,11 @@ export default async function NewInvoicePage() {
         priorBilledGross: sumGross(basePrior),
         priorBilledNet: sumNet(basePrior),
         priorInvoiceCount: basePrior.length,
+        // Combined across base + CO tracks — for the "bill against revised
+        // contract" option so cumulative % isn't understated.
+        totalPriorBilledGross: sumGross(prior),
+        totalPriorBilledNet: sumNet(prior),
+        totalPriorInvoiceCount: prior.length,
         lastRetainagePercent,
         projectType: p.projectType,
         tmLaborBillRate: p.tmLaborBillRate != null ? parseMoney(p.tmLaborBillRate) : null,

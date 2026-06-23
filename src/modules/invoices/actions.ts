@@ -180,6 +180,7 @@ export async function createInvoiceAction(
     purchaseOrderNumber: formData.get('purchaseOrderNumber') ?? '',
     billingLabel: formData.get('billingLabel') ?? '',
     percentOfContract: formData.get('percentOfContract') ?? '',
+    billAgainstRevised: formData.get('billAgainstRevised') ?? 'false',
     lines: parsedLines,
   });
 
@@ -272,6 +273,7 @@ export async function createInvoiceAction(
         data.percentOfContract && data.percentOfContract.trim() !== ''
           ? Number(data.percentOfContract).toFixed(3)
           : null,
+      billAgainstRevised: data.billAgainstRevised ?? false,
       lines: persistLines,
     });
     createdId = inv.id;
@@ -469,6 +471,7 @@ export async function updateInvoiceFullAction(
     purchaseOrderNumber: formData.get('purchaseOrderNumber') ?? '',
     billingLabel: formData.get('billingLabel') ?? '',
     percentOfContract: formData.get('percentOfContract') ?? '',
+    billAgainstRevised: formData.get('billAgainstRevised') ?? 'false',
     lines: parsedLines,
   });
 

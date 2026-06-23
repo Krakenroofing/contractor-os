@@ -106,9 +106,16 @@ export async function buildInvoicePayload(
   const originalContractValue = project
     ? parseMoney(project.originalContractValue)
     : 0;
+  // billRevised: a base-track invoice that bills against the REVISED contract
+  // (project.contractValue = base + approved COs), netting prior billings
+  // across both tracks.
+  const billRevised = !!invoice.billAgainstRevised && !thisInvoiceOnCoTrack;
+  const revisedContractValue = project ? parseMoney(project.contractValue) : 0;
   const progressDenominator = thisInvoiceOnCoTrack
     ? thisInvoiceCoTotal
-    : originalContractValue;
+    : billRevised
+      ? revisedContractValue
+      : originalContractValue;
   const progressContext =
     progressPct !== null && project && progressDenominator > 0
       ? await (async () => {
@@ -121,7 +128,10 @@ export async function buildInvoicePayload(
               (i) =>
                 normalizeStatus('invoice', i.status) !== 'void' &&
                 i.invoiceDate <= invoice.invoiceDate &&
-                isInvoiceOnCoTrack(i) === thisInvoiceOnCoTrack,
+                // Revised-contract draws net ALL prior billings (both tracks);
+                // otherwise only same-track priors count.
+                (billRevised ||
+                  isInvoiceOnCoTrack(i) === thisInvoiceOnCoTrack),
             );
           const priorNet = prior.reduce(
             (acc, i) =>
