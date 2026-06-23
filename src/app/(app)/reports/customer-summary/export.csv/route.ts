@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { csvFilename, csvResponse, toCsv, type CsvCell } from '@/modules/reports/lib/csv';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel } from '@/modules/reports/lib/tax-label';
 import { buildCustomerSummaryReport } from '@/modules/reports/lib/reports';
 
 export const dynamic = 'force-dynamic';
@@ -13,11 +14,12 @@ export async function GET(req: NextRequest) {
   if (!canView(role, 'reports')) {
     return new Response('Forbidden', { status: 403 });
   }
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
   const filters = parseReportFilters(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   );
-  const report = await buildCustomerSummaryReport(companyId, filters);
+  const report = await buildCustomerSummaryReport(company.id, filters);
 
   const customerName = report.customer?.name ?? '(no customer selected)';
 
@@ -32,13 +34,13 @@ export async function GET(req: NextRequest) {
       'Approved COs',
       'Revised contract',
       'Billed (net)',
-      'Billed (VAT)',
+      `Billed (${tax})`,
       'Billed (gross)',
       'Base billed',
       'CO billed',
       'Refunds credited (net)',
       'Collected (net)',
-      'Collected (VAT)',
+      `Collected (${tax})`,
       'Collected (gross)',
       'Still billable',
       'Outstanding AR',
@@ -100,7 +102,7 @@ export async function GET(req: NextRequest) {
       'Status',
       'Total (gross)',
       'Net',
-      'VAT',
+      tax,
       'Paid',
       'Balance',
     ],

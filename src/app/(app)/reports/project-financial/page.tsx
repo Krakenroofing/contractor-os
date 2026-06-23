@@ -15,6 +15,7 @@ import { canView } from '@/lib/permissions';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel, exTaxLabel } from '@/modules/reports/lib/tax-label';
 import { buildProjectFinancialReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 
@@ -28,6 +29,8 @@ export default async function ProjectFinancialReportPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
+  const exTax = exTaxLabel(company.isVatActive);
   const filters = parseReportFilters(await searchParams);
   const [report, projects] = await Promise.all([
     buildProjectFinancialReport(company.id, filters),
@@ -45,14 +48,14 @@ export default async function ProjectFinancialReportPage({
         <KPI
           label="Revenue invoiced (net)"
           value={formatMoney(report.totals.totalInvoicedNet)}
-          hint={`VAT ${formatMoney(report.totals.totalInvoicedVat)} · gross ${formatMoney(report.totals.totalInvoiced)}`}
+          hint={`${tax} ${formatMoney(report.totals.totalInvoicedVat)} · gross ${formatMoney(report.totals.totalInvoiced)}`}
           highlight
         />
         <KPI
           label="Revenue collected (net)"
           value={formatMoney(report.totals.totalPaidNet)}
           valueClassName="text-emerald-700"
-          hint={`VAT collected ${formatMoney(report.totals.totalPaidVat)} · gross ${formatMoney(report.totals.totalPaid)}`}
+          hint={`${tax} collected ${formatMoney(report.totals.totalPaidVat)} · gross ${formatMoney(report.totals.totalPaid)}`}
         />
         <KPI
           label="Base vs CO invoiced (gross)"
@@ -77,9 +80,9 @@ export default async function ProjectFinancialReportPage({
         />
       </div>
       <p className="text-xs text-slate-500">
-        <strong>Revenue</strong> = invoice subtotal (ex-VAT). <strong>VAT</strong>{' '}
+        <strong>Revenue</strong> = invoice subtotal ({exTax}). <strong>{tax}</strong>{' '}
         is a liability collected on behalf of the government — never income.
-        Gross = revenue + VAT − retainage held.
+        Gross = revenue + {tax} − retainage held.
       </p>
       <p className="text-xs text-slate-500 -mt-2">
         <strong>Revised contract:</strong>{' '}
@@ -137,7 +140,7 @@ export default async function ProjectFinancialReportPage({
                   <TableCell className="text-right tabular-nums">
                     <div>{formatMoney(r.totalInvoicedNet)}</div>
                     <div className="text-[11px] text-slate-500 font-normal">
-                      VAT {formatMoney(r.totalInvoicedVat)} · gross{' '}
+                      {tax} {formatMoney(r.totalInvoicedVat)} · gross{' '}
                       {formatMoney(r.totalInvoiced)}
                     </div>
                     {(r.coInvoiced > 0 || r.changeOrders > 0) && (
@@ -150,7 +153,7 @@ export default async function ProjectFinancialReportPage({
                   <TableCell className="text-right tabular-nums text-emerald-700">
                     <div>{formatMoney(r.totalPaidNet)}</div>
                     <div className="text-[11px] text-slate-500 font-normal">
-                      VAT {formatMoney(r.totalPaidVat)} · gross{' '}
+                      {tax} {formatMoney(r.totalPaidVat)} · gross{' '}
                       {formatMoney(r.totalPaid)}
                     </div>
                     {(r.coInvoicedPaid > 0 || r.changeOrders > 0) && (

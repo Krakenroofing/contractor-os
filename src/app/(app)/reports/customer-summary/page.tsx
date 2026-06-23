@@ -17,6 +17,7 @@ import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel } from '@/modules/reports/lib/tax-label';
 import { buildCustomerSummaryReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 
@@ -30,6 +31,7 @@ export default async function CustomerSummaryReportPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
   const filters = parseReportFilters(await searchParams);
   const [report, projects, customers] = await Promise.all([
     buildCustomerSummaryReport(company.id, filters),
@@ -78,7 +80,7 @@ export default async function CustomerSummaryReportPage({
             <KPI
               label="Billed (gross)"
               value={formatMoney(report.totals.totalInvoiced)}
-              hint={`net ${formatMoney(report.totals.totalInvoicedNet)} · VAT ${formatMoney(
+              hint={`net ${formatMoney(report.totals.totalInvoicedNet)} · ${tax} ${formatMoney(
                 report.totals.totalInvoicedVat,
               )}`}
             />
@@ -104,7 +106,7 @@ export default async function CustomerSummaryReportPage({
               label="Collected (gross)"
               value={formatMoney(report.totals.totalPaid)}
               valueClassName="text-emerald-700"
-              hint={`net ${formatMoney(report.totals.totalPaidNet)} · VAT ${formatMoney(
+              hint={`net ${formatMoney(report.totals.totalPaidNet)} · ${tax} ${formatMoney(
                 report.totals.totalPaidVat,
               )}`}
             />
@@ -146,10 +148,10 @@ export default async function CustomerSummaryReportPage({
                     <TableHead className="text-right whitespace-pre-line">{`Approved\nCO`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Revised\ncontract`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Billed\nnet`}</TableHead>
-                    <TableHead className="text-right whitespace-pre-line">{`Billed\nVAT`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Billed\n${tax}`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Billed\ngross`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Collected\nnet`}</TableHead>
-                    <TableHead className="text-right whitespace-pre-line">{`Collected\nVAT`}</TableHead>
+                    <TableHead className="text-right whitespace-pre-line">{`Collected\n${tax}`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Collected\ngross`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Still\nbillable`}</TableHead>
                     <TableHead className="text-right whitespace-pre-line">{`Outstanding\nAR`}</TableHead>
@@ -305,7 +307,7 @@ export default async function CustomerSummaryReportPage({
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Total (gross)</TableHead>
                     <TableHead className="text-right">Net</TableHead>
-                    <TableHead className="text-right">VAT</TableHead>
+                    <TableHead className="text-right">{tax}</TableHead>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                   </TableRow>
@@ -367,17 +369,17 @@ export default async function CustomerSummaryReportPage({
 
           <p className="text-xs text-slate-500">
             <strong>Contract value</strong> is the revised contract (base +
-            approved COs), stored net of VAT. <strong>Billed (gross)</strong>{' '}
-            includes VAT; the net + VAT breakdown is shown beneath.{' '}
+            approved COs), stored net of {tax}. <strong>Billed (gross)</strong>{' '}
+            includes {tax}; the net + {tax} breakdown is shown beneath.{' '}
             <strong>Still billable</strong> = revised contract − billed{' '}
-            <em>net</em> — net vs net, because VAT is a separate liability
+            <em>net</em> — net vs net, because {tax} is a separate liability
             collected on behalf of the government and is not part of contract
             scope. Negative means over-billed. When a canceled/reduced scope is
             refunded and booked as a deduct change order, that refund is netted
             back out of billed here (the deduct CO already lowered the revised
             contract by the same amount), so the two sides stay balanced.{' '}
-            <strong>Collected (gross)</strong> includes VAT received; the
-            net + VAT breakdown is shown beneath.{' '}
+            <strong>Collected (gross)</strong> includes {tax} received; the
+            net + {tax} breakdown is shown beneath.{' '}
             <strong>Outstanding AR</strong> = billed − collected (both gross).
           </p>
         </>

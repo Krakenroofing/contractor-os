@@ -15,6 +15,7 @@ import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProfitLossRevenueEntries } from '@/lib/data/profit-loss';
 import { parseReportFilters, describeRange } from '@/modules/reports/lib/filters';
+import { exTaxLabel } from '@/modules/reports/lib/tax-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,7 @@ export default async function ProfitLossRevenueDetailPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  const exTax = exTaxLabel(company.isVatActive);
   const sp = await searchParams;
   const filters = parseReportFilters(sp);
   const account = typeof sp.account === 'string' ? sp.account : undefined;
@@ -66,7 +68,7 @@ export default async function ProfitLossRevenueDetailPage({
           <span className="font-medium text-slate-900">
             {formatMoney(detail.total)}
           </span>{' '}
-          (ex-VAT)
+          ({exTax})
         </p>
       </div>
 
@@ -87,7 +89,7 @@ export default async function ProfitLossRevenueDetailPage({
                   <TableHead className="w-28">Invoice</TableHead>
                   <TableHead>Customer / Project</TableHead>
                   <TableHead>Revenue category</TableHead>
-                  <TableHead className="text-right w-32">Ex-VAT</TableHead>
+                  <TableHead className="text-right w-32">{exTax}</TableHead>
                   <TableHead className="text-right w-32">Gross</TableHead>
                 </TableRow>
               </TableHeader>
@@ -129,7 +131,7 @@ export default async function ProfitLossRevenueDetailPage({
                 ))}
                 <TableRow className="border-t-2 border-slate-200">
                   <TableCell colSpan={4} className="font-semibold text-slate-900">
-                    Total (ex-VAT)
+                    Total ({exTax})
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-semibold">
                     {formatMoney(detail.total)}

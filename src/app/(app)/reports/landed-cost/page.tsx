@@ -15,6 +15,7 @@ import { canView } from '@/lib/permissions';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel } from '@/modules/reports/lib/tax-label';
 import { buildLandedCostReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 
@@ -28,6 +29,7 @@ export default async function LandedCostReportPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
   const filters = parseReportFilters(await searchParams);
   const [report, projects] = await Promise.all([
     buildLandedCostReport(company.id, filters),
@@ -45,7 +47,7 @@ export default async function LandedCostReportPage({
         <KPI label="Entries" value={String(report.rows.length)} />
         <KPI label="FOB" value={formatMoney(report.totals.fob)} />
         <KPI label="CIF" value={formatMoney(report.totals.cif)} />
-        <KPI label="Duty + VAT" value={formatMoney(report.totals.dutyAmount + report.totals.vatAmount)} />
+        <KPI label={`Duty + ${tax}`} value={formatMoney(report.totals.dutyAmount + report.totals.vatAmount)} />
         <KPI label="Brokerage" value={formatMoney(report.totals.brokerage)} />
         <KPI
           label="Total landed"
@@ -55,7 +57,7 @@ export default async function LandedCostReportPage({
       </div>
 
       <p className="text-sm text-slate-600">
-        Effective duty + VAT vs. CIF:{' '}
+        Effective duty + {tax} vs. CIF:{' '}
         <span className="font-semibold tabular-nums">{formatPercent(report.effectiveDutyVatPct, 2)}</span>
       </p>
 
@@ -78,7 +80,7 @@ export default async function LandedCostReportPage({
                   <TableHead className="text-right">FOB</TableHead>
                   <TableHead className="text-right">CIF</TableHead>
                   <TableHead className="text-right">Duty</TableHead>
-                  <TableHead className="text-right">VAT</TableHead>
+                  <TableHead className="text-right">{tax}</TableHead>
                   <TableHead className="text-right">Total landed</TableHead>
                   <TableHead className="text-right">Per unit</TableHead>
                 </TableRow>

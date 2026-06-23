@@ -16,6 +16,7 @@ import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { buildProfitLossReport } from '@/lib/data/profit-loss';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { exTaxLabel } from '@/modules/reports/lib/tax-label';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,7 @@ export default async function ProfitLossReportPage({
 
   const netSign = report.netIncome >= 0;
   const grossSign = report.grossProfit >= 0;
+  const exTax = exTaxLabel(company.isVatActive);
 
   // Revenue drill-down links carry the statement's date filter so the invoice
   // list ties to the income number on the report.
@@ -62,7 +64,7 @@ export default async function ProfitLossReportPage({
         <KPI
           label="Revenue"
           value={formatMoney(report.income.total)}
-          hint={`${report.income.invoiceCount} invoice${report.income.invoiceCount === 1 ? '' : 's'} (ex-VAT)`}
+          hint={`${report.income.invoiceCount} invoice${report.income.invoiceCount === 1 ? '' : 's'} (${exTax})`}
           highlight
           href={report.income.total > 0 ? revenueHref() : undefined}
         />
@@ -132,7 +134,7 @@ export default async function ProfitLossReportPage({
                 <TableRow>
                   <TableHead>Revenue category</TableHead>
                   <TableHead className="text-right">Invoices</TableHead>
-                  <TableHead className="text-right">Amount (ex-VAT)</TableHead>
+                  <TableHead className="text-right">Amount ({exTax})</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -274,7 +276,7 @@ export default async function ProfitLossReportPage({
                 value={formatMoney(report.wip.earnedRevenue)}
               />
               <Row
-                label="Billed to date (ex-VAT)"
+                label={`Billed to date (${exTax})`}
                 value={formatMoney(report.wip.billedToDate)}
               />
               <Row

@@ -15,6 +15,7 @@ import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel } from '@/modules/reports/lib/tax-label';
 import { buildInvoiceSummaryReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -29,6 +30,7 @@ export default async function InvoiceSummaryReportPage({
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
   const filters = parseReportFilters(await searchParams);
   const [report, projects] = await Promise.all([
     buildInvoiceSummaryReport(company.id, filters),
@@ -45,7 +47,7 @@ export default async function InvoiceSummaryReportPage({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPI label="Invoices" value={String(report.rows.length)} />
         <KPI label="Subtotal" value={formatMoney(report.totals.subtotal)} />
-        <KPI label="Tax / VAT" value={formatMoney(report.totals.taxAmount)} />
+        <KPI label={tax} value={formatMoney(report.totals.taxAmount)} />
         <KPI label="Retainage held" value={formatMoney(report.totals.retainageHeld)} />
         <KPI label="Total invoiced" value={formatMoney(report.totals.total)} highlight />
         <KPI
@@ -74,7 +76,7 @@ export default async function InvoiceSummaryReportPage({
                   <TableHead>Date</TableHead>
                   <TableHead>Due</TableHead>
                   <TableHead className="text-right">Subtotal</TableHead>
-                  <TableHead className="text-right">Tax</TableHead>
+                  <TableHead className="text-right">{tax}</TableHead>
                   <TableHead className="text-right">Retainage</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Paid</TableHead>

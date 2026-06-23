@@ -16,6 +16,7 @@ import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { exTaxLabel } from '@/modules/reports/lib/tax-label';
 import { buildWipReport } from '@/modules/reports/lib/wip';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 
@@ -80,7 +81,7 @@ export default async function WipReportPage({
         <KPI
           label="Billed to date"
           value={formatMoney(summary.billedToDate)}
-          hint="ex-VAT, non-draft, non-void"
+          hint={`${exTaxLabel(company.isVatActive)}, non-draft, non-void`}
         />
         <KPI
           label={summary.overUnderBilled >= 0 ? 'Under-billed' : 'Over-billed'}

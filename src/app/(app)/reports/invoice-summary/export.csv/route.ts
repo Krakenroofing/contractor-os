@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { csvFilename, csvResponse, toCsv, type CsvCell } from '@/modules/reports/lib/csv';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { taxLabel } from '@/modules/reports/lib/tax-label';
 import { buildInvoiceSummaryReport } from '@/modules/reports/lib/reports';
 
 export const dynamic = 'force-dynamic';
@@ -11,11 +12,12 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const role = await getActiveRole();
   if (!canView(role, 'reports')) return new Response('Forbidden', { status: 403 });
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const tax = taxLabel(company.isVatActive);
   const filters = parseReportFilters(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   );
-  const report = await buildInvoiceSummaryReport(companyId, filters);
+  const report = await buildInvoiceSummaryReport(company.id, filters);
 
   const rows: CsvCell[][] = [
     [
@@ -28,7 +30,7 @@ export async function GET(req: NextRequest) {
       'Project',
       'Lines',
       'Subtotal',
-      'Tax / VAT',
+      tax,
       'Retainage held',
       'Total',
       'Amount paid',

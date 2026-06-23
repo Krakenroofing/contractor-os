@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import {
@@ -9,6 +9,7 @@ import {
   type CsvCell,
 } from '@/modules/reports/lib/csv';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
+import { exTaxLabel } from '@/modules/reports/lib/tax-label';
 import { buildProfitLossReport } from '@/lib/data/profit-loss';
 
 export const dynamic = 'force-dynamic';
@@ -16,11 +17,12 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const role = await getActiveRole();
   if (!canView(role, 'reports')) return new Response('Forbidden', { status: 403 });
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const exTax = exTaxLabel(company.isVatActive);
   const filters = parseReportFilters(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   );
-  const report = await buildProfitLossReport(companyId, filters);
+  const report = await buildProfitLossReport(company.id, filters);
 
   const rows: CsvCell[][] = [
     [
@@ -84,7 +86,7 @@ export async function GET(req: NextRequest) {
     ...(report.wip.costBasisAvailable
       ? ([
           ['WIP (% COMPLETE)', 'Earned to date', report.wip.earnedRevenue],
-          ['WIP (% COMPLETE)', 'Billed to date (ex-VAT)', report.wip.billedToDate],
+          ['WIP (% COMPLETE)', `Billed to date (${exTax})`, report.wip.billedToDate],
           [
             'WIP (% COMPLETE)',
             report.wip.overUnderBilled >= 0
