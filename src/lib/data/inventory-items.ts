@@ -35,7 +35,8 @@ export async function listInventoryItems(
   companyId: string,
   opts: { includeArchived?: boolean; search?: string; limit?: number } = {},
 ): Promise<InventoryItem[]> {
-  const db = requireDb();
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
   const filters = [eq(inventoryItems.companyId, companyId)];
   if (!opts.includeArchived) filters.push(isNull(inventoryItems.archivedAt));
   const search = opts.search?.trim();
@@ -63,7 +64,8 @@ export async function getInventoryItem(
   companyId: string,
   id: string,
 ): Promise<InventoryItem | undefined> {
-  const db = requireDb();
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
   const rows = await db
     .select()
     .from(inventoryItems)
