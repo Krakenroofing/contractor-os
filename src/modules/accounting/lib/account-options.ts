@@ -37,13 +37,21 @@ export function toAccountingAccountOptions(
     isArchived?: boolean;
   }>,
 ): AccountingAccountOption[] {
-  return rows
-    .filter((r) => !r.isArchived)
+  const active = rows.filter((r) => !r.isArchived);
+  // A "header" is a non-postable GROUP total. An account is only that if it's
+  // top-level (no parent) AND actually has children rolling up into it. A
+  // parentless LEAF (e.g. "VAT Input", a standalone system account) is a real
+  // postable account — treating it as a header made it unselectable and made
+  // lines already posted to it render blank in the picker.
+  const hasChildren = new Set(
+    active.map((r) => r.parentId).filter((p): p is string => p !== null),
+  );
+  return active
     .map((r) => ({
       id: r.id,
       name: r.name,
       rollupGroup: r.rollupGroup,
-      isHeader: r.parentId === null,
+      isHeader: r.parentId === null && hasChildren.has(r.id),
     }))
     .sort((a, b) => {
       if (a.rollupGroup !== b.rollupGroup) return 0;
