@@ -24,6 +24,43 @@ const FEATURED: ReportType[] = [
   'accounts-receivable',
 ];
 
+// Double-entry financial statements + ledgers. These read from the general
+// ledger (not the operational tables) and have their own as-of / period
+// filters, so they live outside the ReportShell grid above.
+const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[] =
+  [
+    {
+      href: '/reports/balance-sheet',
+      label: 'Balance Sheet',
+      description:
+        'Financial position as of a date — assets, liabilities, and equity, straight from the general ledger.',
+    },
+    {
+      href: '/reports/cash-flow',
+      label: 'Cash Flow Statement',
+      description:
+        'Cash movements for a period split into operating, investing, and financing activities.',
+    },
+    {
+      href: '/reports/equity',
+      label: "Statement of Shareholders' Equity",
+      description:
+        'Changes in equity over a period: opening balance + net income + owner contributions − draws = closing.',
+    },
+    {
+      href: '/reports/trial-balance',
+      label: 'Trial Balance',
+      description:
+        'Every ledger account with its debit / credit balance — proves the books balance.',
+    },
+    {
+      href: '/reports/general-ledger',
+      label: 'General Ledger',
+      description:
+        'Account-by-account detail of every posted journal entry behind the statements.',
+    },
+  ];
+
 export default async function ReportsIndexPage() {
   const role = await getActiveRole();
   if (!canView(role, 'reports')) redirect('/dashboard');
@@ -86,6 +123,37 @@ export default async function ReportsIndexPage() {
             </Card>
           ))}
         </div>
+      </section>
+
+      {/* ===== Accounting reports (GL-based financial statements) ===== */}
+      <section className="space-y-3">
+        <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
+          Accounting reports
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {ACCOUNTING_REPORTS.map((r) => (
+            <Card key={r.href}>
+              <CardHeader>
+                <CardTitle className="text-base">{r.label}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-slate-600 min-h-[3rem]">
+                  {r.description}
+                </p>
+                <Link href={{ pathname: r.href }}>
+                  <Button size="sm" variant="outline">
+                    Open report →
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500">
+          These statements read from the double-entry general ledger. If recent
+          activity is missing, open the General Ledger and run “Rebuild from
+          invoices &amp; payments”.
+        </p>
       </section>
 
       {/* ===== Full report grid ===== */}

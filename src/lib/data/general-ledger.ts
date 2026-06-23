@@ -369,6 +369,123 @@ export async function buildBalanceSheet(
   };
 }
 
+// ===========================================================================
+// Statement of (Shareholders') Equity — changes in equity over a period.
+// Opening equity + net income for the period + owner contributions − owner
+// draws = closing equity. Built from two trial balances (start vs end) so it
+// ties to the Balance Sheet's equity section at each date.
+// ===========================================================================
+
+/** Prior calendar day for a YYYY-MM-DD string (opening = balances strictly
+ *  before `from`). */
+function priorDay(d: string): string {
+  const dt = new Date(`${d}T00:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+export type EquityStatementRow = {
+  accountId: string;
+  name: string;
+  /** Credit-normal balance at period start. */
+  opening: number;
+  /** Closing − opening: positive = contribution, negative = draw/distribution. */
+  movement: number;
+  /** Credit-normal balance at period end. */
+  closing: number;
+};
+
+export type EquityStatement = {
+  /** Named equity accounts (capital, contributions, draws, common stock…). */
+  rows: EquityStatementRow[];
+  /** Accumulated earnings (income − expense) before the period. */
+  openingRetained: number;
+  /** Net income earned during the period. */
+  netIncome: number;
+  /** Accumulated earnings through period end. */
+  closingRetained: number;
+  openingTotal: number;
+  closingTotal: number;
+  netChange: number;
+  from: string | null;
+  to: string | null;
+};
+
+function digestEquity(tb: TrialBalance): {
+  equity: Map<string, { name: string; amount: number }>;
+  accumulated: number;
+} {
+  const equity = new Map<string, { name: string; amount: number }>();
+  let income = 0;
+  let expense = 0;
+  for (const r of tb.rows) {
+    const creditNormal = -r.balance;
+    const debitNormal = r.balance;
+    if (r.rollupGroup === 'equity') {
+      equity.set(r.accountId, { name: r.name, amount: creditNormal });
+    } else if (r.rollupGroup === 'income') {
+      income = round2(income + creditNormal);
+    } else if (r.rollupGroup === 'cogs' || r.rollupGroup === 'opex') {
+      expense = round2(expense + debitNormal);
+    }
+  }
+  return { equity, accumulated: round2(income - expense) };
+}
+
+export async function buildEquityStatement(
+  companyId: string,
+  opts: { from?: string | null; to?: string | null } = {},
+): Promise<EquityStatement> {
+  const from = opts.from ?? null;
+  const to = opts.to ?? null;
+
+  const [tbClose, tbOpen] = await Promise.all([
+    getTrialBalance(companyId, to),
+    from ? getTrialBalance(companyId, priorDay(from)) : Promise.resolve(null),
+  ]);
+
+  const close = digestEquity(tbClose);
+  const open = tbOpen
+    ? digestEquity(tbOpen)
+    : { equity: new Map<string, { name: string; amount: number }>(), accumulated: 0 };
+
+  const ids = new Set([...close.equity.keys(), ...open.equity.keys()]);
+  const rows: EquityStatementRow[] = [];
+  for (const id of ids) {
+    const o = open.equity.get(id)?.amount ?? 0;
+    const c = close.equity.get(id)?.amount ?? 0;
+    const name = close.equity.get(id)?.name ?? open.equity.get(id)?.name ?? '';
+    if (Math.abs(o) < 0.005 && Math.abs(c) < 0.005) continue;
+    rows.push({ accountId: id, name, opening: o, movement: round2(c - o), closing: c });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+
+  const openingRetained = open.accumulated;
+  const closingRetained = close.accumulated;
+  const netIncome = round2(closingRetained - openingRetained);
+
+  const openingEquityAccts = round2(
+    [...open.equity.values()].reduce((s, v) => s + v.amount, 0),
+  );
+  const closingEquityAccts = round2(
+    [...close.equity.values()].reduce((s, v) => s + v.amount, 0),
+  );
+  const openingTotal = round2(openingEquityAccts + openingRetained);
+  const closingTotal = round2(closingEquityAccts + closingRetained);
+
+  return {
+    rows,
+    openingRetained,
+    netIncome,
+    closingRetained,
+    openingTotal,
+    closingTotal,
+    netChange: round2(closingTotal - openingTotal),
+    from,
+    to,
+  };
+}
+
 export type GlDetailLine = {
   entryId: string;
   date: string;
