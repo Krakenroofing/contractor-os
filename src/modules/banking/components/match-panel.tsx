@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import {
   addReceiptToTransactionAction,
-  matchInvoicePaymentAction,
+  matchInvoicePaymentsAction,
   matchJobCostEntryAction,
   matchOwnerEquityAction,
   matchReceiptAction,
@@ -41,6 +41,15 @@ export type TransferCandidate = {
   currency: string;
 };
 
+/** One invoice payment already matched to this deposit. A lump customer
+ *  payment can have several. */
+export type ActiveInvoiceMatch = {
+  matchId: string;
+  invoiceNumber: string;
+  customerName: string;
+  amount: number;
+};
+
 export type MatchPanelProps = {
   transactionId: string;
   bankAccountId: string;
@@ -50,6 +59,10 @@ export type MatchPanelProps = {
   candidates: MatchCandidates;
   transferCandidates: TransferCandidate[];
   active: ActiveMatchInfo | null;
+  /** Invoice payments already linked to this deposit (possibly several). */
+  invoiceMatches: ActiveInvoiceMatch[];
+  /** Whether the txn is fully reconciled (reconciled_at set). */
+  reconciled: boolean;
   canEdit: boolean;
 };
 
@@ -87,6 +100,49 @@ export function MatchPanel(props: MatchPanelProps) {
   >([]);
   const [invoiceSearched, setInvoiceSearched] = useState(false);
   const [searching, setSearching] = useState(false);
+  // Multi-select: payments picked across one or more searches, kept as objects
+  // so the running total survives re-searches that drop a row from view.
+  const [selected, setSelected] = useState<
+    Map<string, { invoiceNumber: string; amount: number }>
+  >(new Map());
+
+  // Amount already linked to this deposit by prior matches.
+  const alreadyAllocated = props.invoiceMatches.reduce(
+    (s, m) => s + m.amount,
+    0,
+  );
+  const selectedSum = Array.from(selected.values()).reduce(
+    (s, v) => s + v.amount,
+    0,
+  );
+  const deposit = props.amount;
+  const liveRemaining =
+    Math.round((deposit - alreadyAllocated - selectedSum) * 100) / 100;
+
+  function toggleSelected(r: InvoicePaymentSearchResult) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(r.id)) next.delete(r.id);
+      else next.set(r.id, { invoiceNumber: r.invoiceNumber, amount: r.amount });
+      return next;
+    });
+  }
+
+  function commitInvoiceMatches() {
+    if (selected.size === 0) return;
+    setErr(null);
+    startTransition(async () => {
+      const res = await matchInvoicePaymentsAction({
+        transactionId: props.transactionId,
+        invoicePaymentIds: Array.from(selected.keys()),
+      });
+      if (!res.ok) {
+        setErr(res.error ?? 'Match failed.');
+        return;
+      }
+      router.refresh();
+    });
+  }
 
   function runInvoiceSearch() {
     setErr(null);
@@ -112,6 +168,7 @@ export function MatchPanel(props: MatchPanelProps) {
     setInvoiceQuery('');
     setInvoiceResults([]);
     setInvoiceSearched(false);
+    setSelected(new Map());
     setErr(null);
   }
 
@@ -242,16 +299,44 @@ export function MatchPanel(props: MatchPanelProps) {
     );
   }
 
-  // ----- Manual invoice match: search any invoice payment -----
+  // ----- Manual invoice match: pick ONE OR MORE invoice payments -----
   if (invoiceMode) {
+    const balances = Math.abs(liveRemaining) < 0.005;
     return (
       <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
-        <div className="font-medium text-blue-900">Match to an invoice</div>
+        <div className="font-medium text-blue-900">Match deposit to invoices</div>
         <p className="text-blue-800">
-          Search any open invoice by number or customer. This matches
-          regardless of the date gap — use it when the deposit date and the
-          recorded payment date don&apos;t line up.
+          A single deposit can cover several invoices. Tick invoices until the
+          remaining balance reaches $0. Matches regardless of the date gap.
         </p>
+
+        {/* Running tally */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded bg-white px-2 py-1.5">
+          <span className="text-slate-600">
+            Deposit{' '}
+            <span className="font-semibold tabular-nums text-slate-900">
+              ${fmtMoney(deposit)}
+            </span>
+          </span>
+          <span className="text-slate-600">
+            Allocated{' '}
+            <span className="font-semibold tabular-nums text-slate-900">
+              ${fmtMoney(alreadyAllocated + selectedSum)}
+            </span>
+          </span>
+          <span
+            className={
+              balances ? 'font-semibold text-emerald-700' : 'text-amber-700'
+            }
+          >
+            Remaining{' '}
+            <span className="font-semibold tabular-nums">
+              ${fmtMoney(liveRemaining)}
+            </span>
+            {balances ? ' — balances ✓' : ''}
+          </span>
+        </div>
+
         <div className="flex items-center gap-2">
           <Input
             value={invoiceQuery}
@@ -283,51 +368,54 @@ export function MatchPanel(props: MatchPanelProps) {
 
         {invoiceResults.length > 0 && (
           <div className="space-y-1">
-            {invoiceResults.map((r) => (
-              <div
-                key={r.id}
-                className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate">
-                    Invoice {r.invoiceNumber} — {r.customerName} · $
-                    {fmtMoney(r.amount)}
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    paid {r.paidDate}{' '}
-                    {r.sameAmount ? (
-                      <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
-                        same amount
-                      </span>
-                    ) : (
-                      <span className="inline-block rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px]">
-                        amount differs
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() =>
-                    runAndRefresh(() =>
-                      matchInvoicePaymentAction({
-                        transactionId: props.transactionId,
-                        invoicePaymentId: r.id,
-                        confidence: 'manual',
-                      }),
-                    )
-                  }
+            {invoiceResults.map((r) => {
+              const checked = selected.has(r.id);
+              return (
+                <label
+                  key={r.id}
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 ${
+                    checked ? 'bg-blue-100' : 'bg-white'
+                  }`}
                 >
-                  Match
-                </Button>
-              </div>
-            ))}
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={checked}
+                    onChange={() => toggleSelected(r)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">
+                      Invoice {r.invoiceNumber} — {r.customerName} · $
+                      {fmtMoney(r.amount)}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      paid {r.paidDate}{' '}
+                      {r.sameAmount && (
+                        <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
+                          same amount
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
           </div>
         )}
 
-        <div>
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending || selected.size === 0}
+            onClick={commitInvoiceMatches}
+          >
+            {pending
+              ? 'Matching…'
+              : `Match ${selected.size || ''} invoice${
+                  selected.size === 1 ? '' : 's'
+                }`.trim()}
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -339,6 +427,92 @@ export function MatchPanel(props: MatchPanelProps) {
           </Button>
         </div>
         {err && <p className="text-red-700">{err}</p>}
+      </div>
+    );
+  }
+
+  // ----- Deposit already linked to invoice(s): reconciled or partial -----
+  if (props.invoiceMatches.length > 0) {
+    const fullyMatchedRemaining =
+      Math.round((deposit - alreadyAllocated) * 100) / 100;
+    const isPartial = !props.reconciled;
+    return (
+      <div
+        className={`rounded-md border px-3 py-2 text-xs ${
+          isPartial
+            ? 'border-amber-200 bg-amber-50'
+            : 'border-emerald-200 bg-emerald-50'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className={isPartial ? 'text-amber-900' : 'text-emerald-900'}>
+            <span className="font-semibold">
+              {isPartial ? 'Partially matched' : 'Reconciled'}
+            </span>{' '}
+            — {props.invoiceMatches.length} invoice
+            {props.invoiceMatches.length === 1 ? '' : 's'}
+          </div>
+          {props.canEdit && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() =>
+                runAndRefresh(() =>
+                  unmatchTransactionAction({
+                    transactionId: props.transactionId,
+                  }),
+                )
+              }
+            >
+              {pending ? '…' : 'Unmatch'}
+            </Button>
+          )}
+        </div>
+        <ul className="mt-1 space-y-0.5">
+          {props.invoiceMatches.map((m) => (
+            <li
+              key={m.matchId}
+              className="flex items-center justify-between gap-2 text-slate-700"
+            >
+              <span className="truncate">
+                Invoice {m.invoiceNumber} — {m.customerName}
+              </span>
+              <span className="tabular-nums">${fmtMoney(m.amount)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-1 flex items-center justify-between gap-2 border-t border-slate-200 pt-1">
+          <span className="text-slate-600">
+            Allocated{' '}
+            <span className="font-medium tabular-nums">
+              ${fmtMoney(alreadyAllocated)}
+            </span>{' '}
+            of ${fmtMoney(deposit)}
+          </span>
+          {isPartial && (
+            <span className="font-medium tabular-nums text-amber-700">
+              ${fmtMoney(fullyMatchedRemaining)} left
+            </span>
+          )}
+        </div>
+        {isPartial && props.canEdit && (
+          <div className="mt-1">
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending}
+              onClick={() => {
+                setErr(null);
+                setInvoiceMode(true);
+              }}
+            >
+              Match more invoices…
+            </Button>
+          </div>
+        )}
+        {err && <p className="mt-1 text-red-700">{err}</p>}
       </div>
     );
   }
@@ -385,9 +559,9 @@ export function MatchPanel(props: MatchPanelProps) {
                   disabled={pending}
                   onClick={() =>
                     runAndRefresh(() =>
-                      matchInvoicePaymentAction({
+                      matchInvoicePaymentsAction({
                         transactionId: props.transactionId,
-                        invoicePaymentId: m.candidate.id,
+                        invoicePaymentIds: [m.candidate.id],
                         confidence: m.confidence,
                       }),
                     )

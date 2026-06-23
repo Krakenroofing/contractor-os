@@ -47,10 +47,11 @@ import {
   updateBankingRule,
 } from '@/lib/data/banking-rules';
 import {
+  createInvoicePaymentMatchesAtomic,
   createMatchAtomic,
   createTransferPairAtomic,
-  getActiveMatchForTxn,
   listActiveMatchesForCompany,
+  listActiveMatchesForTxn,
   reverseMatchAtomic,
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
@@ -1344,45 +1345,98 @@ async function loadTxnAndUser(input: CommonMatchInput) {
   return { user, companyId, txn };
 }
 
-export async function matchInvoicePaymentAction(input: {
+// A deposit is "fully allocated" once the matched payments cover it within
+// this tolerance — absorbs cent-rounding and tiny wire/bank-fee differences
+// (e.g. a $110,695.18 deposit vs $110,695.20 of invoices). A real shortfall
+// larger than this leaves the deposit partially matched for follow-up.
+const RECONCILE_TOLERANCE = 1.0;
+
+/**
+ * Match one bank deposit to ONE OR MORE invoice payments — a lump customer
+ * payment covering several invoices. Validates each payment, sums them against
+ * the deposit, and reconciles only when the running allocation covers the
+ * deposit (within RECONCILE_TOLERANCE). Under-allocated deposits stay open so
+ * the operator can keep adding invoices until the remainder hits zero.
+ */
+export async function matchInvoicePaymentsAction(input: {
   transactionId: string;
-  invoicePaymentId: string;
+  invoicePaymentIds: string[];
   confidence?: 'exact' | 'high' | 'low' | 'manual';
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  reconciled?: boolean;
+  remaining?: number;
+}> {
   const loaded = await loadTxnAndUser(input);
   if ('error' in loaded) return { ok: false, error: loaded.error };
   const { user, companyId, txn } = loaded;
-  const payment = await getPayment(companyId, input.invoicePaymentId);
-  if (!payment) return { ok: false, error: 'Invoice payment not found.' };
-  // Sanity: bank txn must be money-in (positive) to match an invoice payment.
-  if (Number(txn.amount) <= 0) {
+
+  const deposit = Number(txn.amount);
+  if (deposit <= 0) {
     return {
       ok: false,
       error: 'Invoice payments only match money-in (positive) bank transactions.',
     };
   }
+
+  const ids = Array.from(
+    new Set((input.invoicePaymentIds ?? []).filter((x) => typeof x === 'string' && x)),
+  );
+  if (ids.length === 0) {
+    return { ok: false, error: 'Select at least one invoice to match.' };
+  }
+
+  // Sum the newly-selected payments.
+  let newSum = 0;
+  for (const id of ids) {
+    const p = await getPayment(companyId, id);
+    if (!p) {
+      return { ok: false, error: 'One of the selected invoice payments was not found.' };
+    }
+    newSum += Number(p.amount);
+  }
+
+  // Add anything already matched to this deposit (incremental top-ups).
+  const existing = (await listActiveMatchesForTxn(companyId, txn.id)).filter(
+    (m) => m.matchType === 'invoice_payment' && m.invoicePaymentId,
+  );
+  let priorSum = 0;
+  for (const m of existing) {
+    const p = await getPayment(companyId, m.invoicePaymentId!);
+    if (p) priorSum += Number(p.amount);
+  }
+
+  const allocated = Math.round((priorSum + newSum) * 100) / 100;
+  const remaining = Math.round((deposit - allocated) * 100) / 100;
+  const reconcile = allocated >= deposit - RECONCILE_TOLERANCE;
+
   try {
-    await createMatchAtomic({
+    await createInvoicePaymentMatchesAtomic({
       companyId,
       importedTransactionId: txn.id,
-      matchType: 'invoice_payment',
-      invoicePaymentId: input.invoicePaymentId,
+      invoicePaymentIds: ids,
       confidence: input.confidence ?? 'manual',
       matchedByUserId: user.id,
+      reconcile,
     });
   } catch (err) {
     return {
       ok: false,
       error:
         err instanceof Error && err.message.includes('duplicate')
-          ? 'This invoice payment is already matched to a different transaction.'
+          ? 'One of these invoice payments is already matched to a different transaction. Refresh and try again.'
           : err instanceof Error
             ? err.message
             : 'Match failed.',
     };
   }
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
-  return { ok: true };
+  return {
+    ok: true,
+    reconciled: reconcile,
+    remaining: Math.max(0, remaining),
+  };
 }
 
 export type InvoicePaymentSearchResult = {
@@ -1400,7 +1454,7 @@ export type InvoicePaymentSearchResult = {
  * the ±7-day auto-suggester, this lets the operator find ANY non-void,
  * not-yet-matched invoice payment by invoice number or customer name and
  * reconcile it regardless of the date gap (then matched via
- * matchInvoicePaymentAction with confidence 'manual'). Money-in txns only.
+ * matchInvoicePaymentsAction with confidence 'manual'). Money-in txns only.
  */
 export async function searchInvoicePaymentsForMatchAction(input: {
   transactionId: string;
@@ -1737,13 +1791,19 @@ export async function unmatchTransactionAction(input: {
     return { ok: false, error: 'No permission.' };
   }
   const companyId = await getActiveCompanyId();
-  const match = await getActiveMatchForTxn(companyId, input.transactionId);
-  if (!match) return { ok: false, error: 'No active match to reverse.' };
-  await reverseMatchAtomic({
-    companyId,
-    matchId: match.id,
-    reversedByUserId: user.id,
-  });
+  // A deposit may carry several invoice_payment matches — reverse them all so
+  // "Unmatch" fully unlinks the transaction (every other type is one-per-txn).
+  const matches = await listActiveMatchesForTxn(companyId, input.transactionId);
+  if (matches.length === 0) {
+    return { ok: false, error: 'No active match to reverse.' };
+  }
+  for (const match of matches) {
+    await reverseMatchAtomic({
+      companyId,
+      matchId: match.id,
+      reversedByUserId: user.id,
+    });
+  }
   revalidatePath(`/banking/accounts/`);
   return { ok: true };
 }

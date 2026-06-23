@@ -254,10 +254,42 @@ export default async function BankAccountDetailPage({
       };
     });
 
-  // Active matches keyed by bank-txn id for fast per-row lookup.
-  const matchByTxnId = new Map(
-    activeMatches.map((m) => [m.importedTransactionId, m]),
-  );
+  // Active matches keyed by bank-txn id for fast per-row lookup. A deposit may
+  // carry SEVERAL invoice_payment matches (a lump customer payment), so those
+  // are grouped into a list; every other match type stays one-per-txn.
+  const paymentById = new Map(payments.map((p) => [p.id, p]));
+  const invoiceMatchesByTxn = new Map<
+    string,
+    Array<{
+      matchId: string;
+      invoiceNumber: string;
+      customerName: string;
+      amount: number;
+    }>
+  >();
+  const nonInvoiceMatchByTxn = new Map<
+    string,
+    (typeof activeMatches)[number]
+  >();
+  for (const m of activeMatches) {
+    if (m.matchType === 'invoice_payment' && m.invoicePaymentId) {
+      const p = paymentById.get(m.invoicePaymentId);
+      if (!p) continue;
+      const inv = invoiceById.get(p.invoiceId);
+      const proj = inv?.projectId ? projectByIdMap.get(inv.projectId) : null;
+      const cust = proj ? customerById.get(proj.customerId) : null;
+      const arr = invoiceMatchesByTxn.get(m.importedTransactionId) ?? [];
+      arr.push({
+        matchId: m.id,
+        invoiceNumber: inv?.number ?? '—',
+        customerName: cust?.name ?? '—',
+        amount: Number(p.amount),
+      });
+      invoiceMatchesByTxn.set(m.importedTransactionId, arr);
+    } else {
+      nonInvoiceMatchByTxn.set(m.importedTransactionId, m);
+    }
+  }
 
   // Pre-shape transfer candidates (cross-account, unreconciled).
   const transferCandidates = transferCandidatesRaw.map((t) => ({
@@ -540,7 +572,9 @@ export default async function BankAccountDetailPage({
                           takenReceiptIds,
                           takenJobCostEntryIds,
                         });
-                  const activeMatch = matchByTxnId.get(t.id);
+                  const activeMatch = nonInvoiceMatchByTxn.get(t.id);
+                  const txnInvoiceMatches =
+                    invoiceMatchesByTxn.get(t.id) ?? [];
                   let activeLabel = '';
                   if (activeMatch) {
                     if (
@@ -692,6 +726,8 @@ export default async function BankAccountDetailPage({
                                     }
                                   : null
                               }
+                              invoiceMatches={txnInvoiceMatches}
+                              reconciled={triage === 'reconciled'}
                               canEdit={canEdit}
                             />
                           </TableCell>

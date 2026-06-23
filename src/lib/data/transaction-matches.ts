@@ -69,6 +69,75 @@ export async function getActiveMatchForTxn(
   return rows[0];
 }
 
+/** ALL active matches for one bank txn. A deposit can carry several
+ *  invoice_payment matches (a lump customer payment), so this returns a list. */
+export async function listActiveMatchesForTxn(
+  companyId: string,
+  importedTransactionId: string,
+): Promise<TransactionMatch[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(transactionMatches)
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.importedTransactionId, importedTransactionId),
+        isNull(transactionMatches.reversedAt),
+      ),
+    )
+    .orderBy(desc(transactionMatches.matchedAt));
+}
+
+/**
+ * Atomic: link a bank deposit to one OR MORE invoice payments (a lump customer
+ * payment covering several invoices), and flip reconciled_at only when the
+ * caller says the deposit is fully allocated. Partial allocations leave the
+ * txn un-reconciled so the operator can come back and add more invoices.
+ * Throws on the per-payment unique violation (a payment already matched
+ * elsewhere) — the whole batch rolls back.
+ */
+export async function createInvoicePaymentMatchesAtomic(input: {
+  companyId: string;
+  importedTransactionId: string;
+  invoicePaymentIds: string[];
+  confidence: TransactionMatch['confidence'];
+  matchedByUserId: string | null;
+  reconcile: boolean;
+}): Promise<TransactionMatch[]> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const rows: TransactionMatch[] = [];
+    for (const paymentId of input.invoicePaymentIds) {
+      const [row] = await tx
+        .insert(transactionMatches)
+        .values({
+          companyId: input.companyId,
+          importedTransactionId: input.importedTransactionId,
+          matchType: 'invoice_payment',
+          invoicePaymentId: paymentId,
+          confidence: input.confidence,
+          matchedByUserId: input.matchedByUserId,
+        })
+        .returning();
+      rows.push(row);
+    }
+    if (input.reconcile) {
+      await tx
+        .update(importedTransactions)
+        .set({ reconciledAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(importedTransactions.id, input.importedTransactionId),
+            eq(importedTransactions.companyId, input.companyId),
+          ),
+        );
+    }
+    return rows;
+  });
+}
+
 /** Single-row create. Caller must wrap with the reconciled_at flip on the
  *  imported transaction inside a transaction — see createMatchInTx. */
 export async function createMatchRow(
