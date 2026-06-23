@@ -18,6 +18,7 @@ import { formatMoney } from '@/lib/money';
 import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dashboard';
 import { buildAccountingSummary } from '@/modules/dashboard/lib/accounting-summary';
 import { buildRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
+import { listAccountingReviewItems } from '@/lib/data/accounting-review';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,12 @@ export default async function DashboardPage() {
   const { kpis, alerts, revenueByQuarter } = data;
   const canSeeBanking = canView(role, 'bank_accounts');
   const canSeeReceipts = canView(role, 'receipts');
+  const canSeeStatementImports = canView(role, 'statement_imports');
+  // Count of transactions needing a category fix (reviewed-but-uncategorized
+  // or split with a missing-category line) — surfaced as an accounting tile.
+  const accountingTodoCount = canSeeStatementImports
+    ? (await listAccountingReviewItems(company.id)).length
+    : 0;
   // Hide VAT chrome for non-VAT companies (e.g. Kraken Roofing LLC, US — no
   // VAT). Only TRB (VAT-registered) should see VAT figures/labels.
   const isVatActive = company.isVatActive;
@@ -405,6 +412,19 @@ export default async function DashboardPage() {
             Accounting
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {canSeeStatementImports && (
+              <AccountingTile
+                label="Accounting to-do"
+                value={String(accountingTodoCount)}
+                hint={
+                  accountingTodoCount > 0
+                    ? 'Reviewed-but-uncategorized + incomplete splits'
+                    : 'No transactions need attention.'
+                }
+                tone={accountingTodoCount > 0 ? 'amber' : 'emerald'}
+                href="/accounting/todo"
+              />
+            )}
             {canSeeBanking && (
               <AccountingTile
                 label="Uncategorized transactions"

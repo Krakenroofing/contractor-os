@@ -37,6 +37,7 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/clock', label: 'Time Clock', resource: 'clock_events' },
   { href: '/payroll', label: 'Payroll', resource: 'payroll' },
   { href: '/banking', label: 'Banking & Receipts', resource: 'bank_accounts' },
+  { href: '/accounting/todo', label: 'Accounting To-Do', resource: 'statement_imports' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },
   { href: '/exports', label: 'Exports (CSV)', resource: 'exports' },
