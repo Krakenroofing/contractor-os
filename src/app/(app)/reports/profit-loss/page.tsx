@@ -39,6 +39,18 @@ export default async function ProfitLossReportPage({
   const netSign = report.netIncome >= 0;
   const grossSign = report.grossProfit >= 0;
 
+  // Revenue drill-down links carry the statement's date filter so the invoice
+  // list ties to the income number on the report.
+  const revQs = new URLSearchParams();
+  if (filters.from) revQs.set('from', filters.from);
+  if (filters.to) revQs.set('to', filters.to);
+  const revenueHref = (account?: string) => {
+    const qs = new URLSearchParams(revQs);
+    if (account) qs.set('account', account);
+    const s = qs.toString();
+    return `/reports/profit-loss/revenue${s ? `?${s}` : ''}`;
+  };
+
   return (
     <ReportShell
       type="profit-loss"
@@ -52,6 +64,7 @@ export default async function ProfitLossReportPage({
           value={formatMoney(report.income.total)}
           hint={`${report.income.invoiceCount} invoice${report.income.invoiceCount === 1 ? '' : 's'} (ex-VAT)`}
           highlight
+          href={report.income.total > 0 ? revenueHref() : undefined}
         />
         <KPI
           label="COGS"
@@ -125,8 +138,13 @@ export default async function ProfitLossReportPage({
               <TableBody>
                 {report.income.accounts.map((a) => (
                   <TableRow key={a.accountId}>
-                    <TableCell className="text-slate-900">
-                      {a.accountName}
+                    <TableCell>
+                      <Link
+                        href={revenueHref(a.accountId) as never}
+                        className="text-slate-900 underline-offset-2 hover:underline"
+                      >
+                        {a.accountName}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-slate-600">
                       {a.entryCount}
@@ -138,8 +156,13 @@ export default async function ProfitLossReportPage({
                 ))}
                 {report.income.uncategorized.total > 0 && (
                   <TableRow>
-                    <TableCell className="text-amber-800">
-                      Uncategorized revenue
+                    <TableCell>
+                      <Link
+                        href={revenueHref('uncategorized') as never}
+                        className="text-amber-800 underline-offset-2 hover:underline"
+                      >
+                        Uncategorized revenue
+                      </Link>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-slate-600">
                       {report.income.uncategorized.invoiceCount}
@@ -385,17 +408,24 @@ function KPI({
   hint,
   highlight,
   valueClassName,
+  href,
 }: {
   label: string;
   value: string;
   hint?: string;
   highlight?: boolean;
   valueClassName?: string;
+  href?: string;
 }) {
-  return (
-    <Card className={highlight ? 'border-slate-300' : undefined}>
+  const card = (
+    <Card
+      className={`${highlight ? 'border-slate-300' : ''} ${href ? 'transition-colors hover:border-blue-300 hover:bg-blue-50/40' : ''}`}
+    >
       <CardContent className="p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          {label}
+          {href && <span className="text-blue-600"> →</span>}
+        </p>
         <p
           className={`mt-1 text-xl font-semibold tabular-nums ${valueClassName ?? 'text-slate-900'}`}
         >
@@ -406,5 +436,12 @@ function KPI({
         )}
       </CardContent>
     </Card>
+  );
+  return href ? (
+    <Link href={href as never} className="block">
+      {card}
+    </Link>
+  ) : (
+    card
   );
 }

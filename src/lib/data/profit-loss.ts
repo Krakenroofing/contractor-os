@@ -23,6 +23,8 @@ import {
   jobCostEntries,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { listProjects } from '@/lib/data/projects';
+import { listCustomers } from '@/lib/data/customers';
 import { buildWipReport } from '@/modules/reports/lib/wip';
 
 export type RollupGroup =
@@ -500,6 +502,119 @@ export async function listProfitLossAccountEntries(
     accountName: acc.name,
     rollupGroup: acc.rollupGroup as RollupGroup,
     total,
+    entries,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Revenue drill-down: the individual invoices behind the P&L income total (or
+// one revenue category). Uses the SAME filters as buildProfitLossReport's
+// income side so the list ties to the number on the statement — for
+// month-to-month reconciliation.
+// ---------------------------------------------------------------------------
+
+export type ProfitLossRevenueEntry = {
+  invoiceId: string;
+  number: string;
+  date: string;
+  status: string;
+  customerName: string;
+  projectName: string;
+  categoryName: string | null;
+  /** Ex-VAT (net) — what counts as revenue on the P&L. */
+  subtotal: number;
+  /** Gross (incl. VAT) — for tie-out against the invoice document. */
+  total: number;
+};
+
+export type ProfitLossRevenueDetail = {
+  scopeLabel: string;
+  total: number;
+  entries: ProfitLossRevenueEntry[];
+};
+
+export async function listProfitLossRevenueEntries(
+  companyId: string,
+  filters: ProfitLossFilters,
+  /** undefined = all revenue; 'uncategorized' = no revenue category; else a
+   *  specific accounting_accounts id. */
+  accountId?: string,
+): Promise<ProfitLossRevenueDetail | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+
+  const conds = [
+    eq(invoices.companyId, companyId),
+    ne(invoices.status, 'draft'),
+    ne(invoices.status, 'void'),
+    ne(invoices.billingType, 'retainage'),
+  ];
+  if (filters.from) conds.push(gte(invoices.invoiceDate, filters.from));
+  if (filters.to) conds.push(lte(invoices.invoiceDate, filters.to));
+  if (accountId === 'uncategorized') {
+    conds.push(isNull(invoices.accountingAccountId));
+  } else if (accountId) {
+    conds.push(eq(invoices.accountingAccountId, accountId));
+  }
+
+  const rows = await db
+    .select({
+      invoiceId: invoices.id,
+      number: invoices.number,
+      date: invoices.invoiceDate,
+      status: invoices.status,
+      projectId: invoices.projectId,
+      subtotal: invoices.subtotal,
+      total: invoices.total,
+      categoryName: accountingAccounts.name,
+    })
+    .from(invoices)
+    .leftJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, invoices.accountingAccountId),
+    )
+    .where(and(...conds))
+    .orderBy(invoices.invoiceDate);
+
+  const [projects, customers] = await Promise.all([
+    listProjects(companyId),
+    listCustomers(companyId),
+  ]);
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+
+  let total = 0;
+  const entries: ProfitLossRevenueEntry[] = rows.map((r) => {
+    const project = r.projectId ? projectById.get(r.projectId) : undefined;
+    const customer = project
+      ? customerById.get(project.customerId)
+      : undefined;
+    const subtotal = Number(r.subtotal);
+    total += subtotal;
+    return {
+      invoiceId: r.invoiceId,
+      number: r.number,
+      date: r.date,
+      status: r.status,
+      customerName: customer?.name ?? '—',
+      projectName: project?.name ?? '—',
+      categoryName: r.categoryName ?? null,
+      subtotal,
+      total: Number(r.total),
+    };
+  });
+
+  const scopeLabel =
+    accountId === 'uncategorized'
+      ? 'Uncategorized revenue'
+      : accountId
+        ? (entries.find((e) => e.categoryName)?.categoryName ??
+          'Revenue category')
+        : 'All revenue';
+
+  return {
+    scopeLabel,
+    total: Math.round(total * 100) / 100,
     entries,
   };
 }
