@@ -1899,13 +1899,24 @@ export async function buildCustomerSummaryReport(
     // Service / T&M jobs have no contract value — they're billed from actuals,
     // so "still billable against a contract" is meaningless (and a $0 contract
     // would make any billing look over-billed). Treat them as $0 remaining.
+    //
+    // Held retainage is added back: it's billed-but-held revenue still to be
+    // released/collected, so a fully-billed job shows its retention as still
+    // billable ("balance to finish, including retainage" — the accrual-audit
+    // view). Projects with no retention have a 0 balance and are unaffected.
+    const retainageBalanceForBillable = round2(
+      subtract(retainageHeld, retainageReleased),
+    );
     const stillBillable =
       p.projectType === 'service'
         ? 0
         : round2(
-            subtract(
-              revisedContractValue,
-              subtract(totalInvoicedNet, refundsCredited),
+            add(
+              subtract(
+                revisedContractValue,
+                subtract(totalInvoicedNet, refundsCredited),
+              ),
+              retainageBalanceForBillable,
             ),
           );
 

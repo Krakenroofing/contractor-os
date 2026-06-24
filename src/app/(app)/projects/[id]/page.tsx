@@ -160,8 +160,10 @@ export default async function ProjectDetailPage({
   const invoiceSummary = await computeProjectInvoiceSummary(project.id);
   const invoicesBySource = await computeProjectInvoicesByContractSource(project.id);
   // Remaining billable on this job = revised contract (net) − net billed,
-  // netting back scope-reduction refunds. Same math as the dashboard's
-  // collective "Remaining billable" so the per-job number ties to the total.
+  // PLUS the outstanding retainage balance (held retention is billed-but-held,
+  // so it stays "to bill/collect" until released), netting back scope-reduction
+  // refunds. Same math as the dashboard's collective "Remaining billable" so
+  // the per-job number ties to the total.
   const refundsCreditedForProject =
     (await getContractReductionRefundByProjectMap(companyId)).get(project.id) ??
     0;
@@ -169,6 +171,7 @@ export default async function ProjectDetailPage({
     parseMoney(project.contractValue),
     invoiceSummary.totalInvoicedNet,
     refundsCreditedForProject,
+    invoiceSummary.retainageBalance,
   );
   const coById = new Map(changeOrders.map((co) => [co.id, co]));
   const projectPayments = (
@@ -763,6 +766,10 @@ export default async function ProjectDetailPage({
                     : 'text-slate-900'
               }
               sub={`revised contract ${formatMoney(parseMoney(project.contractValue))} − net billed${
+                invoiceSummary.retainageBalance > 0
+                  ? ` + ${formatMoney(invoiceSummary.retainageBalance)} retainage held`
+                  : ''
+              }${
                 refundsCreditedForProject > 0
                   ? ` (less ${formatMoney(refundsCreditedForProject)} refunded)`
                   : ''

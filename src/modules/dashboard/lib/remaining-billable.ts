@@ -6,10 +6,18 @@ import { getContractReductionRefundByProjectMap } from '@/lib/data/credit-memos'
 import { add, parseMoney, subtract } from '@/lib/money';
 
 // "Remaining billable" per project = revised contract (net) − net billed,
-// netting back any scope-reduction refunds (so a refunded job doesn't read as
-// under-billed). This is the SAME still-billable math the customer summary
-// uses, so the per-project figure on /projects/[id] and the collective total
-// on the dashboard tie out exactly.
+// PLUS the outstanding retainage balance, netting back any scope-reduction
+// refunds (so a refunded job doesn't read as under-billed).
+//
+// Retainage is billed-but-held: the invoice records the full earned amount as
+// billed revenue but withholds (e.g.) 10% from payment, to be released later.
+// Including the held retainage means a fully-billed job still surfaces that
+// retention as remaining to bill/collect — the standard "balance to finish,
+// INCLUDING retainage" view, which is what an accrual-basis audit wants.
+//
+// This is the SAME still-billable math the customer summary uses, so the
+// per-project figure on /projects/[id] and the collective total on the
+// dashboard tie out exactly.
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -29,7 +37,9 @@ export type ProjectRemainingBillable = {
   billedNet: number;
   /** Net scope-reduction refunds credited back (de-VAT'd). */
   refundsCredited: number;
-  /** revisedContract − (billedNet − refundsCredited). */
+  /** Outstanding retainage (held − released) still to release/collect. */
+  retainageBalance: number;
+  /** revisedContract − (billedNet − refundsCredited) + retainageBalance. */
   remainingBillable: number;
 };
 
@@ -40,13 +50,21 @@ export type RemainingBillableSummary = {
   totalRemaining: number;
 };
 
-/** Single-project remaining billable. Reused by the project detail page. */
+/** Single-project remaining billable. Reused by the project detail page.
+ *  Adds back the outstanding retainage balance so held retention shows as
+ *  still-to-bill (projects with no retention pass 0 and are unaffected). */
 export function computeRemainingBillable(
   revisedContractNet: number,
   billedNet: number,
   refundsCredited: number,
+  retainageBalance = 0,
 ): number {
-  return r2(subtract(revisedContractNet, subtract(billedNet, refundsCredited)));
+  return r2(
+    add(
+      subtract(revisedContractNet, subtract(billedNet, refundsCredited)),
+      retainageBalance,
+    ),
+  );
 }
 
 export async function buildRemainingBillable(
@@ -70,6 +88,7 @@ export async function buildRemainingBillable(
     const revisedContract = r2(parseMoney(p.contractValue));
     const billedNet = r2(summary.totalInvoicedNet);
     const refundsCredited = r2(refundMap.get(p.id) ?? 0);
+    const retainageBalance = r2(summary.retainageBalance);
     // Skip projects with no contract and nothing billed — nothing to show.
     if (revisedContract === 0 && billedNet === 0) continue;
     rows.push({
@@ -80,10 +99,12 @@ export async function buildRemainingBillable(
       revisedContract,
       billedNet,
       refundsCredited,
+      retainageBalance,
       remainingBillable: computeRemainingBillable(
         revisedContract,
         billedNet,
         refundsCredited,
+        retainageBalance,
       ),
     });
   }

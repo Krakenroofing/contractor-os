@@ -96,10 +96,10 @@ export default async function CustomerSummaryReportPage({
               }
               hint={
                 report.totals.refundsCredited > 0
-                  ? `Revised contract − billed (net), net of ${formatMoney(
+                  ? `Revised contract − billed (net) + retainage held, net of ${formatMoney(
                       report.totals.refundsCredited,
                     )} refunded`
-                  : 'Revised contract − billed (net)'
+                  : 'Revised contract − billed (net) + retainage held'
               }
             />
             <KPI
@@ -372,9 +372,12 @@ export default async function CustomerSummaryReportPage({
             approved COs), stored net of {tax}. <strong>Billed (gross)</strong>{' '}
             includes {tax}; the net + {tax} breakdown is shown beneath.{' '}
             <strong>Still billable</strong> = revised contract − billed{' '}
-            <em>net</em> — net vs net, because {tax} is a separate liability
-            collected on behalf of the government and is not part of contract
-            scope. Negative means over-billed. When a canceled/reduced scope is
+            <em>net</em> + retainage held — net vs net, because {tax} is a
+            separate liability collected on behalf of the government and is not
+            part of contract scope. Held retainage is added back because it is
+            billed-but-held revenue still to be released/collected (the
+            &ldquo;balance to finish, including retainage&rdquo; view).
+            Negative means over-billed. When a canceled/reduced scope is
             refunded and booked as a deduct change order, that refund is netted
             back out of billed here (the deduct CO already lowered the revised
             contract by the same amount), so the two sides stay balanced.{' '}
