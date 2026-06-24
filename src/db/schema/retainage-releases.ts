@@ -31,6 +31,13 @@ export const retainageReleases = pgTable(
     releaseNumber: text('release_number').notNull().default(''),
     releaseDate: date('release_date').notNull(),
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    // VAT on the released retention — becomes payable at release (Bahamas DIR
+    // retention rule). Rate is the original invoice's effective VAT rate; 0 for
+    // non-VAT companies. `amount` stays the net retention principal.
+    vatRate: numeric('vat_rate', { precision: 6, scale: 3 }).notNull().default('0'),
+    vatAmount: numeric('vat_amount', { precision: 14, scale: 2 })
+      .notNull()
+      .default('0'),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

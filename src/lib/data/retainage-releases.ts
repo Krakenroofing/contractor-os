@@ -165,6 +165,8 @@ export async function createRetainageRelease(
         releaseNumber: input.releaseNumber,
         releaseDate: input.releaseDate,
         amount: input.amount,
+        vatRate: input.vatRate ?? '0',
+        vatAmount: input.vatAmount ?? '0',
         notes: input.notes,
       })
       .returning();

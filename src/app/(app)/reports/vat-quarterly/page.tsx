@@ -199,10 +199,14 @@ export default async function VatQuarterlyReportPage({
 
           <p className="text-xs text-slate-500">
             Accrual basis. Output VAT = VAT on every non-draft / non-void
-            invoice, bucketed by <strong>invoice date</strong>, less VAT on{' '}
-            <strong>credit notes</strong> issued in the quarter (a credit on an
-            unpaid invoice removes the VAT that was never collected). Input VAT =
-            VAT on every <strong>posted receipt</strong> marked recoverable.
+            invoice, bucketed by <strong>invoice date</strong>,{' '}
+            <strong>plus VAT on retention released</strong> in the quarter (per
+            the DIR rule, VAT on a retained amount becomes payable when the
+            retention is released — the progress invoice only taxed the
+            net-of-retention amount), less VAT on <strong>credit notes</strong>{' '}
+            issued in the quarter (a credit on an unpaid invoice removes the VAT
+            that was never collected). Input VAT = VAT on every{' '}
+            <strong>posted receipt</strong> marked recoverable.
             <strong> Net VAT due = output − credit notes − input</strong> —
             positive means you pay the government for the quarter; negative means
             a reclaim balance.
@@ -243,6 +247,11 @@ export default async function VatQuarterlyReportPage({
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium text-amber-700">
                           {formatMoney(q.vatDue)}
+                          {q.retentionVat > 0 && (
+                            <span className="block text-[10px] font-normal text-slate-500">
+                              incl. {formatMoney(q.retentionVat)} retention
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-slate-600">
                           {q.creditNoteVat > 0

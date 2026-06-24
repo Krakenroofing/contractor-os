@@ -949,6 +949,8 @@ function buildInvoice(input: SeedInvoice): {
       releaseNumber: r.releaseNumber,
       releaseDate: r.releaseDate,
       amount: r.amount.toFixed(2),
+      vatRate: '0',
+      vatAmount: '0',
       notes: r.notes ?? null,
       createdAt: now,
     })) ?? [];
@@ -2529,6 +2531,8 @@ export type CreateRetainageReleaseInput = {
   releaseNumber: string;
   releaseDate: string;
   amount: string;
+  vatRate?: string;
+  vatAmount?: string;
   paymentId: string | null;
   notes: string | null;
 };
@@ -2573,6 +2577,8 @@ export function createMockRetainageRelease(
     releaseNumber: input.releaseNumber,
     releaseDate: input.releaseDate,
     amount: input.amount,
+    vatRate: input.vatRate ?? '0',
+    vatAmount: input.vatAmount ?? '0',
     notes: input.notes,
     createdAt: now,
   };

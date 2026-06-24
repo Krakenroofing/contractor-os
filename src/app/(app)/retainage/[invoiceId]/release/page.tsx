@@ -18,6 +18,17 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+// The original invoice's effective VAT rate (tax ÷ net-of-retainage), applied
+// to the retention when it's released. 0 for non-VAT / zero-rated invoices.
+function effectiveVatRate(inv: {
+  subtotal: string;
+  taxAmount: string;
+  retainageAmount: string;
+}): number {
+  const net = Number(inv.subtotal) - Number(inv.retainageAmount);
+  return net > 0 ? Math.round((Number(inv.taxAmount) / net) * 100 * 1000) / 1000 : 0;
+}
+
 async function nextReleaseNumber(companyId: string): Promise<string> {
   const year = new Date().getFullYear();
   const existing = await listRetainageReleases(companyId);
@@ -65,6 +76,7 @@ export default async function NewRetainageReleasePage({
             retainageAmount: i.retainageAmount,
             retainageReleased: i.retainageReleased,
             expectedReleaseDate: i.expectedRetainageReleaseDate,
+            vatRatePercent: effectiveVatRate(i),
           };
         }),
     )
@@ -85,6 +97,7 @@ export default async function NewRetainageReleasePage({
       retainageAmount: targetInvoice.retainageAmount,
       retainageReleased: targetInvoice.retainageReleased,
       expectedReleaseDate: targetInvoice.expectedRetainageReleaseDate,
+      vatRatePercent: effectiveVatRate(targetInvoice),
     });
   }
 

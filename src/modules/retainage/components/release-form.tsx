@@ -23,6 +23,8 @@ export type RetainageInvoiceOption = {
   retainageAmount: string;
   retainageReleased: string;
   expectedReleaseDate: string | null;
+  /** The original invoice's effective VAT rate (%), applied to the release. */
+  vatRatePercent: number;
 };
 
 export type RetainagePaymentOption = {
@@ -67,6 +69,10 @@ export function RetainageReleaseForm({
 
   const enteredAmount = Number(amount) || 0;
   const newBalance = selectedInvoice ? subtract(heldBalance, enteredAmount) : 0;
+  // VAT on the released retention — payable now per the DIR retention rule.
+  const vatRate = selectedInvoice ? selectedInvoice.vatRatePercent : 0;
+  const vatOnRelease = Math.round(enteredAmount * vatRate) / 100;
+  const totalWithVat = enteredAmount + vatOnRelease;
 
   const matchingPayments = useMemo(
     () => payments.filter((p) => p.invoiceId === invoiceId),
@@ -194,25 +200,45 @@ export function RetainageReleaseForm({
       </fieldset>
 
       {selectedInvoice && enteredAmount > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <Stat label="Held before" value={formatMoney(heldBalance)} />
-          <Stat
-            label="This release"
-            value={formatMoney(enteredAmount)}
-            valueClassName="text-emerald-700"
-          />
-          <Stat
-            label="Held after"
-            value={formatMoney(newBalance)}
-            valueClassName={
-              newBalance <= 0
-                ? 'text-emerald-700'
-                : newBalance < heldBalance
-                  ? 'text-amber-700'
-                  : 'text-slate-900'
-            }
-          />
-        </div>
+        <>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <Stat label="Held before" value={formatMoney(heldBalance)} />
+            <Stat
+              label="This release"
+              value={formatMoney(enteredAmount)}
+              valueClassName="text-emerald-700"
+            />
+            <Stat
+              label="Held after"
+              value={formatMoney(newBalance)}
+              valueClassName={
+                newBalance <= 0
+                  ? 'text-emerald-700'
+                  : newBalance < heldBalance
+                    ? 'text-amber-700'
+                    : 'text-slate-900'
+              }
+            />
+          </div>
+          {vatRate > 0 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <Stat
+                label="Retention released (net)"
+                value={formatMoney(enteredAmount)}
+              />
+              <Stat
+                label={`VAT (${vatRate.toFixed(2)}%) — payable now`}
+                value={formatMoney(vatOnRelease)}
+                valueClassName="text-blue-800"
+              />
+              <Stat
+                label="Total invoiced on release"
+                value={formatMoney(totalWithVat)}
+                valueClassName="font-semibold"
+              />
+            </div>
+          )}
+        </>
       )}
 
       <Field label="Notes" error={err('notes')}>

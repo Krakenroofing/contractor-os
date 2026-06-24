@@ -55,12 +55,26 @@ export async function createRetainageReleaseAction(
     return { errors: { invoiceId: ['Invoice not found in active company'] } };
   }
 
+  // VAT on released retention (Bahamas DIR rule): becomes payable at release.
+  // Apply the ORIGINAL invoice's effective VAT rate (tax ÷ net-of-retainage),
+  // so the rate matches the supply and non-VAT invoices release at 0. Computed
+  // server-side from the invoice — never trusted from the client.
+  const releaseAmt = Number(data.amount);
+  const netOfRetainage =
+    Number(invoice.subtotal) - Number(invoice.retainageAmount);
+  const effectiveVatRate =
+    netOfRetainage > 0 ? Number(invoice.taxAmount) / netOfRetainage : 0;
+  const vatRate = Math.round(effectiveVatRate * 100 * 1000) / 1000; // % to 3dp
+  const vatAmount = Math.round(releaseAmt * effectiveVatRate * 100) / 100;
+
   try {
     await createRetainageRelease(companyId, {
       invoiceId: data.invoiceId,
       releaseNumber: data.releaseNumber,
       releaseDate: data.releaseDate,
-      amount: toMoneyString(Number(data.amount)),
+      amount: toMoneyString(releaseAmt),
+      vatRate: vatRate.toFixed(3),
+      vatAmount: toMoneyString(vatAmount),
       paymentId: emptyToNull(data.paymentId ?? null),
       notes: emptyToNull(data.notes ?? null),
     });

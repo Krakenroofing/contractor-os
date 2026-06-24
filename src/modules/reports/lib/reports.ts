@@ -25,6 +25,7 @@ import {
   listInvoicesForProject,
 } from '@/lib/data/invoices';
 import { listPayments } from '@/lib/data/invoice-payments';
+import { listRetainageReleases } from '@/lib/data/retainage-releases';
 import { listReceipts } from '@/lib/data/receipts';
 import {
   listPurchaseOrders,
@@ -111,6 +112,10 @@ export type VatQuarterlyQuarterRow = {
   vatDue: number;
   retainage: number;
   total: number;
+  // Output VAT on retention RELEASED this quarter (DIR retention rule: VAT on
+  // the retained amount becomes payable when retention is due/received).
+  // Already included in `vatDue` above; broken out here for the audit trail.
+  retentionVat: number;
   // Input VAT (Phase B): aggregated from posted, recoverable receipts.
   receiptCount: number;
   expenseNet: number;
@@ -146,6 +151,18 @@ export type VatQuarterlyExpenseRow = {
   recoverable: boolean;
 };
 
+export type VatQuarterlyRetentionRow = {
+  id: string;
+  releaseNumber: string;
+  releaseDate: string;
+  quarterKey: string;
+  invoiceNumber: string;
+  customerName: string;
+  projectName: string | null;
+  amount: number; // retention principal released
+  vatAmount: number; // output VAT now payable
+};
+
 export type VatQuarterlyReport = {
   companyName: string;
   companyVatRatePct: number;
@@ -155,12 +172,15 @@ export type VatQuarterlyReport = {
   invoices: VatQuarterlyInvoiceRow[];
   expenses: VatQuarterlyExpenseRow[];
   creditNotes: VatQuarterlyCreditNoteRow[];
+  retentionReleases: VatQuarterlyRetentionRow[];
   totals: {
     invoiceCount: number;
     subtotal: number;
     vatDue: number;
     retainage: number;
     total: number;
+    // Output VAT on retention released in range (already inside vatDue).
+    retentionVat: number;
     // Input VAT totals
     receiptCount: number;
     expenseNet: number;
@@ -203,12 +223,14 @@ export async function buildVatQuarterlyReport(
       invoices: [],
       expenses: [],
       creditNotes: [],
+      retentionReleases: [],
       totals: {
         invoiceCount: 0,
         subtotal: 0,
         vatDue: 0,
         retainage: 0,
         total: 0,
+        retentionVat: 0,
         receiptCount: 0,
         expenseNet: 0,
         inputVat: 0,
@@ -299,6 +321,7 @@ export async function buildVatQuarterlyReport(
       vatDue: 0,
       retainage: 0,
       total: 0,
+      retentionVat: 0,
       receiptCount: 0,
       expenseNet: 0,
       inputVat: 0,
@@ -393,6 +416,42 @@ export async function buildVatQuarterlyReport(
   }
   creditNoteRows.sort((a, b) => b.issueDate.localeCompare(a.issueDate));
 
+  // ===== Retention released: output VAT becomes payable now =====
+  //
+  // Per the DIR retention rule, VAT on a retained amount is payable when the
+  // retention becomes due or is received. The progress invoice taxed only the
+  // net-of-retention amount, so the retention's VAT lands here, in the quarter
+  // the retention is RELEASED. Added to output VAT (q.vatDue) and broken out as
+  // q.retentionVat for the audit trail.
+  const invoiceById = new Map(invoices.map((i) => [i.id, i]));
+  const retentionRows: VatQuarterlyRetentionRow[] = [];
+  for (const rel of await listRetainageReleases(companyId)) {
+    const vat = parseMoney(rel.vatAmount);
+    if (vat === 0) continue; // non-VAT release — nothing to report
+    if (filters.from || filters.to) {
+      if (!isInRange(rel.releaseDate, filters)) continue;
+    }
+    const inv = invoiceById.get(rel.invoiceId);
+    const project = inv?.projectId ? projectById.get(inv.projectId) : null;
+    const customer = project ? customerById.get(project.customerId) : null;
+    const { key, label } = quarterKeyForDate(rel.releaseDate);
+    retentionRows.push({
+      id: rel.id,
+      releaseNumber: rel.releaseNumber,
+      releaseDate: rel.releaseDate,
+      quarterKey: key,
+      invoiceNumber: inv?.number ?? '—',
+      customerName: customer?.name ?? '—',
+      projectName: project?.name ?? null,
+      amount: parseMoney(rel.amount),
+      vatAmount: vat,
+    });
+    const q = ensureQuarter(key, label);
+    q.vatDue = add(q.vatDue, vat);
+    q.retentionVat = add(q.retentionVat, vat);
+  }
+  retentionRows.sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
+
   // Net VAT due = (output − credit-note VAT) − input, per quarter.
   for (const q of byQuarter.values()) {
     q.netVatDue = round2(
@@ -411,6 +470,7 @@ export async function buildVatQuarterlyReport(
       vatDue: add(acc.vatDue, r.vatDue),
       retainage: add(acc.retainage, r.retainage),
       total: add(acc.total, r.total),
+      retentionVat: acc.retentionVat,
       receiptCount: acc.receiptCount,
       expenseNet: acc.expenseNet,
       inputVat: acc.inputVat,
@@ -426,6 +486,7 @@ export async function buildVatQuarterlyReport(
       vatDue: 0,
       retainage: 0,
       total: 0,
+      retentionVat: 0,
       receiptCount: 0,
       expenseNet: 0,
       inputVat: 0,
@@ -436,6 +497,11 @@ export async function buildVatQuarterlyReport(
       netVatDue: 0,
     },
   );
+  // Fold in retention-release output VAT (already added per-quarter above).
+  for (const rr of retentionRows) {
+    totals.vatDue = add(totals.vatDue, rr.vatAmount);
+    totals.retentionVat = add(totals.retentionVat, rr.vatAmount);
+  }
   // Fold in the expense totals.
   for (const e of expenseRows) {
     totals.receiptCount += 1;
@@ -472,6 +538,7 @@ export async function buildVatQuarterlyReport(
     invoices: cleanRows,
     expenses: expenseRows,
     creditNotes: creditNoteRows,
+    retentionReleases: retentionRows,
     totals,
   };
 }
