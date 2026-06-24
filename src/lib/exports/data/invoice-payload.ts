@@ -121,17 +121,26 @@ export async function buildInvoicePayload(
       ? await (async () => {
           const contract = progressDenominator;
           const allProjectInvoices = await listInvoicesForProject(project.id);
-          // Only same-track prior invoices contribute to "previously billed".
+          // Which prior invoices reduce "previously billed" for THIS draw:
+          //   - revised-contract draw → ALL prior billings (both tracks)
+          //   - CO-linked draw        → only priors on the SAME change order
+          //     (a % draw on CO-#2 must not be reduced by a different CO's
+          //     billing — that printed another CO's amount as "previously
+          //     paid" and the page-1 stack stopped footing). Mirrors the
+          //     on-screen invoice page's `priorOnSameSource`.
+          //   - base draw             → only base-track priors
           const prior = allProjectInvoices
             .filter((i) => i.id !== invoice.id)
             .filter(
               (i) =>
                 normalizeStatus('invoice', i.status) !== 'void' &&
                 i.invoiceDate <= invoice.invoiceDate &&
-                // Revised-contract draws net ALL prior billings (both tracks);
-                // otherwise only same-track priors count.
-                (billRevised ||
-                  isInvoiceOnCoTrack(i) === thisInvoiceOnCoTrack),
+                (billRevised
+                  ? true
+                  : thisInvoiceOnCoTrack
+                    ? (i.changeOrderId ?? null) ===
+                      (invoice.changeOrderId ?? null)
+                    : !isInvoiceOnCoTrack(i)),
             );
           const priorNet = prior.reduce(
             (acc, i) =>
