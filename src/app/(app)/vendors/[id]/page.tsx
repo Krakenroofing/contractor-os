@@ -22,6 +22,7 @@ import {
 } from '@/lib/data/purchase-orders';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
+import { listImportedTransactions } from '@/lib/data/statement-imports';
 import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
@@ -44,6 +45,12 @@ export default async function VendorDetailPage({
   if (!vendor) notFound();
 
   const pos = (await listPurchaseOrdersForVendor(vendor.id)).filter((p) => p.status !== 'void');
+  // Bank transactions tagged to this supplier — newest first.
+  const vendorTxns = await listImportedTransactions(companyId, {
+    vendorId: vendor.id,
+    includeIgnored: true,
+    limit: 100,
+  });
 
   let committed = 0;
   let received = 0;
@@ -292,6 +299,49 @@ export default async function VendorDetailPage({
                     </TableRow>
                   );
                 })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bank transactions ({vendorTxns.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {vendorTxns.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">
+              No bank transactions tagged to this supplier yet.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-28">Date</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right w-32">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {vendorTxns.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="tabular-nums text-slate-700">
+                      {t.transactionDate}
+                    </TableCell>
+                    <TableCell className="text-slate-900">
+                      <Link
+                        href={`/banking/transactions/${t.id}`}
+                        className="text-blue-700 hover:underline"
+                      >
+                        {t.description || t.payee || '—'}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(Number(t.amount))}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

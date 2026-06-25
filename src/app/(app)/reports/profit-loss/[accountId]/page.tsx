@@ -117,11 +117,11 @@ export default async function ProfitLossAccountDetailPage({
                       {e.date}
                     </TableCell>
                     <TableCell className="text-slate-900">
-                      {e.importedTransactionId ? (
+                      {e.vendorId ? (
                         <Link
-                          href={`/banking/transactions/${e.importedTransactionId}`}
-                          target="_blank"
+                          href={`/vendors/${e.vendorId}`}
                           className="text-blue-700 hover:underline"
+                          title="View this supplier"
                         >
                           {e.description || '—'}
                         </Link>
@@ -129,19 +129,7 @@ export default async function ProfitLossAccountDetailPage({
                         e.description || '—'
                       )}
                     </TableCell>
-                    <TableCell className="text-slate-500">
-                      {e.importedTransactionId ? (
-                        <Link
-                          href={`/banking/transactions/${e.importedTransactionId}`}
-                          target="_blank"
-                          className="text-blue-700 hover:underline"
-                        >
-                          {e.source} ↗
-                        </Link>
-                      ) : (
-                        e.source
-                      )}
-                    </TableCell>
+                    <TableCell className="text-slate-500">{e.source}</TableCell>
                     {canRecategorize && (
                       <TableCell>
                         {e.jobCostEntryId ? (
@@ -158,7 +146,18 @@ export default async function ProfitLossAccountDetailPage({
                       </TableCell>
                     )}
                     <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(e.amount)}
+                      {e.importedTransactionId ? (
+                        <Link
+                          href={`/banking/transactions/${e.importedTransactionId}`}
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                          title="View this transaction"
+                        >
+                          {formatMoney(e.amount)}
+                        </Link>
+                      ) : (
+                        formatMoney(e.amount)
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

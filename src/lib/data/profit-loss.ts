@@ -411,6 +411,9 @@ export type ProfitLossAccountEntry = {
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
   jobCostEntryId?: string;
+  /** Linked supplier, when the source row has one — lets the row name
+   *  deep-link to the vendor's transaction history. */
+  vendorId?: string | null;
 };
 
 export type ProfitLossAccountDetail = {
@@ -460,6 +463,7 @@ export async function listProfitLossAccountEntries(
       date: jobCostEntries.entryDate,
       description: jobCostEntries.description,
       amount: jobCostEntries.amount,
+      vendorId: jobCostEntries.vendorId,
     })
     .from(jobCostEntries)
     .where(and(...jceConds));
@@ -481,6 +485,7 @@ export async function listProfitLossAccountEntries(
       date: importedTransactions.transactionDate,
       description: importedTransactions.description,
       amount: importedTransactions.amount,
+      vendorId: importedTransactions.vendorId,
     })
     .from(importedTransactions)
     .where(and(...btConds));
@@ -492,6 +497,7 @@ export async function listProfitLossAccountEntries(
       amount: Number(r.amount),
       source: 'Job cost' as const,
       jobCostEntryId: r.id,
+      vendorId: r.vendorId,
     })),
     ...btRows.map((r) => ({
       date: r.date,
@@ -500,6 +506,7 @@ export async function listProfitLossAccountEntries(
       amount: -Number(r.amount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
+      vendorId: r.vendorId,
     })),
   ];
   entries.sort((a, b) => a.date.localeCompare(b.date));

@@ -223,6 +223,7 @@ export async function deleteImportBatch(
 export type ListImportedTransactionsFilters = {
   bankAccountId?: string;
   batchId?: string;
+  vendorId?: string;
   fromDate?: string; // ISO YYYY-MM-DD
   toDate?: string;
   search?: string;
@@ -246,6 +247,9 @@ export async function listImportedTransactions(
   }
   if (filters.batchId) {
     conds.push(eq(importedTransactions.batchId, filters.batchId));
+  }
+  if (filters.vendorId) {
+    conds.push(eq(importedTransactions.vendorId, filters.vendorId));
   }
   if (filters.fromDate) {
     conds.push(gte(importedTransactions.transactionDate, filters.fromDate));
