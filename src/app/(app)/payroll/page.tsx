@@ -246,12 +246,17 @@ export default async function PayrollPage({
           weekEnd={period.endDate}
           status={period.status as 'open' | 'locked'}
         />
-        {allowEdit && (
-          <PeriodLockButton
-            payPeriodId={period.id}
-            locked={isLocked}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          <a
+            href={`/payroll/export.csv?week=${period.startDate}`}
+            className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Download CSV
+          </a>
+          {allowEdit && (
+            <PeriodLockButton payPeriodId={period.id} locked={isLocked} />
+          )}
+        </div>
       </div>
 
       <PayrollTabs active={view} weekStart={period.startDate} />
