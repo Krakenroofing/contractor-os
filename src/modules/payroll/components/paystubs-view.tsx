@@ -129,6 +129,18 @@ function PaystubCard({
                       (−{p.lunchHours.toFixed(2)}h lunch)
                     </span>
                   )}
+                  {p.overtimeHours > 0 && (
+                    <span className="text-amber-700">
+                      {' '}
+                      · {p.overtimeHours.toFixed(2)}h OT
+                    </span>
+                  )}
+                  {p.doubleTimeHours > 0 && (
+                    <span className="text-amber-700">
+                      {' '}
+                      · {p.doubleTimeHours.toFixed(2)}h 2×
+                    </span>
+                  )}
                 </span>
               )}
             </div>

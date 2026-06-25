@@ -44,6 +44,8 @@ import type { AdjustmentType } from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
 import { calculateWeeklyNib, type NibBreakdown } from './nib';
 import { effectiveLunchMinutes } from './lunch';
+import { computeHourlyOvertime } from './overtime';
+import { bahamasHolidaySet } from './holidays';
 
 /** Where the paystub's gross came from. Drives UI hints (e.g. "Override"
  *  badge on the card) and tells the user what to edit if the number is
@@ -67,6 +69,10 @@ export type EmployeePaystub = {
   hoursWorked: number;
   /** Unpaid lunch hours deducted across the period (for display). */
   lunchHours: number;
+  /** Hours paid at 1.5× (over 40/week). Hourly only; 0 otherwise. */
+  overtimeHours: number;
+  /** Hours paid at 2× (holiday / qualifying Sunday). Hourly only. */
+  doubleTimeHours: number;
   payRate: number;
   /** Pre-deduction gross (rate × hours, weekly salary, or override). */
   gross: number;
@@ -214,13 +220,16 @@ export function computeEmployeePaystub(
       .filter((l) => l.employeeId === employee.id)
       .map((l) => [l.workDate, l.minutes]),
   );
+  // Net (paid) hours per day, after the unpaid lunch — the input both to the
+  // hours total and to the overtime tiers.
+  const netHoursByDate = new Map<string, number>();
   let grossHours = 0;
-  let paidHours = 0;
   for (const [workDate, dayHours] of hoursByDate) {
     grossHours += dayHours;
     const lunchMin = effectiveLunchMinutes(dayHours, lunchByDate.get(workDate));
-    paidHours += Math.max(0, dayHours - lunchMin / 60);
+    netHoursByDate.set(workDate, Math.max(0, dayHours - lunchMin / 60));
   }
+  const paidHours = [...netHoursByDate.values()].reduce((a, b) => a + b, 0);
   const hoursWorked = round2(paidHours);
   const lunchHours = round2(grossHours - paidHours);
   const amountTotal = round2(
@@ -261,6 +270,8 @@ export function computeEmployeePaystub(
       employmentType,
       hoursWorked,
       lunchHours,
+      overtimeHours: 0,
+      doubleTimeHours: 0,
       payRate,
       gross: 0,
       grossSource: 'none',
@@ -278,12 +289,33 @@ export function computeEmployeePaystub(
     };
   }
 
-  // Override always wins. Otherwise compute from rate + entries.
+  // Override always wins. Hourly runs the overtime engine (1.5× over 40h/wk,
+  // 2× for a holiday or a Sunday after a full Mon–Sat); other types use the
+  // flat rate/amount rule.
   let gross: number;
   let grossSource: GrossSource;
+  let overtimeHours = 0;
+  let doubleTimeHours = 0;
   if (myOverride) {
     gross = parseMoney(myOverride.grossAmount);
     grossSource = 'override';
+  } else if (employmentType === 'hourly') {
+    const years = Array.from(
+      new Set([
+        Number(period.startDate.slice(0, 4)),
+        Number(period.endDate.slice(0, 4)),
+      ]),
+    );
+    const ot = computeHourlyOvertime(
+      netHoursByDate,
+      period.startDate,
+      bahamasHolidaySet(years),
+      payRate,
+    );
+    gross = ot.gross;
+    overtimeHours = ot.overtimeHours;
+    doubleTimeHours = ot.doubleTimeHours;
+    grossSource = gross > 0 ? 'rate' : 'none';
   } else {
     const computed = computeRateGross(
       employmentType,
@@ -316,6 +348,8 @@ export function computeEmployeePaystub(
     employmentType,
     hoursWorked,
     lunchHours,
+    overtimeHours,
+    doubleTimeHours,
     payRate,
     gross,
     grossSource,
@@ -384,6 +418,8 @@ function paystubFromSnapshot(
     // the period was locked); no separate lunch line to reconstruct.
     hoursWorked: parseMoney(snap.hoursWorked),
     lunchHours: 0,
+    overtimeHours: 0,
+    doubleTimeHours: 0,
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',

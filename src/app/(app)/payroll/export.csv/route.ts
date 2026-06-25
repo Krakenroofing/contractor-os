@@ -56,6 +56,8 @@ export async function GET(req: NextRequest) {
     'Type',
     'Paid hours',
     'Lunch (h)',
+    'OT hrs (1.5x)',
+    '2x hrs',
     'Rate',
     'Gross',
     'Deductions',
@@ -70,6 +72,8 @@ export async function GET(req: NextRequest) {
     p.employmentType,
     Number(p.hoursWorked.toFixed(2)),
     Number(p.lunchHours.toFixed(2)),
+    Number(p.overtimeHours.toFixed(2)),
+    Number(p.doubleTimeHours.toFixed(2)),
     Number(p.payRate.toFixed(2)),
     Number(p.gross.toFixed(2)),
     Number(p.deductionsTotal.toFixed(2)),
@@ -85,9 +89,11 @@ export async function GET(req: NextRequest) {
   const totals: CsvCell[] = [
     'TOTAL',
     `${paystubs.length} employee(s)`,
-    '',
-    '',
-    '',
+    '', // paid hours
+    '', // lunch
+    '', // OT hrs
+    '', // 2x hrs
+    '', // rate
     sum((p) => p.gross),
     sum((p) => p.deductionsTotal),
     sum((p) => p.nib.employee),

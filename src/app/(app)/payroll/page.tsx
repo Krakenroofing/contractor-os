@@ -29,7 +29,9 @@ import { PostLaborButton } from '@/modules/payroll/components/post-labor-button'
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
 import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
 import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
-import { parseMoney, multiply, round2 } from '@/lib/money';
+import { computeHourlyOvertime } from '@/modules/payroll/lib/overtime';
+import { bahamasHolidaySet } from '@/modules/payroll/lib/holidays';
+import { parseMoney, round2 } from '@/lib/money';
 import type { EmploymentType } from '@/modules/employees/schema';
 import {
   SubPaymentsListClient,
@@ -127,6 +129,14 @@ export default async function PayrollPage({
   const lunchOverrides = await listLunchOverrides(companyId, period.id);
   const lunchByEmpDate = new Map(
     lunchOverrides.map((l) => [`${l.employeeId}:${l.workDate}`, l.minutes]),
+  );
+  const holidaySet = bahamasHolidaySet(
+    Array.from(
+      new Set([
+        Number(period.startDate.slice(0, 4)),
+        Number(period.endDate.slice(0, 4)),
+      ]),
+    ),
   );
   // Aggregate per-(employee, date) for the timesheet grid. The timesheet
   // is a record of HOURS for everyone — that's what a timesheet is. For
@@ -291,17 +301,17 @@ export default async function PayrollPage({
               );
               // Paid hours = logged hours net of the per-day unpaid lunch
               // (hourly only), matching the paystub.
-              const hoursByDate = new Map<string, number>();
+              const grossByDate = new Map<string, number>();
               for (const entry of myEntries) {
                 if (entry.entryType === 'amount') continue;
-                hoursByDate.set(
+                grossByDate.set(
                   entry.workDate,
-                  (hoursByDate.get(entry.workDate) ?? 0) +
+                  (grossByDate.get(entry.workDate) ?? 0) +
                     parseMoney(entry.hours),
                 );
               }
-              let paidHours = 0;
-              for (const [date, dh] of hoursByDate) {
+              const netHoursByDate = new Map<string, number>();
+              for (const [date, dh] of grossByDate) {
                 const lunchMin =
                   employmentType === 'hourly'
                     ? effectiveLunchMinutes(
@@ -309,9 +319,11 @@ export default async function PayrollPage({
                         lunchByEmpDate.get(`${e.id}:${date}`),
                       )
                     : 0;
-                paidHours += Math.max(0, dh - lunchMin / 60);
+                netHoursByDate.set(date, Math.max(0, dh - lunchMin / 60));
               }
-              const hours = round2(paidHours);
+              const hours = round2(
+                [...netHoursByDate.values()].reduce((a, b) => a + b, 0),
+              );
               const amountTotal = round2(
                 myEntries
                   .filter((entry) => entry.entryType === 'amount')
@@ -319,7 +331,12 @@ export default async function PayrollPage({
               );
               const rateGross =
                 employmentType === 'hourly'
-                  ? multiply(hours, payRate)
+                  ? computeHourlyOvertime(
+                      netHoursByDate,
+                      period.startDate,
+                      holidaySet,
+                      payRate,
+                    ).gross
                   : employmentType === 'salaried'
                     ? round2(payRate)
                     : amountTotal;
