@@ -12,7 +12,10 @@ export type DocumentType =
   | 'change_order'
   | 'credit_memo'
   | 'purchase_order'
-  | 'payment';
+  | 'payment'
+  // Per-employee pay slip. Its `id` is a composite `${employeeId}__${week}`
+  // since a slip is scoped to an employee AND a pay period.
+  | 'payslip';
 
 export type Money = number;
 

@@ -247,6 +247,14 @@ function PaystubCard({
               hasOverride={p.grossSource === 'override'}
             />
           )}
+          <a
+            href={`/api/exports/payslip/${p.employeeId}__${payPeriodId}/pdf`}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center text-xs font-medium text-blue-700 hover:underline"
+          >
+            Download pay slip (PDF) ↓
+          </a>
         </div>
       </CardContent>
     </Card>

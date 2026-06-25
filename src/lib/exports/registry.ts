@@ -8,6 +8,7 @@ import { buildChangeOrderPayload } from '@/lib/exports/data/change-order-payload
 import { buildCreditMemoPayload } from '@/lib/exports/data/credit-memo-payload';
 import { buildPurchaseOrderPayload } from '@/lib/exports/data/purchase-order-payload';
 import { buildPaymentPayload } from '@/lib/exports/data/payment-payload';
+import { buildPayslipPayload } from '@/lib/exports/data/payslip-payload';
 
 // Single dispatch table. Adding a new document type = one entry here, plus
 // the payload builder. Routes, PDF templates, and XLSX sheets all flow
@@ -24,6 +25,7 @@ export const PAYLOAD_BUILDERS: Record<
   credit_memo: buildCreditMemoPayload,
   purchase_order: buildPurchaseOrderPayload,
   payment: buildPaymentPayload,
+  payslip: buildPayslipPayload,
 };
 
 export const SUPPORTED_DOCUMENT_TYPES: DocumentType[] = [
@@ -35,6 +37,7 @@ export const SUPPORTED_DOCUMENT_TYPES: DocumentType[] = [
   'credit_memo',
   'purchase_order',
   'payment',
+  'payslip',
 ];
 
 export function isSupportedDocumentType(t: string): t is DocumentType {
