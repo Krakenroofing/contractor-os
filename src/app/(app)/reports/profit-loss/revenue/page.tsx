@@ -1,14 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
@@ -16,6 +8,7 @@ import { formatMoney } from '@/lib/money';
 import { listProfitLossRevenueEntries } from '@/lib/data/profit-loss';
 import { parseReportFilters, describeRange } from '@/modules/reports/lib/filters';
 import { exTaxLabel } from '@/modules/reports/lib/tax-label';
+import { RevenueTable } from './revenue-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,64 +75,11 @@ export default async function ProfitLossRevenueDetailPage({
               No invoices in this date range (excluding draft + void).
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-28">Date</TableHead>
-                  <TableHead className="w-28">Invoice</TableHead>
-                  <TableHead>Customer / Project</TableHead>
-                  <TableHead>Revenue category</TableHead>
-                  <TableHead className="text-right w-32">{exTax}</TableHead>
-                  <TableHead className="text-right w-32">Gross</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {detail.entries.map((e) => (
-                  <TableRow key={e.invoiceId}>
-                    <TableCell className="tabular-nums text-slate-700">
-                      {e.date}
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/invoices/${e.invoiceId}`}
-                        target="_blank"
-                        className="text-blue-700 hover:underline"
-                      >
-                        {e.number || '—'} ↗
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-slate-900">
-                      <span className="block">{e.customerName}</span>
-                      <span className="block text-xs text-slate-500">
-                        {e.projectName}
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      className={
-                        e.categoryName ? 'text-slate-700' : 'text-amber-700'
-                      }
-                    >
-                      {e.categoryName ?? 'Uncategorized'}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(e.subtotal)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-slate-500">
-                      {formatMoney(e.total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="border-t-2 border-slate-200">
-                  <TableCell colSpan={4} className="font-semibold text-slate-900">
-                    Total ({exTax})
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-semibold">
-                    {formatMoney(detail.total)}
-                  </TableCell>
-                  <TableCell />
-                </TableRow>
-              </TableBody>
-            </Table>
+            <RevenueTable
+              entries={detail.entries}
+              exTax={exTax}
+              total={detail.total}
+            />
           )}
         </CardContent>
       </Card>
