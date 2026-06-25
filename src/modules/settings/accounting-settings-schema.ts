@@ -26,6 +26,9 @@ export const accountingSettingsFormSchema = z.object({
   vatRatePercent: percentString,
   retainageRevenueBasis: z.enum(['billed', 'accrual']),
   defaultRetainagePercent: percentString,
+  // Payroll → job costs posting targets. Empty = not configured.
+  laborCogsAccountId: z.string().optional().or(z.literal('')),
+  laborBurdenAccountId: z.string().optional().or(z.literal('')),
 });
 
 export type AccountingSettingsFormParsed = z.output<

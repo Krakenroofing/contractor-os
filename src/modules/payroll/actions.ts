@@ -15,6 +15,12 @@ import {
   updateTimeEntry,
 } from '@/lib/data/time-entries';
 import { getEmployee } from '@/lib/data/employees';
+import { getCompany } from '@/lib/data/companies';
+import {
+  createJobCostEntry,
+  softDeleteJobCostEntriesBySource,
+  JobCostingNotAvailableInDemoError,
+} from '@/lib/data/job-cost-entries';
 import { getOrCreatePeriodForDate, getPayPeriod, updatePayPeriod } from '@/lib/data/pay-periods';
 import {
   deletePeriodPayOverride,
@@ -30,6 +36,7 @@ import {
 import { adjustmentTypeValues } from '@/db/schema';
 import {
   deletePaystubSnapshotsForPeriod,
+  listPaystubSnapshots,
   replacePaystubSnapshotsForPeriod,
 } from '@/lib/data/period-paystub-snapshots';
 import { listEmployees } from '@/lib/data/employees';
@@ -38,6 +45,7 @@ import {
   computePeriodPaystubs,
   type EmployeePaystub,
 } from './lib/payroll-math';
+import { computeLaborPostingPlan } from './lib/labor-posting';
 import {
   multiply,
   parseMoney,
@@ -715,6 +723,182 @@ export async function lockPeriodAction(
 
   revalidatePath('/payroll');
   return {};
+}
+
+// =====================================================================
+// Post labor to job costs. Spreads each employee's gross + employer NIB
+// across the (project, cost code) buckets they logged time to, posting
+// wages (costType 'labor') and burden (costType 'labor_burden') as
+// job_cost_entries. Idempotent + reversible via source='labor_entry' +
+// sourceRefId=payPeriodId. Requires a locked period and the two target
+// accounts configured under Settings → Accounting.
+// =====================================================================
+
+export type PostLaborResult = {
+  ok?: boolean;
+  error?: string;
+  summary?: { wage: number; burden: number; unposted: number; entries: number };
+  reversed?: number;
+};
+
+export async function postPayrollLaborAction(
+  payPeriodId: string,
+): Promise<PostLaborResult> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to post payroll.' };
+  }
+  const idResult = idSchema.safeParse(payPeriodId);
+  if (!idResult.success) return { error: 'Missing pay period id.' };
+  const companyId = await getActiveCompanyId();
+
+  const company = await getCompany(companyId);
+  if (!company) return { error: 'Active company not found.' };
+  const laborAcct = company.laborCogsAccountId;
+  const burdenAcct = company.laborBurdenAccountId;
+  if (!laborAcct || !burdenAcct) {
+    return {
+      error:
+        'Set the direct-labor and payroll-burden accounts under Settings → Accounting first.',
+    };
+  }
+
+  const period = await getPayPeriod(companyId, payPeriodId);
+  if (!period) return { error: 'Pay period not found.' };
+  if (period.status !== 'locked') {
+    return { error: 'Lock the pay period before posting its labor.' };
+  }
+
+  const [employees, entries, overrides, snapshots, adjustments] =
+    await Promise.all([
+      listEmployees(companyId),
+      listTimeEntries(companyId, { payPeriodId }),
+      listPeriodPayOverrides(companyId, { payPeriodId }),
+      listPaystubSnapshots(companyId, { payPeriodId }),
+      listPaystubAdjustments(companyId, { payPeriodId }),
+    ]);
+  const paystubs = computePeriodPaystubs(
+    employees,
+    entries,
+    period,
+    overrides,
+    snapshots,
+    adjustments,
+  );
+  const plan = computeLaborPostingPlan(paystubs, entries);
+  if (plan.bucketCount === 0) {
+    return {
+      error:
+        'Nothing to post — no labor is tagged to a project + cost code this period.',
+    };
+  }
+
+  const periodLabel = `${period.startDate} – ${period.endDate}`;
+  try {
+    // Idempotent: reverse any prior posting for this period before re-posting.
+    await softDeleteJobCostEntriesBySource(companyId, 'labor_entry', payPeriodId);
+
+    for (const a of plan.allocations) {
+      for (const b of a.buckets) {
+        if (b.wage > 0) {
+          await createJobCostEntry({
+            companyId,
+            projectId: b.projectId,
+            costCodeId: b.costCodeId,
+            accountingAccountId: laborAcct,
+            source: 'labor_entry',
+            sourceRefId: payPeriodId,
+            costType: 'labor',
+            entryDate: period.endDate,
+            vendorId: null,
+            description: `Payroll — ${a.employeeName} (${periodLabel})`,
+            quantity: '1',
+            unitCost: b.wage.toFixed(2),
+            amount: b.wage.toFixed(2),
+            isBillable: false,
+            markupPercent: null,
+            burdenPercent: null,
+            vendorInvoiceNumber: null,
+            attachmentUrl: null,
+            notes: null,
+            createdByUserId: user.id,
+          });
+        }
+        if (b.burden > 0) {
+          await createJobCostEntry({
+            companyId,
+            projectId: b.projectId,
+            costCodeId: b.costCodeId,
+            accountingAccountId: burdenAcct,
+            source: 'labor_entry',
+            sourceRefId: payPeriodId,
+            costType: 'labor_burden',
+            entryDate: period.endDate,
+            vendorId: null,
+            description: `Payroll burden (NIB) — ${a.employeeName} (${periodLabel})`,
+            quantity: '1',
+            unitCost: b.burden.toFixed(2),
+            amount: b.burden.toFixed(2),
+            isBillable: false,
+            markupPercent: null,
+            burdenPercent: null,
+            vendorInvoiceNumber: null,
+            attachmentUrl: null,
+            notes: null,
+            createdByUserId: user.id,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    if (err instanceof JobCostingNotAvailableInDemoError) {
+      return { error: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to post labor: ${message}` };
+  }
+
+  revalidatePath('/payroll');
+  revalidatePath('/reports/profit-loss', 'layout');
+  return {
+    ok: true,
+    summary: {
+      wage: plan.totalWagePosted,
+      burden: plan.totalBurdenPosted,
+      unposted: plan.totalUnposted,
+      entries: plan.bucketCount,
+    },
+  };
+}
+
+export async function unpostPayrollLaborAction(
+  payPeriodId: string,
+): Promise<PostLaborResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to unpost payroll.' };
+  }
+  const idResult = idSchema.safeParse(payPeriodId);
+  if (!idResult.success) return { error: 'Missing pay period id.' };
+  const companyId = await getActiveCompanyId();
+  try {
+    const reversed = await softDeleteJobCostEntriesBySource(
+      companyId,
+      'labor_entry',
+      payPeriodId,
+    );
+    revalidatePath('/payroll');
+    revalidatePath('/reports/profit-loss', 'layout');
+    return { ok: true, reversed };
+  } catch (err) {
+    if (err instanceof JobCostingNotAvailableInDemoError) {
+      return { error: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to unpost labor: ${message}` };
+  }
 }
 
 // =====================================================================

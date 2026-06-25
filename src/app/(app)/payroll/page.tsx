@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate, canView } from '@/lib/permissions';
@@ -25,6 +25,8 @@ import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
 import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
 import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
+import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
+import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
 import { parseMoney, multiply, round2 } from '@/lib/money';
 import type { EmploymentType } from '@/modules/employees/schema';
 import {
@@ -111,6 +113,14 @@ export default async function PayrollPage({
     listPaystubSnapshots(companyId, { payPeriodId: period.id }),
     listPaystubAdjustments(companyId, { payPeriodId: period.id }),
   ]);
+  // Labor → job costs posting state for this period.
+  const activeCompany = await getActiveCompany();
+  const laborAccountsConfigured = !!(
+    activeCompany.laborCogsAccountId && activeCompany.laborBurdenAccountId
+  );
+  const laborPostedCount = (
+    await listJobCostEntriesBySource(companyId, 'labor_entry', period.id)
+  ).length;
   // Aggregate per-(employee, date) for the timesheet grid. The timesheet
   // is a record of HOURS for everyone — that's what a timesheet is. For
   // variable-pay workers (contract / piecework / commission / lump-sum)
@@ -279,11 +289,29 @@ export default async function PayrollPage({
             })
             .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
           return (
-            <PayRunTable
-              rows={rows}
-              payPeriodId={period.id}
-              locked={isLocked}
-            />
+            <div className="space-y-4">
+              <PayRunTable
+                rows={rows}
+                payPeriodId={period.id}
+                locked={isLocked}
+              />
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-medium text-slate-700">
+                  Post labor to job costs
+                </h3>
+                <p className="mt-0.5 mb-2 text-xs text-slate-500">
+                  Spreads each person&apos;s pay across the projects they logged
+                  time to (wages → labor, employer NIB → burden) so it lands on
+                  the P&amp;L. Re-postable and reversible.
+                </p>
+                <PostLaborButton
+                  payPeriodId={period.id}
+                  locked={isLocked}
+                  accountsConfigured={laborAccountsConfigured}
+                  postedCount={laborPostedCount}
+                />
+              </div>
+            </div>
           );
         })()}
 

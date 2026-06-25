@@ -149,6 +149,52 @@ export async function updateJobCostEntry(
   return rows[0];
 }
 
+/** Live (non-deleted) entries posted from a given source ref — used to detect
+ *  and reverse a prior posting (e.g. a pay period's labor). */
+export async function listJobCostEntriesBySource(
+  companyId: string,
+  source: JobCostEntry['source'],
+  sourceRefId: string,
+): Promise<JobCostEntry[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return db
+    .select()
+    .from(jobCostEntries)
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        eq(jobCostEntries.source, source),
+        eq(jobCostEntries.sourceRefId, sourceRefId),
+        isNull(jobCostEntries.deletedAt),
+      ),
+    );
+}
+
+/** Soft-delete every live entry for a source ref (idempotent re-post / unpost).
+ *  Returns how many rows were reversed. */
+export async function softDeleteJobCostEntriesBySource(
+  companyId: string,
+  source: JobCostEntry['source'],
+  sourceRefId: string,
+): Promise<number> {
+  const db = requireDb();
+  const now = new Date();
+  const rows = await db
+    .update(jobCostEntries)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        eq(jobCostEntries.source, source),
+        eq(jobCostEntries.sourceRefId, sourceRefId),
+        isNull(jobCostEntries.deletedAt),
+      ),
+    )
+    .returning({ id: jobCostEntries.id });
+  return rows.length;
+}
+
 export async function softDeleteJobCostEntry(
   companyId: string,
   id: string,

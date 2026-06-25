@@ -6,6 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { AccountingSettingsForm } from '@/modules/settings/components/accounting-settings-form';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +17,9 @@ export default async function AccountingSettingsPage() {
   if (!canView(role, 'settings')) redirect('/settings' as never);
 
   const company = await getActiveCompany();
+  const accounts = toAccountingAccountOptions(
+    await listAccountingAccounts(company.id),
+  );
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
@@ -46,7 +51,7 @@ export default async function AccountingSettingsPage() {
 
       <Card>
         <CardContent className="p-6">
-          <AccountingSettingsForm company={company} />
+          <AccountingSettingsForm company={company} accounts={accounts} />
         </CardContent>
       </Card>
 

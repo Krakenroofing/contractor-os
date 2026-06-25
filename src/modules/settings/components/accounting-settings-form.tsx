@@ -1,9 +1,11 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AccountingAccountPicker } from '@/modules/accounting/components/accounting-account-picker';
+import type { AccountingAccountOption } from '@/modules/accounting/lib/account-options';
 import {
   updateAccountingSettingsAction,
   type AccountingSettingsState,
@@ -30,10 +32,22 @@ const MONTHS = [
   'December',
 ];
 
-export function AccountingSettingsForm({ company }: { company: Company }) {
+export function AccountingSettingsForm({
+  company,
+  accounts,
+}: {
+  company: Company;
+  accounts: AccountingAccountOption[];
+}) {
   const [state, formAction, pending] = useActionState(
     updateAccountingSettingsAction,
     initialState,
+  );
+  const [laborCogsAccountId, setLaborCogsAccountId] = useState(
+    company.laborCogsAccountId ?? '',
+  );
+  const [laborBurdenAccountId, setLaborBurdenAccountId] = useState(
+    company.laborBurdenAccountId ?? '',
   );
   const err = (key: string) => state.errors?.[key]?.[0];
 
@@ -156,6 +170,45 @@ export function AccountingSettingsForm({ company }: { company: Company }) {
             defaultValue={company.defaultRetainagePercent}
           />
         </Field>
+      </fieldset>
+
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Payroll posting
+        </legend>
+        <p className="text-xs text-slate-500">
+          When you post a pay period to job costs, wages post to the labor
+          account and employer burden (NIB) to a separate account. Both are
+          required before a period can be posted.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field
+            label="Direct labor account (COGS)"
+            error={err('laborCogsAccountId')}
+            hint="Wages land here."
+          >
+            <AccountingAccountPicker
+              name="laborCogsAccountId"
+              value={laborCogsAccountId}
+              onChange={setLaborCogsAccountId}
+              accounts={accounts}
+              placeholder="— Select labor account —"
+            />
+          </Field>
+          <Field
+            label="Payroll burden account"
+            error={err('laborBurdenAccountId')}
+            hint="Employer NIB / payroll taxes land here."
+          >
+            <AccountingAccountPicker
+              name="laborBurdenAccountId"
+              value={laborBurdenAccountId}
+              onChange={setLaborBurdenAccountId}
+              accounts={accounts}
+              placeholder="— Select burden account —"
+            />
+          </Field>
+        </div>
       </fieldset>
 
       <div className="flex items-center gap-3">

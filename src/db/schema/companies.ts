@@ -54,6 +54,13 @@ export const companies = pgTable('companies', {
     .notNull()
     .default('billed'),
 
+  // Payroll → job costs posting targets (Settings → Accounting). Wages post
+  // to laborCogsAccountId (COGS); employer NIB / burden posts to
+  // laborBurdenAccountId (separate). Null until configured — posting refuses
+  // a pay period until both are set.
+  laborCogsAccountId: uuid('labor_cogs_account_id'),
+  laborBurdenAccountId: uuid('labor_burden_account_id'),
+
   // Banking & Receipts (Phase 1). Gate VAT-aware UI/logic on `isVatActive`
   // instead of `vatRatePercent > 0` so a company can mark itself VAT-active
   // ahead of choosing a rate, and so explicit opt-out is possible. Backfilled

@@ -134,6 +134,8 @@ export async function updateAccountingSettingsAction(
     vatRatePercent: formData.get('vatRatePercent') ?? '0',
     retainageRevenueBasis: formData.get('retainageRevenueBasis') ?? 'billed',
     defaultRetainagePercent: formData.get('defaultRetainagePercent') ?? '0',
+    laborCogsAccountId: formData.get('laborCogsAccountId') ?? '',
+    laborBurdenAccountId: formData.get('laborBurdenAccountId') ?? '',
   });
 
   if (!parsed.success) {
@@ -150,6 +152,8 @@ export async function updateAccountingSettingsAction(
     vatRatePercent: Number(data.vatRatePercent).toFixed(3),
     retainageRevenueBasis: data.retainageRevenueBasis,
     defaultRetainagePercent: Number(data.defaultRetainagePercent).toFixed(3),
+    laborCogsAccountId: emptyToNull(data.laborCogsAccountId ?? null),
+    laborBurdenAccountId: emptyToNull(data.laborBurdenAccountId ?? null),
   });
 
   if (!updated) {
