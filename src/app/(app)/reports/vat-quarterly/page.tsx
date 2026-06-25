@@ -122,8 +122,10 @@ export default async function VatQuarterlyReportPage({
                         {formatMoney(current.inputVat)}
                       </p>
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        {current.receiptCount} posted receipt
-                        {current.receiptCount === 1 ? '' : 's'} this quarter
+                        {current.receiptCount} receipt
+                        {current.receiptCount === 1 ? '' : 's'} +{' '}
+                        {current.inputSplitCount} bank VAT split
+                        {current.inputSplitCount === 1 ? '' : 's'}
                       </p>
                     </div>
                     <div>
@@ -165,7 +167,7 @@ export default async function VatQuarterlyReportPage({
               label="Input VAT (expenses)"
               value={formatMoney(report.totals.inputVat)}
               valueClassName="text-emerald-700"
-              hint={`${report.totals.receiptCount} posted receipt(s)`}
+              hint={`${report.totals.receiptCount} receipt(s) + ${report.totals.inputSplitCount} VAT split(s)`}
             />
             <KPI
               label="Credit notes VAT"
@@ -206,7 +208,9 @@ export default async function VatQuarterlyReportPage({
             net-of-retention amount), less VAT on <strong>credit notes</strong>{' '}
             issued in the quarter (a credit on an unpaid invoice removes the VAT
             that was never collected). Input VAT = VAT on every{' '}
-            <strong>posted receipt</strong> marked recoverable.
+            <strong>posted receipt</strong> marked recoverable,{' '}
+            <strong>plus bank-transaction VAT splits</strong> posted to a
+            VAT-input account (e.g. Vat Receivable).
             <strong> Net VAT due = output − credit notes − input</strong> —
             positive means you pay the government for the quarter; negative means
             a reclaim balance.
@@ -432,11 +436,21 @@ export default async function VatQuarterlyReportPage({
                       <TableRow key={r.receiptId}>
                         <TableCell className="text-xs font-mono">
                           <Link
-                            href={{ pathname: `/banking/receipts/${r.receiptId}` }}
+                            href={{
+                              pathname:
+                                r.source === 'bank_split'
+                                  ? `/banking/transactions/${r.receiptId}`
+                                  : `/banking/receipts/${r.receiptId}`,
+                            }}
                             className="hover:underline"
                           >
                             {r.receiptDate}
                           </Link>
+                          {r.source === 'bank_split' && (
+                            <span className="ml-1 text-[10px] text-slate-400">
+                              (bank split)
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-slate-700">
                           {r.vendorName}

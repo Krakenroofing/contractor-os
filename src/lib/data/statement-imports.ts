@@ -22,6 +22,7 @@ import {
   statementImportBatches,
   importedTransactions,
   importedTransactionLines,
+  accountingAccounts,
   type BankStatementMapping,
   type NewBankStatementMapping,
   type StatementImportBatch,
@@ -300,6 +301,54 @@ export async function listImportedTransactions(
     )
     .limit(filters.limit ?? 500)
     .offset(filters.offset ?? 0);
+}
+
+export type InputVatBankLine = {
+  transactionId: string;
+  date: string;
+  amount: number;
+  vendorId: string | null;
+  description: string | null;
+  accountName: string;
+};
+
+/**
+ * Recoverable input VAT recorded by SPLITTING a bank transaction's VAT portion
+ * onto a vat_input account (e.g. "Vat Receivable") — the operator's main way of
+ * capturing input VAT, separate from posted receipts. One row per split line on
+ * a vat_input account, dated by the transaction. Ignored transactions excluded.
+ */
+export async function listInputVatBankLines(
+  companyId: string,
+): Promise<InputVatBankLine[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      transactionId: importedTransactions.id,
+      date: importedTransactions.transactionDate,
+      amount: importedTransactionLines.amount,
+      vendorId: importedTransactions.vendorId,
+      description: importedTransactions.description,
+      accountName: accountingAccounts.name,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactionLines.accountingAccountId),
+    )
+    .where(
+      and(
+        eq(importedTransactionLines.companyId, companyId),
+        eq(accountingAccounts.type, 'vat_input'),
+        eq(importedTransactions.isIgnored, false),
+      ),
+    );
+  return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
 }
 
 export async function countImportedTransactions(

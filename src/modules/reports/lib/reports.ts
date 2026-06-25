@@ -27,6 +27,7 @@ import {
 import { listPayments } from '@/lib/data/invoice-payments';
 import { listRetainageReleases } from '@/lib/data/retainage-releases';
 import { listReceipts } from '@/lib/data/receipts';
+import { listInputVatBankLines } from '@/lib/data/statement-imports';
 import {
   listPurchaseOrders,
   getPurchaseOrderLines,
@@ -116,8 +117,10 @@ export type VatQuarterlyQuarterRow = {
   // the retained amount becomes payable when retention is due/received).
   // Already included in `vatDue` above; broken out here for the audit trail.
   retentionVat: number;
-  // Input VAT (Phase B): aggregated from posted, recoverable receipts.
+  // Input VAT: posted recoverable receipts PLUS bank-transaction VAT splits.
   receiptCount: number;
+  /** Count of bank-transaction VAT-split lines contributing input VAT. */
+  inputSplitCount: number;
   expenseNet: number;
   inputVat: number;
   expenseGross: number;
@@ -149,6 +152,8 @@ export type VatQuarterlyExpenseRow = {
   inputVat: number;
   total: number;
   recoverable: boolean;
+  /** Where the input VAT came from — a posted receipt or a bank VAT split. */
+  source: 'receipt' | 'bank_split';
 };
 
 export type VatQuarterlyRetentionRow = {
@@ -183,6 +188,7 @@ export type VatQuarterlyReport = {
     retentionVat: number;
     // Input VAT totals
     receiptCount: number;
+    inputSplitCount: number;
     expenseNet: number;
     inputVat: number;
     expenseGross: number;
@@ -232,6 +238,7 @@ export async function buildVatQuarterlyReport(
         total: 0,
         retentionVat: 0,
         receiptCount: 0,
+        inputSplitCount: 0,
         expenseNet: 0,
         inputVat: 0,
         expenseGross: 0,
@@ -323,6 +330,7 @@ export async function buildVatQuarterlyReport(
       total: 0,
       retentionVat: 0,
       receiptCount: 0,
+      inputSplitCount: 0,
       expenseNet: 0,
       inputVat: 0,
       expenseGross: 0,
@@ -377,6 +385,7 @@ export async function buildVatQuarterlyReport(
       inputVat,
       total,
       recoverable: r.vatRecoverable,
+      source: 'receipt',
     });
     const q = ensureQuarter(key, label);
     q.receiptCount += 1;
@@ -385,6 +394,38 @@ export async function buildVatQuarterlyReport(
     if (r.vatRecoverable) {
       q.inputVat = add(q.inputVat, inputVat);
     }
+  }
+
+  // ===== Input VAT from bank-transaction VAT splits =====
+  // Operators also record recoverable input VAT by splitting a bank line's VAT
+  // portion onto a vat_input account (e.g. "Vat Receivable"), not only via
+  // posted receipts. Include those, bucketed by the transaction date. (A line
+  // is a positive VAT magnitude; the implied net is shown for context.)
+  for (const v of await listInputVatBankLines(companyId)) {
+    if (filters.from || filters.to) {
+      if (!isInRange(v.date, filters)) continue;
+    }
+    const { key, label } = quarterKeyForDate(v.date);
+    const vendor = v.vendorId ? vendorById.get(v.vendorId) : null;
+    const impliedNet =
+      companyVatRatePct > 0 ? round2((v.amount / companyVatRatePct) * 100) : 0;
+    expenseRows.push({
+      receiptId: v.transactionId,
+      receiptDate: v.date,
+      quarterKey: key,
+      vendorName: vendor?.name ?? v.description ?? v.accountName,
+      projectName: null,
+      subtotal: impliedNet,
+      vatRatePct: companyVatRatePct,
+      inputVat: v.amount,
+      total: round2(impliedNet + v.amount),
+      recoverable: true,
+      source: 'bank_split',
+    });
+    const q = ensureQuarter(key, label);
+    q.inputSplitCount += 1;
+    q.expenseNet = add(q.expenseNet, impliedNet);
+    q.inputVat = add(q.inputVat, v.amount);
   }
   expenseRows.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate));
 
@@ -472,6 +513,7 @@ export async function buildVatQuarterlyReport(
       total: add(acc.total, r.total),
       retentionVat: acc.retentionVat,
       receiptCount: acc.receiptCount,
+      inputSplitCount: acc.inputSplitCount,
       expenseNet: acc.expenseNet,
       inputVat: acc.inputVat,
       expenseGross: acc.expenseGross,
@@ -488,6 +530,7 @@ export async function buildVatQuarterlyReport(
       total: 0,
       retentionVat: 0,
       receiptCount: 0,
+      inputSplitCount: 0,
       expenseNet: 0,
       inputVat: 0,
       expenseGross: 0,
@@ -504,7 +547,8 @@ export async function buildVatQuarterlyReport(
   }
   // Fold in the expense totals.
   for (const e of expenseRows) {
-    totals.receiptCount += 1;
+    if (e.source === 'bank_split') totals.inputSplitCount += 1;
+    else totals.receiptCount += 1;
     totals.expenseNet = add(totals.expenseNet, e.subtotal);
     totals.expenseGross = add(totals.expenseGross, e.total);
     if (e.recoverable) {
