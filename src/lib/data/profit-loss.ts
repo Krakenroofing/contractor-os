@@ -1,7 +1,8 @@
 // Data layer for the P&L (Income Statement) report — Accounting Phase 2.
 //
-// Income side: sum invoiced subtotal (net, ex-VAT) within the date range,
-// for invoices not in 'draft' or 'void' status. Accrual basis. Invoices
+// Income side: sum invoiced net-of-retainage (net, ex-VAT) within the date
+// range, for invoices not in 'draft' or 'void' status. Billed basis — held
+// retainage is recognized when released, not when first billed. Invoices
 // don't have an accountingAccountId today, so the income side is a single
 // total (most contractor income is 1-2 accounts anyway).
 //
@@ -139,17 +140,17 @@ export async function buildProfitLossReport(
   if (!isDatabaseConfigured()) return empty;
   const db = getDb()!;
 
-  // ----- Income: sum invoice subtotal in range -----
-  // Exclude retainage-release invoices: the original invoice's subtotal
-  // already recognized the full contract value (incl. the held retainage)
-  // on an accrual basis, so counting the release subtotal again would
-  // double-count the released portion. (VAT report still counts the
-  // release's tax_amount — that VAT is collected at release.)
+  // ----- Income: sum invoiced net-of-retainage in range -----
+  // Billed basis: recognize what's actually invoiced now = subtotal minus the
+  // held-back retainage. The retainage is recognized later, when it's released
+  // — so retainage-release invoices ARE included here (their retainageAmount is
+  // 0, so subtotal - retainage = the released amount). Over the original +
+  // release, this sums back to the full contract value with no double-count.
+  const incomeNet = sql<string>`COALESCE(SUM(${invoices.subtotal} - COALESCE(${invoices.retainageAmount}, 0)), 0)`;
   const incomeConds = [
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
-    ne(invoices.billingType, 'retainage'),
   ];
   if (filters.from) incomeConds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) incomeConds.push(lte(invoices.invoiceDate, filters.to));
@@ -160,7 +161,7 @@ export async function buildProfitLossReport(
       accountId: invoices.accountingAccountId,
       accountName: accountingAccounts.name,
       rollupGroup: accountingAccounts.rollupGroup,
-      total: sql<string>`COALESCE(SUM(${invoices.subtotal}), 0)`,
+      total: incomeNet,
       count: sql<number>`COUNT(*)::int`,
     })
     .from(invoices)
@@ -521,7 +522,8 @@ export type ProfitLossRevenueEntry = {
   customerName: string;
   projectName: string;
   categoryName: string | null;
-  /** Ex-VAT (net) — what counts as revenue on the P&L. */
+  /** Ex-VAT, net of retainage — the billed net that counts as revenue on the
+   *  P&L (subtotal minus held retainage). Ties to `total` ÷ (1 + VAT rate). */
   subtotal: number;
   /** Gross (incl. VAT) — for tie-out against the invoice document. */
   total: number;
@@ -547,7 +549,6 @@ export async function listProfitLossRevenueEntries(
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
-    ne(invoices.billingType, 'retainage'),
   ];
   if (filters.from) conds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) conds.push(lte(invoices.invoiceDate, filters.to));
@@ -565,6 +566,7 @@ export async function listProfitLossRevenueEntries(
       status: invoices.status,
       projectId: invoices.projectId,
       subtotal: invoices.subtotal,
+      retainageAmount: invoices.retainageAmount,
       total: invoices.total,
       categoryName: accountingAccounts.name,
     })
@@ -589,7 +591,8 @@ export async function listProfitLossRevenueEntries(
     const customer = project
       ? customerById.get(project.customerId)
       : undefined;
-    const subtotal = Number(r.subtotal);
+    // Billed basis: net of held retainage, so ex-VAT ties to the gross shown.
+    const subtotal = Number(r.subtotal) - Number(r.retainageAmount ?? 0);
     total += subtotal;
     return {
       invoiceId: r.invoiceId,
