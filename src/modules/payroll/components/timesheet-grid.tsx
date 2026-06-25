@@ -131,7 +131,7 @@ export function TimesheetGrid({
                         hoursCount={day.hoursCount}
                         pay={day.pay}
                         payCount={day.payCount}
-                        showPay={emp.isVariablePay}
+                        showPay={emp.isVariablePay || day.pay > 0}
                         showLunch={emp.appliesLunch}
                         lunchMinutes={day.lunchMinutes}
                         canEdit={allowEdit && !locked}
@@ -143,7 +143,7 @@ export function TimesheetGrid({
                   <DayCell
                     hours={totalHours}
                     pay={totalPay}
-                    showPay={emp.isVariablePay}
+                    showPay={emp.isVariablePay || totalPay > 0}
                   />
                 </TableCell>
               </TableRow>

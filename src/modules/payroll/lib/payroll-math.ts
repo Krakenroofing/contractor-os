@@ -312,9 +312,11 @@ export function computeEmployeePaystub(
       bahamasHolidaySet(years),
       payRate,
     );
-    gross = ot.gross;
     overtimeHours = ot.overtimeHours;
     doubleTimeHours = ot.doubleTimeHours;
+    // Piece-work (amount entries) adds on top of the hourly/OT pay — anyone
+    // can log contract work on a day regardless of their employment type.
+    gross = round2(ot.gross + amountTotal);
     grossSource = gross > 0 ? 'rate' : 'none';
   } else {
     const computed = computeRateGross(
@@ -323,8 +325,13 @@ export function computeEmployeePaystub(
       hoursWorked,
       amountTotal,
     );
-    gross = computed.gross;
-    grossSource = computed.source;
+    // Salaried gets weekly pay PLUS any piece-work amounts; variable-pay
+    // types are already the sum of their amounts.
+    gross =
+      employmentType === 'salaried'
+        ? round2(computed.gross + amountTotal)
+        : computed.gross;
+    grossSource = gross > 0 ? 'rate' : computed.source;
   }
 
   // Deductions reduce gross BEFORE NIB. NIB then calculates off the

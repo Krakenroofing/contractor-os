@@ -115,9 +115,15 @@ export function TimeEntryForm({
     [allEmployees],
   );
   const selectedEmployee = employeeMap.get(selectedEmployeeId);
+  // Create mode defaults the entry type from the employee's type, but the
+  // operator can switch it — so piece-work (amount) can be logged for ANY
+  // employee on a day they did contract work, and vice-versa.
+  const [entryTypeOverride, setEntryTypeOverride] = useState<
+    'hours' | 'amount' | null
+  >(null);
   const entryType: 'hours' | 'amount' = isEdit
     ? values.entryType
-    : inferEntryType(selectedEmployee?.employmentType);
+    : (entryTypeOverride ?? inferEntryType(selectedEmployee?.employmentType));
 
   // CREATE-mode allocation state. EDIT-mode uses a single project/cost-code
   // picker pulled from initial values (no allocation array, no percent).
@@ -202,6 +208,32 @@ export function TimeEntryForm({
             defaultValue={values.workDate}
           />
         </Field>
+
+        {!isEdit && selectedEmployee && (
+          <Field label="Entry type">
+            <div className="inline-flex rounded-md border border-slate-300 overflow-hidden text-sm">
+              {(['hours', 'amount'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setEntryTypeOverride(t)}
+                  className={`px-3 py-1.5 ${
+                    entryType === t
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {t === 'hours' ? 'Hours' : 'Piece-work $'}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Defaults to the employee&apos;s type — switch to{' '}
+              <span className="font-medium">Piece-work $</span> to log contract
+              pay for any employee on this day.
+            </p>
+          </Field>
+        )}
 
         {entryType === 'hours' ? (
           <Field
