@@ -26,6 +26,7 @@ import {
 import { getDb, isDatabaseConfigured } from '@/db';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
+import { getCompany } from '@/lib/data/companies';
 import { buildWipReport } from '@/modules/reports/lib/wip';
 
 export type RollupGroup =
@@ -140,18 +141,24 @@ export async function buildProfitLossReport(
   if (!isDatabaseConfigured()) return empty;
   const db = getDb()!;
 
-  // ----- Income: sum invoiced net-of-retainage in range -----
-  // Billed basis: recognize what's actually invoiced now = subtotal minus the
-  // held-back retainage. The retainage is recognized later, when it's released
-  // — so retainage-release invoices ARE included here (their retainageAmount is
-  // 0, so subtotal - retainage = the released amount). Over the original +
-  // release, this sums back to the full contract value with no double-count.
-  const incomeNet = sql<string>`COALESCE(SUM(${invoices.subtotal} - COALESCE(${invoices.retainageAmount}, 0)), 0)`;
+  // ----- Income: sum invoiced revenue in range -----
+  // Recognition basis comes from the company setting (Settings → Accounting):
+  //  - 'billed'  (default): recognize what's invoiced now = subtotal minus the
+  //    held retainage; the held part is recognized later via the retainage-
+  //    release invoice (retainageAmount 0, so it counts in full at release).
+  //  - 'accrual': recognize the full contract value when first billed, and
+  //    EXCLUDE the retainage-release invoice (it was already counted up front).
+  const company = await getCompany(companyId);
+  const accrualBasis = company?.retainageRevenueBasis === 'accrual';
+  const incomeNet = accrualBasis
+    ? sql<string>`COALESCE(SUM(${invoices.subtotal}), 0)`
+    : sql<string>`COALESCE(SUM(${invoices.subtotal} - COALESCE(${invoices.retainageAmount}, 0)), 0)`;
   const incomeConds = [
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
   ];
+  if (accrualBasis) incomeConds.push(ne(invoices.billingType, 'retainage'));
   if (filters.from) incomeConds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) incomeConds.push(lte(invoices.invoiceDate, filters.to));
   // Group by the invoice's revenue category (income-rollup account). Left join
@@ -545,11 +552,17 @@ export async function listProfitLossRevenueEntries(
   if (!isDatabaseConfigured()) return null;
   const db = getDb()!;
 
+  // Same recognition basis as buildProfitLossReport so the drill-down ties to
+  // the statement's Income line (see that function for the full rationale).
+  const company = await getCompany(companyId);
+  const accrualBasis = company?.retainageRevenueBasis === 'accrual';
+
   const conds = [
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
   ];
+  if (accrualBasis) conds.push(ne(invoices.billingType, 'retainage'));
   if (filters.from) conds.push(gte(invoices.invoiceDate, filters.from));
   if (filters.to) conds.push(lte(invoices.invoiceDate, filters.to));
   if (accountId === 'uncategorized') {
@@ -592,7 +605,10 @@ export async function listProfitLossRevenueEntries(
       ? customerById.get(project.customerId)
       : undefined;
     // Billed basis: net of held retainage, so ex-VAT ties to the gross shown.
-    const subtotal = Number(r.subtotal) - Number(r.retainageAmount ?? 0);
+    // Accrual basis: the full subtotal (retainage recognized up front).
+    const subtotal = accrualBasis
+      ? Number(r.subtotal)
+      : Number(r.subtotal) - Number(r.retainageAmount ?? 0);
     total += subtotal;
     return {
       invoiceId: r.invoiceId,

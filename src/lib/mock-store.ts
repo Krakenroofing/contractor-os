@@ -126,6 +126,9 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     standardPaymentTerms: null,
     standardWarrantyLanguage: null,
     fiscalYearStartMonth: 1,
+    // Accounting Settings (2026-06-25) — defaults preserve current behavior.
+    defaultRetainagePercent: '0',
+    retainageRevenueBasis: 'billed' as const,
     // Phase 1 banking / TIN fields — null in mock data.
     tinNumber: null,
     bankName: null,

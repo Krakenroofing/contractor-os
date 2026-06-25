@@ -76,7 +76,7 @@ export function CompanySettingsForm({ company }: { company: Company }) {
         <legend className="px-2 text-sm font-medium text-slate-700">
           Financial defaults
         </legend>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="Currency" error={err('defaultCurrency')} required>
             <Input
               name="defaultCurrency"
@@ -100,14 +100,14 @@ export function CompanySettingsForm({ company }: { company: Company }) {
               defaultValue={company.taxRatePercent}
             />
           </Field>
-          <Field label="VAT rate %" error={err('vatRatePercent')}>
-            <Input
-              name="vatRatePercent"
-              inputMode="decimal"
-              defaultValue={company.vatRatePercent}
-            />
-          </Field>
         </div>
+        <p className="text-xs text-slate-500">
+          VAT (on/off + rate) now lives under{' '}
+          <span className="font-medium text-slate-700">
+            Settings → Accounting
+          </span>
+          .
+        </p>
         <Field
           label="Proposal validity (days)"
           error={err('proposalValidityDays')}

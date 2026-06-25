@@ -21,7 +21,8 @@ export const companySettingsFormSchema = z.object({
   defaultCurrency: z.string().min(1, 'Required').max(10),
   defaultMarkupPercent: numericString,
   taxRatePercent: numericString,
-  vatRatePercent: numericString,
+  // VAT rate is owned by the Accounting Settings form (/settings/accounting),
+  // not here — keep it out so saving the company profile can't clobber it.
   proposalValidityDays: z
     .string()
     .refine((v) => /^\d+$/.test(v) && Number(v) >= 0, 'Must be a non-negative integer'),

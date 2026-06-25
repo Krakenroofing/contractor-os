@@ -82,6 +82,35 @@ export default async function SettingsPage() {
       </Card>
 
       <Card>
+        <CardHeader>
+          <CardTitle>Accounting</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-slate-600">
+            Accounting policies and your chart of accounts.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={'/settings/accounting' as never}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-900 hover:bg-slate-50"
+            >
+              Accounting settings →
+            </Link>
+            <Link
+              href={'/settings/accounting-categories' as never}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-900 hover:bg-slate-50"
+            >
+              Accounting categories →
+            </Link>
+          </div>
+          <p className="text-xs text-slate-500">
+            Method (accrual/cash), fiscal year, VAT on/off + rate, and retainage
+            recognition all live under Accounting settings.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="p-6">
           <CompanySettingsForm company={company} />
         </CardContent>

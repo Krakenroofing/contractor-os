@@ -18,6 +18,7 @@ import {
   type SeedContractorCategoriesResult,
 } from '@/lib/seeds/contractor-accounting-categories';
 import { companySettingsFormSchema } from './schema';
+import { accountingSettingsFormSchema } from './accounting-settings-schema';
 
 export type CompanySettingsState = {
   errors?: Record<string, string[]>;
@@ -48,7 +49,6 @@ export async function updateCompanySettingsAction(
     defaultCurrency: formData.get('defaultCurrency') ?? 'USD',
     defaultMarkupPercent: formData.get('defaultMarkupPercent') ?? '0',
     taxRatePercent: formData.get('taxRatePercent') ?? '0',
-    vatRatePercent: formData.get('vatRatePercent') ?? '0',
     proposalValidityDays: formData.get('proposalValidityDays') ?? '30',
     standardPaymentTerms: formData.get('standardPaymentTerms') ?? '',
     standardWarrantyLanguage: formData.get('standardWarrantyLanguage') ?? '',
@@ -83,7 +83,6 @@ export async function updateCompanySettingsAction(
     defaultCurrency: data.defaultCurrency.trim().toUpperCase(),
     defaultMarkupPercent: Number(data.defaultMarkupPercent).toFixed(3),
     taxRatePercent: Number(data.taxRatePercent).toFixed(3),
-    vatRatePercent: Number(data.vatRatePercent).toFixed(3),
     proposalValidityDays: Number(data.proposalValidityDays),
     standardPaymentTerms: emptyToNull(data.standardPaymentTerms ?? null),
     standardWarrantyLanguage: emptyToNull(data.standardWarrantyLanguage ?? null),
@@ -101,6 +100,63 @@ export async function updateCompanySettingsAction(
     return { formError: 'Company not found' };
   }
 
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Accounting Settings (/settings/accounting). Owns the accounting-policy
+// columns: method, fiscal year, VAT on/off + rate, retainage revenue basis,
+// and the default retainage %. Disjoint from updateCompanySettingsAction so
+// the two forms never clobber each other's fields.
+// ---------------------------------------------------------------------------
+
+export type AccountingSettingsState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+  ok?: boolean;
+};
+
+export async function updateAccountingSettingsAction(
+  _prev: AccountingSettingsState,
+  formData: FormData,
+): Promise<AccountingSettingsState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { formError: 'You do not have permission to change accounting settings.' };
+  }
+
+  const parsed = accountingSettingsFormSchema.safeParse({
+    accountingMethod: formData.get('accountingMethod') ?? 'accrual',
+    fiscalYearStartMonth: formData.get('fiscalYearStartMonth') ?? '1',
+    isVatActive: formData.get('isVatActive') === 'on',
+    vatRatePercent: formData.get('vatRatePercent') ?? '0',
+    retainageRevenueBasis: formData.get('retainageRevenueBasis') ?? 'billed',
+    defaultRetainagePercent: formData.get('defaultRetainagePercent') ?? '0',
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const data = parsed.data;
+  const companyId = await getActiveCompanyId();
+
+  const updated = await updateCompany(companyId, {
+    accountingMethod: data.accountingMethod,
+    fiscalYearStartMonth: Number(data.fiscalYearStartMonth),
+    isVatActive: data.isVatActive,
+    vatRatePercent: Number(data.vatRatePercent).toFixed(3),
+    retainageRevenueBasis: data.retainageRevenueBasis,
+    defaultRetainagePercent: Number(data.defaultRetainagePercent).toFixed(3),
+  });
+
+  if (!updated) {
+    return { formError: 'Company not found' };
+  }
+
+  // Policy changes ripple into the P&L, invoices, and VAT-aware UI everywhere.
   revalidatePath('/', 'layout');
   return { ok: true };
 }

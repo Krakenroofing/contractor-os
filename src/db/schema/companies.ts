@@ -38,6 +38,22 @@ export const companies = pgTable('companies', {
   standardWarrantyLanguage: text('standard_warranty_language'),
   fiscalYearStartMonth: integer('fiscal_year_start_month').notNull().default(1),
 
+  // Accounting Settings (2026-06-25). default_retainage_percent auto-fills the
+  // retainage % on a new invoice when there's no prior invoice on the project
+  // to copy from. retainage_revenue_basis controls when held retainage hits
+  // P&L income: 'billed' = recognize net-of-retainage now + held part at
+  // release (current); 'accrual' = recognize the full value when first billed.
+  defaultRetainagePercent: numeric('default_retainage_percent', {
+    precision: 6,
+    scale: 3,
+  })
+    .notNull()
+    .default('0'),
+  retainageRevenueBasis: text('retainage_revenue_basis')
+    .$type<'billed' | 'accrual'>()
+    .notNull()
+    .default('billed'),
+
   // Banking & Receipts (Phase 1). Gate VAT-aware UI/logic on `isVatActive`
   // instead of `vatRatePercent > 0` so a company can mark itself VAT-active
   // ahead of choosing a rate, and so explicit opt-out is possible. Backfilled

@@ -88,6 +88,10 @@ export default async function NewInvoicePage() {
       ) * 100,
     ) / 100;
 
+  // Company-wide default retainage % (Settings → Accounting) — used when a
+  // project has no prior invoice to copy the rate from. 0 = no default.
+  const companyDefaultRetainage = Number(activeCompany.defaultRetainagePercent);
+
   const projects = await Promise.all(
     (await listProjects(companyId)).map(async (p) => {
       const customer = await getCustomer(companyId, p.customerId);
@@ -95,14 +99,16 @@ export default async function NewInvoicePage() {
       const basePrior = prior.filter((i) => !isOnCoTrack(i));
       // Default retention % from the most-recent prior invoice (any track)
       // — saves the operator from re-typing the same number for each draw.
-      // Falls back to undefined if no priors exist (field stays blank).
+      // Falls back to the company default, then to undefined (field blank).
       const sortedPrior = [...prior].sort((a, b) =>
         b.invoiceDate.localeCompare(a.invoiceDate),
       );
       const lastRetainagePercent =
         sortedPrior.length > 0
           ? Number(sortedPrior[0].retainagePercent)
-          : undefined;
+          : companyDefaultRetainage > 0
+            ? companyDefaultRetainage
+            : undefined;
       return {
         id: p.id,
         label: `${p.name}${customer ? ` (${customer.name})` : ''}`,
