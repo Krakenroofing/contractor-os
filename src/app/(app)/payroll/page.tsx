@@ -27,6 +27,8 @@ import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
+import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
+import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
 import { parseMoney, multiply, round2 } from '@/lib/money';
 import type { EmploymentType } from '@/modules/employees/schema';
 import {
@@ -121,6 +123,11 @@ export default async function PayrollPage({
   const laborPostedCount = (
     await listJobCostEntriesBySource(companyId, 'labor_entry', period.id)
   ).length;
+  // Unpaid lunch overrides for this period, indexed by employee+date.
+  const lunchOverrides = await listLunchOverrides(companyId, period.id);
+  const lunchByEmpDate = new Map(
+    lunchOverrides.map((l) => [`${l.employeeId}:${l.workDate}`, l.minutes]),
+  );
   // Aggregate per-(employee, date) for the timesheet grid. The timesheet
   // is a record of HOURS for everyone — that's what a timesheet is. For
   // variable-pay workers (contract / piecework / commission / lump-sum)
@@ -140,7 +147,13 @@ export default async function PayrollPage({
     // an allocation.
     const days: Record<
       string,
-      { hours: number; hoursCount: number; pay: number; payCount: number }
+      {
+        hours: number;
+        hoursCount: number;
+        pay: number;
+        payCount: number;
+        lunchMinutes: number;
+      }
     > = {};
     for (const entry of allEntries) {
       if (entry.employeeId !== e.id) continue;
@@ -149,6 +162,7 @@ export default async function PayrollPage({
         hoursCount: 0,
         pay: 0,
         payCount: 0,
+        lunchMinutes: 0,
       });
       if (entry.entryType === 'amount') {
         slot.pay += Number(entry.amount);
@@ -158,11 +172,22 @@ export default async function PayrollPage({
         slot.hoursCount += 1;
       }
     }
+    // Lunch only affects hourly pay; show the deduction line for those.
+    const appliesLunch = employmentType === 'hourly';
+    if (appliesLunch) {
+      for (const [date, slot] of Object.entries(days)) {
+        slot.lunchMinutes = effectiveLunchMinutes(
+          slot.hours,
+          lunchByEmpDate.get(`${e.id}:${date}`),
+        );
+      }
+    }
     return {
       id: e.id,
       fullName: `${e.firstName} ${e.lastName}`.trim(),
       employmentType,
       isVariablePay,
+      appliesLunch,
       days,
     };
   });
@@ -259,11 +284,29 @@ export default async function PayrollPage({
               const myEntries = allEntries.filter(
                 (entry) => entry.employeeId === e.id,
               );
-              const hours = round2(
-                myEntries
-                  .filter((entry) => entry.entryType !== 'amount')
-                  .reduce((sum, entry) => sum + parseMoney(entry.hours), 0),
-              );
+              // Paid hours = logged hours net of the per-day unpaid lunch
+              // (hourly only), matching the paystub.
+              const hoursByDate = new Map<string, number>();
+              for (const entry of myEntries) {
+                if (entry.entryType === 'amount') continue;
+                hoursByDate.set(
+                  entry.workDate,
+                  (hoursByDate.get(entry.workDate) ?? 0) +
+                    parseMoney(entry.hours),
+                );
+              }
+              let paidHours = 0;
+              for (const [date, dh] of hoursByDate) {
+                const lunchMin =
+                  employmentType === 'hourly'
+                    ? effectiveLunchMinutes(
+                        dh,
+                        lunchByEmpDate.get(`${e.id}:${date}`),
+                      )
+                    : 0;
+                paidHours += Math.max(0, dh - lunchMin / 60);
+              }
+              const hours = round2(paidHours);
               const amountTotal = round2(
                 myEntries
                   .filter((entry) => entry.entryType === 'amount')
@@ -327,6 +370,7 @@ export default async function PayrollPage({
             allOverrides,
             allSnapshots,
             allAdjustments,
+            lunchOverrides,
           );
           const summary = computeC10Summary(paystubs);
           if (view === 'paystubs') {

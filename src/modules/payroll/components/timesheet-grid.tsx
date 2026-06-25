@@ -30,6 +30,8 @@ export type TimesheetDay = {
   hoursCount: number;
   pay: number;
   payCount: number;
+  /** Effective unpaid lunch for the day, in minutes (0 when N/A). */
+  lunchMinutes: number;
 };
 
 export type TimesheetEmployee = {
@@ -38,11 +40,19 @@ export type TimesheetEmployee = {
   employmentType: EmploymentType;
   /** Variable-pay types show a $ pay line under the hours in each cell. */
   isVariablePay: boolean;
+  /** Hourly workers show the unpaid-lunch control under the hours. */
+  appliesLunch: boolean;
   /** Map work_date → that day's hours/pay roll-up (sum + row counts). */
   days: Record<string, TimesheetDay>;
 };
 
-const EMPTY_DAY: TimesheetDay = { hours: 0, hoursCount: 0, pay: 0, payCount: 0 };
+const EMPTY_DAY: TimesheetDay = {
+  hours: 0,
+  hoursCount: 0,
+  pay: 0,
+  payCount: 0,
+  lunchMinutes: 0,
+};
 
 export function TimesheetGrid({
   days,
@@ -122,6 +132,8 @@ export function TimesheetGrid({
                         pay={day.pay}
                         payCount={day.payCount}
                         showPay={emp.isVariablePay}
+                        showLunch={emp.appliesLunch}
+                        lunchMinutes={day.lunchMinutes}
                         canEdit={allowEdit && !locked}
                       />
                     </TableCell>

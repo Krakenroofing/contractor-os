@@ -12,7 +12,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { formatMoney } from '@/lib/money';
-import { saveTimesheetCell } from '../actions';
+import { saveTimesheetCell, setLunchOverrideAction } from '../actions';
 
 export type TimesheetCellData = {
   employeeId: string;
@@ -23,6 +23,10 @@ export type TimesheetCellData = {
   payCount: number;
   /** Variable-pay worker → render the $ pay input under the hours. */
   showPay: boolean;
+  /** Hourly worker → render the unpaid-lunch control under the hours. */
+  showLunch: boolean;
+  /** Effective unpaid lunch for the day, in minutes. */
+  lunchMinutes: number;
   /** Permission AND period unlocked. Off → read-only cell. */
   canEdit: boolean;
 };
@@ -48,7 +52,81 @@ export function TimesheetCell(props: TimesheetCellData) {
           canEdit={props.canEdit}
         />
       )}
+      {props.showLunch && props.hours > 0 && (
+        <LunchControl
+          employeeId={props.employeeId}
+          workDate={props.workDate}
+          hours={props.hours}
+          lunchMinutes={props.lunchMinutes}
+          canEdit={props.canEdit}
+        />
+      )}
     </div>
+  );
+}
+
+function LunchControl({
+  employeeId,
+  workDate,
+  hours,
+  lunchMinutes,
+  canEdit,
+}: {
+  employeeId: string;
+  workDate: string;
+  hours: number;
+  lunchMinutes: number;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const netPaid = Math.max(0, hours - lunchMinutes / 60);
+
+  function change(v: string) {
+    const minutes = v === '' ? null : Number(v);
+    start(async () => {
+      setError(null);
+      const res = await setLunchOverrideAction({ employeeId, workDate, minutes });
+      if (res?.error) setError(res.error);
+      else router.refresh();
+    });
+  }
+
+  if (!canEdit) {
+    return (
+      <span className="text-[10px] text-slate-400 tabular-nums">
+        −{lunchMinutes}m · {netPaid.toFixed(2)}h paid
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] text-slate-500"
+      title={error ?? 'Unpaid lunch break'}
+    >
+      <span aria-hidden>🍽</span>
+      <select
+        value={String(lunchMinutes)}
+        disabled={pending}
+        onChange={(e) => change(e.target.value)}
+        aria-label="Unpaid lunch minutes"
+        className={`rounded bg-transparent text-[10px] tabular-nums focus:outline-none ${
+          error
+            ? 'text-red-600'
+            : 'border border-transparent text-slate-500 hover:border-slate-300'
+        }`}
+      >
+        <option value="">Auto</option>
+        <option value="0">No lunch</option>
+        <option value="30">30 min</option>
+        <option value="45">45 min</option>
+        <option value="60">60 min</option>
+        <option value="90">90 min</option>
+      </select>
+      <span className="tabular-nums text-slate-400">{netPaid.toFixed(2)}h</span>
+    </span>
   );
 }
 

@@ -42,6 +42,11 @@ import {
 import { listEmployees } from '@/lib/data/employees';
 import { listTimeEntries } from '@/lib/data/time-entries';
 import {
+  clearLunchOverride,
+  listLunchOverrides,
+  setLunchOverride,
+} from '@/lib/data/timesheet-lunch';
+import {
   computePeriodPaystubs,
   type EmployeePaystub,
 } from './lib/payroll-math';
@@ -609,6 +614,60 @@ export async function setPeriodStatusAction(input: {
 }
 
 // =====================================================================
+// Unpaid lunch break. Defaults by the day's hours (60m if >= 6h worked,
+// 30m under); editing stores an override, and minutes=null resets to the
+// default. Reduces paid hours → flows into gross / NIB / net / job-cost
+// posting. Blocked once the period is locked.
+// =====================================================================
+
+export type LunchActionResult = { ok?: boolean; error?: string };
+
+const lunchSchema = z.object({
+  employeeId: z.string().uuid(),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  minutes: z.number().int().min(0).max(480).nullable(),
+});
+
+export async function setLunchOverrideAction(input: {
+  employeeId: string;
+  workDate: string;
+  minutes: number | null;
+}): Promise<LunchActionResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to edit timesheets.' };
+  }
+  const parsed = lunchSchema.safeParse(input);
+  if (!parsed.success) return { error: 'Invalid lunch value.' };
+  const { employeeId, workDate, minutes } = parsed.data;
+  const companyId = await getActiveCompanyId();
+
+  const period = await getOrCreatePeriodForDate(companyId, workDate);
+  if (period.status === 'locked') {
+    return { error: 'Period is locked — unlock it to change lunch.' };
+  }
+  try {
+    if (minutes === null) {
+      await clearLunchOverride(companyId, employeeId, workDate);
+    } else {
+      await setLunchOverride({
+        companyId,
+        employeeId,
+        payPeriodId: period.id,
+        workDate,
+        minutes,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to save lunch: ${message}` };
+  }
+  revalidatePath('/payroll');
+  return { ok: true };
+}
+
+// =====================================================================
 // Lock / unlock period (Phase 4.9)
 // =====================================================================
 //
@@ -689,14 +748,17 @@ export async function lockPeriodAction(
 
   // Compute paystubs live ONE LAST TIME using the current rates +
   // entries + overrides + adjustments, then freeze them.
-  const [employees, entries, overrides, adjustments] = await Promise.all([
-    listEmployees(companyId),
-    listTimeEntries(companyId, { payPeriodId }),
-    listPeriodPayOverrides(companyId, { payPeriodId }),
-    listPaystubAdjustments(companyId, { payPeriodId }),
-  ]);
+  const [employees, entries, overrides, adjustments, lunchOverrides] =
+    await Promise.all([
+      listEmployees(companyId),
+      listTimeEntries(companyId, { payPeriodId }),
+      listPeriodPayOverrides(companyId, { payPeriodId }),
+      listPaystubAdjustments(companyId, { payPeriodId }),
+      listLunchOverrides(companyId, payPeriodId),
+    ]);
   // Pass empty snapshots so this compute runs live (we're about to
-  // become the snapshot source).
+  // become the snapshot source). Lunch is applied here so the frozen
+  // hours are already net of the unpaid break.
   const paystubs = computePeriodPaystubs(
     employees,
     entries,
@@ -704,6 +766,7 @@ export async function lockPeriodAction(
     overrides,
     [],
     adjustments,
+    lunchOverrides,
   );
   // Only snapshot rows that actually got paid (gross > 0) and weren't
   // skipped (terminated / inactive without entries). Skipped employees

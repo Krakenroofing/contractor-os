@@ -122,7 +122,13 @@ function PaystubCard({
               </span>
               {p.employmentType === 'hourly' && (
                 <span className="tabular-nums">
-                  · {p.hoursWorked.toFixed(2)} hrs
+                  · {p.hoursWorked.toFixed(2)} hrs paid
+                  {p.lunchHours > 0 && (
+                    <span className="text-slate-400">
+                      {' '}
+                      (−{p.lunchHours.toFixed(2)}h lunch)
+                    </span>
+                  )}
                 </span>
               )}
             </div>

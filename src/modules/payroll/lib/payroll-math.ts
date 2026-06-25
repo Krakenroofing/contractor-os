@@ -38,10 +38,12 @@ import type {
   PeriodPayOverride,
   PeriodPaystubSnapshot,
   TimeEntry,
+  TimesheetLunchOverride,
 } from '@/db/schema';
 import type { AdjustmentType } from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
 import { calculateWeeklyNib, type NibBreakdown } from './nib';
+import { effectiveLunchMinutes } from './lunch';
 
 /** Where the paystub's gross came from. Drives UI hints (e.g. "Override"
  *  badge on the card) and tells the user what to edit if the number is
@@ -61,7 +63,10 @@ export type EmployeePaystub = {
   employeeId: string;
   employeeName: string;
   employmentType: EmploymentType;
+  /** PAID hours — gross logged hours minus unpaid lunch. */
   hoursWorked: number;
+  /** Unpaid lunch hours deducted across the period (for display). */
+  lunchHours: number;
   payRate: number;
   /** Pre-deduction gross (rate × hours, weekly salary, or override). */
   gross: number;
@@ -185,6 +190,7 @@ export function computeEmployeePaystub(
   period: PayPeriod,
   overrides: PeriodPayOverride[],
   adjustments: PaystubAdjustment[] = [],
+  lunchOverrides: TimesheetLunchOverride[] = [],
 ): EmployeePaystub {
   const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
   const employmentType = employee.employmentType as EmploymentType;
@@ -192,13 +198,31 @@ export function computeEmployeePaystub(
   const nibExempt = employee.nibExempt === true;
 
   const myEntries = entries.filter((e) => e.employeeId === employee.id);
-  // Only 'hours' rows contribute to hoursWorked; 'amount' rows are pay
-  // events, not time worked, so they don't sum here.
-  const hoursWorked = round2(
-    myEntries
-      .filter((e) => e.entryType !== 'amount')
-      .reduce((sum, e) => sum + parseMoney(e.hours), 0),
+  // Group 'hours' rows by work date so the unpaid lunch (which is per-day,
+  // not per-entry) comes off each day's total. 'amount' rows are pay events,
+  // not time worked, so they don't count toward hours.
+  const hoursByDate = new Map<string, number>();
+  for (const e of myEntries) {
+    if (e.entryType === 'amount') continue;
+    hoursByDate.set(
+      e.workDate,
+      (hoursByDate.get(e.workDate) ?? 0) + parseMoney(e.hours),
+    );
+  }
+  const lunchByDate = new Map(
+    lunchOverrides
+      .filter((l) => l.employeeId === employee.id)
+      .map((l) => [l.workDate, l.minutes]),
   );
+  let grossHours = 0;
+  let paidHours = 0;
+  for (const [workDate, dayHours] of hoursByDate) {
+    grossHours += dayHours;
+    const lunchMin = effectiveLunchMinutes(dayHours, lunchByDate.get(workDate));
+    paidHours += Math.max(0, dayHours - lunchMin / 60);
+  }
+  const hoursWorked = round2(paidHours);
+  const lunchHours = round2(grossHours - paidHours);
   const amountTotal = round2(
     myEntries
       .filter((e) => e.entryType === 'amount')
@@ -236,6 +260,7 @@ export function computeEmployeePaystub(
       employeeName,
       employmentType,
       hoursWorked,
+      lunchHours,
       payRate,
       gross: 0,
       grossSource: 'none',
@@ -290,6 +315,7 @@ export function computeEmployeePaystub(
     employeeName,
     employmentType,
     hoursWorked,
+    lunchHours,
     payRate,
     gross,
     grossSource,
@@ -354,7 +380,10 @@ function paystubFromSnapshot(
     employeeId: snap.employeeId,
     employeeName: snap.employeeName,
     employmentType: snap.employmentType as EmploymentType,
+    // Snapshot hoursWorked is already net of lunch (lunch was applied before
+    // the period was locked); no separate lunch line to reconstruct.
     hoursWorked: parseMoney(snap.hoursWorked),
+    lunchHours: 0,
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',
@@ -393,6 +422,7 @@ export function computePeriodPaystubs(
   overrides: PeriodPayOverride[],
   snapshots: PeriodPaystubSnapshot[] = [],
   adjustments: PaystubAdjustment[] = [],
+  lunchOverrides: TimesheetLunchOverride[] = [],
 ): EmployeePaystub[] {
   if (period.status === 'locked' && snapshots.length > 0) {
     return snapshots
@@ -401,7 +431,14 @@ export function computePeriodPaystubs(
   }
   return employees
     .map((e) =>
-      computeEmployeePaystub(e, entries, period, overrides, adjustments),
+      computeEmployeePaystub(
+        e,
+        entries,
+        period,
+        overrides,
+        adjustments,
+        lunchOverrides,
+      ),
     )
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 }
