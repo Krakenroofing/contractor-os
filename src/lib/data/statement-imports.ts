@@ -258,13 +258,24 @@ export async function listImportedTransactions(
     conds.push(lte(importedTransactions.transactionDate, filters.toDate));
   }
   if (filters.search && filters.search.trim() !== '') {
-    const q = `%${filters.search.trim()}%`;
-    const searchExpr = or(
+    const term = filters.search.trim();
+    const q = `%${term}%`;
+    const exprs: SQL[] = [
       ilike(importedTransactions.description, q),
       ilike(importedTransactions.payee, q),
       ilike(importedTransactions.memo, q),
       ilike(importedTransactions.reference, q),
-    );
+    ];
+    // Also match the dollar amount, so "122," or "$1,770.52" find the value —
+    // strip thousands separators / currency from the term, then match against
+    // the unsigned amount text (debits are stored negative).
+    const numeric = term.replace(/[^0-9.]/g, '');
+    if (/[0-9]/.test(numeric)) {
+      exprs.push(
+        sql`abs(${importedTransactions.amount})::text ilike ${`%${numeric}%`}`,
+      );
+    }
+    const searchExpr = or(...exprs);
     if (searchExpr) conds.push(searchExpr);
   }
   if (!filters.includeIgnored) {
