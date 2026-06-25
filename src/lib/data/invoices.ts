@@ -233,13 +233,15 @@ export async function setInvoiceRevenueCategory(
 
 /**
  * Full-form invoice update: lines + totals + retainage + tax + dates +
- * notes. Customer/project/invoice-number are intentionally NOT in the
- * patch — those changes are forbidden via the action layer because they
- * silently break the audit trail. Existing payments stay linked; after
- * the patch lands we re-run `recomputeInvoicePaymentState` so amount_paid
- * and the derived status reflect the new total.
+ * notes. Customer/project stay fixed (moving an invoice between them is a
+ * void + recreate). The invoice number IS editable here — the action layer
+ * enforces uniqueness within the company first. Existing payments stay
+ * linked; after the patch lands we re-run `recomputeInvoicePaymentState` so
+ * amount_paid and the derived status reflect the new total.
  */
 export type UpdateInvoiceFullInput = {
+  /** New invoice number. Omit to leave it unchanged. */
+  number?: string;
   billingType: Invoice['billingType'];
   /** Reclassification: which change order this invoice bills against. Null
    *  means "base contract". Editable post-send because the link drives
@@ -306,6 +308,7 @@ export async function updateInvoiceFull(
     await db
       .update(invoices)
       .set({
+        ...(patch.number !== undefined ? { number: patch.number } : {}),
         billingType: patch.billingType,
         changeOrderId: patch.changeOrderId,
         invoiceDate: patch.invoiceDate,

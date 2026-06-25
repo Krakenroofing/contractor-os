@@ -22,6 +22,7 @@ import {
   deleteDraftInvoice,
   DuplicateInvoiceNumberError,
   getInvoice,
+  listInvoices,
   setInvoiceRevenueCategory,
   updateInvoiceFull,
   updateInvoiceHeader,
@@ -490,9 +491,23 @@ export async function updateInvoiceFullAction(
   if (existing.status === 'void') {
     return { formError: 'Voided invoices cannot be edited.' };
   }
-  // Lock identity-bearing fields. Changing them is a void + recreate path.
-  if (existing.number !== data.number) {
-    return { errors: { number: ['Invoice number is locked. Void + recreate to change it.'] } };
+  // Invoice number is editable, but must stay unique within the company.
+  // (Customer/project are still locked — moving an invoice is void+recreate.)
+  const newNumber = data.number.trim();
+  if (existing.number !== newNumber) {
+    if (newNumber === '') {
+      return { errors: { number: ['Invoice number is required.'] } };
+    }
+    const clash = (await listInvoices(companyId)).find(
+      (i) => i.id !== data.id && i.number === newNumber,
+    );
+    if (clash) {
+      return {
+        errors: {
+          number: ['That invoice number is already used by another invoice.'],
+        },
+      };
+    }
   }
   if (existing.projectId !== data.projectId) {
     return {
@@ -539,6 +554,7 @@ export async function updateInvoiceFullAction(
 
   try {
     await updateInvoiceFull(companyId, data.id, {
+      number: newNumber,
       billingType: data.billingType,
       changeOrderId:
         data.changeOrderId && data.changeOrderId.trim() !== ''

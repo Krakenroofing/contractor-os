@@ -104,6 +104,7 @@ export function InvoiceEditForm({
       unitCost: l.unitCost,
     })),
   );
+  const [number, setNumber] = useState(initial.number);
   const [billingType, setBillingType] = useState<BillingType>(initial.billingType);
   const [changeOrderId, setChangeOrderId] = useState(initial.changeOrderId);
   const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate);
@@ -184,24 +185,29 @@ export function InvoiceEditForm({
       )}
 
       <input type="hidden" name="id" value={initial.id} />
-      <input type="hidden" name="number" value={initial.number} />
       <input type="hidden" name="projectId" value={initial.projectId} />
       <input type="hidden" name="status" value={initial.status} />
       <input type="hidden" name="amountPaid" value={initial.amountPaid} />
       <input type="hidden" name="lines" value={JSON.stringify(linesPayload)} />
 
       <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-        Editing existing invoice. <strong>Customer</strong>, <strong>project</strong>,
-        and <strong>invoice number</strong> are locked — to change those, void this
-        invoice and create a new one. After saving, balance and status auto-derive
-        from existing payments against the new total.
+        Editing existing invoice. <strong>Customer</strong> and{' '}
+        <strong>project</strong> are locked — to move this invoice, void it and
+        create a new one. The invoice number can be changed (it must stay unique).
+        After saving, balance and status auto-derive from existing payments
+        against the new total.
       </div>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Invoice number (locked)">
-            <Input value={initial.number} readOnly disabled />
+          <Field label="Invoice number" error={err('number')} required>
+            <Input
+              name="number"
+              value={number}
+              onChange={(e) => setNumber(e.target.value)}
+              required
+            />
           </Field>
           <Field label="Status (derived from payments)">
             <Input value={initial.status} readOnly disabled />
