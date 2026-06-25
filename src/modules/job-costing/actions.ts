@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
 import { getCompany } from '@/lib/data/companies';
+import { getAccountingAccount } from '@/lib/data/accounting-accounts';
 import {
   createJobCostEntry,
   getJobCostEntry,
@@ -230,6 +231,53 @@ export async function deleteCostEntryAction(
   }
   revalidatePath(`/job-costing/${projectId}`);
   revalidatePath(`/projects/${projectId}`);
+  return { ok: true };
+}
+
+// Re-categorize a posted job cost entry to a different P&L expense account
+// (COGS / OpEx) without a void + re-post. The P&L reads job_cost_entries
+// directly, so the move shows up immediately; the double-entry GL (Balance
+// Sheet / Trial Balance) reconciles on the next GL rebuild.
+export async function recategorizeJobCostEntryAction(
+  entryId: string,
+  accountingAccountId: string,
+): Promise<{ ok?: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'job_costing')) {
+    return { error: 'You do not have permission to re-categorize expenses.' };
+  }
+  const idCheck = idSchema.safeParse(entryId);
+  if (!idCheck.success) return { error: 'Missing or invalid entry id.' };
+  const accountId = accountingAccountId.trim();
+  if (accountId === '') return { error: 'Pick a category.' };
+  const companyId = await getActiveCompanyId();
+
+  const existing = await getJobCostEntry(companyId, entryId);
+  if (!existing) return { error: 'Cost entry not found.' };
+
+  // Guard: the target must be a real category in this company.
+  const account = await getAccountingAccount(companyId, accountId);
+  if (!account) return { error: 'That category does not exist.' };
+
+  try {
+    const updated = await updateJobCostEntry(companyId, entryId, {
+      accountingAccountId: accountId,
+    });
+    if (!updated) return { error: 'Cost entry not found.' };
+  } catch (err) {
+    if (err instanceof JobCostingNotAvailableInDemoError) {
+      return { error: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to re-categorize: ${message}` };
+  }
+
+  revalidatePath('/reports/profit-loss', 'layout');
+  if (existing.projectId) {
+    revalidatePath(`/job-costing/${existing.projectId}`);
+    revalidatePath(`/projects/${existing.projectId}`);
+  }
   return { ok: true };
 }
 

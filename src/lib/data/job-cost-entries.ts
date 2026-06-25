@@ -44,6 +44,9 @@ export type UpdateJobCostEntryInput = Partial<
     | 'quantity'
     | 'unitCost'
     | 'amount'
+    // The P&L expense category (COGS/OpEx account). Re-categorizing a posted
+    // entry moves it between P&L lines without a void + re-post.
+    | 'accountingAccountId'
     | 'isBillable'
     | 'markupPercent'
     | 'notes'

@@ -14,7 +14,10 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProfitLossAccountEntries } from '@/lib/data/profit-loss';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { parseReportFilters, describeRange } from '@/modules/reports/lib/filters';
+import { RecategorizeCell } from './recategorize-cell';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +51,12 @@ export default async function ProfitLossAccountDetailPage({
     filters,
   );
   if (!detail) notFound();
+
+  // Category options for inline re-categorization of job-cost (expense) rows.
+  const accountOptions = toAccountingAccountOptions(
+    await listAccountingAccounts(company.id),
+  );
+  const canRecategorize = detail.entries.some((e) => e.jobCostEntryId);
 
   const backHref = {
     pathname: '/reports/profit-loss' as const,
@@ -95,6 +104,9 @@ export default async function ProfitLossAccountDetailPage({
                   <TableHead className="w-28">Date</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-36">Source</TableHead>
+                  {canRecategorize && (
+                    <TableHead className="w-64">Re-categorize</TableHead>
+                  )}
                   <TableHead className="text-right w-32">Amount</TableHead>
                 </TableRow>
               </TableHeader>
@@ -130,13 +142,31 @@ export default async function ProfitLossAccountDetailPage({
                         e.source
                       )}
                     </TableCell>
+                    {canRecategorize && (
+                      <TableCell>
+                        {e.jobCostEntryId ? (
+                          <RecategorizeCell
+                            entryId={e.jobCostEntryId}
+                            currentAccountId={accountId}
+                            accounts={accountOptions}
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            edit on transaction ↗
+                          </span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right tabular-nums font-medium">
                       {formatMoney(e.amount)}
                     </TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="border-t-2 border-slate-200">
-                  <TableCell colSpan={3} className="font-semibold text-slate-900">
+                  <TableCell
+                    colSpan={canRecategorize ? 4 : 3}
+                    className="font-semibold text-slate-900"
+                  >
                     Total
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-semibold">
