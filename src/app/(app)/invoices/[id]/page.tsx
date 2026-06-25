@@ -442,7 +442,7 @@ export default async function InvoiceDetailPage({
             {show('showRetainage') && Number(invoice.retainageAmount) > 0 && (
               <>
                 <Row
-                  label={`Less ${template?.retainageHeldLabel?.toLowerCase() ?? 'retainage held'} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
+                  label={`Less ${(template?.retainageHeldLabel ?? 'retainage held').replace(/^less\s+/i, '').toLowerCase()} (${Number(invoice.retainagePercent).toFixed(2)}%)`}
                   value={`(${formatMoney(invoice.retainageAmount)})`}
                 />
                 <Row label="Net of retainage" value={formatMoney(netOfRetainage)} />
