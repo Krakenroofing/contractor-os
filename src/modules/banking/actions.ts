@@ -48,6 +48,7 @@ import {
 } from '@/lib/data/banking-rules';
 import {
   createInvoicePaymentMatchesAtomic,
+  createReceiptMatchesAtomic,
   createMatchAtomic,
   createTransferPairAtomic,
   listActiveMatchesForCompany,
@@ -55,7 +56,7 @@ import {
   reverseMatchAtomic,
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
-import { getVendor } from '@/lib/data/vendors';
+import { getVendor, listVendors } from '@/lib/data/vendors';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
 import { listProjects } from '@/lib/data/projects';
@@ -1536,6 +1537,168 @@ export async function searchInvoicePaymentsForMatchAction(input: {
   return { ok: true, results: results.slice(0, 25) };
 }
 
+// ===== AP: batch bill payment (one withdrawal → many bills + bank fee) =====
+
+export type BillSearchResult = {
+  receiptId: string;
+  vendorName: string;
+  total: number;
+  receiptDate: string;
+  sameAmount: boolean;
+};
+
+/** Posted receipts (bills) not yet matched, for the batch bill-payment picker.
+ *  Money-out transactions only. */
+export async function searchBillsForMatchAction(input: {
+  transactionId: string;
+  query?: string;
+}): Promise<
+  { ok: true; results: BillSearchResult[] } | { ok: false; error: string }
+> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { ok: false, error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const txnId = matchTxnIdSchema.safeParse(input.transactionId);
+  if (!txnId.success) return { ok: false, error: 'Invalid transaction id.' };
+  const txn = await getImportedTransaction(companyId, txnId.data);
+  if (!txn) return { ok: false, error: 'Transaction not found.' };
+  if (Number(txn.amount) >= 0) {
+    return { ok: false, error: 'Bills match money-out transactions only.' };
+  }
+  const absCents = Math.round(Math.abs(Number(txn.amount)) * 100);
+
+  const [receipts, vendors, activeMatches] = await Promise.all([
+    listReceipts(companyId, { status: 'posted', limit: 1000 }),
+    listVendors(companyId),
+    listActiveMatchesForCompany(companyId),
+  ]);
+  const taken = new Set(
+    activeMatches.filter((m) => m.receiptId).map((m) => m.receiptId!),
+  );
+  const vendorById = new Map(vendors.map((v) => [v.id, v]));
+  const q = (input.query ?? '').trim().toLowerCase();
+
+  const results: BillSearchResult[] = [];
+  for (const r of receipts) {
+    if (taken.has(r.id)) continue;
+    const vendorName = r.vendorId
+      ? (vendorById.get(r.vendorId)?.name ?? '—')
+      : '—';
+    if (q && !vendorName.toLowerCase().includes(q)) continue;
+    const total = Number(r.total);
+    results.push({
+      receiptId: r.id,
+      vendorName,
+      total,
+      receiptDate: r.receiptDate,
+      sameAmount: Math.round(total * 100) === absCents,
+    });
+  }
+  results.sort((a, b) => {
+    if (a.sameAmount !== b.sameAmount) return a.sameAmount ? -1 : 1;
+    return b.receiptDate.localeCompare(a.receiptDate);
+  });
+  return { ok: true, results: results.slice(0, 50) };
+}
+
+export async function matchBillsAction(input: {
+  transactionId: string;
+  receiptIds: string[];
+  feeAccountId?: string | null;
+  confidence?: 'exact' | 'high' | 'low' | 'manual';
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  reconciled?: boolean;
+  remaining?: number;
+  fee?: number;
+}> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+
+  const withdrawal = Number(txn.amount);
+  if (withdrawal >= 0) {
+    return {
+      ok: false,
+      error: 'Bills only match money-out (negative) bank transactions.',
+    };
+  }
+  const abs = Math.round(Math.abs(withdrawal) * 100) / 100;
+
+  const ids = Array.from(
+    new Set((input.receiptIds ?? []).filter((x) => typeof x === 'string' && x)),
+  );
+  if (ids.length === 0) {
+    return { ok: false, error: 'Select at least one bill to match.' };
+  }
+
+  let newSum = 0;
+  for (const id of ids) {
+    const r = await getReceipt(companyId, id);
+    if (!r) return { ok: false, error: 'One of the selected bills was not found.' };
+    if (r.status !== 'posted') {
+      return { ok: false, error: 'Only posted bills can be matched.' };
+    }
+    newSum += Number(r.total);
+  }
+
+  // Add anything already matched to this withdrawal (incremental top-ups).
+  const existing = (await listActiveMatchesForTxn(companyId, txn.id)).filter(
+    (m) => m.matchType === 'receipt' && m.receiptId,
+  );
+  let priorSum = 0;
+  for (const m of existing) {
+    const r = await getReceipt(companyId, m.receiptId!);
+    if (r) priorSum += Number(r.total);
+  }
+
+  const allocated = Math.round((priorSum + newSum) * 100) / 100;
+  const remaining = Math.round((abs - allocated) * 100) / 100;
+
+  // Any shortfall is the bank/transaction fee — an expense on the payment date
+  // — when the operator picks a fee account. Otherwise reconcile only within
+  // the cent tolerance.
+  let fee: { accountingAccountId: string; amount: number } | null = null;
+  if (remaining > RECONCILE_TOLERANCE && input.feeAccountId) {
+    fee = { accountingAccountId: input.feeAccountId, amount: remaining };
+  }
+  const feeAmount = fee ? fee.amount : 0;
+  const reconcile = allocated + feeAmount >= abs - RECONCILE_TOLERANCE;
+
+  try {
+    await createReceiptMatchesAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      receiptIds: ids,
+      fee,
+      confidence: input.confidence ?? 'manual',
+      matchedByUserId: user.id,
+      reconcile,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error && err.message.includes('duplicate')
+          ? 'One of these bills is already matched to a different transaction. Refresh and try again.'
+          : err instanceof Error
+            ? err.message
+            : 'Match failed.',
+    };
+  }
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return {
+    ok: true,
+    reconciled: reconcile,
+    remaining: Math.max(0, Math.round((abs - allocated - feeAmount) * 100) / 100),
+    fee: feeAmount,
+  };
+}
+
 export async function matchReceiptAction(input: {
   transactionId: string;
   receiptId: string;
@@ -1728,6 +1891,59 @@ export async function matchTransferAction(input: {
   }
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   revalidatePath(`/banking/accounts/${paired.bankAccountId}`);
+  return { ok: true };
+}
+
+/**
+ * Single-sided transfer: the money moved to/from an account that isn't loaded
+ * in KrakenOps (e.g. "Transfer To Acct 201759772"), so there's no opposite
+ * line to pair with. Books it to the "Inter-account Transfers" clearing
+ * account (a balance-sheet asset) so it leaves the to-do AND stays out of the
+ * P&L — a transfer is not income or expense. Reconciles the txn as a transfer.
+ */
+export async function markInterAccountTransferAction(input: {
+  transactionId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+
+  const accounts = await listAccountingAccounts(companyId);
+  const clearing = accounts.find(
+    (a) => a.name === 'Inter-account Transfers' && !a.isArchived,
+  );
+  if (!clearing) {
+    return {
+      ok: false,
+      error:
+        'No "Inter-account Transfers" account found. Add one (Asset) under accounting categories first.',
+    };
+  }
+
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'transfer',
+      confidence: 'manual',
+      matchedByUserId: user.id,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Could not mark as transfer.',
+    };
+  }
+
+  // Categorize to the clearing account so the GL posts it to the balance sheet
+  // (not Uncategorized Expense). Don't overwrite an existing category.
+  if (!txn.accountingAccountId) {
+    await updateImportedTransaction(companyId, txn.id, {
+      accountingAccountId: clearing.id,
+    });
+  }
+
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
 

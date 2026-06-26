@@ -333,6 +333,14 @@ export default async function BankAccountDetailPage({
     accounts.filter((a) => a.type !== 'bank' && a.type !== 'credit_card'),
   );
 
+  // Expense accounts offered as the bank-fee line on a batch bill payment.
+  const feeAccountOptions = categories
+    .filter(
+      (c) =>
+        !c.isHeader && (c.rollupGroup === 'opex' || c.rollupGroup === 'cogs'),
+    )
+    .map((c) => ({ id: c.id, name: c.name }));
+
   const projectOptions = projects.map((p) => ({
     id: p.id,
     label: p.name,
@@ -728,6 +736,7 @@ export default async function BankAccountDetailPage({
                               }
                               invoiceMatches={txnInvoiceMatches}
                               reconciled={triage === 'reconciled'}
+                              feeAccountOptions={feeAccountOptions}
                               canEdit={canEdit}
                             />
                           </TableCell>

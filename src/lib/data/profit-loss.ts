@@ -16,10 +16,12 @@
 // excluded — those are balance-sheet items, not income-statement).
 
 import 'server-only';
-import { and, eq, gte, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
   importedTransactions,
+  importedTransactionLines,
+  transactionMatches,
   invoices,
   jobCostEntries,
 } from '@/db/schema';
@@ -310,6 +312,56 @@ export async function buildProfitLossReport(
   };
   accumulate(categorizedRows);
   accumulate(bankRows);
+
+  // ----- Bank fees on bill payments -----
+  // A bill payment reconciles the bank line (so it's excluded above), but its
+  // split line is the bank/transaction fee — a real expense on the payment
+  // date. Count those fee lines (split lines on reconciled txns matched to a
+  // bill/receipt), dated by the transaction.
+  const billPaymentTxnIds = db
+    .select({ id: transactionMatches.importedTransactionId })
+    .from(transactionMatches)
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'receipt'),
+        isNull(transactionMatches.reversedAt),
+      ),
+    );
+  const feeConds = [
+    eq(importedTransactionLines.companyId, companyId),
+    isNotNull(importedTransactions.reconciledAt),
+    isNotNull(importedTransactionLines.accountingAccountId),
+    inArray(importedTransactions.id, billPaymentTxnIds),
+  ];
+  if (filters.from)
+    feeConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    feeConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const feeRows = await db
+    .select({
+      accountId: importedTransactionLines.accountingAccountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      total: sql<string>`COALESCE(SUM(${importedTransactionLines.amount}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactionLines.accountingAccountId),
+    )
+    .where(and(...feeConds))
+    .groupBy(
+      importedTransactionLines.accountingAccountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+  accumulate(feeRows);
 
   const cogsAccounts: ProfitLossAccountRow[] = [];
   const opexAccounts: ProfitLossAccountRow[] = [];

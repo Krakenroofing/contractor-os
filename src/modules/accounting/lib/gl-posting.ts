@@ -384,12 +384,29 @@ export async function postBankTxnToGl(
         : { accountId: accounts.undepositedFunds, debit: abs, credit: 0 },
     );
   } else if (matchType === 'receipt') {
-    // The receipt posted Dr Expense / Cr AP; this bank payment clears the AP.
-    lines.push(
-      isDeposit
-        ? { accountId: accounts.accountsPayable, debit: 0, credit: abs }
-        : { accountId: accounts.accountsPayable, debit: abs, credit: 0 },
-    );
+    // Bill payment: the bill(s) posted Dr Expense / Cr AP; this bank payment
+    // clears that AP. Any split line is the bank/transaction fee — an expense
+    // on the payment date — so AP cleared = bank amount − fees.
+    let feeTotal = 0;
+    for (const l of splitLines) {
+      const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;
+      if (amt <= 0) continue;
+      feeTotal += amt;
+      const acct = l.accountingAccountId ?? accounts.uncatExpense;
+      lines.push(
+        isDeposit
+          ? { accountId: acct, debit: 0, credit: amt, projectId: l.projectId }
+          : { accountId: acct, debit: amt, credit: 0, projectId: l.projectId },
+      );
+    }
+    const apAmt = Math.round((abs - feeTotal) * 100) / 100;
+    if (apAmt > 0) {
+      lines.push(
+        isDeposit
+          ? { accountId: accounts.accountsPayable, debit: 0, credit: apAmt }
+          : { accountId: accounts.accountsPayable, debit: apAmt, credit: 0 },
+      );
+    }
   } else if (splitLines.length > 0) {
     for (const l of splitLines) {
       const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;

@@ -8,6 +8,7 @@ import 'server-only';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   importedTransactions,
+  importedTransactionLines,
   transactionMatches,
   type NewTransactionMatch,
   type TransactionMatch,
@@ -122,6 +123,75 @@ export async function createInvoicePaymentMatchesAtomic(input: {
         })
         .returning();
       rows.push(row);
+    }
+    if (input.reconcile) {
+      await tx
+        .update(importedTransactions)
+        .set({ reconciledAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(importedTransactions.id, input.importedTransactionId),
+            eq(importedTransactions.companyId, input.companyId),
+          ),
+        );
+    }
+    return rows;
+  });
+}
+
+/**
+ * Batch bill payment: match ONE money-out bank txn to MANY posted receipts
+ * (bills), optionally recording the difference as a bank-fee expense split
+ * line on the txn. Reconciles only when fully allocated (bills + fee ≈ the
+ * withdrawal). Incremental: re-writes the single fee line each call. Each
+ * receipt is still matched at most once (DB unique index).
+ */
+export async function createReceiptMatchesAtomic(input: {
+  companyId: string;
+  importedTransactionId: string;
+  receiptIds: string[];
+  fee?: { accountingAccountId: string; amount: number; description?: string } | null;
+  confidence: TransactionMatch['confidence'];
+  matchedByUserId: string | null;
+  reconcile: boolean;
+}): Promise<TransactionMatch[]> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const rows: TransactionMatch[] = [];
+    for (const receiptId of input.receiptIds) {
+      const [row] = await tx
+        .insert(transactionMatches)
+        .values({
+          companyId: input.companyId,
+          importedTransactionId: input.importedTransactionId,
+          matchType: 'receipt',
+          receiptId,
+          confidence: input.confidence,
+          matchedByUserId: input.matchedByUserId,
+        })
+        .returning();
+      rows.push(row);
+    }
+    // The bank-fee remainder is stored as the txn's single split line. A bill
+    // payment carries no other splits (the bills hold their own detail), so
+    // replacing all lines is safe.
+    await tx
+      .delete(importedTransactionLines)
+      .where(
+        eq(
+          importedTransactionLines.importedTransactionId,
+          input.importedTransactionId,
+        ),
+      );
+    if (input.fee && input.fee.amount > 0) {
+      await tx.insert(importedTransactionLines).values({
+        companyId: input.companyId,
+        importedTransactionId: input.importedTransactionId,
+        sortOrder: 0,
+        accountingAccountId: input.fee.accountingAccountId,
+        description: input.fee.description ?? 'Bank / transaction fee',
+        amount: input.fee.amount.toFixed(2),
+      });
     }
     if (input.reconcile) {
       await tx

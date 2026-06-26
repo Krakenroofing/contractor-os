@@ -6,14 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import {
   addReceiptToTransactionAction,
+  markInterAccountTransferAction,
   matchInvoicePaymentsAction,
   matchJobCostEntryAction,
   matchOwnerEquityAction,
   matchReceiptAction,
+  matchBillsAction,
   matchTransferAction,
   searchInvoicePaymentsForMatchAction,
+  searchBillsForMatchAction,
   unmatchTransactionAction,
   type InvoicePaymentSearchResult,
+  type BillSearchResult,
 } from '../actions';
 import { Input } from '@/components/ui/input';
 import type { MatchCandidates } from '../lib/match-candidates';
@@ -63,6 +67,8 @@ export type MatchPanelProps = {
   invoiceMatches: ActiveInvoiceMatch[];
   /** Whether the txn is fully reconciled (reconciled_at set). */
   reconciled: boolean;
+  /** Expense accounts (COGS/OpEx) for the bank-fee picker on bill payments. */
+  feeAccountOptions?: { id: string; name: string }[];
   canEdit: boolean;
 };
 
@@ -172,6 +178,81 @@ export function MatchPanel(props: MatchPanelProps) {
     setErr(null);
   }
 
+  // ----- Batch bill payment (money-out) state -----
+  const [billMode, setBillMode] = useState(false);
+  const [billQuery, setBillQuery] = useState('');
+  const [billResults, setBillResults] = useState<BillSearchResult[]>([]);
+  const [billSearched, setBillSearched] = useState(false);
+  const [billSelected, setBillSelected] = useState<
+    Map<string, { vendorName: string; amount: number }>
+  >(new Map());
+  const [feeAccountId, setFeeAccountId] = useState('');
+
+  const billAbs = Math.round(Math.abs(props.amount) * 100) / 100;
+  const billSelectedSum = Array.from(billSelected.values()).reduce(
+    (s, v) => s + v.amount,
+    0,
+  );
+  const billRemaining = Math.round((billAbs - billSelectedSum) * 100) / 100;
+  // The shortfall becomes the bank fee once a fee account is chosen.
+  const billFee = feeAccountId && billRemaining > 0.005 ? billRemaining : 0;
+  const billAfterFee = Math.round((billRemaining - billFee) * 100) / 100;
+
+  function toggleBill(r: BillSearchResult) {
+    setBillSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(r.receiptId)) next.delete(r.receiptId);
+      else next.set(r.receiptId, { vendorName: r.vendorName, amount: r.total });
+      return next;
+    });
+  }
+
+  function runBillSearch() {
+    setErr(null);
+    setSearching(true);
+    startTransition(async () => {
+      const res = await searchBillsForMatchAction({
+        transactionId: props.transactionId,
+        query: billQuery,
+      });
+      setSearching(false);
+      setBillSearched(true);
+      if (!res.ok) {
+        setErr(res.error);
+        setBillResults([]);
+        return;
+      }
+      setBillResults(res.results);
+    });
+  }
+
+  function commitBillMatches() {
+    if (billSelected.size === 0) return;
+    setErr(null);
+    startTransition(async () => {
+      const res = await matchBillsAction({
+        transactionId: props.transactionId,
+        receiptIds: Array.from(billSelected.keys()),
+        feeAccountId: feeAccountId || null,
+      });
+      if (!res.ok) {
+        setErr(res.error ?? 'Match failed.');
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function resetBillMode() {
+    setBillMode(false);
+    setBillQuery('');
+    setBillResults([]);
+    setBillSearched(false);
+    setBillSelected(new Map());
+    setFeeAccountId('');
+    setErr(null);
+  }
+
   // Create a documentary draft receipt from this bank line and jump to the
   // receipt page to upload the picture(s). The line is linked immediately.
   function addReceipt() {
@@ -264,7 +345,7 @@ export function MatchPanel(props: MatchPanelProps) {
             </Select>
           </div>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             size="sm"
@@ -292,6 +373,27 @@ export function MatchPanel(props: MatchPanelProps) {
             }}
           >
             Cancel
+          </Button>
+        </div>
+        <div className="border-t border-blue-200 pt-2">
+          <p className="mb-1 text-blue-800">
+            Other account not loaded in KrakenOps? Book it as an inter-account
+            transfer (balance sheet — kept out of the P&amp;L):
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() =>
+              runAndRefresh(() =>
+                markInterAccountTransferAction({
+                  transactionId: props.transactionId,
+                }),
+              )
+            }
+          >
+            {pending ? '…' : 'It’s an inter-account transfer'}
           </Button>
         </div>
         {err && <p className="text-red-700">{err}</p>}
@@ -422,6 +524,166 @@ export function MatchPanel(props: MatchPanelProps) {
             variant="ghost"
             disabled={pending}
             onClick={resetInvoiceMode}
+          >
+            Cancel
+          </Button>
+        </div>
+        {err && <p className="text-red-700">{err}</p>}
+      </div>
+    );
+  }
+
+  // ----- Batch bill payment: pick MANY bills + a bank-fee line -----
+  if (billMode) {
+    const balances = Math.abs(billAfterFee) < 0.005;
+    return (
+      <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
+        <div className="font-medium text-blue-900">
+          Pay bills from this withdrawal
+        </div>
+        <p className="text-blue-800">
+          One payment can settle several bills. Tick bills until the remaining
+          balance is $0; any shortfall can be booked as a bank/transaction fee.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded bg-white px-2 py-1.5">
+          <span className="text-slate-600">
+            Payment{' '}
+            <span className="font-semibold tabular-nums text-slate-900">
+              ${fmtMoney(billAbs)}
+            </span>
+          </span>
+          <span className="text-slate-600">
+            Bills{' '}
+            <span className="font-semibold tabular-nums text-slate-900">
+              ${fmtMoney(billSelectedSum)}
+            </span>
+          </span>
+          {billFee > 0 && (
+            <span className="text-slate-600">
+              Fee{' '}
+              <span className="font-semibold tabular-nums text-slate-900">
+                ${fmtMoney(billFee)}
+              </span>
+            </span>
+          )}
+          <span
+            className={
+              balances ? 'font-semibold text-emerald-700' : 'text-amber-700'
+            }
+          >
+            Remaining{' '}
+            <span className="font-semibold tabular-nums">
+              ${fmtMoney(billAfterFee)}
+            </span>
+            {balances ? ' — balances ✓' : ''}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Input
+            value={billQuery}
+            onChange={(e) => setBillQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                runBillSearch();
+              }
+            }}
+            placeholder="Vendor name"
+            className="h-8 text-xs"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending || searching}
+            onClick={runBillSearch}
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </Button>
+        </div>
+
+        {billSearched && billResults.length === 0 && !err && (
+          <p className="text-slate-600">
+            No unmatched posted bills found. Try a different search.
+          </p>
+        )}
+
+        {billResults.length > 0 && (
+          <div className="space-y-1">
+            {billResults.map((r) => {
+              const checked = billSelected.has(r.receiptId);
+              return (
+                <label
+                  key={r.receiptId}
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 ${
+                    checked ? 'bg-blue-100' : 'bg-white'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={checked}
+                    onChange={() => toggleBill(r)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">
+                      {r.vendorName} · ${fmtMoney(r.total)}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {r.receiptDate}{' '}
+                      {r.sameAmount && (
+                        <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
+                          same amount
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {billRemaining > 0.005 && (props.feeAccountOptions?.length ?? 0) > 0 && (
+          <div className="rounded bg-white px-2 py-1.5 space-y-1">
+            <p className="text-[11px] text-slate-600">
+              Book the ${fmtMoney(billRemaining)} difference as a bank fee:
+            </p>
+            <Select
+              value={feeAccountId}
+              onChange={(e) => setFeeAccountId(e.target.value)}
+              className="h-8 text-xs"
+            >
+              <option value="">— No fee (match exact only) —</option>
+              {props.feeAccountOptions!.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending || billSelected.size === 0}
+            onClick={commitBillMatches}
+          >
+            {pending
+              ? 'Matching…'
+              : `Pay ${billSelected.size || ''} bill${
+                  billSelected.size === 1 ? '' : 's'
+                }`.trim()}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={resetBillMode}
           >
             Cancel
           </Button>
@@ -694,6 +956,20 @@ export function MatchPanel(props: MatchPanelProps) {
               }}
             >
               Match to invoice…
+            </Button>
+          )}
+          {moneyOut && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => {
+                setErr(null);
+                setBillMode(true);
+              }}
+            >
+              Match to bills…
             </Button>
           )}
           {moneyIn && (
