@@ -26,6 +26,7 @@ import { getOrCreatePeriodForDate } from '@/lib/data/pay-periods';
 import { formatMoney, parseMoney } from '@/lib/money';
 import { mondayOf } from '@/modules/payroll/lib/periods';
 import { DeleteTimeEntryButton } from '@/modules/payroll/components/delete-time-entry-button';
+import { EntryAllocationSelect } from '@/modules/payroll/components/entry-allocation-select';
 import {
   EMPLOYMENT_TYPE_LABEL,
   EMPLOYMENT_TYPE_TONE,
@@ -80,6 +81,13 @@ export default async function PayrollDayPage({
 
   const projectById = new Map(allProjects.map((p) => [p.id, p]));
   const costCodeById = new Map(allCostCodes.map((c) => [c.id, c]));
+
+  // Options for the inline allocation pickers (active projects + all codes).
+  const projectOptions = allProjects.map((p) => ({ id: p.id, label: p.name }));
+  const costCodeOptions = allCostCodes.map((c) => ({
+    id: c.id,
+    label: `${c.code} — ${c.description}`,
+  }));
 
   const allEntries = await listTimeEntries(companyId, {
     payPeriodId: period.id,
@@ -186,32 +194,47 @@ export default async function PayrollDayPage({
                 const isAmount = entry.entryType === 'amount';
                 return (
                   <TableRow key={entry.id}>
-                    <TableCell>
-                      {project ? (
-                        <Link
-                          href={`/projects/${project.id}`}
-                          className="text-blue-700 hover:underline"
-                        >
-                          {project.name}
-                        </Link>
-                      ) : entry.isOverhead ? (
-                        <Badge tone="amber">Overhead</Badge>
-                      ) : (
-                        <span className="text-slate-500">Unassigned</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {costCode ? (
-                        <Link
-                          href={`/cost-codes/${costCode.id}`}
-                          className="text-blue-700 hover:underline tabular-nums"
-                        >
-                          {costCode.code} — {costCode.description}
-                        </Link>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </TableCell>
+                    {allowEdit && !isLocked ? (
+                      <TableCell colSpan={2}>
+                        <EntryAllocationSelect
+                          entryId={entry.id}
+                          projectId={entry.projectId}
+                          costCodeId={entry.costCodeId}
+                          isOverhead={entry.isOverhead}
+                          projects={projectOptions}
+                          costCodes={costCodeOptions}
+                        />
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell>
+                          {project ? (
+                            <Link
+                              href={`/projects/${project.id}`}
+                              className="text-blue-700 hover:underline"
+                            >
+                              {project.name}
+                            </Link>
+                          ) : entry.isOverhead ? (
+                            <Badge tone="amber">Overhead</Badge>
+                          ) : (
+                            <span className="text-slate-500">Unassigned</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {costCode ? (
+                            <Link
+                              href={`/cost-codes/${costCode.id}`}
+                              className="text-blue-700 hover:underline tabular-nums"
+                            >
+                              {costCode.code} — {costCode.description}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell className="text-right tabular-nums">
                       {!isAmount && hours > 0 ? (
                         hours.toFixed(2)

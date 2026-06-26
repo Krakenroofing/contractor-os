@@ -192,6 +192,7 @@ export default async function PayrollPage({
         hoursCount: number;
         pay: number;
         payCount: number;
+        payUnassigned: boolean;
         lunchMinutes: number;
       }
     > = {};
@@ -202,11 +203,15 @@ export default async function PayrollPage({
         hoursCount: 0,
         pay: 0,
         payCount: 0,
+        payUnassigned: false,
         lunchMinutes: 0,
       });
       if (entry.entryType === 'amount') {
         slot.pay += Number(entry.amount);
         slot.payCount += 1;
+        // Day-rate pay that has no project or no cost code won't post to job
+        // costs — flag it so the office can allocate it.
+        if (!entry.projectId || !entry.costCodeId) slot.payUnassigned = true;
       } else {
         slot.hours += Number(entry.hours);
         slot.hoursCount += 1;

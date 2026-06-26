@@ -21,6 +21,8 @@ export type TimesheetCellData = {
   hoursCount: number;
   pay: number;
   payCount: number;
+  /** Day-rate pay that day isn't fully allocated to a job + cost code. */
+  payUnassigned: boolean;
   /** Variable-pay worker → render the $ pay input under the hours. */
   showPay: boolean;
   /** Hourly worker → render the unpaid-lunch control under the hours. */
@@ -51,6 +53,22 @@ export function TimesheetCell(props: TimesheetCellData) {
           count={props.payCount}
           canEdit={props.canEdit}
         />
+      )}
+      {props.pay > 0 && (
+        <Link
+          href={{
+            pathname: '/payroll/day',
+            query: { employeeId: props.employeeId, workDate: props.workDate },
+          }}
+          title="Allocate this day's pay to a job + cost code"
+          className={`text-[10px] tabular-nums hover:underline ${
+            props.payUnassigned
+              ? 'text-amber-700'
+              : 'text-slate-400'
+          }`}
+        >
+          {props.payUnassigned ? '⚠ allocate to job' : 'job ✓'}
+        </Link>
       )}
       {props.showLunch && props.hours > 0 && (
         <LunchControl

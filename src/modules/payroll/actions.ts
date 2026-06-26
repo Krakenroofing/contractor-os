@@ -418,6 +418,45 @@ export async function updateTimeEntryAction(
   redirect(`/payroll?week=${mondayOf(data.workDate)}`);
 }
 
+/**
+ * Inline allocation of a single time entry to a project + cost code, straight
+ * from the day-detail grid — no edit-form hop. Used to job-cost day-laborer
+ * day-rate entries (and any unassigned hours) so they flow into job costs.
+ * Auto-submitted on change; silently no-ops on a locked period / bad input
+ * (the grid is read-only when locked anyway).
+ */
+export async function setTimeEntryAllocationAction(
+  entryId: string,
+  formData: FormData,
+): Promise<void> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) return;
+
+  const idResult = idSchema.safeParse(entryId);
+  if (!idResult.success) return;
+  const companyId = await getActiveCompanyId();
+
+  const existing = await getTimeEntry(companyId, idResult.data);
+  if (!existing) return;
+  const periodCheck = await assertPeriodEditable(companyId, existing.payPeriodId);
+  if (!periodCheck.ok) return;
+
+  const projectRaw = String(formData.get('projectId') ?? '') || null;
+  const costCodeRaw = String(formData.get('costCodeId') ?? '');
+  const resolved = resolveProjectSelection(projectRaw);
+  const costCodeId =
+    costCodeRaw && idSchema.safeParse(costCodeRaw).success ? costCodeRaw : null;
+
+  await updateTimeEntry(companyId, idResult.data, {
+    projectId: resolved.projectId,
+    isOverhead: resolved.isOverhead,
+    costCodeId,
+  });
+  revalidatePath('/payroll/day');
+  revalidatePath('/payroll');
+}
+
 export async function deleteTimeEntryAction(
   _prev: TimeEntryState,
   formData: FormData,

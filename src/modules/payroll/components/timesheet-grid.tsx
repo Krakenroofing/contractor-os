@@ -30,6 +30,8 @@ export type TimesheetDay = {
   hoursCount: number;
   pay: number;
   payCount: number;
+  /** True when day-rate pay that day isn't fully allocated to a job + code. */
+  payUnassigned: boolean;
   /** Effective unpaid lunch for the day, in minutes (0 when N/A). */
   lunchMinutes: number;
 };
@@ -51,6 +53,7 @@ const EMPTY_DAY: TimesheetDay = {
   hoursCount: 0,
   pay: 0,
   payCount: 0,
+  payUnassigned: false,
   lunchMinutes: 0,
 };
 
@@ -141,6 +144,7 @@ export function TimesheetGrid({
                         hoursCount={day.hoursCount}
                         pay={day.pay}
                         payCount={day.payCount}
+                        payUnassigned={day.payUnassigned}
                         showPay={emp.isVariablePay || day.pay > 0}
                         showLunch={emp.appliesLunch}
                         lunchMinutes={day.lunchMinutes}
