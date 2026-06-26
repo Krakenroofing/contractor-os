@@ -26,7 +26,9 @@ import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
 import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
+import { GeneratePayrollBillsButton } from '@/modules/payroll/components/generate-bills-button';
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
+import { listPayrollBills } from '@/lib/data/payroll-bills';
 import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
 import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
 import { computeHourlyOvertime } from '@/modules/payroll/lib/overtime';
@@ -125,6 +127,7 @@ export default async function PayrollPage({
   const laborPostedCount = (
     await listJobCostEntriesBySource(companyId, 'labor_entry', period.id)
   ).length;
+  const payrollBillCount = (await listPayrollBills(companyId, period.id)).length;
   // Unpaid lunch overrides for this period, indexed by employee+date.
   const lunchOverrides = await listLunchOverrides(companyId, period.id);
   const lunchByEmpDate = new Map(
@@ -391,6 +394,24 @@ export default async function PayrollPage({
                   locked={isLocked}
                   accountsConfigured={laborAccountsConfigured}
                   postedCount={laborPostedCount}
+                />
+              </div>
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-medium text-slate-700">
+                  Generate payroll bills
+                </h3>
+                <p className="mt-0.5 mb-2 text-xs text-slate-500">
+                  One QuickBooks-style bill per employee — gross, NIB
+                  (employee + employer), and net pay posted to the GL (Dr
+                  Payroll Expense / Cr Accounts Payable). The net is the
+                  payable a bank payment settles. Don&apos;t use this AND
+                  &quot;Post labor to job costs&quot; for the same period —
+                  they&apos;d double-count.
+                </p>
+                <GeneratePayrollBillsButton
+                  payPeriodId={period.id}
+                  locked={isLocked}
+                  billCount={payrollBillCount}
                 />
               </div>
             </div>

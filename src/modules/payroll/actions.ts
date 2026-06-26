@@ -51,6 +51,17 @@ import {
   type EmployeePaystub,
 } from './lib/payroll-math';
 import { computeLaborPostingPlan } from './lib/labor-posting';
+import { buildPayrollBillLines } from './lib/payroll-bill';
+import { resolveGlSystemAccounts } from '@/modules/accounting/lib/gl-posting';
+import {
+  postJournalEntry,
+  deleteJournalEntriesForSource,
+} from '@/lib/data/general-ledger';
+import {
+  listPayrollBills,
+  deletePayrollBillsForPeriod,
+  insertPayrollBill,
+} from '@/lib/data/payroll-bills';
 import {
   multiply,
   parseMoney,
@@ -961,6 +972,107 @@ export async function unpostPayrollLaborAction(
     }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { error: `Failed to unpost labor: ${message}` };
+  }
+}
+
+// =====================================================================
+// Generate payroll bills (QuickBooks-style). One bill per paid employee for
+// the (locked) period, posting the double-entry GL: Dr Payroll Expense (gross),
+// Cr NIB Payable Employee/Employer, Dr NIB Expense, Dr Reimbursements, Cr AP
+// (net pay). The net is the payable a bank payment later settles. Idempotent —
+// regenerating replaces the period's bills + their journal entries.
+// =====================================================================
+
+export type GeneratePayrollBillsResult = {
+  ok?: boolean;
+  error?: string;
+  count?: number;
+  total?: number;
+};
+
+export async function generatePayrollBillsAction(
+  payPeriodId: string,
+): Promise<GeneratePayrollBillsResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to post payroll.' };
+  }
+  const idResult = idSchema.safeParse(payPeriodId);
+  if (!idResult.success) return { error: 'Missing pay period id.' };
+  const companyId = await getActiveCompanyId();
+
+  const period = await getPayPeriod(companyId, payPeriodId);
+  if (!period) return { error: 'Pay period not found.' };
+  if (period.status !== 'locked') {
+    return { error: 'Lock the pay period before generating payroll bills.' };
+  }
+
+  const [employees, entries, overrides, snapshots, adjustments, lunch] =
+    await Promise.all([
+      listEmployees(companyId),
+      listTimeEntries(companyId, { payPeriodId }),
+      listPeriodPayOverrides(companyId, { payPeriodId }),
+      listPaystubSnapshots(companyId, { payPeriodId }),
+      listPaystubAdjustments(companyId, { payPeriodId }),
+      listLunchOverrides(companyId, payPeriodId),
+    ]);
+  const paystubs = computePeriodPaystubs(
+    employees,
+    entries,
+    period,
+    overrides,
+    snapshots,
+    adjustments,
+    lunch,
+  );
+
+  try {
+    const accounts = await resolveGlSystemAccounts(companyId);
+
+    // Idempotent: clear any prior bills + their journal entries first.
+    const existing = await listPayrollBills(companyId, payPeriodId);
+    for (const b of existing) {
+      await deleteJournalEntriesForSource(companyId, 'payroll_bill', b.id);
+    }
+    await deletePayrollBillsForPeriod(companyId, payPeriodId);
+
+    let count = 0;
+    let total = 0;
+    for (const p of paystubs) {
+      if (p.skipped || p.net <= 0) continue;
+      const amounts = {
+        gross: p.gross,
+        employeeNib: p.nib.employee,
+        employerNib: p.nib.employer,
+        additions: p.additionsTotal,
+        deductions: p.deductionsTotal,
+        net: p.net,
+      };
+      const bill = await insertPayrollBill({
+        companyId,
+        payPeriodId,
+        employeeId: p.employeeId,
+        billDate: period.endDate,
+        ...amounts,
+      });
+      await postJournalEntry(companyId, {
+        entryDate: period.endDate,
+        memo: `Payroll — ${p.employeeName} (${period.startDate} – ${period.endDate})`,
+        sourceType: 'payroll_bill',
+        sourceId: bill.id,
+        lines: buildPayrollBillLines(amounts, accounts),
+      });
+      count += 1;
+      total += p.net;
+    }
+
+    revalidatePath('/payroll');
+    revalidatePath('/reports/accounting', 'layout');
+    return { ok: true, count, total: round2(total) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to generate payroll bills: ${message}` };
   }
 }
 

@@ -59,6 +59,13 @@ export type GlSystemAccounts = {
   uncatExpense: string;
   accountsPayable: string;
   vatInput: string;
+  // Payroll bill posting (QB-style).
+  payrollExpense: string;
+  nibExpense: string;
+  nibPayableEmployee: string;
+  nibPayableEmployer: string;
+  reimbursementExpense: string;
+  deductionsPayable: string;
 };
 
 /** Find-or-create the system accounts the invoice/payment postings need. */
@@ -156,6 +163,56 @@ export async function resolveGlSystemAccounts(
     parentId: null,
   });
 
+  // Payroll-bill accounts (QB-style). Auto-created on first use.
+  const payrollExpense = await ensure(() => byName('Payroll Expenses'), {
+    name: 'Payroll Expenses',
+    type: 'expense',
+    rollupGroup: 'opex',
+    parentId: null,
+  });
+  const nibExpense = await ensure(() => byName('NIB Expense (Employer)'), {
+    name: 'NIB Expense (Employer)',
+    type: 'expense',
+    rollupGroup: 'opex',
+    parentId: null,
+  });
+  const nibPayableEmployee = await ensure(
+    () => byName('NIB Payable - Employee'),
+    {
+      name: 'NIB Payable - Employee',
+      type: 'liability',
+      rollupGroup: 'liability',
+      parentId: null,
+    },
+  );
+  const nibPayableEmployer = await ensure(
+    () => byName('NIB Payable - Employer'),
+    {
+      name: 'NIB Payable - Employer',
+      type: 'liability',
+      rollupGroup: 'liability',
+      parentId: null,
+    },
+  );
+  const reimbursementExpense = await ensure(
+    () => byName('Employee Reimbursements'),
+    {
+      name: 'Employee Reimbursements',
+      type: 'expense',
+      rollupGroup: 'opex',
+      parentId: null,
+    },
+  );
+  const deductionsPayable = await ensure(
+    () => byName('Payroll Deductions Payable'),
+    {
+      name: 'Payroll Deductions Payable',
+      type: 'liability',
+      rollupGroup: 'liability',
+      parentId: null,
+    },
+  );
+
   return {
     ar,
     undepositedFunds,
@@ -168,6 +225,12 @@ export async function resolveGlSystemAccounts(
     uncatExpense,
     accountsPayable,
     vatInput,
+    payrollExpense,
+    nibExpense,
+    nibPayableEmployee,
+    nibPayableEmployer,
+    reimbursementExpense,
+    deductionsPayable,
   };
 }
 

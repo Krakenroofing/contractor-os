@@ -31,6 +31,7 @@ export * from './employees';
 export * from './pay-periods';
 export * from './time-entries';
 export * from './timesheet-lunch';
+export * from './payroll-bills';
 export * from './subcontractor-payments';
 export * from './period-pay-overrides';
 export * from './period-paystub-snapshots';
