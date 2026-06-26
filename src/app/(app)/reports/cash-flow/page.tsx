@@ -87,9 +87,9 @@ export default async function CashFlowPage({
         </div>
       ) : (
         <>
-          <Section title="Operating activities" section={cf.operating} />
-          <Section title="Investing activities" section={cf.investing} />
-          <Section title="Financing activities" section={cf.financing} />
+          <Section title="Operating activities" section={cf.operating} from={from} to={to} />
+          <Section title="Investing activities" section={cf.investing} from={from} to={to} />
+          <Section title="Financing activities" section={cf.financing} from={from} to={to} />
 
           <Card>
             <CardContent className="p-6 space-y-1.5">
@@ -115,9 +115,13 @@ export default async function CashFlowPage({
 function Section({
   title,
   section,
+  from,
+  to,
 }: {
   title: string;
   section: CashFlowSection;
+  from: string | null;
+  to: string | null;
 }) {
   return (
     <Card>
@@ -134,7 +138,12 @@ function Section({
           <p className="text-sm text-slate-400">None.</p>
         ) : (
           section.lines.map((l) => (
-            <Row key={l.accountId} label={l.name} value={l.amount} />
+            <Row
+              key={l.accountId}
+              label={l.name}
+              value={l.amount}
+              href={`/reports/general-ledger?accountId=${l.accountId}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`}
+            />
           ))
         )}
       </CardContent>
@@ -146,16 +155,24 @@ function Row({
   label,
   value,
   bold,
+  href,
 }: {
   label: string;
   value: number;
   bold?: boolean;
+  href?: string;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4 text-sm">
-      <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
-        {label}
-      </span>
+      {href ? (
+        <Link href={href as never} className="text-blue-700 hover:underline">
+          {label}
+        </Link>
+      ) : (
+        <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
+          {label}
+        </span>
+      )}
       <span
         className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} ${
           value < 0 ? 'text-red-600' : 'text-slate-900'

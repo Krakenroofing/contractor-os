@@ -130,6 +130,7 @@ export default async function TrialBalancePage({
                     key={g}
                     label={GROUP_LABEL[g] ?? g}
                     rows={byGroup.get(g)!}
+                    asOf={asOf}
                   />
                 ))}
                 <TableRow className="border-t-2 border-slate-300">
@@ -153,8 +154,10 @@ export default async function TrialBalancePage({
 function GroupRows({
   label,
   rows,
+  asOf,
 }: {
   label: string;
+  asOf: string | null;
   rows: Array<{
     accountId: string;
     code: string | null;
@@ -174,7 +177,12 @@ function GroupRows({
         <TableRow key={r.accountId}>
           <TableCell>
             {r.code ? <span className="font-mono text-slate-500">{r.code} </span> : null}
-            {r.name}
+            <Link
+              href={`/reports/general-ledger?accountId=${r.accountId}${asOf ? `&to=${asOf}` : ''}`}
+              className="text-blue-700 hover:underline"
+            >
+              {r.name}
+            </Link>
           </TableCell>
           <TableCell className="text-right tabular-nums">
             {r.debit !== 0 ? formatMoney(r.debit) : ''}

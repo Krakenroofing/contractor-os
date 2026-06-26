@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -80,7 +81,12 @@ export default async function JobCostReportPage({
               {report.rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell className="font-medium text-slate-900">
-                    {r.projectName}
+                    <Link
+                      href={{ pathname: `/projects/${r.projectId}` }}
+                      className="text-blue-700 hover:underline"
+                    >
+                      {r.projectName}
+                    </Link>
                   </TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
@@ -130,7 +136,12 @@ export default async function JobCostReportPage({
                 {report.costCodeBreakdown.map((r, i) => (
                   <TableRow key={`${r.projectId}-${r.costCodeId}-${i}`}>
                     <TableCell className="text-xs text-slate-700">
-                      {r.projectName}
+                      <Link
+                        href={{ pathname: `/projects/${r.projectId}` }}
+                        className="text-blue-700 hover:underline"
+                      >
+                        {r.projectName}
+                      </Link>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{r.code}</TableCell>
                     <TableCell className="text-slate-700">{r.description}</TableCell>

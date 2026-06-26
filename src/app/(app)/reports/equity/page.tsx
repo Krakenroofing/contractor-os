@@ -109,7 +109,14 @@ export default async function EquityStatementPage({
               <tbody>
                 {eq.rows.map((r) => (
                   <tr key={r.accountId} className="border-b border-slate-100">
-                    <td className="px-4 py-2 text-slate-800">{r.name}</td>
+                    <td className="px-4 py-2 text-slate-800">
+                      <Link
+                        href={`/reports/general-ledger?accountId=${r.accountId}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`}
+                        className="text-blue-700 hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    </td>
                     <td className="px-4 py-2 text-right tabular-nums text-slate-600">
                       {formatMoney(r.opening)}
                     </td>

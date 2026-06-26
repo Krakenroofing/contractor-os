@@ -85,11 +85,17 @@ export default async function BalanceSheetPage({
               : `Off by ${formatMoney(bs.difference)} — assets ${formatMoney(bs.totalAssets)} vs liabilities + equity ${formatMoney(bs.totalLiabilities + bs.totalEquity)}.`}
           </div>
 
-          <Section title="Assets" lines={bs.assets} total={bs.totalAssets} />
+          <Section
+            title="Assets"
+            lines={bs.assets}
+            total={bs.totalAssets}
+            asOf={asOf}
+          />
           <Section
             title="Liabilities"
             lines={bs.liabilities}
             total={bs.totalLiabilities}
+            asOf={asOf}
           />
 
           <Card>
@@ -98,7 +104,12 @@ export default async function BalanceSheetPage({
             </CardHeader>
             <CardContent className="p-6 space-y-1.5">
               {bs.equity.map((l) => (
-                <Row key={l.accountId} label={l.name} value={l.amount} />
+                <Row
+                  key={l.accountId}
+                  label={l.name}
+                  value={l.amount}
+                  href={glHref(l.accountId, asOf)}
+                />
               ))}
               <Row label="Net income (current)" value={bs.netIncome} />
               <div className="mt-2 border-t border-slate-200 pt-2">
@@ -112,14 +123,20 @@ export default async function BalanceSheetPage({
   );
 }
 
+function glHref(accountId: string, asOf: string | null): string {
+  return `/reports/general-ledger?accountId=${accountId}${asOf ? `&to=${asOf}` : ''}`;
+}
+
 function Section({
   title,
   lines,
   total,
+  asOf,
 }: {
   title: string;
   lines: BalanceSheetLine[];
   total: number;
+  asOf: string | null;
 }) {
   return (
     <Card>
@@ -133,7 +150,12 @@ function Section({
           <p className="text-sm text-slate-400">None.</p>
         ) : (
           lines.map((l) => (
-            <Row key={l.accountId} label={l.name} value={l.amount} />
+            <Row
+              key={l.accountId}
+              label={l.name}
+              value={l.amount}
+              href={glHref(l.accountId, asOf)}
+            />
           ))
         )}
         <div className="mt-2 border-t border-slate-200 pt-2">
@@ -148,16 +170,24 @@ function Row({
   label,
   value,
   bold,
+  href,
 }: {
   label: string;
   value: number;
   bold?: boolean;
+  href?: string;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4 text-sm">
-      <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
-        {label}
-      </span>
+      {href ? (
+        <Link href={href as never} className="text-blue-700 hover:underline">
+          {label}
+        </Link>
+      ) : (
+        <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
+          {label}
+        </span>
+      )}
       <span
         className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} text-slate-900`}
       >

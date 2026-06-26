@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -121,7 +122,12 @@ export default async function ProjectFinancialReportPage({
               {report.rows.map((r) => (
                 <TableRow key={r.projectId}>
                   <TableCell className="font-medium text-slate-900">
-                    {r.projectName}
+                    <Link
+                      href={{ pathname: `/projects/${r.projectId}` }}
+                      className="text-blue-700 hover:underline"
+                    >
+                      {r.projectName}
+                    </Link>
                     {r.verifiedAt && (
                       <Badge tone="green" className="ml-2">
                         Verified
