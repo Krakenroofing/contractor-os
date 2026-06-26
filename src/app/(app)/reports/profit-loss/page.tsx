@@ -14,7 +14,10 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
-import { buildProfitLossReport } from '@/lib/data/profit-loss';
+import {
+  buildProfitLossReport,
+  getProfitLossActivityRange,
+} from '@/lib/data/profit-loss';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
 import { exTaxLabel } from '@/modules/reports/lib/tax-label';
 import { ReportShell } from '@/modules/reports/components/report-shell';
@@ -30,7 +33,21 @@ export default async function ProfitLossReportPage({
   if (!canView(role, 'reports')) redirect('/dashboard');
   const company = await getActiveCompany();
   const params = await searchParams;
-  const filters = parseReportFilters(params);
+  const rawFilters = parseReportFilters(params);
+
+  // When the user hasn't picked a range, fill the inputs (and the header
+  // subtitle) with the range actually shown — earliest activity → today —
+  // instead of leaving them blank. The data is identical (this span covers
+  // everything), it's just no longer ambiguous.
+  let filters = rawFilters;
+  if (!rawFilters.from || !rawFilters.to) {
+    const range = await getProfitLossActivityRange(company.id);
+    filters = {
+      ...rawFilters,
+      from: rawFilters.from || range.from || '',
+      to: rawFilters.to || range.to,
+    };
+  }
 
   const [report, projects] = await Promise.all([
     buildProfitLossReport(company.id, filters),

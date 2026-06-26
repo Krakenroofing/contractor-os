@@ -109,6 +109,38 @@ export type ProfitLossFilters = {
 };
 
 /**
+ * Earliest date that contributes to the P&L (min over income invoices, posted
+ * job-cost entries, and categorized bank lines), plus today as the upper bound.
+ * Used to pre-fill the report's date inputs when the user hasn't picked a range,
+ * so the visible "from → to" matches the data actually shown (not blank fields).
+ * `from` is null when the company has no P&L activity at all.
+ */
+export async function getProfitLossActivityRange(
+  companyId: string,
+): Promise<{ from: string | null; to: string }> {
+  const to = new Date().toISOString().slice(0, 10);
+  if (!isDatabaseConfigured()) return { from: null, to };
+  const db = getDb()!;
+  const rows = await db.execute<{ from: string | null }>(sql`
+    SELECT MIN(d)::text AS from FROM (
+      SELECT MIN(${invoices.invoiceDate}) AS d FROM ${invoices}
+        WHERE ${invoices.companyId} = ${companyId}
+          AND ${invoices.status} NOT IN ('draft','void')
+      UNION ALL
+      SELECT MIN(${jobCostEntries.entryDate}) AS d FROM ${jobCostEntries}
+        WHERE ${jobCostEntries.companyId} = ${companyId}
+          AND ${jobCostEntries.deletedAt} IS NULL
+      UNION ALL
+      SELECT MIN(${importedTransactions.transactionDate}) AS d FROM ${importedTransactions}
+        WHERE ${importedTransactions.companyId} = ${companyId}
+          AND ${importedTransactions.isIgnored} = false
+          AND ${importedTransactions.accountingAccountId} IS NOT NULL
+    ) AS mins
+  `);
+  return { from: rows[0]?.from ?? null, to };
+}
+
+/**
  * Build a P&L report for the given date range. Returns zeroes everywhere
  * when DATABASE_URL is unset (demo mode) so the page can still render.
  */
