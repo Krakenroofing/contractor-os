@@ -11,6 +11,7 @@ import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
 import { computePeriodPaystubs } from '@/modules/payroll/lib/payroll-math';
 import { formatPeriodLabel } from '@/modules/payroll/lib/periods';
 import { EMPLOYMENT_TYPE_LABEL } from '@/modules/employees/schema';
+import { ADJUSTMENT_TYPE_LABEL } from '@/db/schema/paystub-adjustments';
 import type {
   DocumentPayload,
   DocumentMeta,
@@ -78,8 +79,7 @@ export async function buildPayslipPayload(
     totals.push({ label: 'Less NIB (employee 4.65%)', value: stub.nib.employee, negative: true });
   }
   for (const a of stub.additions) {
-    const label =
-      a.type === 'per_diem' ? 'Per diem' : a.type === 'reimbursement' ? 'Reimbursement' : 'Expense';
+    const label = ADJUSTMENT_TYPE_LABEL[a.type] ?? 'Addition';
     totals.push({ label: a.description ? `${label} — ${a.description}` : label, value: a.amount });
   }
   totals.push({ label: 'Net pay', value: stub.net, bold: true });

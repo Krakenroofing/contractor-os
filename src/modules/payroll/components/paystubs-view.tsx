@@ -12,6 +12,10 @@ import {
   EMPLOYMENT_TYPE_TONE,
 } from '@/modules/employees/schema';
 import type { EmployeePaystub } from '../lib/payroll-math';
+import {
+  ADJUSTMENT_TYPE_LABEL,
+  type AdjustmentType,
+} from '@/db/schema/paystub-adjustments';
 import { NIB_RATES } from '../lib/nib';
 import { PaystubOverrideEditor } from './paystub-override-editor';
 import { PaystubAdjustmentsEditor } from './paystub-adjustments-editor';
@@ -261,11 +265,8 @@ function PaystubCard({
   );
 }
 
-function labelForAdditionType(type: 'reimbursement' | 'per_diem' | 'expense' | 'deduction'): string {
-  if (type === 'reimbursement') return 'Reimbursement';
-  if (type === 'per_diem') return 'Per diem';
-  if (type === 'expense') return 'Expense';
-  return 'Adjustment';
+function labelForAdditionType(type: AdjustmentType): string {
+  return ADJUSTMENT_TYPE_LABEL[type] ?? 'Adjustment';
 }
 
 function Line({

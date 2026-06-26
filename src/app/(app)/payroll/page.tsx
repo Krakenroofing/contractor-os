@@ -27,6 +27,7 @@ import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
 import { GeneratePayrollBillsButton } from '@/modules/payroll/components/generate-bills-button';
+import { PayrollAdjustmentsSection } from '@/modules/payroll/components/payroll-adjustments-section';
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
 import { listPayrollBills } from '@/lib/data/payroll-bills';
 import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
@@ -141,6 +142,32 @@ export default async function PayrollPage({
       ]),
     ),
   );
+
+  // Per-employee pay adjustments (per diem / reimbursement / bonus / deduction)
+  // surfaced on the Timesheet + Pay Run tabs. Built from the same paystub math.
+  const adjustmentStubs = computePeriodPaystubs(
+    allEmployees,
+    allEntries,
+    period,
+    allOverrides,
+    allSnapshots,
+    allAdjustments,
+    lunchOverrides,
+  );
+  const adjStubByEmp = new Map(adjustmentStubs.map((p) => [p.employeeId, p]));
+  const adjustmentRows = allEmployees
+    .filter((e) => e.active)
+    .map((e) => {
+      const s = adjStubByEmp.get(e.id);
+      return {
+        employeeId: e.id,
+        name: `${e.firstName} ${e.lastName}`.trim(),
+        deductions: s?.deductions ?? [],
+        additions: s?.additions ?? [],
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   // Aggregate per-(employee, date) for the timesheet grid. The timesheet
   // is a record of HOURS for everyone — that's what a timesheet is. For
   // variable-pay workers (contract / piecework / commission / lump-sum)
@@ -275,13 +302,20 @@ export default async function PayrollPage({
       <PayrollTabs active={view} weekStart={period.startDate} />
 
       {view === 'timesheet' && (
-        <TimesheetGrid
-          days={days}
-          employees={timesheetRows}
-          weekStart={period.startDate}
-          allowEdit={allowEdit}
-          locked={isLocked}
-        />
+        <div className="space-y-4">
+          <TimesheetGrid
+            days={days}
+            employees={timesheetRows}
+            weekStart={period.startDate}
+            allowEdit={allowEdit}
+            locked={isLocked}
+          />
+          <PayrollAdjustmentsSection
+            rows={adjustmentRows}
+            payPeriodId={period.id}
+            locked={isLocked}
+          />
+        </div>
       )}
 
       {view === 'pay-run' &&
@@ -414,6 +448,11 @@ export default async function PayrollPage({
                   billCount={payrollBillCount}
                 />
               </div>
+              <PayrollAdjustmentsSection
+                rows={adjustmentRows}
+                payPeriodId={period.id}
+                locked={isLocked}
+              />
             </div>
           );
         })()}

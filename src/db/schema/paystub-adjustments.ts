@@ -18,14 +18,17 @@ import { payPeriods } from './pay-periods';
 //   reimbursement  → added to net, NIB-exempt.
 //   per_diem       → added to net, NIB-exempt.
 //   expense        → added to net, NIB-exempt.
+//   bonus          → added to net, NIB-exempt (paid NIB-free per operator).
 //
 // Multiple rows per (employee, period, type) are allowed — each row's
-// description prints as its own line on the paystub.
+// description prints as its own line on the paystub. Anything that isn't a
+// 'deduction' is a post-NIB addition.
 export const adjustmentTypeValues = [
   'deduction',
   'reimbursement',
   'per_diem',
   'expense',
+  'bonus',
 ] as const;
 export type AdjustmentType = (typeof adjustmentTypeValues)[number];
 
@@ -34,6 +37,7 @@ export const ADJUSTMENT_TYPE_LABEL: Record<AdjustmentType, string> = {
   reimbursement: 'Reimbursement',
   per_diem: 'Per diem',
   expense: 'Expense',
+  bonus: 'Bonus',
 };
 
 export const paystubAdjustments = pgTable(
