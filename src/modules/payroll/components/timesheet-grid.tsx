@@ -100,10 +100,20 @@ export function TimesheetGrid({
         </TableHeader>
         <TableBody>
           {employees.map((emp) => {
-            const totalHours = days.reduce(
+            const grossHours = days.reduce(
               (a, d) => a + (emp.days[d]?.hours ?? 0),
               0,
             );
+            // Net of the unpaid lunch (hourly) — this is the paid total that
+            // ties to the Pay Run, and it changes when you edit a lunch.
+            const netHours = days.reduce((a, d) => {
+              const day = emp.days[d];
+              if (!day) return a;
+              const lunchMin = emp.appliesLunch ? day.lunchMinutes : 0;
+              return a + Math.max(0, day.hours - lunchMin / 60);
+            }, 0);
+            const lunchHours = Math.max(0, grossHours - netHours);
+            const totalHours = emp.appliesLunch ? netHours : grossHours;
             const totalPay = days.reduce(
               (a, d) => a + (emp.days[d]?.pay ?? 0),
               0,
@@ -145,6 +155,11 @@ export function TimesheetGrid({
                     pay={totalPay}
                     showPay={emp.isVariablePay || totalPay > 0}
                   />
+                  {lunchHours > 0 && (
+                    <div className="text-[10px] font-normal text-slate-400 tabular-nums">
+                      {grossHours.toFixed(2)}h − {lunchHours.toFixed(2)}h lunch
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             );
