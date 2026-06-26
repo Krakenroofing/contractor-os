@@ -14,6 +14,7 @@ import { importedTransactions } from './statement-imports';
 import { invoicePayments } from './invoices';
 import { receipts } from './receipts';
 import { jobCostEntries } from './job-costs';
+import { payrollBills } from './payroll-bills';
 
 // One row per match attempt linking an imported_transactions row to:
 //   - an invoice_payment (AR side, money in)
@@ -51,6 +52,9 @@ export const transactionMatches = pgTable(
       () => jobCostEntries.id,
       { onDelete: 'cascade' },
     ),
+    payrollBillId: uuid('payroll_bill_id').references(() => payrollBills.id, {
+      onDelete: 'cascade',
+    }),
     transferPairedTxnId: uuid('transfer_paired_txn_id').references(
       (): AnyPgColumn => importedTransactions.id,
       { onDelete: 'cascade' },
@@ -92,6 +96,7 @@ export type NewTransactionMatch = typeof transactionMatches.$inferInsert;
 export const MATCH_TYPES = [
   'invoice_payment',
   'receipt',
+  'payroll_bill',
   'job_cost_entry',
   'transfer',
   'owner_contribution',

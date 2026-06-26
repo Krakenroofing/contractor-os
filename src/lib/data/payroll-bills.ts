@@ -20,6 +20,37 @@ export async function listPayrollBills(
     );
 }
 
+/** Open (unpaid) payroll bills company-wide — for the bill-payment picker. */
+export async function listOpenPayrollBills(
+  companyId: string,
+): Promise<PayrollBill[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return db
+    .select()
+    .from(payrollBills)
+    .where(
+      and(
+        eq(payrollBills.companyId, companyId),
+        eq(payrollBills.status, 'open'),
+      ),
+    );
+}
+
+export async function getPayrollBill(
+  companyId: string,
+  id: string,
+): Promise<PayrollBill | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(payrollBills)
+    .where(and(eq(payrollBills.companyId, companyId), eq(payrollBills.id, id)))
+    .limit(1);
+  return rows[0];
+}
+
 export async function deletePayrollBillsForPeriod(
   companyId: string,
   payPeriodId: string,

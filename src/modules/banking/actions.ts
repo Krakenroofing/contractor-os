@@ -57,6 +57,11 @@ import {
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getVendor, listVendors } from '@/lib/data/vendors';
+import { listEmployees } from '@/lib/data/employees';
+import {
+  listOpenPayrollBills,
+  getPayrollBill,
+} from '@/lib/data/payroll-bills';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
 import { listProjects } from '@/lib/data/projects';
@@ -1540,15 +1545,17 @@ export async function searchInvoicePaymentsForMatchAction(input: {
 // ===== AP: batch bill payment (one withdrawal → many bills + bank fee) =====
 
 export type BillSearchResult = {
-  receiptId: string;
-  vendorName: string;
+  /** A vendor bill (posted receipt) or a payroll bill (net-pay payable). */
+  kind: 'receipt' | 'payroll_bill';
+  id: string;
+  label: string;
   total: number;
-  receiptDate: string;
+  date: string;
   sameAmount: boolean;
 };
 
-/** Posted receipts (bills) not yet matched, for the batch bill-payment picker.
- *  Money-out transactions only. */
+/** Open bills — posted vendor receipts AND payroll bills — not yet matched,
+ *  for the batch bill-payment picker. Money-out transactions only. */
 export async function searchBillsForMatchAction(input: {
   transactionId: string;
   query?: string;
@@ -1570,43 +1577,64 @@ export async function searchBillsForMatchAction(input: {
   }
   const absCents = Math.round(Math.abs(Number(txn.amount)) * 100);
 
-  const [receipts, vendors, activeMatches] = await Promise.all([
-    listReceipts(companyId, { status: 'posted', limit: 1000 }),
-    listVendors(companyId),
-    listActiveMatchesForCompany(companyId),
-  ]);
-  const taken = new Set(
+  const [receipts, vendors, activeMatches, payrollBillsOpen, employees] =
+    await Promise.all([
+      listReceipts(companyId, { status: 'posted', limit: 1000 }),
+      listVendors(companyId),
+      listActiveMatchesForCompany(companyId),
+      listOpenPayrollBills(companyId),
+      listEmployees(companyId),
+    ]);
+  const takenReceipts = new Set(
     activeMatches.filter((m) => m.receiptId).map((m) => m.receiptId!),
   );
   const vendorById = new Map(vendors.map((v) => [v.id, v]));
+  const employeeById = new Map(employees.map((e) => [e.id, e]));
   const q = (input.query ?? '').trim().toLowerCase();
 
   const results: BillSearchResult[] = [];
   for (const r of receipts) {
-    if (taken.has(r.id)) continue;
+    if (takenReceipts.has(r.id)) continue;
     const vendorName = r.vendorId
       ? (vendorById.get(r.vendorId)?.name ?? '—')
       : '—';
     if (q && !vendorName.toLowerCase().includes(q)) continue;
     const total = Number(r.total);
     results.push({
-      receiptId: r.id,
-      vendorName,
+      kind: 'receipt',
+      id: r.id,
+      label: vendorName,
       total,
-      receiptDate: r.receiptDate,
+      date: r.receiptDate,
       sameAmount: Math.round(total * 100) === absCents,
+    });
+  }
+  for (const b of payrollBillsOpen) {
+    const emp = employeeById.get(b.employeeId);
+    const name = emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Employee';
+    const label = `${name} (payroll)`;
+    if (q && !label.toLowerCase().includes(q)) continue;
+    const net = Number(b.net);
+    results.push({
+      kind: 'payroll_bill',
+      id: b.id,
+      label,
+      total: net,
+      date: b.billDate,
+      sameAmount: Math.round(net * 100) === absCents,
     });
   }
   results.sort((a, b) => {
     if (a.sameAmount !== b.sameAmount) return a.sameAmount ? -1 : 1;
-    return b.receiptDate.localeCompare(a.receiptDate);
+    return b.date.localeCompare(a.date);
   });
-  return { ok: true, results: results.slice(0, 50) };
+  return { ok: true, results: results.slice(0, 60) };
 }
 
 export async function matchBillsAction(input: {
   transactionId: string;
-  receiptIds: string[];
+  receiptIds?: string[];
+  payrollBillIds?: string[];
   feeAccountId?: string | null;
   confidence?: 'exact' | 'high' | 'low' | 'manual';
 }): Promise<{
@@ -1629,15 +1657,20 @@ export async function matchBillsAction(input: {
   }
   const abs = Math.round(Math.abs(withdrawal) * 100) / 100;
 
-  const ids = Array.from(
+  const receiptIds = Array.from(
     new Set((input.receiptIds ?? []).filter((x) => typeof x === 'string' && x)),
   );
-  if (ids.length === 0) {
+  const payrollBillIds = Array.from(
+    new Set(
+      (input.payrollBillIds ?? []).filter((x) => typeof x === 'string' && x),
+    ),
+  );
+  if (receiptIds.length + payrollBillIds.length === 0) {
     return { ok: false, error: 'Select at least one bill to match.' };
   }
 
   let newSum = 0;
-  for (const id of ids) {
+  for (const id of receiptIds) {
     const r = await getReceipt(companyId, id);
     if (!r) return { ok: false, error: 'One of the selected bills was not found.' };
     if (r.status !== 'posted') {
@@ -1645,15 +1678,26 @@ export async function matchBillsAction(input: {
     }
     newSum += Number(r.total);
   }
+  for (const id of payrollBillIds) {
+    const b = await getPayrollBill(companyId, id);
+    if (!b) return { ok: false, error: 'One of the selected payroll bills was not found.' };
+    if (b.status !== 'open') {
+      return { ok: false, error: 'That payroll bill is already paid.' };
+    }
+    newSum += Number(b.net);
+  }
 
   // Add anything already matched to this withdrawal (incremental top-ups).
-  const existing = (await listActiveMatchesForTxn(companyId, txn.id)).filter(
-    (m) => m.matchType === 'receipt' && m.receiptId,
-  );
+  const existing = await listActiveMatchesForTxn(companyId, txn.id);
   let priorSum = 0;
   for (const m of existing) {
-    const r = await getReceipt(companyId, m.receiptId!);
-    if (r) priorSum += Number(r.total);
+    if (m.matchType === 'receipt' && m.receiptId) {
+      const r = await getReceipt(companyId, m.receiptId);
+      if (r) priorSum += Number(r.total);
+    } else if (m.matchType === 'payroll_bill' && m.payrollBillId) {
+      const b = await getPayrollBill(companyId, m.payrollBillId);
+      if (b) priorSum += Number(b.net);
+    }
   }
 
   const allocated = Math.round((priorSum + newSum) * 100) / 100;
@@ -1673,7 +1717,8 @@ export async function matchBillsAction(input: {
     await createReceiptMatchesAtomic({
       companyId,
       importedTransactionId: txn.id,
-      receiptIds: ids,
+      receiptIds,
+      payrollBillIds,
       fee,
       confidence: input.confidence ?? 'manual',
       matchedByUserId: user.id,

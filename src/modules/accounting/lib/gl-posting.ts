@@ -446,10 +446,11 @@ export async function postBankTxnToGl(
         ? { accountId: accounts.undepositedFunds, debit: 0, credit: abs }
         : { accountId: accounts.undepositedFunds, debit: abs, credit: 0 },
     );
-  } else if (matchType === 'receipt') {
-    // Bill payment: the bill(s) posted Dr Expense / Cr AP; this bank payment
-    // clears that AP. Any split line is the bank/transaction fee — an expense
-    // on the payment date — so AP cleared = bank amount − fees.
+  } else if (matchType === 'receipt' || matchType === 'payroll_bill') {
+    // Bill payment (vendor receipt OR payroll bill): the bill posted
+    // Dr Expense / Cr AP; this bank payment clears that AP. Any split line is
+    // the bank/transaction fee — an expense on the payment date — so AP
+    // cleared = bank amount − fees.
     let feeTotal = 0;
     for (const l of splitLines) {
       const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;

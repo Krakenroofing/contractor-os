@@ -184,7 +184,7 @@ export function MatchPanel(props: MatchPanelProps) {
   const [billResults, setBillResults] = useState<BillSearchResult[]>([]);
   const [billSearched, setBillSearched] = useState(false);
   const [billSelected, setBillSelected] = useState<
-    Map<string, { vendorName: string; amount: number }>
+    Map<string, { kind: 'receipt' | 'payroll_bill'; label: string; amount: number }>
   >(new Map());
   const [feeAccountId, setFeeAccountId] = useState('');
 
@@ -201,8 +201,8 @@ export function MatchPanel(props: MatchPanelProps) {
   function toggleBill(r: BillSearchResult) {
     setBillSelected((prev) => {
       const next = new Map(prev);
-      if (next.has(r.receiptId)) next.delete(r.receiptId);
-      else next.set(r.receiptId, { vendorName: r.vendorName, amount: r.total });
+      if (next.has(r.id)) next.delete(r.id);
+      else next.set(r.id, { kind: r.kind, label: r.label, amount: r.total });
       return next;
     });
   }
@@ -229,10 +229,17 @@ export function MatchPanel(props: MatchPanelProps) {
   function commitBillMatches() {
     if (billSelected.size === 0) return;
     setErr(null);
+    const receiptIds: string[] = [];
+    const payrollBillIds: string[] = [];
+    for (const [id, v] of billSelected) {
+      if (v.kind === 'payroll_bill') payrollBillIds.push(id);
+      else receiptIds.push(id);
+    }
     startTransition(async () => {
       const res = await matchBillsAction({
         transactionId: props.transactionId,
-        receiptIds: Array.from(billSelected.keys()),
+        receiptIds,
+        payrollBillIds,
         feeAccountId: feeAccountId || null,
       });
       if (!res.ok) {
@@ -612,10 +619,10 @@ export function MatchPanel(props: MatchPanelProps) {
         {billResults.length > 0 && (
           <div className="space-y-1">
             {billResults.map((r) => {
-              const checked = billSelected.has(r.receiptId);
+              const checked = billSelected.has(r.id);
               return (
                 <label
-                  key={r.receiptId}
+                  key={r.id}
                   className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 ${
                     checked ? 'bg-blue-100' : 'bg-white'
                   }`}
@@ -628,10 +635,10 @@ export function MatchPanel(props: MatchPanelProps) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">
-                      {r.vendorName} · ${fmtMoney(r.total)}
+                      {r.label} · ${fmtMoney(r.total)}
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {r.receiptDate}{' '}
+                      {r.date}{' '}
                       {r.sameAmount && (
                         <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
                           same amount

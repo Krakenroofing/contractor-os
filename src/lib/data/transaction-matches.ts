@@ -10,6 +10,7 @@ import {
   importedTransactions,
   importedTransactionLines,
   transactionMatches,
+  payrollBills,
   type NewTransactionMatch,
   type TransactionMatch,
 } from '@/db/schema';
@@ -150,6 +151,8 @@ export async function createReceiptMatchesAtomic(input: {
   companyId: string;
   importedTransactionId: string;
   receiptIds: string[];
+  /** Payroll bills (net-pay payable) settled by this same payment. */
+  payrollBillIds?: string[];
   fee?: { accountingAccountId: string; amount: number; description?: string } | null;
   confidence: TransactionMatch['confidence'];
   matchedByUserId: string | null;
@@ -171,6 +174,29 @@ export async function createReceiptMatchesAtomic(input: {
         })
         .returning();
       rows.push(row);
+    }
+    for (const payrollBillId of input.payrollBillIds ?? []) {
+      const [row] = await tx
+        .insert(transactionMatches)
+        .values({
+          companyId: input.companyId,
+          importedTransactionId: input.importedTransactionId,
+          matchType: 'payroll_bill',
+          payrollBillId,
+          confidence: input.confidence,
+          matchedByUserId: input.matchedByUserId,
+        })
+        .returning();
+      rows.push(row);
+      await tx
+        .update(payrollBills)
+        .set({ status: 'paid', updatedAt: new Date() })
+        .where(
+          and(
+            eq(payrollBills.id, payrollBillId),
+            eq(payrollBills.companyId, input.companyId),
+          ),
+        );
     }
     // The bank-fee remainder is stored as the txn's single split line. A bill
     // payment carries no other splits (the bills hold their own detail), so
@@ -300,6 +326,19 @@ export async function reverseMatchAtomic(input: {
       })
       .where(eq(transactionMatches.id, existing.id))
       .returning();
+
+    // A reversed payroll-bill match makes the bill payable again.
+    if (existing.payrollBillId) {
+      await tx
+        .update(payrollBills)
+        .set({ status: 'open', updatedAt: now })
+        .where(
+          and(
+            eq(payrollBills.id, existing.payrollBillId),
+            eq(payrollBills.companyId, input.companyId),
+          ),
+        );
+    }
 
     // Clear reconciled_at on the bank txn(s) involved. For transfers we have
     // two txns to unflag and (likely) a paired match row to reverse too.
