@@ -28,6 +28,7 @@
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.10.2",
     "clsx": "^2.1.1",
+    "docx": "^9.7.1",
     "drizzle-orm": "^0.36.4",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
