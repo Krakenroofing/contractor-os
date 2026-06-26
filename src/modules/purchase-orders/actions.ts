@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate, ROLE_LABELS } from '@/lib/permissions';
@@ -12,14 +12,23 @@ import {
   calcPOTotals,
   multiply,
   toMoneyString,
+  toPercentString,
   toQuantityString,
 } from '@/lib/money';
 import {
   createPurchaseOrder,
   DuplicatePONumberError,
   getPurchaseOrder,
+  getPurchaseOrderLines,
   updatePurchaseOrderHeader,
 } from '@/lib/data/purchase-orders';
+import {
+  createReceipt,
+  createReceiptLine,
+  recalcReceiptHeaderTotals,
+} from '@/lib/data/receipts';
+import { getVendor } from '@/lib/data/vendors';
+import { computeVat, vatQuarterForDate } from '@/modules/receipts/lib/vat';
 import {
   createPoReceipt,
   deletePoReceipt,
@@ -389,6 +398,124 @@ export async function deletePoReceiptAction(
 
   revalidatePOPaths(po.id, po.projectId);
   return {};
+}
+
+// ===== Create bill (AP) from a PO =====
+//
+// Copies a purchase order onto a draft Bill (a receipt — bills and receipts
+// share the same AP table). Each PO line becomes a receipt line carrying its
+// project, cost code, description and net cost; VAT is layered on top using
+// the company rate (PO line totals are net of tax). The draft lands in
+// /banking/receipts where the operator reviews and Posts it — Post books the
+// expense to job costing AND the GL (Dr Expense / Cr Accounts Payable), so it
+// hits the income statement as a cost owed but not yet paid.
+
+export type CreateBillFromPoState = {
+  formError?: string;
+};
+
+export async function createBillFromPoAction(
+  _prev: CreateBillFromPoState,
+  formData: FormData,
+): Promise<CreateBillFromPoState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  // Creating the bill writes to the receipts/AP ledger — gate on that
+  // permission, not purchase_orders.
+  if (!canCreate(role, 'receipts')) {
+    return { formError: 'You do not have permission to create bills.' };
+  }
+
+  const poId = formData.get('poId');
+  if (typeof poId !== 'string' || !z.string().uuid().safeParse(poId).success) {
+    return { formError: 'Invalid purchase order reference.' };
+  }
+
+  const company = await getActiveCompany();
+  const po = await getPurchaseOrder(company.id, poId);
+  if (!po) {
+    return { formError: 'Purchase order not found.' };
+  }
+  if (po.status === 'void') {
+    return { formError: 'This purchase order is void — nothing to bill.' };
+  }
+
+  const poLines = await getPurchaseOrderLines(po.id);
+  if (poLines.length === 0) {
+    return { formError: 'This purchase order has no line items to bill.' };
+  }
+
+  // Pull the vendor's default expense account so each line lands on the
+  // right P&L account out of the gate (operator can still re-categorize
+  // before posting). Falls back to null → Uncategorized Expense on Post.
+  const vendor = await getVendor(company.id, po.vendorId);
+  const defaultAccountId = vendor?.defaultAccountingAccountId ?? null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const vatRate = company.isVatActive ? Number(company.vatRatePercent) || 0 : 0;
+
+  // PO line totals are net (qty × unit cost); add VAT on top (vatIncluded=false).
+  const computedLines = poLines.map((l) => {
+    const net = Number(l.lineTotal) || 0;
+    const c = company.isVatActive
+      ? computeVat({
+          subtotal: net,
+          vatRatePercent: vatRate,
+          vatIncluded: false,
+          driver: 'subtotal',
+        })
+      : { subtotal: net, vatAmount: 0, total: net, vatRatePercent: 0 };
+    return { line: l, computed: c };
+  });
+
+  const receipt = await createReceipt({
+    companyId: company.id,
+    vendorId: po.vendorId,
+    paymentSourceType: 'cash',
+    receiptDate: today,
+    currency: company.defaultCurrency,
+    vatRatePercent: company.isVatActive ? toPercentString(vatRate) : null,
+    vatIncluded: false,
+    vatRecoverable: true,
+    vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(today) : null,
+    notes: `Bill from ${po.number}`,
+    subtotal: '0',
+    vatAmount: '0',
+    total: '0',
+    uploadedByUserId: user.id,
+  });
+
+  for (const [idx, { line, computed }] of computedLines.entries()) {
+    await createReceiptLine({
+      companyId: company.id,
+      receiptId: receipt.id,
+      sortOrder: idx,
+      projectId: po.projectId,
+      costCodeId: line.costCodeId,
+      accountingAccountId: defaultAccountId,
+      description: line.description,
+      subtotal: toMoneyString(computed.subtotal),
+      vatAmount: toMoneyString(computed.vatAmount),
+      total: toMoneyString(computed.total),
+      vatRatePercent: company.isVatActive ? toPercentString(vatRate) : null,
+      isBillable: false,
+      isReimbursable: false,
+    });
+  }
+  await recalcReceiptHeaderTotals(company.id, receipt.id);
+
+  appendActivity(company.id, {
+    entityType: 'purchase_order',
+    entityId: po.id,
+    kind: 'po_bill_created',
+    summary: `Draft bill created from ${po.number} (${poLines.length} line${
+      poLines.length === 1 ? '' : 's'
+    }) — review and post in Banking → Receipts`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePath('/banking/receipts');
+  redirect(`/banking/receipts/${receipt.id}`);
 }
 
 // ===== PDF upload + create-from-extracted (Phase 6.2) =====

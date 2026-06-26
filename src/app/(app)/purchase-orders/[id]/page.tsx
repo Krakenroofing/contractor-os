@@ -27,6 +27,7 @@ import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
+import { CreateBillFromPoButton } from '@/modules/purchase-orders/components/create-bill-from-po-button';
 import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -47,6 +48,7 @@ export default async function PurchaseOrderDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'purchase_orders');
+  const allowBill = canCreate(role, 'receipts');
   const po = await getPurchaseOrder(companyId, id);
   if (!po) notFound();
 
@@ -99,6 +101,9 @@ export default async function PurchaseOrderDetailPage({
           projectName={project?.name}
         />
         <div className="flex items-center gap-2">
+          {allowBill && po.status !== 'void' && (
+            <CreateBillFromPoButton poId={po.id} />
+          )}
           <DocumentDownloadButtons type="purchase_order" id={po.id} />
           {allowCreate && po.status === 'draft' && (
             <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
