@@ -8,6 +8,10 @@ drizzle/meta
 .vercel
 .turbo
 
+# Per-developer local Claude Code settings — may contain machine-specific
+# allowlist entries / secrets. Never commit (this repo is public).
+.claude/settings.local.json
+
 # Capacitor native shells (Phase M5) — generated locally per-machine by
 # `npx cap add ios` / `npx cap add android`. Not committed because the
 # shells are huge and regenerable from capacitor.config.ts + npm deps.
