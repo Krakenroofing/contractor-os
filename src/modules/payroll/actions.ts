@@ -457,6 +457,70 @@ export async function setTimeEntryAllocationAction(
   revalidatePath('/payroll');
 }
 
+export type PieceWorkState = { ok?: boolean; error?: string };
+
+const pieceWorkSchema = z.object({
+  employeeId: z.string().uuid(),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: z.coerce.number().positive().finite().max(1_000_000),
+  projectId: z.string().uuid(),
+  costCodeId: z.string().uuid(),
+  notes: z.string().max(500).optional(),
+});
+
+/**
+ * Add a piece-work pay line from the Pay Run: a job-allocated amount time
+ * entry (project + cost code required). It adds to the employee's gross AND
+ * posts to job costs via "Post labor to job costs" — unlike a paystub
+ * adjustment, which only touches the paystub. Project + cost code are
+ * mandatory: the whole point is to land it on a job.
+ */
+export async function addPieceWorkEntryAction(
+  _prev: PieceWorkState,
+  formData: FormData,
+): Promise<PieceWorkState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to edit payroll.' };
+  }
+  const parsed = pieceWorkSchema.safeParse({
+    employeeId: formData.get('employeeId'),
+    workDate: formData.get('workDate'),
+    amount: formData.get('amount'),
+    projectId: formData.get('projectId'),
+    costCodeId: formData.get('costCodeId'),
+    notes: formData.get('notes') || undefined,
+  });
+  if (!parsed.success) {
+    return { error: 'Enter an amount, a job, and a cost code.' };
+  }
+  const d = parsed.data;
+  const companyId = await getActiveCompanyId();
+  const employee = await getEmployee(companyId, d.employeeId);
+  if (!employee) return { error: 'Unknown employee.' };
+
+  const period = await getOrCreatePeriodForDate(companyId, d.workDate);
+  if (period.status === 'locked') {
+    return { error: 'That pay period is locked — unlock it first.' };
+  }
+
+  await createTimeEntry(companyId, {
+    employeeId: d.employeeId,
+    payPeriodId: period.id,
+    workDate: d.workDate,
+    entryType: 'amount',
+    hours: '0',
+    amount: d.amount.toFixed(2),
+    projectId: d.projectId,
+    costCodeId: d.costCodeId,
+    isOverhead: false,
+    notes: d.notes ?? null,
+  });
+  revalidatePath('/payroll');
+  return { ok: true };
+}
+
 export async function deleteTimeEntryAction(
   _prev: TimeEntryState,
   formData: FormData,

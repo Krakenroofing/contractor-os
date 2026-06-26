@@ -28,6 +28,7 @@ import { PeriodLockButton } from '@/modules/payroll/components/period-lock-butto
 import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
 import { GeneratePayrollBillsButton } from '@/modules/payroll/components/generate-bills-button';
 import { PayrollAdjustmentsSection } from '@/modules/payroll/components/payroll-adjustments-section';
+import { PieceWorkSection } from '@/modules/payroll/components/piece-work-section';
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
 import { listPayrollBills } from '@/lib/data/payroll-bills';
 import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
@@ -108,6 +109,7 @@ export default async function PayrollPage({
   const [
     allEmployees,
     allProjects,
+    allCostCodes,
     allEntries,
     allOverrides,
     allSnapshots,
@@ -115,6 +117,7 @@ export default async function PayrollPage({
   ] = await Promise.all([
     listEmployees(companyId),
     listProjects(companyId),
+    listCostCodes(companyId),
     listTimeEntries(companyId, { payPeriodId: period.id }),
     listPeriodPayOverrides(companyId, { payPeriodId: period.id }),
     listPaystubSnapshots(companyId, { payPeriodId: period.id }),
@@ -166,6 +169,36 @@ export default async function PayrollPage({
         additions: s?.additions ?? [],
       };
     })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Piece work (Pay Run): job-allocated one-off pay lines. Options for the
+  // pickers + each employee's existing allocated amount lines this period.
+  const projectOptions = allProjects.map((p) => ({ id: p.id, label: p.name }));
+  const costCodeOptions = allCostCodes.map((c) => ({
+    id: c.id,
+    label: `${c.code} — ${c.description}`,
+  }));
+  const projectNameById = new Map(allProjects.map((p) => [p.id, p.name]));
+  const pieceWorkRows = allEmployees
+    .filter((e) => e.active)
+    .map((e) => ({
+      employeeId: e.id,
+      name: `${e.firstName} ${e.lastName}`.trim(),
+      lines: allEntries
+        .filter(
+          (t) =>
+            t.employeeId === e.id &&
+            t.entryType === 'amount' &&
+            t.projectId &&
+            Number(t.amount) > 0,
+        )
+        .map((t) => ({
+          id: t.id,
+          amount: Number(t.amount),
+          date: t.workDate,
+          projectLabel: projectNameById.get(t.projectId!) ?? 'Job',
+        })),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // Aggregate per-(employee, date) for the timesheet grid. The timesheet
@@ -456,6 +489,14 @@ export default async function PayrollPage({
               <PayrollAdjustmentsSection
                 rows={adjustmentRows}
                 payPeriodId={period.id}
+                locked={isLocked}
+              />
+              <PieceWorkSection
+                rows={pieceWorkRows}
+                projects={projectOptions}
+                costCodes={costCodeOptions}
+                periodStart={period.startDate}
+                periodEnd={period.endDate}
                 locked={isLocked}
               />
             </div>
