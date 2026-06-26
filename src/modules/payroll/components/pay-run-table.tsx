@@ -37,6 +37,9 @@ export type PayRunRow = {
   net: number;
   perDiem: number;
   employeeNib: number;
+  /** Employer NIB (6.65%) — the company's own cost, booked as NIB Expense on
+   *  the P&L (offsets NIB Payable). On TOP of net pay, never deducted from it. */
+  employerNib: number;
   deductions: number;
 };
 
@@ -61,6 +64,18 @@ export function PayRunTable({
       </div>
     );
   }
+
+  // Period totals. Gross uses the same effective figure shown per row (saved
+  // override, else rate). Net sums each saved paystub — the figure that ties
+  // to the actual bank payment. Employer NIB is the company's own cost (booked
+  // as NIB Expense on the P&L), surfaced here so it's visible at a glance.
+  const totalGross = rows.reduce((s, r) => {
+    const hasOverride = r.overrideAmount.trim() !== '';
+    return s + (hasOverride ? Number(r.overrideAmount) || 0 : r.rateGross);
+  }, 0);
+  const totalNet = rows.reduce((s, r) => s + r.net, 0);
+  const totalEmployerNib = rows.reduce((s, r) => s + r.employerNib, 0);
+  const paidRows = rows.filter((r) => r.net > 0).length;
 
   return (
     <form action={formAction} className="space-y-4">
@@ -156,8 +171,52 @@ export function PayRunTable({
                 </TableRow>
               );
             })}
+            <TableRow className="border-t-2 border-slate-300 bg-slate-50 hover:bg-slate-50">
+              <TableCell
+                colSpan={4}
+                className="font-semibold text-slate-900"
+              >
+                Totals · {paidRows} paid
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-slate-500">
+                {/* Gross input column — leave blank */}
+              </TableCell>
+              <TableCell className="tabular-nums font-semibold text-slate-900">
+                {formatMoney(totalGross)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                <div className="text-base font-bold text-emerald-700">
+                  {formatMoney(totalNet)}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                  Total net · pays out
+                </div>
+              </TableCell>
+            </TableRow>
           </TableBody>
         </Table>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <span className="font-medium text-slate-700">
+            Total net pay this period
+          </span>
+          <span className="text-lg font-bold text-emerald-700 tabular-nums">
+            {formatMoney(totalNet)}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          This is what leaves the bank — match it to the payroll bank payment.
+          Employer NIB of{' '}
+          <span className="font-medium text-slate-700 tabular-nums">
+            {formatMoney(totalEmployerNib)}
+          </span>{' '}
+          is the company&apos;s own cost on top of net pay (not deducted from
+          it); generating payroll bills books it as{' '}
+          <span className="font-medium text-slate-700">NIB Expense</span> on the
+          P&amp;L, offsetting the NIB Payable owed to the government.
+        </p>
       </div>
 
       <div className="flex items-center justify-between flex-wrap gap-3">

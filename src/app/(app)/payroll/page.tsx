@@ -441,6 +441,7 @@ export default async function PayrollPage({
                 net: stub?.net ?? 0,
                 perDiem: stub?.additionsTotal ?? 0,
                 employeeNib: stub?.nib.employee ?? 0,
+                employerNib: stub?.nib.employer ?? 0,
                 deductions: stub?.deductionsTotal ?? 0,
               };
             })
