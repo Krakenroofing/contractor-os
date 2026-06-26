@@ -402,18 +402,38 @@ export default async function ReceiptsPage({
                         {projectDisplay(r.id)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-xs">
-                        {lineCount}
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.id}` }}
+                          className="block hover:underline"
+                        >
+                          {lineCount}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatMoney(r.subtotal, r.currency)}
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.id}` }}
+                          className="block hover:underline"
+                        >
+                          {formatMoney(r.subtotal, r.currency)}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-amber-700">
-                        {Number(r.vatAmount) > 0
-                          ? formatMoney(r.vatAmount, r.currency)
-                          : '—'}
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.id}` }}
+                          className="block hover:underline"
+                        >
+                          {Number(r.vatAmount) > 0
+                            ? formatMoney(r.vatAmount, r.currency)
+                            : '—'}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums font-medium">
-                        {formatMoney(r.total, r.currency)}
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.id}` }}
+                          className="block hover:underline"
+                        >
+                          {formatMoney(r.total, r.currency)}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-xs">
                         <span
