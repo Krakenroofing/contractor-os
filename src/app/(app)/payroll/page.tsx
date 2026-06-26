@@ -438,6 +438,9 @@ export default async function PayrollPage({
                 rateGross,
                 overrideAmount: existing?.grossAmount ?? '',
                 nibExempt: e.nibExempt,
+                // True gross the paystub pays on (rate/override + piece work);
+                // falls back to rateGross when there's no stub yet.
+                grossFull: stub?.gross ?? rateGross,
                 net: stub?.net ?? 0,
                 perDiem: stub?.additionsTotal ?? 0,
                 employeeNib: stub?.nib.employee ?? 0,

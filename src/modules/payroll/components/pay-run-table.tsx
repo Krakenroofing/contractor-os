@@ -28,9 +28,14 @@ export type PayRunRow = {
   payRate: number;
   /** Existing override gross, blank string if no override is set. */
   overrideAmount: string;
-  /** What the gross would be without an override (rate-based). 0 means no
-   *  auto-pay (piecework/contract/commission/lump_sum without override). */
+  /** What the gross would be without an override (rate-based, EXCLUDING piece
+   *  work). 0 means no auto-pay (piecework/contract/commission/lump_sum). Used
+   *  for the "Auto from rate" column and the override placeholder. */
   rateGross: number;
+  /** True gross the paystub pays on — rate/override PLUS piece-work amount
+   *  entries. This is the gross net pay is derived from, so it ties out:
+   *  net = grossFull + additions − employee NIB − deductions. */
+  grossFull: number;
   nibExempt: boolean;
   /** Net pay = gross + reimbursements/per-diem − employee NIB − deductions.
    *  This is what's actually paid out, for tie-out against the bank payment. */
@@ -65,14 +70,16 @@ export function PayRunTable({
     );
   }
 
-  // Period totals. Gross uses the same effective figure shown per row (saved
-  // override, else rate). Net sums each saved paystub — the figure that ties
-  // to the actual bank payment. Employer NIB is the company's own cost (booked
-  // as NIB Expense on the P&L), surfaced here so it's visible at a glance.
-  const totalGross = rows.reduce((s, r) => {
-    const hasOverride = r.overrideAmount.trim() !== '';
-    return s + (hasOverride ? Number(r.overrideAmount) || 0 : r.rateGross);
-  }, 0);
+  // Period totals. Gross is the TRUE gross (rate/override + piece work) the net
+  // is derived from, so the footer reconciles exactly:
+  //   total net = total gross + additions − employee NIB − deductions.
+  // Net sums each saved paystub — the figure that ties to the bank payment.
+  // Employer NIB is the company's own cost (booked as NIB Expense on the P&L),
+  // surfaced here so it's visible at a glance.
+  const totalGross = rows.reduce((s, r) => s + r.grossFull, 0);
+  const totalAdditions = rows.reduce((s, r) => s + r.perDiem, 0);
+  const totalEmployeeNib = rows.reduce((s, r) => s + r.employeeNib, 0);
+  const totalDeductions = rows.reduce((s, r) => s + r.deductions, 0);
   const totalNet = rows.reduce((s, r) => s + r.net, 0);
   const totalEmployerNib = rows.reduce((s, r) => s + r.employerNib, 0);
   const paidRows = rows.filter((r) => r.net > 0).length;
@@ -103,9 +110,14 @@ export function PayRunTable({
           <TableBody>
             {rows.map((r) => {
               const hasOverride = r.overrideAmount.trim() !== '';
+              // Effective gross = the true gross the paystub pays on: the saved
+              // override, otherwise rate + piece work. Including piece work here
+              // is what makes the row reconcile (net never exceeds gross unless
+              // per-diem/bonus additions are layered on, shown in the breakdown).
               const effectiveGross = hasOverride
                 ? Number(r.overrideAmount) || 0
-                : r.rateGross;
+                : r.grossFull;
+              const pieceWorkOnly = !hasOverride && r.rateGross <= 0 && r.grossFull > 0;
               return (
                 <TableRow key={r.employeeId}>
                   <TableCell className="font-medium text-slate-900 whitespace-nowrap">
@@ -150,6 +162,8 @@ export function PayRunTable({
                         <Badge tone="blue">Override</Badge>
                       ) : r.rateGross > 0 ? (
                         <Badge tone="slate">From rate</Badge>
+                      ) : pieceWorkOnly ? (
+                        <Badge tone="slate">Piece work</Badge>
                       ) : (
                         <Badge tone="amber">Needs entry</Badge>
                       )}
@@ -206,9 +220,24 @@ export function PayRunTable({
             {formatMoney(totalNet)}
           </span>
         </div>
+        {/* Reconciliation: gross (incl. piece work) + additions − NIB −
+            deductions = net. Shown so the total ties out term by term. */}
+        <p className="mt-1 text-xs text-slate-500 tabular-nums">
+          {formatMoney(totalGross)} gross
+          {totalAdditions > 0 && (
+            <> + {formatMoney(totalAdditions)} per-diem/bonus</>
+          )}
+          {totalEmployeeNib > 0 && (
+            <> − {formatMoney(totalEmployeeNib)} employee NIB</>
+          )}
+          {totalDeductions > 0 && (
+            <> − {formatMoney(totalDeductions)} deductions</>
+          )}{' '}
+          = <span className="font-medium text-emerald-700">{formatMoney(totalNet)} net</span>
+        </p>
         <p className="mt-1 text-xs text-slate-500">
-          This is what leaves the bank — match it to the payroll bank payment.
-          Employer NIB of{' '}
+          Net is what leaves the bank — match it to the payroll bank payment.
+          Gross includes piece-work pay. Employer NIB of{' '}
           <span className="font-medium text-slate-700 tabular-nums">
             {formatMoney(totalEmployerNib)}
           </span>{' '}
