@@ -27,6 +27,24 @@ export async function listLunchOverrides(
     );
 }
 
+/** Lunch overrides for a single work date (e.g. the Time Clock punches page). */
+export async function listLunchOverridesForDate(
+  companyId: string,
+  workDate: string,
+): Promise<TimesheetLunchOverride[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return db
+    .select()
+    .from(timesheetLunchOverrides)
+    .where(
+      and(
+        eq(timesheetLunchOverrides.companyId, companyId),
+        eq(timesheetLunchOverrides.workDate, workDate),
+      ),
+    );
+}
+
 /** Upsert a day's lunch minutes (one row per employee+date). */
 export async function setLunchOverride(input: {
   companyId: string;

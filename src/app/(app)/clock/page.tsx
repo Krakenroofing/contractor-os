@@ -47,6 +47,9 @@ import {
 } from '@/lib/tz';
 import { DeletePunchButton } from '@/modules/clock-events/components/delete-punch-button';
 import { SessionProjectSelect } from '@/modules/clock-events/components/session-project-select';
+import { LunchPunchControl } from '@/modules/clock-events/components/lunch-punch-control';
+import { listLunchOverridesForDate } from '@/lib/data/timesheet-lunch';
+import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
 import {
   markSessionReviewedAction,
   postReviewedSessionsAction,
@@ -129,15 +132,23 @@ export default async function ClockReviewPage({
   // Drives the "Clock out" affordances on open sessions.
   const canEditPunches = canCreate(role, 'clock_events');
 
-  const [company, employees, projects, events, openSessions, postableSessions] =
-    await Promise.all([
-      getCompany(companyId),
-      listEmployees(companyId),
-      listProjects(companyId),
-      listClockEventsForCompanyRange(companyId, start, end),
-      listOpenSessionsForCompany(companyId),
-      listPostableSessions(companyId),
-    ]);
+  const [
+    company,
+    employees,
+    projects,
+    events,
+    openSessions,
+    postableSessions,
+    lunchOverrides,
+  ] = await Promise.all([
+    getCompany(companyId),
+    listEmployees(companyId),
+    listProjects(companyId),
+    listClockEventsForCompanyRange(companyId, start, end),
+    listOpenSessionsForCompany(companyId),
+    listPostableSessions(companyId),
+    listLunchOverridesForDate(companyId, date),
+  ]);
   const postableCount = postableSessions.length;
   const autoPostOn = Boolean(company?.autoPostClockSessions);
 
@@ -207,6 +218,27 @@ export default async function ClockReviewPage({
 
   const totalSessions = sessionRows.length;
   const unreviewedCount = sessionRows.filter((r) => !r.reviewed).length;
+
+  // Unpaid lunch is per (employee, day). Sum each employee's session hours for
+  // the day to drive the 60/30 default, read any override, and show the net.
+  // The control is rendered once per employee (their first row) and only for
+  // hourly workers, matching the timesheet.
+  const hourlyById = new Map(
+    employees.map((e) => [e.id, e.employmentType === 'hourly'] as const),
+  );
+  const dayHoursByEmployee = new Map<string, number>();
+  for (const r of sessionRows) {
+    if (r.durationMs != null) {
+      dayHoursByEmployee.set(
+        r.employeeId,
+        (dayHoursByEmployee.get(r.employeeId) ?? 0) + r.durationMs / 3_600_000,
+      );
+    }
+  }
+  const lunchMinByEmployee = new Map(
+    lunchOverrides.map((l) => [l.employeeId, l.minutes] as const),
+  );
+  const lunchShownFor = new Set<string>();
 
   // "On the clock now" panel data
   const onClockRows = openSessions
@@ -468,6 +500,7 @@ export default async function ClockReviewPage({
                   <TableHead>In</TableHead>
                   <TableHead>Out</TableHead>
                   <TableHead>Duration</TableHead>
+                  <TableHead>Lunch / Net paid</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -500,6 +533,37 @@ export default async function ClockReviewPage({
                         {r.durationMs != null
                           ? durationLabel(r.durationMs)
                           : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {(() => {
+                          // Render the lunch control once per employee (first
+                          // row), hourly only.
+                          if (
+                            !hourlyById.get(r.employeeId) ||
+                            lunchShownFor.has(r.employeeId)
+                          ) {
+                            return <span className="text-slate-300">—</span>;
+                          }
+                          lunchShownFor.add(r.employeeId);
+                          const dayHours =
+                            dayHoursByEmployee.get(r.employeeId) ?? 0;
+                          if (dayHours <= 0) {
+                            return <span className="text-slate-300">—</span>;
+                          }
+                          const lunchMin = effectiveLunchMinutes(
+                            dayHours,
+                            lunchMinByEmployee.get(r.employeeId),
+                          );
+                          return (
+                            <LunchPunchControl
+                              employeeId={r.employeeId}
+                              workDate={date}
+                              dayHours={dayHours}
+                              lunchMinutes={lunchMin}
+                              canEdit={canPost}
+                            />
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-slate-700 text-xs">
                         {r.posted ? (
