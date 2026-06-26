@@ -32,6 +32,12 @@ export type PayRunRow = {
    *  auto-pay (piecework/contract/commission/lump_sum without override). */
   rateGross: number;
   nibExempt: boolean;
+  /** Net pay = gross + reimbursements/per-diem − employee NIB − deductions.
+   *  This is what's actually paid out, for tie-out against the bank payment. */
+  net: number;
+  perDiem: number;
+  employeeNib: number;
+  deductions: number;
 };
 
 export function PayRunTable({
@@ -76,6 +82,7 @@ export function PayRunTable({
               <TableHead className="text-right">Auto from rate</TableHead>
               <TableHead className="text-right">Gross this week</TableHead>
               <TableHead>Effective</TableHead>
+              <TableHead className="text-right">Net pay</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -132,6 +139,19 @@ export function PayRunTable({
                         <Badge tone="amber">Needs entry</Badge>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <div className="font-semibold text-emerald-700">
+                      {formatMoney(r.net)}
+                    </div>
+                    {(r.perDiem > 0 || r.employeeNib > 0 || r.deductions > 0) && (
+                      <div className="text-[10px] text-slate-400">
+                        {formatMoney(effectiveGross)}
+                        {r.perDiem > 0 && ` + ${formatMoney(r.perDiem)}`}
+                        {r.employeeNib > 0 && ` − ${formatMoney(r.employeeNib)} NIB`}
+                        {r.deductions > 0 && ` − ${formatMoney(r.deductions)}`}
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               );

@@ -291,6 +291,18 @@ export default async function PayrollPage({
           const overrideByEmpId = new Map(
             allOverrides.map((o) => [o.employeeId, o]),
           );
+          // Net pay per employee (gross + reimbursements/per-diem − employee
+          // NIB − deductions) — the figure that ties to the actual payment.
+          const payRunStubs = computePeriodPaystubs(
+            allEmployees,
+            allEntries,
+            period,
+            allOverrides,
+            allSnapshots,
+            allAdjustments,
+            lunchOverrides,
+          );
+          const stubByEmp = new Map(payRunStubs.map((p) => [p.employeeId, p]));
           const rows: PayRunRow[] = allEmployees
             .filter((e) => e.active)
             .map((e) => {
@@ -341,6 +353,7 @@ export default async function PayrollPage({
                     ? round2(payRate)
                     : amountTotal;
               const existing = overrideByEmpId.get(e.id);
+              const stub = stubByEmp.get(e.id);
               return {
                 employeeId: e.id,
                 employeeName: `${e.firstName} ${e.lastName}`.trim(),
@@ -350,6 +363,10 @@ export default async function PayrollPage({
                 rateGross,
                 overrideAmount: existing?.grossAmount ?? '',
                 nibExempt: e.nibExempt,
+                net: stub?.net ?? 0,
+                perDiem: stub?.additionsTotal ?? 0,
+                employeeNib: stub?.nib.employee ?? 0,
+                deductions: stub?.deductionsTotal ?? 0,
               };
             })
             .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
