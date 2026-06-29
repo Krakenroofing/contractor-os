@@ -17,6 +17,7 @@ import { RecomputeTotalsButton } from '@/modules/projects/components/recompute-t
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
+import { sanitizeReturnTo, returnToLabel } from '@/lib/return-to';
 import { formatMoney, parseMoney } from '@/lib/money';
 import { computeRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
 import { computeProjectStatusCounts } from '@/lib/status-machine';
@@ -96,11 +97,12 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ showVoid?: string }>;
+  searchParams?: Promise<{ showVoid?: string; returnTo?: string }>;
 }) {
   const { id } = await params;
   const sp = (await searchParams) ?? {};
   const showVoid = sp.showVoid === '1';
+  const returnTo = sanitizeReturnTo(sp.returnTo);
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'projects');
@@ -212,11 +214,18 @@ export default async function ProjectDetailPage({
       />
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link href="/projects">
-          <Button variant="outline" size="sm">
-            ← Back to Projects
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {returnTo && (
+            <Link href={returnTo as never}>
+              <Button size="sm">← Back to {returnToLabel(returnTo)}</Button>
+            </Link>
+          )}
+          <Link href="/projects">
+            <Button variant="outline" size="sm">
+              ← Back to Projects
+            </Button>
+          </Link>
+        </div>
         <div className="flex items-center gap-2">
           {allowCreate && (
             <Link href={{ pathname: `/projects/${project.id}/edit` }}>

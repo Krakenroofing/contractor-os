@@ -70,10 +70,14 @@ export function ProjectForm({
   customers,
   mode = { kind: 'create' },
   initial,
+  returnTo,
 }: {
   customers: { id: string; name: string }[];
   mode?: Mode;
   initial?: ProjectFormInitialValues;
+  /** Where to send the user after creating (and on Cancel) — the page they
+   *  jumped off from, e.g. an invoice. Create only. */
+  returnTo?: string;
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -100,6 +104,9 @@ export function ProjectForm({
       )}
 
       {isEdit && <input type="hidden" name="id" value={mode.id} />}
+      {!isEdit && returnTo && (
+        <input type="hidden" name="returnTo" value={returnTo} />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Project name" error={err('name')} className="md:col-span-2" required>
@@ -275,7 +282,13 @@ export function ProjectForm({
               ? 'Save changes'
               : 'Create project'}
         </Button>
-        <Link href={isEdit ? `/projects/${mode.id}` : '/projects'}>
+        <Link
+          href={
+            (isEdit
+              ? `/projects/${mode.id}`
+              : (returnTo ?? '/projects')) as never
+          }
+        >
           <Button type="button" variant="ghost">
             Cancel
           </Button>

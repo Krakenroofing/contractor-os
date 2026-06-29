@@ -7,6 +7,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
+import { sanitizeReturnTo } from '@/lib/return-to';
 import {
   createProject,
   softDeleteProject,
@@ -105,7 +106,14 @@ export async function createProjectAction(
   }
 
   revalidatePath('/projects');
-  redirect(`/projects/${createdId}`);
+  // If the user jumped here mid-task (e.g. from an invoice), carry the return
+  // path onto the new project page so it can offer a one-click way back.
+  const returnTo = sanitizeReturnTo(formData.get('returnTo'));
+  redirect(
+    returnTo
+      ? `/projects/${createdId}?returnTo=${encodeURIComponent(returnTo)}`
+      : `/projects/${createdId}`,
+  );
 }
 
 // Returned to the inline "+ Add new project" pickers.

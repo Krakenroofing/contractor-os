@@ -6,20 +6,26 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCustomers } from '@/lib/data/customers';
+import { sanitizeReturnTo, returnToLabel } from '@/lib/return-to';
 
 export const dynamic = 'force-dynamic';
 
-export default async function NewProjectPage() {
+export default async function NewProjectPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ returnTo?: string }>;
+}) {
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) redirect('/projects');
   const companyId = await getActiveCompanyId();
   const customers = (await listCustomers(companyId)).map((c) => ({ id: c.id, name: c.name }));
+  const returnTo = sanitizeReturnTo((await searchParams)?.returnTo);
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
-      <Link href="/projects">
+      <Link href={(returnTo ?? '/projects') as never}>
         <Button variant="outline" size="sm">
-          ← Back to Projects
+          {returnTo ? `← Back to ${returnToLabel(returnTo)}` : '← Back to Projects'}
         </Button>
       </Link>
 
@@ -30,7 +36,7 @@ export default async function NewProjectPage() {
         </p>
       </header>
 
-      <ProjectForm customers={customers} />
+      <ProjectForm customers={customers} returnTo={returnTo ?? undefined} />
     </div>
   );
 }

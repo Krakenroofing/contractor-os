@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Drawer } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +45,13 @@ export function QuickAddProjectDrawer({
   const [status, setStatus] = useState('lead');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Where to come back to if the user opens the full project form for contract
+  // value / dates / address — the page they're on now (e.g. the invoice form).
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const here = pathname + (searchParams.size ? `?${searchParams}` : '');
+  const fullFormHref = `/projects/new?returnTo=${encodeURIComponent(here)}`;
 
   useEffect(() => {
     if (!open) return;
@@ -125,7 +134,11 @@ export function QuickAddProjectDrawer({
 
         <p className="text-xs text-slate-500">
           Contract value, jobsite address, and dates can be added later on the
-          project&apos;s page.
+          project&apos;s page — or{' '}
+          <Link href={fullFormHref as never} className="text-blue-700 underline">
+            set up the full project now
+          </Link>{' '}
+          and come right back here.
         </p>
 
         <div className="flex items-center gap-2 pt-2">
