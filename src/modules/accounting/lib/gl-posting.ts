@@ -58,6 +58,9 @@ export type GlSystemAccounts = {
   uncatIncome: string;
   uncatExpense: string;
   accountsPayable: string;
+  /** Cash/petty-cash on hand — the credit side for a receipt paid in cash
+   *  (no bank line will ever clear it, so it can't go to A/P). */
+  cashOnHand: string;
   vatInput: string;
   // Payroll bill posting (QB-style).
   payrollExpense: string;
@@ -156,6 +159,15 @@ export async function resolveGlSystemAccounts(
     rollupGroup: 'liability',
     parentId: null,
   });
+  const cashOnHand = await ensure(
+    () => byName('Cash on Hand') ?? byName('Petty Cash'),
+    {
+      name: 'Cash on Hand',
+      type: 'asset',
+      rollupGroup: 'asset',
+      parentId: null,
+    },
+  );
   const vatInput = await ensure(() => byType('vat_input'), {
     name: 'VAT Input (Recoverable)',
     type: 'vat_input',
@@ -224,6 +236,7 @@ export async function resolveGlSystemAccounts(
     uncatIncome,
     uncatExpense,
     accountsPayable,
+    cashOnHand,
     vatInput,
     payrollExpense,
     nibExpense,
@@ -362,8 +375,15 @@ export async function postReceiptToGl(
     jlines.push({ accountId: accounts.vatInput, debit: totalVat, credit: 0 });
   }
   if (apCredit <= 0 || jlines.length === 0) return false;
+  // Credit side: a cash receipt is paid on the spot — no bank/CC statement
+  // line will ever clear it — so it credits Cash on Hand, not A/P. Bank- and
+  // card-paid receipts stay on A/P; the matched bank/CC line clears it later.
+  const creditAccount =
+    receipt.paymentSourceType === 'cash'
+      ? accounts.cashOnHand
+      : accounts.accountsPayable;
   jlines.push({
-    accountId: accounts.accountsPayable,
+    accountId: creditAccount,
     debit: 0,
     credit: apCredit,
   });

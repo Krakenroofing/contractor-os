@@ -1811,6 +1811,9 @@ export async function searchBillsForMatchAction(input: {
   const results: BillSearchResult[] = [];
   for (const r of receipts) {
     if (takenReceipts.has(r.id)) continue;
+    // Cash receipts are paid on the spot (credited Cash on Hand, not A/P), so
+    // there's no bank payment to match — keep them out of the bills picker.
+    if (r.paymentSourceType === 'cash') continue;
     const vendorName = r.vendorId
       ? (vendorById.get(r.vendorId)?.name ?? '—')
       : '—';
