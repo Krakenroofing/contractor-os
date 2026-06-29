@@ -12,6 +12,7 @@ import {
   inArray,
   isNull,
   lte,
+  sql,
   type SQL,
 } from 'drizzle-orm';
 import {
@@ -366,6 +367,35 @@ export async function listReceiptAttachments(
       ),
     )
     .orderBy(desc(receiptAttachments.uploadedAt));
+}
+
+/**
+ * Count live attachments for many receipts at once. Returns a Map keyed by
+ * receiptId (only receipts with ≥1 attachment appear). Used to badge bank
+ * transactions with how many receipt files are attached, without loading
+ * every attachment row.
+ */
+export async function countAttachmentsByReceiptIds(
+  companyId: string,
+  receiptIds: string[],
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured() || receiptIds.length === 0) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      receiptId: receiptAttachments.receiptId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(receiptAttachments)
+    .where(
+      and(
+        eq(receiptAttachments.companyId, companyId),
+        inArray(receiptAttachments.receiptId, receiptIds),
+        isNull(receiptAttachments.deletedAt),
+      ),
+    )
+    .groupBy(receiptAttachments.receiptId);
+  return new Map(rows.map((r) => [r.receiptId, Number(r.n)]));
 }
 
 export async function createReceiptAttachment(

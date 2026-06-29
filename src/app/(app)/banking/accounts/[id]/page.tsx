@@ -29,7 +29,10 @@ import { listCostCodes } from '@/lib/data/cost-codes';
 import { listBankingRules } from '@/lib/data/banking-rules';
 import { listPayments } from '@/lib/data/invoice-payments';
 import { listInvoices } from '@/lib/data/invoices';
-import { listReceipts } from '@/lib/data/receipts';
+import {
+  listReceipts,
+  countAttachmentsByReceiptIds,
+} from '@/lib/data/receipts';
 import { listVendors } from '@/lib/data/vendors';
 import { listCustomers } from '@/lib/data/customers';
 import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
@@ -291,6 +294,37 @@ export default async function BankAccountDetailPage({
     }
   }
 
+  // Receipt attachments per transaction: a txn → its matched receipt(s) →
+  // their attachment counts. Surfaced as a paperclip badge on the row so the
+  // operator sees "this line has a receipt" at a glance, no expand needed.
+  // (A batch bill payment can match several receipts to one txn — sum them.)
+  const receiptIdsByTxn = new Map<string, string[]>();
+  for (const m of activeMatches) {
+    if (m.matchType === 'receipt' && m.receiptId) {
+      const arr = receiptIdsByTxn.get(m.importedTransactionId) ?? [];
+      arr.push(m.receiptId);
+      receiptIdsByTxn.set(m.importedTransactionId, arr);
+    }
+  }
+  const allMatchedReceiptIds = Array.from(
+    new Set(Array.from(receiptIdsByTxn.values()).flat()),
+  );
+  const attachmentCountByReceipt = await countAttachmentsByReceiptIds(
+    company.id,
+    allMatchedReceiptIds,
+  );
+  const attachmentInfoByTxn = new Map<
+    string,
+    { count: number; primaryReceiptId: string }
+  >();
+  for (const [txnId, rIds] of receiptIdsByTxn) {
+    const count = rIds.reduce(
+      (s, rid) => s + (attachmentCountByReceipt.get(rid) ?? 0),
+      0,
+    );
+    attachmentInfoByTxn.set(txnId, { count, primaryReceiptId: rIds[0] });
+  }
+
   // Pre-shape transfer candidates (cross-account, unreconciled).
   const transferCandidates = transferCandidatesRaw.map((t) => ({
     id: t.id,
@@ -503,6 +537,7 @@ export default async function BankAccountDetailPage({
                   <TableHead className="text-right">Credit</TableHead>
                   <TableHead>Reference</TableHead>
                   <TableHead>Flags</TableHead>
+                  <TableHead className="text-center">Attach</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -711,11 +746,35 @@ export default async function BankAccountDetailPage({
                             </span>
                           )}
                         </TableCell>
+                        <TableCell className="text-center">
+                          {(() => {
+                            const attach = attachmentInfoByTxn.get(t.id);
+                            if (!attach || attach.count === 0) {
+                              return <span className="text-slate-300">—</span>;
+                            }
+                            return (
+                              <a
+                                href={`/banking/receipts/${attach.primaryReceiptId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`${attach.count} attachment${attach.count === 1 ? '' : 's'} — open receipt`}
+                                className="inline-flex flex-col items-center text-slate-600 hover:text-slate-900"
+                              >
+                                <span aria-hidden className="text-base leading-none">
+                                  📎
+                                </span>
+                                <span className="text-[11px] font-medium tabular-nums">
+                                  {attach.count}
+                                </span>
+                              </a>
+                            );
+                          })()}
+                        </TableCell>
                       </TableRow>
                       {showMatchPanel && (
                         <TableRow>
                           <TableCell
-                            colSpan={7}
+                            colSpan={8}
                             className="bg-white px-3 pt-2 pb-0"
                           >
                             <MatchPanel
@@ -745,7 +804,7 @@ export default async function BankAccountDetailPage({
                       {showRulePanel && (
                         <TableRow>
                           <TableCell
-                            colSpan={7}
+                            colSpan={8}
                             className="bg-white px-3 pt-2 pb-0"
                           >
                             <TransactionRulePanel
@@ -778,7 +837,7 @@ export default async function BankAccountDetailPage({
                         </TableRow>
                       )}
                       <TableRow>
-                        <TableCell colSpan={7} className="bg-slate-50 p-3">
+                        <TableCell colSpan={8} className="bg-slate-50 p-3">
                           <TransactionRowForm
                             id={t.id}
                             initial={{
@@ -819,7 +878,7 @@ export default async function BankAccountDetailPage({
                           feedback). A thick band clearly delimits each txn. */}
                       <TableRow aria-hidden className="hover:bg-transparent">
                         <TableCell
-                          colSpan={7}
+                          colSpan={8}
                           className="h-3 p-0 bg-slate-200/70 border-y border-slate-300"
                         />
                       </TableRow>

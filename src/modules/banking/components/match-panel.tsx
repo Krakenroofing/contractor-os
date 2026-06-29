@@ -21,7 +21,17 @@ import {
   type BillSearchResult,
 } from '../actions';
 import { Input } from '@/components/ui/input';
+import { directUploadFiles } from '@/lib/storage/direct-upload-client';
+import {
+  createReceiptUploadUrlsAction,
+  uploadReceiptAttachmentAction,
+} from '@/modules/receipts/actions';
 import type { MatchCandidates } from '../lib/match-candidates';
+
+// File types accepted when attaching a receipt straight from the match panel
+// (mirrors the receipt page's uploader).
+const RECEIPT_ACCEPT =
+  'application/pdf,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif';
 
 export type ActiveMatchInfo = {
   matchId: string;
@@ -274,11 +284,18 @@ export function MatchPanel(props: MatchPanelProps) {
     setErr(null);
   }
 
-  // Create a documentary draft receipt from this bank line and jump to the
-  // receipt page to upload the picture(s). The line is linked immediately.
-  function addReceipt() {
+  // Add receipt = pick the file(s) right here. Clicking "+ Add receipt" opens
+  // the OS file picker; on selection we create the draft receipt (linking +
+  // reconciling this line), push the chosen files straight to storage, and
+  // attach them — no hop to the receipt page. The attachment count then shows
+  // as a paperclip on the transaction row.
+  const [receiptUploading, setReceiptUploading] = useState(false);
+
+  async function addReceiptWithFiles(files: File[]) {
+    if (files.length === 0) return;
     setErr(null);
-    startTransition(async () => {
+    setReceiptUploading(true);
+    try {
       const res = await addReceiptToTransactionAction({
         transactionId: props.transactionId,
       });
@@ -286,8 +303,29 @@ export function MatchPanel(props: MatchPanelProps) {
         setErr(res.error ?? 'Could not add receipt.');
         return;
       }
-      router.push(`/banking/receipts/${res.receiptId}`);
-    });
+      const outcome = await directUploadFiles({
+        files,
+        requestUrls: createReceiptUploadUrlsAction,
+      });
+      if (outcome.formError) {
+        setErr(outcome.formError);
+      } else if (outcome.refs.length > 0) {
+        const fd = new FormData();
+        fd.set('uploads', JSON.stringify(outcome.refs));
+        const fin = await uploadReceiptAttachmentAction(res.receiptId, {}, fd);
+        if (fin.formError) setErr(fin.formError);
+      }
+      if (!outcome.formError && outcome.failures.length > 0) {
+        setErr(outcome.failures.join(' / '));
+      }
+      router.refresh();
+    } catch {
+      setErr(
+        'Could not upload the receipt — check your connection and try again.',
+      );
+    } finally {
+      setReceiptUploading(false);
+    }
   }
 
   function runAndRefresh(fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -1038,15 +1076,29 @@ export function MatchPanel(props: MatchPanelProps) {
             </Button>
           )}
           {moneyOut && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={pending}
-              onClick={addReceipt}
-              title="Create a receipt from this line and upload its picture(s)"
+            <label
+              className={`inline-flex items-center justify-center gap-1 rounded-md bg-slate-900 text-white text-sm font-medium px-3 h-8 hover:bg-slate-800 focus-within:ring-2 focus-within:ring-slate-400 focus-within:ring-offset-2 ${
+                pending || receiptUploading
+                  ? 'opacity-50 pointer-events-none'
+                  : 'cursor-pointer'
+              }`}
+              aria-disabled={pending || receiptUploading}
+              title="Pick a receipt file (PDF or photo) to attach to this transaction"
             >
-              + Add receipt
-            </Button>
+              {receiptUploading ? 'Uploading…' : '+ Add receipt'}
+              <input
+                type="file"
+                accept={RECEIPT_ACCEPT}
+                multiple
+                className="sr-only"
+                disabled={pending || receiptUploading}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  void addReceiptWithFiles(files);
+                }}
+              />
+            </label>
           )}
         </div>
       )}
