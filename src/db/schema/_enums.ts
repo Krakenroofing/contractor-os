@@ -269,6 +269,10 @@ export const receiptAttachmentKindEnum = pgEnum('receipt_attachment_kind', [
   'other',
 ]);
 
+// Team notes & tasks — a shared admin inbox any team member can post to.
+// 'open' = needs an admin to address; 'done' = resolved.
+export const teamTaskStatusEnum = pgEnum('team_task_status', ['open', 'done']);
+
 export const documentCategoryEnum = pgEnum('document_category', [
   'proposal',
   'estimate',

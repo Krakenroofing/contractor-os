@@ -20,12 +20,16 @@ import { buildAccountingSummary } from '@/modules/dashboard/lib/accounting-summa
 import { buildRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
 import { listAccountingReviewItems } from '@/lib/data/accounting-review';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
+import { TeamTasksPanel } from '@/modules/team-tasks/components/team-tasks-panel';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const company = await getActiveCompany();
   const role = await getActiveRole();
+  const user = await requireAuth();
+  const canSeeTeamTasks = canView(role, 'team_tasks');
   const canSeeRemainingBillable = canView(role, 'invoices');
   const [data, accounting, remainingBillable] = await Promise.all([
     buildDashboardData(company.id),
@@ -118,6 +122,15 @@ export default async function DashboardPage() {
           </div>
         )}
       </header>
+
+      {/* ===== Team notes & tasks (shared admin inbox) ===== */}
+      {canSeeTeamTasks && (
+        <TeamTasksPanel
+          companyId={company.id}
+          role={role}
+          currentUserId={user.id}
+        />
+      )}
 
       {/* ===== Headline KPIs ===== */}
       <section className="space-y-3">

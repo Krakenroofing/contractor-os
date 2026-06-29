@@ -1,0 +1,65 @@
+import 'server-only';
+import {
+  listTeamTasks,
+  listAttachmentsForTasks,
+} from '@/lib/data/team-tasks';
+
+export type TeamTaskAttachmentView = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+};
+
+export type TeamTaskView = {
+  id: string;
+  body: string;
+  status: 'open' | 'done';
+  createdById: string | null;
+  createdByName: string;
+  createdAtISO: string;
+  resolvedByName: string | null;
+  resolvedAtISO: string | null;
+  attachments: TeamTaskAttachmentView[];
+};
+
+/**
+ * Build the dashboard inbox view: all open tasks (newest first) plus a capped
+ * tail of recently-resolved ones, each with its attachments attached. One
+ * batched attachment query for the whole set.
+ */
+export async function buildTeamTasks(companyId: string): Promise<{
+  tasks: TeamTaskView[];
+  openCount: number;
+}> {
+  const tasks = await listTeamTasks(companyId, { includeDone: true, doneLimit: 8 });
+  const ids = tasks.map((t) => t.id);
+  const attachments = await listAttachmentsForTasks(companyId, ids);
+
+  const byTask = new Map<string, TeamTaskAttachmentView[]>();
+  for (const a of attachments) {
+    const list = byTask.get(a.taskId) ?? [];
+    list.push({
+      id: a.id,
+      fileName: a.fileName,
+      mimeType: a.mimeType,
+      byteSize: a.byteSize,
+    });
+    byTask.set(a.taskId, list);
+  }
+
+  return {
+    tasks: tasks.map((t) => ({
+      id: t.id,
+      body: t.body,
+      status: t.status,
+      createdById: t.createdBy,
+      createdByName: t.createdByName || 'Team member',
+      createdAtISO: t.createdAt.toISOString(),
+      resolvedByName: t.resolvedByName,
+      resolvedAtISO: t.resolvedAt ? t.resolvedAt.toISOString() : null,
+      attachments: byTask.get(t.id) ?? [],
+    })),
+    openCount: tasks.filter((t) => t.status === 'open').length,
+  };
+}

@@ -48,6 +48,10 @@ export const RESOURCES = [
   'reports',
   'daily_reports',
   'documents',
+  // Team notes & tasks — the per-company admin inbox surfaced on the
+  // dashboard. Everyone but view-only can post; resolve is gated separately
+  // (canResolveTeamTask).
+  'team_tasks',
   'invitations',
   'settings',
   // Banking & Receipts — Phase 1.
@@ -102,6 +106,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: RW,
     daily_reports: RW,
     documents: RW,
+    team_tasks: RW,
     invitations: RW,
     settings: RW,
     bank_accounts: RW,
@@ -137,6 +142,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: RW,
     daily_reports: RW,
     documents: RW,
+    team_tasks: RW,
     invitations: NONE,
     settings: NONE,
     // PMs can VIEW the banking ledger and the COA but not create accounts
@@ -182,6 +188,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: READ,
     daily_reports: READ,
     documents: READ,
+    team_tasks: RW,
     invitations: NONE,
     settings: NONE,
     bank_accounts: NONE,
@@ -218,6 +225,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: RW,
     daily_reports: READ,
     documents: READ,
+    team_tasks: RW,
     invitations: NONE,
     settings: NONE,
     bank_accounts: RW,
@@ -256,6 +264,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: NONE,
     daily_reports: RW,
     documents: RW,
+    team_tasks: RW,
     invitations: NONE,
     settings: NONE,
     bank_accounts: NONE,
@@ -298,6 +307,7 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     reports: READ,
     daily_reports: READ,
     documents: READ,
+    team_tasks: READ,
     invitations: NONE,
     settings: NONE,
     bank_accounts: READ,
@@ -323,6 +333,14 @@ export function canView(role: Role, resource: Resource): boolean {
 
 export function canCreate(role: Role, resource: Resource): boolean {
   return can(role, resource, 'create');
+}
+
+// Team tasks: anyone who can create a task can post one, but only the
+// back-office admins (owner / accounting) resolve, reopen, or delete from the
+// shared inbox. The original poster can also delete their own note — that
+// creator check is enforced in the action layer, not here.
+export function canResolveTeamTask(role: Role): boolean {
+  return role === 'owner' || role === 'accounting';
 }
 
 // Phase 2.2 receipts approval: only owners and accounting can approve+post

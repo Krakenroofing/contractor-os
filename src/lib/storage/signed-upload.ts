@@ -91,6 +91,26 @@ export async function statStorageObject(
   };
 }
 
+/**
+ * Mint a short-lived signed download URL for any private bucket object.
+ * Returns null when storage isn't configured. `download` asks Supabase to set
+ * Content-Disposition so the browser saves under the original filename.
+ */
+export async function createSignedDownloadUrl(
+  bucket: string,
+  storagePath: string,
+  ttlSeconds = 3600,
+  options?: { download?: string | boolean },
+): Promise<string | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client.storage
+    .from(bucket)
+    .createSignedUrl(storagePath, ttlSeconds, options);
+  if (error || !data) return null;
+  return data.signedUrl;
+}
+
 /** Best-effort cleanup of a direct-uploaded blob (temp parking, failed
  *  finalize, oversized upload). Never throws. */
 export async function removeStorageObject(

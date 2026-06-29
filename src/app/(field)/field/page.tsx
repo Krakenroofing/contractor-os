@@ -103,6 +103,15 @@ export default async function FieldHomePage() {
         href={employee ? '/field/reports/new' : undefined}
         disabled={!employee}
       />
+
+      {/* Note for office — a quick line (and optional photo) to flag anything
+          for the office to handle. Doesn't need an employee link — anyone
+          signed in can send one. Lands in the office dashboard inbox. */}
+      <ActionCard
+        title="Note for office"
+        subtitle="Flag an issue or task for the office"
+        href="/field/notes/new"
+      />
     </div>
   );
 }
