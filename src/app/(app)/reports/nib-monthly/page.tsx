@@ -17,7 +17,7 @@ import { listProjects } from '@/lib/data/projects';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
 import { buildNibMonthlyReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
-import { NIB_RATES } from '@/modules/payroll/lib/nib';
+import { NIB_RATES, nibCeilingForDate } from '@/modules/payroll/lib/nib';
 import {
   EMPLOYMENT_TYPE_LABEL,
   EMPLOYMENT_TYPE_TONE,
@@ -48,6 +48,10 @@ export default async function NibMonthlyReportPage({
     to: filters.to || report.monthEnd,
   };
 
+  // Insurable-wage ceiling in force for this report month (date-dependent —
+  // e.g. the 2026-07-01 increase to $830/week).
+  const nibCeiling = nibCeilingForDate(report.monthStart);
+
   return (
     <ReportShell
       type="nib-monthly"
@@ -64,8 +68,8 @@ export default async function NibMonthlyReportPage({
             Rates as of {NIB_RATES.effectiveAsOf}: employee{' '}
             {(NIB_RATES.employeeRate * 100).toFixed(2)}% / employer{' '}
             {(NIB_RATES.employerRate * 100).toFixed(2)}% on insurable wages
-            up to ${NIB_RATES.weeklyWageCeiling}/week ($
-            {NIB_RATES.monthlyWageCeiling}/month). Pay periods are
+            up to ${nibCeiling.weeklyWageCeiling}/week ($
+            {nibCeiling.monthlyWageCeiling}/month). Pay periods are
             bucketed into this month by their <strong>end date</strong>.
             NIB-exempt employees are excluded from the C-10 totals.
           </p>
@@ -91,7 +95,7 @@ export default async function NibMonthlyReportPage({
             <KPI
               label="Total insurable wages"
               value={formatMoney(report.totals.totalInsurableWage)}
-              hint={`Capped at $${NIB_RATES.weeklyWageCeiling}/wk per employee`}
+              hint={`Capped at $${nibCeiling.weeklyWageCeiling}/wk per employee`}
             />
             <KPI
               label="Employee NIB withheld"

@@ -21,18 +21,51 @@ export const NIB_RATES = {
   employeeRate: 0.0465, // 4.65%
   /** Employer contribution rate, paid by the company (Non-Hospitality). */
   employerRate: 0.0665, // 6.65%
-  /** Weekly insurable wage ceiling — wages above this cap are NIB-exempt. */
-  weeklyWageCeiling: 810,
-  /**
-   * Monthly insurable wage ceiling on the C-10 itself. We don't use this
-   * directly for weekly payroll (the weekly cap × Mondays-in-month is the
-   * effective monthly cap), but it's the number NIB prints on the form
-   * and the value we'd use if bi-weekly / monthly periods get added.
-   */
-  monthlyWageCeiling: 3510,
   /** As-of date when these rates were last verified against an actual form. */
-  effectiveAsOf: '2026-05-21',
+  effectiveAsOf: '2026-06-29',
 } as const;
+
+/**
+ * Insurable-wage ceilings, newest first. NIB raises these periodically; the
+ * one in force for a pay period is the most recent whose `effectiveFrom` is on
+ * or before the period's date.
+ *
+ *   - 2026-07-01: weekly $810 → $830, monthly $3,510 → $3,597 (rates unchanged;
+ *     high earners just pay the same % on $20 more of weekly wage).
+ *   - (prior): weekly $810, monthly $3,510.
+ *
+ * monthlyWageCeiling ≈ weeklyWageCeiling × 52 / 12 — NIB prints it on the C-10;
+ * weekly payroll uses the weekly cap directly.
+ */
+export const NIB_CEILING_SCHEDULE = [
+  { effectiveFrom: '2026-07-01', weeklyWageCeiling: 830, monthlyWageCeiling: 3597 },
+  { effectiveFrom: '1970-01-01', weeklyWageCeiling: 810, monthlyWageCeiling: 3510 },
+] as const;
+
+export type NibCeiling = {
+  weeklyWageCeiling: number;
+  monthlyWageCeiling: number;
+};
+
+/**
+ * The insurable-wage ceiling in force for a pay period, by its date
+ * (YYYY-MM-DD). Falls back to the latest ceiling when no/invalid date is given
+ * (e.g. a zero-gross stub where the cap is irrelevant anyway).
+ */
+export function nibCeilingForDate(periodDate?: string | null): NibCeiling {
+  const d =
+    typeof periodDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(periodDate)
+      ? periodDate.slice(0, 10)
+      : null;
+  const hit = d
+    ? NIB_CEILING_SCHEDULE.find((c) => d >= c.effectiveFrom)
+    : undefined;
+  const c = hit ?? NIB_CEILING_SCHEDULE[0];
+  return {
+    weeklyWageCeiling: c.weeklyWageCeiling,
+    monthlyWageCeiling: c.monthlyWageCeiling,
+  };
+}
 
 export type NibBreakdown = {
   /** Gross pay before any deduction. */
@@ -52,12 +85,18 @@ export type NibBreakdown = {
  * Pure function — no I/O, no DB. Inputs in dollars, outputs in dollars
  * rounded to 2 decimals.
  *
- * The ceiling is applied per-pay-period. If gross exceeds the weekly
- * cap, only the cap is subject to NIB.
+ * The ceiling is applied per-pay-period and depends on the period's date
+ * (`periodDate`, YYYY-MM-DD) — the 2026-07-01 increase to $830/week applies to
+ * periods on or after that date. If gross exceeds the weekly cap, only the cap
+ * is subject to NIB.
  */
-export function calculateWeeklyNib(gross: number): NibBreakdown {
+export function calculateWeeklyNib(
+  gross: number,
+  periodDate?: string | null,
+): NibBreakdown {
   const safeGross = Number.isFinite(gross) && gross > 0 ? round2(gross) : 0;
-  const insurableWage = Math.min(safeGross, NIB_RATES.weeklyWageCeiling);
+  const { weeklyWageCeiling } = nibCeilingForDate(periodDate);
+  const insurableWage = Math.min(safeGross, weeklyWageCeiling);
   const employee = multiply(insurableWage, NIB_RATES.employeeRate);
   const employer = multiply(insurableWage, NIB_RATES.employerRate);
   return {

@@ -342,9 +342,11 @@ export function computeEmployeePaystub(
   // NIB exemption short-circuits the whole NIB block to zero. The C10
   // summary later filters by !nibExempt so exempt employees don't roll
   // into the filed totals.
+  // NIB ceiling is date-dependent (e.g. the 2026-07-01 increase) — pass the
+  // period end date so the right cap applies.
   const nib = nibExempt
-    ? calculateWeeklyNib(0)
-    : calculateWeeklyNib(adjustedGross);
+    ? calculateWeeklyNib(0, period.endDate)
+    : calculateWeeklyNib(adjustedGross, period.endDate);
   const net = round2(
     subtract(adjustedGross, nib.employee) + additionsTotal,
   );

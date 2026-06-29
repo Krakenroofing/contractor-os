@@ -94,7 +94,9 @@ function PaystubCard({
   payPeriodId: string;
   locked: boolean;
 }) {
-  const ceilingHit = p.adjustedGross > NIB_RATES.weeklyWageCeiling;
+  // Capped when the NIB insurable wage came in below the (post-deduction)
+  // gross — insurableWage then IS the ceiling for this period's date.
+  const ceilingHit = p.adjustedGross > p.nib.insurableWage + 0.005;
   // Rate basis label is contextual to employment type. Hourly = /hr,
   // salaried = /wk, all other types are "per period".
   const rateBasis =
@@ -196,7 +198,7 @@ function PaystubCard({
           ) : (
             <>
               <Line
-                label={`NIB insurable wage${ceilingHit ? ` (capped at $${NIB_RATES.weeklyWageCeiling})` : ''}`}
+                label={`NIB insurable wage${ceilingHit ? ` (capped at $${p.nib.insurableWage})` : ''}`}
                 amount={p.nib.insurableWage}
                 muted
               />

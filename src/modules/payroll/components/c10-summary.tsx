@@ -12,10 +12,15 @@ export function C10SummaryView({
   summary,
   paystubs,
   periodLabel,
+  weeklyWageCeiling,
+  monthlyWageCeiling,
 }: {
   summary: C10Summary;
   paystubs: EmployeePaystub[];
   periodLabel: string;
+  /** Insurable-wage ceilings in force for this period (date-dependent). */
+  weeklyWageCeiling: number;
+  monthlyWageCeiling: number;
 }) {
   return (
     <div className="space-y-6">
@@ -32,8 +37,7 @@ export function C10SummaryView({
               Rates as of {NIB_RATES.effectiveAsOf}: employee{' '}
               {(NIB_RATES.employeeRate * 100).toFixed(2)}% / employer{' '}
               {(NIB_RATES.employerRate * 100).toFixed(2)}% on insurable wages
-              up to ${NIB_RATES.weeklyWageCeiling}/week ($
-              {NIB_RATES.monthlyWageCeiling}/month).
+              up to ${weeklyWageCeiling}/week (${monthlyWageCeiling}/month).
             </p>
           </header>
 
@@ -47,7 +51,7 @@ export function C10SummaryView({
             <Stat
               label="Total insurable wages"
               value={formatMoney(summary.totalInsurableWage)}
-              hint={`Gross capped at $${NIB_RATES.weeklyWageCeiling}/employee/week`}
+              hint={`Gross capped at $${weeklyWageCeiling}/employee/week`}
             />
             <Stat
               label="Employee NIB withheld"

@@ -17,6 +17,7 @@ import {
 } from '@/modules/payroll/components/timesheet-grid';
 import { PaystubsView } from '@/modules/payroll/components/paystubs-view';
 import { C10SummaryView } from '@/modules/payroll/components/c10-summary';
+import { nibCeilingForDate } from '@/modules/payroll/lib/nib';
 import {
   PayRunTable,
   type PayRunRow,
@@ -536,6 +537,12 @@ export default async function PayrollPage({
               summary={summary}
               paystubs={paystubs}
               periodLabel={formatPeriodLabel(period.startDate, period.endDate)}
+              weeklyWageCeiling={
+                nibCeilingForDate(period.endDate).weeklyWageCeiling
+              }
+              monthlyWageCeiling={
+                nibCeilingForDate(period.endDate).monthlyWageCeiling
+              }
             />
           );
         })()}
