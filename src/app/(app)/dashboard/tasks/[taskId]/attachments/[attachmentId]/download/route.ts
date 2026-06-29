@@ -17,8 +17,12 @@ export const dynamic = 'force-dynamic';
 // signed URL for the Supabase Storage object and redirects to it (same
 // pattern as project-document downloads — keeps bytes off the Vercel
 // function and behind an expiring URL).
+//
+// `?view=1` serves the blob INLINE (no download disposition) so image
+// attachments render in an <img>/new tab instead of forcing a save. The
+// default (no query) keeps the attachment download behaviour.
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ taskId: string; attachmentId: string }> },
 ) {
   await requireAuth();
@@ -38,9 +42,12 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 });
   }
 
-  const url = await createSignedTeamTaskAttachmentUrl(attachment.storagePath, 3600, {
-    download: attachment.originalFileName,
-  });
+  const inline = req.nextUrl.searchParams.get('view') === '1';
+  const url = await createSignedTeamTaskAttachmentUrl(
+    attachment.storagePath,
+    3600,
+    inline ? undefined : { download: attachment.originalFileName },
+  );
   if (!url) {
     return new NextResponse(
       'Attachment storage is not configured. Contact your administrator.',

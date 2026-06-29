@@ -113,20 +113,21 @@ export function TaskComposer({
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
         </label>
-        {tone === 'field' && (
-          <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 h-9 text-sm text-slate-700 cursor-pointer hover:bg-slate-50">
-            📷 Photo
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="sr-only"
-              onChange={(e) =>
-                setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])
-              }
-            />
-          </label>
-        )}
+        {/* Photo button: on phones/tablets `capture` opens the camera; on
+            desktop it falls back to an image file picker. Shown everywhere so
+            attaching a picture is an obvious, first-class action. */}
+        <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 h-9 text-sm text-slate-700 cursor-pointer hover:bg-slate-50">
+          📷 Photo
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={(e) =>
+              setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])
+            }
+          />
+        </label>
         {files.length > 0 && (
           <span className="text-xs text-slate-500">
             {files.length} file{files.length === 1 ? '' : 's'} attached

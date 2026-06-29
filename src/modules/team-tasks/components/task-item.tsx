@@ -64,6 +64,12 @@ export function TaskItem({
   );
 
   const done = task.status === 'done';
+  const imageAttachments = task.attachments.filter((a) =>
+    a.mimeType.startsWith('image/'),
+  );
+  const fileAttachments = task.attachments.filter(
+    (a) => !a.mimeType.startsWith('image/'),
+  );
 
   return (
     <li
@@ -89,25 +95,54 @@ export function TaskItem({
             </p>
           )}
           {task.attachments.length > 0 && (
-            <ul className="mt-1.5 flex flex-wrap gap-1.5">
-              {task.attachments.map((a) => (
-                <li key={a.id}>
-                  <a
-                    href={`/dashboard/tasks/${task.id}/attachments/${a.id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-                    title={a.fileName}
-                  >
-                    <span aria-hidden>{fileGlyph(a.mimeType)}</span>
-                    <span className="max-w-[12rem] truncate">{a.fileName}</span>
-                    {a.byteSize > 0 && (
-                      <span className="text-slate-400">{formatBytes(a.byteSize)}</span>
-                    )}
-                  </a>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-1.5 space-y-1.5">
+              {/* Image attachments render as thumbnails — click opens the
+                  full-size image inline (no forced download). */}
+              {imageAttachments.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5">
+                  {imageAttachments.map((a) => (
+                    <li key={a.id}>
+                      <a
+                        href={`/dashboard/tasks/${task.id}/attachments/${a.id}/download?view=1`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={a.fileName}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/dashboard/tasks/${task.id}/attachments/${a.id}/download?view=1`}
+                          alt={a.fileName}
+                          loading="lazy"
+                          className="h-20 w-20 rounded border border-slate-200 object-cover hover:opacity-90"
+                        />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {/* Non-image attachments keep the download chip. */}
+              {fileAttachments.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5">
+                  {fileAttachments.map((a) => (
+                    <li key={a.id}>
+                      <a
+                        href={`/dashboard/tasks/${task.id}/attachments/${a.id}/download`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                        title={a.fileName}
+                      >
+                        <span aria-hidden>{fileGlyph(a.mimeType)}</span>
+                        <span className="max-w-[12rem] truncate">{a.fileName}</span>
+                        {a.byteSize > 0 && (
+                          <span className="text-slate-400">{formatBytes(a.byteSize)}</span>
+                        )}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
           {done && task.resolvedByName && (
             <p className="mt-1 text-[11px] text-slate-400">
