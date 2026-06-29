@@ -459,6 +459,30 @@ export async function getImportedTransaction(
   return rows[0];
 }
 
+/**
+ * Batch-fetch the signed amount of many transactions by id. Used by deposit
+ * reconciliation to know how much actual bank money backs a matched payment
+ * (a payment matched whole to a smaller deposit only reconciles the deposit
+ * amount — the rest stays unreconciled). Returns Map<id, amount>.
+ */
+export async function getImportedTransactionAmounts(
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured() || ids.length === 0) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({ id: importedTransactions.id, amount: importedTransactions.amount })
+    .from(importedTransactions)
+    .where(
+      and(
+        eq(importedTransactions.companyId, companyId),
+        inArray(importedTransactions.id, ids),
+      ),
+    );
+  return new Map(rows.map((r) => [r.id, Number(r.amount)]));
+}
+
 /** Pull the most recent N transactions for a company. Used by Rules Phase 2
  *  preview + bulk apply — both run the matcher in TS against this list rather
  *  than building SQL for every rule shape.

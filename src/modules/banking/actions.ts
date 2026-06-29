@@ -31,6 +31,7 @@ import {
   bulkApplyRuleToTransactions,
   bulkCategorizeTransactions,
   getImportedTransaction,
+  getImportedTransactionAmounts,
   listLinesForTransactionIds,
   listRecentTransactionsForRules,
   replaceImportedTransactionLines,
@@ -1575,6 +1576,42 @@ function bankMatchedPaymentIds(
 }
 
 /**
+ * For each matched invoice payment, the amount of the DEPOSIT it's matched to.
+ * Deposit reconciliation is deposit-aware: a payment matched whole to a
+ * SMALLER deposit (the over-run got absorbed by the reconcile tolerance) only
+ * reconciles the deposit's worth — the rest (payment − deposit) is still
+ * unreconciled and can be matched to a second deposit.
+ */
+function matchedDepositByPayment(
+  activeMatches: {
+    matchType: string;
+    invoicePaymentId: string | null;
+    importedTransactionId: string;
+  }[],
+  depositAmountByTxn: Map<string, number>,
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const x of activeMatches) {
+    if (x.matchType === 'invoice_payment' && x.invoicePaymentId) {
+      const dep = depositAmountByTxn.get(x.importedTransactionId);
+      if (dep !== undefined) m.set(x.invoicePaymentId, dep);
+    }
+  }
+  return m;
+}
+
+/** Bank money actually reconciled to a payment = min(payment, its deposit). */
+function reconciledForPayment(
+  paymentAmount: number,
+  depositByPayment: Map<string, number>,
+  paymentId: string,
+): number {
+  const dep = depositByPayment.get(paymentId);
+  if (dep === undefined) return 0; // unmatched
+  return Math.min(paymentAmount, dep);
+}
+
+/**
  * Search invoices that still have an amount NOT YET RECONCILED to a bank
  * deposit — `total − (payments already matched to a bank txn)`. This includes
  * invoices already marked PAID whose recorded payment hasn't been tied to a
@@ -1616,14 +1653,31 @@ export async function searchInvoicesForMatchAction(input: {
       listCustomers(companyId),
       listActiveMatchesForCompany(companyId),
     ]);
-  const matchedPaymentIds = bankMatchedPaymentIds(activeMatches);
-  // Bank-reconciled amount per invoice = sum of its payments already matched.
+  // Deposit-aware: a payment matched whole to a smaller deposit only counts
+  // that deposit's worth as reconciled (the over-run is still unreconciled).
+  const matchedTxnIds = Array.from(
+    new Set(
+      activeMatches
+        .filter((m) => m.matchType === 'invoice_payment' && m.invoicePaymentId)
+        .map((m) => m.importedTransactionId),
+    ),
+  );
+  const depositAmountByTxn = await getImportedTransactionAmounts(
+    companyId,
+    matchedTxnIds,
+  );
+  const depositByPayment = matchedDepositByPayment(
+    activeMatches,
+    depositAmountByTxn,
+  );
+  // Bank-reconciled amount per invoice = sum of min(payment, its deposit).
   const reconciledByInvoice = new Map<string, number>();
   for (const p of payments) {
-    if (matchedPaymentIds.has(p.id)) {
+    const covered = reconciledForPayment(Number(p.amount), depositByPayment, p.id);
+    if (covered > 0) {
       reconciledByInvoice.set(
         p.invoiceId,
-        (reconciledByInvoice.get(p.invoiceId) ?? 0) + Number(p.amount),
+        (reconciledByInvoice.get(p.invoiceId) ?? 0) + covered,
       );
     }
   }
@@ -1710,6 +1764,21 @@ export async function matchInvoiceBalancesAction(input: {
   ]);
   const invById = new Map(invoices.map((i) => [i.id, i]));
   const matchedPaymentIds = bankMatchedPaymentIds(activeMatches);
+  const matchedTxnIds = Array.from(
+    new Set(
+      activeMatches
+        .filter((m) => m.matchType === 'invoice_payment' && m.invoicePaymentId)
+        .map((m) => m.importedTransactionId),
+    ),
+  );
+  const depositAmountByTxn = await getImportedTransactionAmounts(
+    companyId,
+    matchedTxnIds,
+  );
+  const depositByPayment = matchedDepositByPayment(
+    activeMatches,
+    depositAmountByTxn,
+  );
   const paymentsByInvoice = new Map<string, typeof payments>();
   for (const p of payments) {
     const arr = paymentsByInvoice.get(p.invoiceId) ?? [];
@@ -1743,9 +1812,12 @@ export async function matchInvoiceBalancesAction(input: {
       return { ok: false, error: 'One of the selected invoices was not found.' };
     }
     const invPays = paymentsByInvoice.get(invoiceId) ?? [];
-    const bankReconciled = invPays
-      .filter((p) => matchedPaymentIds.has(p.id))
-      .reduce((s, p) => s + Number(p.amount), 0);
+    // Deposit-aware: a matched payment only reconciles its deposit's worth.
+    const bankReconciled = invPays.reduce(
+      (s, p) =>
+        s + reconciledForPayment(Number(p.amount), depositByPayment, p.id),
+      0,
+    );
     const unreconciled = r2(Number(inv.total) - bankReconciled);
     if (unreconciled <= 0.005) continue;
     const applied = r2(Math.min(unreconciled, depositRemaining));
@@ -1778,6 +1850,25 @@ export async function matchInvoiceBalancesAction(input: {
         });
       }
       need = r2(need - take);
+    }
+    // Then peel off any OVER-ALLOCATED residual: a payment matched whole to a
+    // smaller deposit (tolerance over-run) — split that excess to this deposit.
+    if (need > 0.005) {
+      const overMatched = invPays
+        .filter((p) => depositByPayment.has(p.id))
+        .map((p) => ({
+          p,
+          residual: r2(Number(p.amount) - (depositByPayment.get(p.id) ?? 0)),
+        }))
+        .filter((x) => x.residual > 0.005)
+        .sort((a, b) => b.residual - a.residual);
+      for (const { p, residual } of overMatched) {
+        if (need <= 0.005) break;
+        const take = r2(Math.min(residual, need));
+        if (take <= 0.005) continue;
+        ops.push({ type: 'split_overmatched', invoiceId, paymentId: p.id, amount: take });
+        need = r2(need - take);
+      }
     }
     if (need > 0.005) {
       ops.push({ type: 'create_and_match', invoiceId, amount: need });

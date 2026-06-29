@@ -212,7 +212,17 @@ export type ReconcileOp =
       matchAmount: number;
       remainderAmount: number;
     }
-  | { type: 'create_and_match'; invoiceId: string; amount: number };
+  | { type: 'create_and_match'; invoiceId: string; amount: number }
+  // A payment that was matched WHOLE to a smaller deposit (over-allocated):
+  // peel `amount` off that over-run into a new payment and link it to THIS
+  // deposit. The original payment stays matched to its deposit, shrunk so it
+  // no longer claims more bank money than that deposit actually was.
+  | {
+      type: 'split_overmatched';
+      invoiceId: string;
+      paymentId: string;
+      amount: number;
+    };
 
 /**
  * Reconcile a deposit against one or more invoices. Splits recorded payments
@@ -283,6 +293,37 @@ export async function reconcileInvoicesToDepositAtomic(input: {
           importedTransactionId: null,
         });
         await linkPayment(op.paymentId);
+      } else if (op.type === 'split_overmatched') {
+        const [pay] = await tx
+          .select()
+          .from(invoicePayments)
+          .where(eq(invoicePayments.id, op.paymentId))
+          .limit(1);
+        if (!pay) throw new Error('Payment to split was not found.');
+        // Shrink the over-allocated payment (it stays matched to its own
+        // deposit) and carve the over-run into a residual matched to THIS one.
+        const reduced =
+          Math.round((Number(pay.amount) - op.amount) * 100) / 100;
+        await tx
+          .update(invoicePayments)
+          .set({ amount: reduced.toFixed(2) })
+          .where(eq(invoicePayments.id, op.paymentId));
+        const [residual] = await tx
+          .insert(invoicePayments)
+          .values({
+            invoiceId: pay.invoiceId,
+            paymentNumber: '',
+            paidDate: pay.paidDate,
+            amount: op.amount.toFixed(2),
+            method: pay.method,
+            reference: pay.reference,
+            bankAccount: pay.bankAccount,
+            status: pay.status,
+            notes: 'Split from an over-allocated payment for bank reconciliation',
+            importedTransactionId: null,
+          })
+          .returning();
+        await linkPayment(residual.id);
       } else {
         const [created] = await tx
           .insert(invoicePayments)
