@@ -602,7 +602,12 @@ export async function submitReceiptAction(input: {
   const missing: number[] = [];
   const reimbursableMissingPayee: number[] = [];
   lines.forEach((l, idx) => {
-    if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+    // A line posts as EITHER a job cost (project + cost code) or overhead
+    // (an accounting category — e.g. gas/fuel, with no project). It's only
+    // incomplete when it has neither.
+    if (!(l.projectId && l.costCodeId) && !l.accountingAccountId) {
+      missing.push(idx + 1);
+    }
     if (l.isReimbursable && !l.paidByUserId) {
       reimbursableMissingPayee.push(idx + 1);
     }
@@ -610,7 +615,7 @@ export async function submitReceiptAction(input: {
   if (missing.length > 0) {
     return {
       ok: false,
-      error: `Line ${missing.join(', ')}: project and cost code are required before submitting.`,
+      error: `Line ${missing.join(', ')}: add a project + cost code, or an accounting category, before submitting.`,
     };
   }
   if (reimbursableMissingPayee.length > 0) {
@@ -698,8 +703,13 @@ export async function postReceiptAction(input: {
     return { ok: false, error: 'Receipt is void.' };
   }
   const lines = await listReceiptLines(company.id, receipt.id);
-  if (receipt.status === 'posted' && lines.every((l) => l.postedJobCostEntryId)) {
-    return { ok: true }; // idempotent — every line already posted
+  // A line is "settled" once posted: job-cost lines carry a job-cost entry;
+  // overhead lines (no project/cost code) never create one and post to the GL
+  // only. Idempotent return once everything that should post has posted.
+  const isSettled = (l: (typeof lines)[number]) =>
+    !!l.postedJobCostEntryId || !(l.projectId && l.costCodeId);
+  if (receipt.status === 'posted' && lines.every(isSettled)) {
+    return { ok: true }; // idempotent — already posted
   }
   if (lines.length === 0) {
     return { ok: false, error: 'Add at least one line before posting.' };
@@ -708,7 +718,11 @@ export async function postReceiptAction(input: {
   const missing: number[] = [];
   const reimbursableMissingPayee: number[] = [];
   lines.forEach((l, idx) => {
-    if (!l.projectId || !l.costCodeId) missing.push(idx + 1);
+    // Job-cost line (project + cost code) OR overhead line (accounting
+    // category, no project). Incomplete only when it has neither.
+    if (!(l.projectId && l.costCodeId) && !l.accountingAccountId) {
+      missing.push(idx + 1);
+    }
     if (l.isReimbursable && !l.paidByUserId) {
       reimbursableMissingPayee.push(idx + 1);
     }
@@ -716,7 +730,7 @@ export async function postReceiptAction(input: {
   if (missing.length > 0) {
     return {
       ok: false,
-      error: `Line ${missing.join(', ')}: project and cost code are required before posting.`,
+      error: `Line ${missing.join(', ')}: add a project + cost code, or an accounting category, before posting.`,
     };
   }
   if (reimbursableMissingPayee.length > 0) {
@@ -728,6 +742,10 @@ export async function postReceiptAction(input: {
 
   for (const line of lines) {
     if (line.postedJobCostEntryId) continue; // line already posted
+    // Overhead line (no project/cost code): no job-cost entry — it posts to
+    // the GL via its accounting category (syncReceiptGl below) and is picked
+    // up in the P&L as an overhead receipt expense.
+    if (!line.projectId || !line.costCodeId) continue;
 
     const total = Number(line.total);
     const subtotal = Number(line.subtotal);

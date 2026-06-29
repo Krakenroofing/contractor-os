@@ -141,9 +141,13 @@ export default async function ReceiptDetailPage({
   const canEdit = canCreate(role, 'receipts');
   const canSubmit = canCreate(role, 'receipts');
   const canApprove = canApproveReceipt(role);
-  // Postable = at least one line, every line has project + cost code.
+  // Postable = at least one line, and every line is EITHER a job cost
+  // (project + cost code) OR overhead (an accounting category, no project).
   const canPostable =
-    lines.length > 0 && lines.every((l) => l.projectId && l.costCodeId);
+    lines.length > 0 &&
+    lines.every(
+      (l) => (l.projectId && l.costCodeId) || l.accountingAccountId,
+    );
 
   // Look up names for the audit fields shown in the post panel.
   const userIds = [

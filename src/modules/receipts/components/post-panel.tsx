@@ -16,7 +16,7 @@ import {
 export type PostPanelProps = {
   receiptId: string;
   status: 'draft' | 'submitted' | 'posted' | 'void';
-  canPostable: boolean; // ≥1 line, every line has project + cost code, not voided
+  canPostable: boolean; // ≥1 line; each line has project+cost code OR a category
   hasPotentialDuplicate: boolean;
   potentialDuplicateMessage?: string;
   /** Approve & post, reject, unpost, void, delete. Owners + accounting. */
@@ -132,14 +132,13 @@ export function ReceiptPostPanel(props: PostPanelProps) {
   if (props.status === 'posted') {
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 space-y-2">
-        <div className="text-xs text-emerald-900 font-medium">
-          Posted to job costs.
-        </div>
+        <div className="text-xs text-emerald-900 font-medium">Posted.</div>
         <p className="text-[11px] text-emerald-800">
           Approved
           {props.approvedAt ? ` on ${props.approvedAt}` : ''}
           {props.approvedByName ? ` by ${props.approvedByName}` : ''}.
-          One job_cost_entries row per line.
+          Job-cost lines post to job costing; overhead lines (category only)
+          post to the P&amp;L.
         </p>
         {props.canApprove && (
           <Button
@@ -179,7 +178,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
               onClick={onApproveAndPost}
               title={
                 !props.canPostable
-                  ? 'Every line needs a project and cost code before posting.'
+                  ? 'Each line needs a project + cost code, or an accounting category, before posting.'
                   : undefined
               }
             >
@@ -256,7 +255,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             onClick={onApproveAndPost}
             title={
               !props.canPostable
-                ? 'Every line needs a project and cost code before posting.'
+                ? 'Each line needs a project + cost code, or an accounting category, before posting.'
                 : undefined
             }
           >
@@ -272,7 +271,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             onClick={onSubmitForReview}
             title={
               !props.canPostable
-                ? 'Every line needs a project and cost code before submitting.'
+                ? 'Each line needs a project + cost code, or an accounting category, before submitting.'
                 : undefined
             }
           >
@@ -304,7 +303,8 @@ export function ReceiptPostPanel(props: PostPanelProps) {
       </div>
       {!props.canPostable && (
         <p className="text-[11px] text-slate-500">
-          Every line needs a project and cost code before
+          Each line needs a project + cost code (job cost), or an accounting
+          category (overhead), before
           {props.canApprove ? ' posting or submitting' : ' submitting'}.
         </p>
       )}

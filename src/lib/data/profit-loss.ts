@@ -24,6 +24,8 @@ import {
   transactionMatches,
   invoices,
   jobCostEntries,
+  receipts,
+  receiptLines,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { listProjects } from '@/lib/data/projects';
@@ -312,7 +314,47 @@ export async function buildProfitLossReport(
       accountingAccounts.rollupGroup,
     );
 
-  // Merge both expense sources per account so an account that has both a
+  // ----- Expense side (3): overhead posted-receipt lines -----
+  // A posted receipt line with a category but NO project/cost code (e.g. a
+  // cash gas receipt) never creates a job_cost_entry, so it isn't in source 1;
+  // and a cash receipt has no bank line (and a bank-paid one is excluded from
+  // source 2 as "matched to a receipt"). Count those lines here, by category,
+  // at the same net/gross basis posting uses (net when VAT is recoverable).
+  const receiptExpenseAmt = company?.isVatActive
+    ? sql`CASE WHEN ${receipts.vatRecoverable} THEN ${receiptLines.subtotal} ELSE ${receiptLines.total} END`
+    : sql`${receiptLines.total}`;
+  const receiptConds = [
+    eq(receipts.companyId, companyId),
+    eq(receipts.status, 'posted'),
+    isNull(receipts.deletedAt),
+    isNull(receiptLines.postedJobCostEntryId),
+    isNotNull(receiptLines.accountingAccountId),
+  ];
+  if (filters.from) receiptConds.push(gte(receipts.receiptDate, filters.from));
+  if (filters.to) receiptConds.push(lte(receipts.receiptDate, filters.to));
+
+  const receiptOverheadRows = await db
+    .select({
+      accountId: receiptLines.accountingAccountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      total: sql<string>`COALESCE(SUM(${receiptExpenseAmt}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(receiptLines)
+    .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, receiptLines.accountingAccountId),
+    )
+    .where(and(...receiptConds))
+    .groupBy(
+      receiptLines.accountingAccountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+
+  // Merge the expense sources per account so an account that has e.g. a
   // job-cost entry and a bank line shows one combined row.
   const byAccount = new Map<string, ProfitLossAccountRow>();
   const accumulate = (
@@ -344,6 +386,7 @@ export async function buildProfitLossReport(
   };
   accumulate(categorizedRows);
   accumulate(bankRows);
+  accumulate(receiptOverheadRows);
 
   // ----- Bank fees on bill payments -----
   // A bill payment reconciles the bank line (so it's excluded above), but its
