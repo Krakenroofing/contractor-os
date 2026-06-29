@@ -17,7 +17,7 @@ import {
   searchInvoicesForMatchAction,
   searchBillsForMatchAction,
   unmatchTransactionAction,
-  type InvoiceBalanceSearchResult,
+  type InvoiceReconcileSearchResult,
   type BillSearchResult,
 } from '../actions';
 import { Input } from '@/components/ui/input';
@@ -113,15 +113,15 @@ export function MatchPanel(props: MatchPanelProps) {
   const [invoiceMode, setInvoiceMode] = useState(false);
   const [invoiceQuery, setInvoiceQuery] = useState('');
   const [invoiceResults, setInvoiceResults] = useState<
-    InvoiceBalanceSearchResult[]
+    InvoiceReconcileSearchResult[]
   >([]);
   const [invoiceSearched, setInvoiceSearched] = useState(false);
   const [searching, setSearching] = useState(false);
   // Multi-select: invoices picked across one or more searches, keyed by
-  // invoiceId and carrying the open balance so the tally survives re-searches
-  // that drop a row from view.
+  // invoiceId and carrying the unreconciled amount so the tally survives
+  // re-searches that drop a row from view.
   const [selected, setSelected] = useState<
-    Map<string, { invoiceNumber: string; balance: number }>
+    Map<string, { invoiceNumber: string; unreconciled: number }>
   >(new Map());
 
   // Amount already linked to this deposit by prior matches.
@@ -132,27 +132,27 @@ export function MatchPanel(props: MatchPanelProps) {
   const deposit = props.amount;
   // How much of the deposit is still unallocated before this round of ticks.
   const depositOpen = Math.round((deposit - alreadyAllocated) * 100) / 100;
-  // Sum of the OPEN BALANCES the user has ticked. The amount actually applied
-  // is capped at what's left of the deposit (mirrors the server's sequential
-  // allocation), so a part-paid invoice never over-pays.
-  const selectedBalanceSum = Array.from(selected.values()).reduce(
-    (s, v) => s + v.balance,
+  // Sum of the UNRECONCILED amounts the user has ticked. The amount actually
+  // applied is capped at what's left of the deposit (mirrors the server's
+  // sequential allocation), so it never over-reconciles.
+  const selectedUnreconciledSum = Array.from(selected.values()).reduce(
+    (s, v) => s + v.unreconciled,
     0,
   );
   const newlyApplied = Math.min(
-    Math.round(selectedBalanceSum * 100) / 100,
+    Math.round(selectedUnreconciledSum * 100) / 100,
     depositOpen,
   );
   const liveRemaining = Math.round((depositOpen - newlyApplied) * 100) / 100;
 
-  function toggleSelected(r: InvoiceBalanceSearchResult) {
+  function toggleSelected(r: InvoiceReconcileSearchResult) {
     setSelected((prev) => {
       const next = new Map(prev);
       if (next.has(r.invoiceId)) next.delete(r.invoiceId);
       else
         next.set(r.invoiceId, {
           invoiceNumber: r.invoiceNumber,
-          balance: r.balance,
+          unreconciled: r.unreconciled,
         });
       return next;
     });
@@ -467,10 +467,11 @@ export function MatchPanel(props: MatchPanelProps) {
       <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
         <div className="font-medium text-blue-900">Match deposit to invoices</div>
         <p className="text-blue-800">
-          Tick invoices that still owe money. Each one is paid down by the lesser
-          of its balance and what&apos;s left of the deposit, so a deposit can
-          partly pay an invoice — the rest stays owing for a later deposit.
-          Matches regardless of the date gap.
+          Tick the invoices this deposit pays — including ones already marked
+          paid whose payment isn&apos;t on a bank deposit yet. Each is reconciled
+          by the lesser of its unreconciled amount and what&apos;s left of the
+          deposit; if a deposit only covers part of an invoice, the rest waits
+          for a later deposit. Matches regardless of the date gap.
         </p>
 
         {/* Running tally */}
@@ -525,7 +526,7 @@ export function MatchPanel(props: MatchPanelProps) {
 
         {invoiceSearched && invoiceResults.length === 0 && !err && (
           <p className="text-slate-600">
-            No invoices with an open balance match that search.
+            No invoices with an unreconciled amount match that search.
           </p>
         )}
 
@@ -533,7 +534,12 @@ export function MatchPanel(props: MatchPanelProps) {
           <div className="space-y-1">
             {invoiceResults.map((r) => {
               const checked = selected.has(r.invoiceId);
-              const partlyPaid = r.balance < r.total - 0.005;
+              const note =
+                r.status === 'paid'
+                  ? 'marked paid — not on a bank deposit yet'
+                  : r.unreconciled < r.total - 0.005
+                    ? 'partly reconciled'
+                    : 'open balance';
               return (
                 <label
                   key={r.invoiceId}
@@ -551,14 +557,12 @@ export function MatchPanel(props: MatchPanelProps) {
                     <div className="truncate">
                       Invoice {r.invoiceNumber} — {r.customerName} ·{' '}
                       <span className="font-medium tabular-nums">
-                        ${fmtMoney(r.balance)}
+                        ${fmtMoney(r.unreconciled)}
                       </span>{' '}
-                      owing
+                      to reconcile
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {partlyPaid
-                        ? `invoice $${fmtMoney(r.total)} · partly paid`
-                        : `invoice total $${fmtMoney(r.total)}`}{' '}
+                      invoice ${fmtMoney(r.total)} · {note}{' '}
                       {r.sameAmount && (
                         <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
                           matches deposit

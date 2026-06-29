@@ -194,22 +194,40 @@ export async function createInvoicePaymentMatchesAtomic(input: {
 }
 
 /**
- * Match a deposit against one or more invoice BALANCES. For each allocation we
- * record a (possibly partial) invoice payment sized to the amount applied,
- * tagged with imported_transaction_id so Unmatch can remove exactly these
- * rows, then link it to the deposit via an invoice_payment match. The invoice
- * amount_paid/status is recomputed in-transaction so a partially-paid invoice
- * keeps an open balance for the next deposit.
- *
- * Atomic: payments + matches + per-invoice recompute + the reconciled_at flip
- * all commit together. Returns the created match rows.
+ * One step in reconciling a deposit to an invoice:
+ *  - match_existing: link a whole already-recorded (unreconciled) payment.
+ *  - split_and_match: the deposit covers only PART of a recorded payment —
+ *    shrink that payment to the reconciled portion, carve the remainder into a
+ *    new still-unreconciled payment (for a later deposit), and link the portion.
+ *  - create_and_match: the invoice still has an open balance beyond its
+ *    recorded payments — the deposit IS the payment, so create one (tagged with
+ *    imported_transaction_id so Unmatch removes it) and link it.
  */
-export async function createInvoiceBalancePaymentsAtomic(input: {
+export type ReconcileOp =
+  | { type: 'match_existing'; invoiceId: string; paymentId: string }
+  | {
+      type: 'split_and_match';
+      invoiceId: string;
+      paymentId: string;
+      matchAmount: number;
+      remainderAmount: number;
+    }
+  | { type: 'create_and_match'; invoiceId: string; amount: number };
+
+/**
+ * Reconcile a deposit against one or more invoices. Splits recorded payments
+ * for partial coverage and creates payments only for genuine open balances, so
+ * an invoice's total/paid status never changes from a pure reconciliation — we
+ * just attach the bank proof (and the matched payment is always sized to the
+ * amount actually reconciled, since a payment can match at most one deposit).
+ *
+ * Atomic: payment edits + matches + per-invoice recompute + the reconciled_at
+ * flip all commit together. Returns the created match rows.
+ */
+export async function reconcileInvoicesToDepositAtomic(input: {
   companyId: string;
   importedTransactionId: string;
-  /** One per ticked invoice, in allocation order. amount is the applied (≤
-   *  invoice balance, ≤ deposit remaining) figure. */
-  allocations: { invoiceId: string; amount: number }[];
+  ops: ReconcileOp[];
   paidDate: string;
   bankAccountLabel?: string | null;
   confidence: TransactionMatch['confidence'];
@@ -219,38 +237,72 @@ export async function createInvoiceBalancePaymentsAtomic(input: {
   const db = requireDb();
   return await db.transaction(async (tx) => {
     const rows: TransactionMatch[] = [];
-    const touchedInvoices = new Set<string>();
-    for (const a of input.allocations) {
-      if (a.amount <= 0.005) continue;
-      const [payment] = await tx
-        .insert(invoicePayments)
-        .values({
-          invoiceId: a.invoiceId,
-          paymentNumber: '',
-          paidDate: input.paidDate,
-          amount: a.amount.toFixed(2),
-          method: 'bank_match',
-          bankAccount: input.bankAccountLabel ?? null,
-          status: 'received',
-          notes: 'Recorded from bank deposit reconciliation',
-          importedTransactionId: input.importedTransactionId,
-        })
-        .returning();
-      const [match] = await tx
+    const touched = new Set<string>();
+    const linkPayment = async (invoicePaymentId: string) => {
+      const [m] = await tx
         .insert(transactionMatches)
         .values({
           companyId: input.companyId,
           importedTransactionId: input.importedTransactionId,
           matchType: 'invoice_payment',
-          invoicePaymentId: payment.id,
+          invoicePaymentId,
           confidence: input.confidence,
           matchedByUserId: input.matchedByUserId,
         })
         .returning();
-      rows.push(match);
-      touchedInvoices.add(a.invoiceId);
+      rows.push(m);
+    };
+
+    for (const op of input.ops) {
+      touched.add(op.invoiceId);
+      if (op.type === 'match_existing') {
+        await linkPayment(op.paymentId);
+      } else if (op.type === 'split_and_match') {
+        const [pay] = await tx
+          .select()
+          .from(invoicePayments)
+          .where(eq(invoicePayments.id, op.paymentId))
+          .limit(1);
+        if (!pay) throw new Error('Payment to split was not found.');
+        // Shrink the original to the reconciled portion, then carve the rest
+        // into a new unreconciled payment for a later deposit.
+        await tx
+          .update(invoicePayments)
+          .set({ amount: op.matchAmount.toFixed(2) })
+          .where(eq(invoicePayments.id, op.paymentId));
+        await tx.insert(invoicePayments).values({
+          invoiceId: pay.invoiceId,
+          paymentNumber: '',
+          paidDate: pay.paidDate,
+          amount: op.remainderAmount.toFixed(2),
+          method: pay.method,
+          reference: pay.reference,
+          bankAccount: pay.bankAccount,
+          status: pay.status,
+          notes: 'Remainder after partial bank reconciliation',
+          importedTransactionId: null,
+        });
+        await linkPayment(op.paymentId);
+      } else {
+        const [created] = await tx
+          .insert(invoicePayments)
+          .values({
+            invoiceId: op.invoiceId,
+            paymentNumber: '',
+            paidDate: input.paidDate,
+            amount: op.amount.toFixed(2),
+            method: 'bank_match',
+            bankAccount: input.bankAccountLabel ?? null,
+            status: 'received',
+            notes: 'Recorded from bank deposit reconciliation',
+            importedTransactionId: input.importedTransactionId,
+          })
+          .returning();
+        await linkPayment(created.id);
+      }
     }
-    for (const invoiceId of touchedInvoices) {
+
+    for (const invoiceId of touched) {
       await recomputeInvoiceStateInTx(tx, invoiceId);
     }
     if (input.reconcile) {

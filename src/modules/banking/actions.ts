@@ -48,7 +48,8 @@ import {
 } from '@/lib/data/banking-rules';
 import {
   createInvoicePaymentMatchesAtomic,
-  createInvoiceBalancePaymentsAtomic,
+  reconcileInvoicesToDepositAtomic,
+  type ReconcileOp,
   createReceiptMatchesAtomic,
   createMatchAtomic,
   createTransferPairAtomic,
@@ -1543,44 +1544,49 @@ export async function searchInvoicePaymentsForMatchAction(input: {
   return { ok: true, results: results.slice(0, 25) };
 }
 
-// ===== Invoice-balance matching (partial payments across deposits) =====
+// ===== Deposit → invoice reconciliation (incl. already-paid invoices) =====
 
-export type InvoiceBalanceSearchResult = {
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+export type InvoiceReconcileSearchResult = {
   invoiceId: string;
   invoiceNumber: string;
   customerName: string;
   total: number;
-  /** Outstanding balance (total − received/applied payments). Always > 0. */
-  balance: number;
-  /** Balance ≈ this deposit — surfaced first as the likeliest single match. */
+  /** Amount of this invoice NOT yet reconciled to a bank deposit
+   *  (= total − payments already matched to a bank txn). Always > 0. */
+  unreconciled: number;
+  /** Invoice status, so the picker can show "marked paid — not on a bank
+   *  deposit yet" vs "open balance". */
+  status: string;
+  /** unreconciled ≈ this deposit — surfaced first as the likeliest match. */
   sameAmount: boolean;
 };
 
-/** Sum received/applied payments per invoice. Shared by the two actions. */
-function paidByInvoiceMap(
-  payments: { invoiceId: string; amount: string; status: string }[],
-): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const p of payments) {
-    if (p.status === 'received' || p.status === 'applied') {
-      m.set(p.invoiceId, (m.get(p.invoiceId) ?? 0) + Number(p.amount));
-    }
-  }
-  return m;
+/** Set of invoice_payment ids that are matched to an ACTIVE bank txn. */
+function bankMatchedPaymentIds(
+  activeMatches: { matchType: string; invoicePaymentId: string | null }[],
+): Set<string> {
+  return new Set(
+    activeMatches
+      .filter((m) => m.matchType === 'invoice_payment' && m.invoicePaymentId)
+      .map((m) => m.invoicePaymentId!),
+  );
 }
 
 /**
- * Search invoices with an OUTSTANDING BALANCE for the deposit match picker.
- * Unlike the payment-record search, this lists invoices (not payment rows) and
- * surfaces each invoice's remaining balance, so a partially-paid invoice stays
- * selectable until it reaches $0 — letting one deposit pay part of an invoice
- * and a later deposit clear the rest. Money-in txns only.
+ * Search invoices that still have an amount NOT YET RECONCILED to a bank
+ * deposit — `total − (payments already matched to a bank txn)`. This includes
+ * invoices already marked PAID whose recorded payment hasn't been tied to a
+ * deposit yet (the common case here), as well as genuinely open invoices.
+ * Matching reconciles the deposit to those invoices (splitting a recorded
+ * payment when a deposit only covers part). Money-in txns only.
  */
 export async function searchInvoicesForMatchAction(input: {
   transactionId: string;
   query?: string;
 }): Promise<
-  | { ok: true; results: InvoiceBalanceSearchResult[] }
+  | { ok: true; results: InvoiceReconcileSearchResult[] }
   | { ok: false; error: string }
 > {
   await requireAuth();
@@ -1602,25 +1608,37 @@ export async function searchInvoicesForMatchAction(input: {
     };
   }
 
-  const [invoices, payments, projects, customers] = await Promise.all([
-    listInvoices(companyId),
-    listPayments(companyId), // excludes voided-invoice payments
-    listProjects(companyId),
-    listCustomers(companyId),
-  ]);
-  const paid = paidByInvoiceMap(payments);
+  const [invoices, payments, projects, customers, activeMatches] =
+    await Promise.all([
+      listInvoices(companyId),
+      listPayments(companyId), // excludes voided-invoice payments
+      listProjects(companyId),
+      listCustomers(companyId),
+      listActiveMatchesForCompany(companyId),
+    ]);
+  const matchedPaymentIds = bankMatchedPaymentIds(activeMatches);
+  // Bank-reconciled amount per invoice = sum of its payments already matched.
+  const reconciledByInvoice = new Map<string, number>();
+  for (const p of payments) {
+    if (matchedPaymentIds.has(p.id)) {
+      reconciledByInvoice.set(
+        p.invoiceId,
+        (reconciledByInvoice.get(p.invoiceId) ?? 0) + Number(p.amount),
+      );
+    }
+  }
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const customerById = new Map(customers.map((c) => [c.id, c]));
 
   const q = (input.query ?? '').trim().toLowerCase();
   const bankCents = Math.round(bankAmount * 100);
 
-  const results: InvoiceBalanceSearchResult[] = [];
+  const results: InvoiceReconcileSearchResult[] = [];
   for (const inv of invoices) {
     if (inv.status === 'void') continue;
     const total = Number(inv.total);
-    const balance = Math.round((total - (paid.get(inv.id) ?? 0)) * 100) / 100;
-    if (balance <= 0.005) continue; // fully paid — not selectable
+    const unreconciled = r2(total - (reconciledByInvoice.get(inv.id) ?? 0));
+    if (unreconciled <= 0.005) continue; // fully reconciled to the bank
     const proj = inv.projectId ? projectById.get(inv.projectId) : null;
     const cust = proj ? customerById.get(proj.customerId) : null;
     const invoiceNumber = inv.number ?? '—';
@@ -1633,26 +1651,29 @@ export async function searchInvoicesForMatchAction(input: {
       invoiceNumber,
       customerName,
       total,
-      balance,
-      sameAmount: Math.round(balance * 100) === bankCents,
+      unreconciled,
+      status: inv.status,
+      sameAmount: Math.round(unreconciled * 100) === bankCents,
     });
   }
 
-  // Likeliest single match first (balance == deposit), then biggest balances.
+  // Likeliest single match first (unreconciled == deposit), then biggest.
   results.sort((a, b) => {
     if (a.sameAmount !== b.sameAmount) return a.sameAmount ? -1 : 1;
-    return b.balance - a.balance;
+    return b.unreconciled - a.unreconciled;
   });
 
   return { ok: true, results: results.slice(0, 25) };
 }
 
 /**
- * Apply a deposit to one or more invoice balances. For each ticked invoice (in
- * order) we apply the lesser of its open balance and the deposit's remaining,
- * recording a partial invoice payment for that amount (tagged to this txn) and
- * linking it. Reconciles when the deposit is fully allocated. A part-paid
- * invoice keeps its remaining balance for a later deposit.
+ * Reconcile a deposit to one or more invoices. For each ticked invoice (in
+ * order) we apply the lesser of its unreconciled amount and the deposit's
+ * remaining, by first consuming its recorded-but-unreconciled payments (oldest
+ * first, splitting the one the deposit only partly covers) and finally creating
+ * a payment for any genuine open balance. Reconciles the deposit when fully
+ * allocated. An invoice's total/paid status is unchanged by a pure
+ * reconciliation — it just gains the bank linkage.
  */
 export async function matchInvoiceBalancesAction(input: {
   transactionId: string;
@@ -1682,61 +1703,107 @@ export async function matchInvoiceBalancesAction(input: {
     return { ok: false, error: 'Select at least one invoice to match.' };
   }
 
-  // What this deposit has already paid out (sum of prior matched payments).
-  const existing = (await listActiveMatchesForTxn(companyId, txn.id)).filter(
-    (m) => m.matchType === 'invoice_payment' && m.invoicePaymentId,
+  const [invoices, payments, activeMatches] = await Promise.all([
+    listInvoices(companyId),
+    listPayments(companyId),
+    listActiveMatchesForCompany(companyId),
+  ]);
+  const invById = new Map(invoices.map((i) => [i.id, i]));
+  const matchedPaymentIds = bankMatchedPaymentIds(activeMatches);
+  const paymentsByInvoice = new Map<string, typeof payments>();
+  for (const p of payments) {
+    const arr = paymentsByInvoice.get(p.invoiceId) ?? [];
+    arr.push(p);
+    paymentsByInvoice.set(p.invoiceId, arr);
+  }
+
+  // What this deposit has already reconciled (sum of its prior matched payments).
+  const priorMatches = activeMatches.filter(
+    (m) =>
+      m.importedTransactionId === txn.id &&
+      m.matchType === 'invoice_payment' &&
+      m.invoicePaymentId,
   );
   let alreadyAllocated = 0;
-  for (const m of existing) {
-    const p = await getPayment(companyId, m.invoicePaymentId!);
+  for (const m of priorMatches) {
+    const p = payments.find((x) => x.id === m.invoicePaymentId);
     if (p) alreadyAllocated += Number(p.amount);
   }
-  let depositRemaining = Math.round((deposit - alreadyAllocated) * 100) / 100;
+  let depositRemaining = r2(deposit - alreadyAllocated);
   if (depositRemaining <= 0.005) {
     return { ok: false, error: 'This deposit is already fully allocated.' };
   }
 
-  const [invoices, payments] = await Promise.all([
-    listInvoices(companyId),
-    listPayments(companyId),
-  ]);
-  const invById = new Map(invoices.map((i) => [i.id, i]));
-  const paid = paidByInvoiceMap(payments);
-
-  const allocations: { invoiceId: string; amount: number }[] = [];
+  const ops: ReconcileOp[] = [];
+  let totalApplied = 0;
   for (const invoiceId of ids) {
     if (depositRemaining <= 0.005) break;
     const inv = invById.get(invoiceId);
     if (!inv || inv.status === 'void') {
       return { ok: false, error: 'One of the selected invoices was not found.' };
     }
-    const balance =
-      Math.round((Number(inv.total) - (paid.get(invoiceId) ?? 0)) * 100) / 100;
-    if (balance <= 0.005) continue; // already settled — skip
-    const applied = Math.round(Math.min(balance, depositRemaining) * 100) / 100;
+    const invPays = paymentsByInvoice.get(invoiceId) ?? [];
+    const bankReconciled = invPays
+      .filter((p) => matchedPaymentIds.has(p.id))
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const unreconciled = r2(Number(inv.total) - bankReconciled);
+    if (unreconciled <= 0.005) continue;
+    const applied = r2(Math.min(unreconciled, depositRemaining));
     if (applied <= 0.005) continue;
-    allocations.push({ invoiceId, amount: applied });
-    depositRemaining = Math.round((depositRemaining - applied) * 100) / 100;
+
+    // Consume recorded-but-unreconciled payments first (oldest first); split
+    // the one the deposit only partly covers. Then create for any open balance.
+    let need = applied;
+    const unmatched = invPays
+      .filter(
+        (p) =>
+          !matchedPaymentIds.has(p.id) &&
+          (p.status === 'received' || p.status === 'applied'),
+      )
+      .sort((a, b) => a.paidDate.localeCompare(b.paidDate));
+    for (const p of unmatched) {
+      if (need <= 0.005) break;
+      const pAmt = r2(Number(p.amount));
+      if (pAmt <= 0.005) continue;
+      const take = r2(Math.min(pAmt, need));
+      if (Math.abs(take - pAmt) < 0.005) {
+        ops.push({ type: 'match_existing', invoiceId, paymentId: p.id });
+      } else {
+        ops.push({
+          type: 'split_and_match',
+          invoiceId,
+          paymentId: p.id,
+          matchAmount: take,
+          remainderAmount: r2(pAmt - take),
+        });
+      }
+      need = r2(need - take);
+    }
+    if (need > 0.005) {
+      ops.push({ type: 'create_and_match', invoiceId, amount: need });
+    }
+
+    totalApplied = r2(totalApplied + applied);
+    depositRemaining = r2(depositRemaining - applied);
   }
-  if (allocations.length === 0) {
+
+  if (ops.length === 0) {
     return {
       ok: false,
-      error: 'Nothing to apply — the selected invoices have no open balance.',
+      error:
+        'Nothing to reconcile — the selected invoices are already fully reconciled to the bank.',
     };
   }
 
-  const totalAllocated =
-    Math.round(
-      (alreadyAllocated + allocations.reduce((s, a) => s + a.amount, 0)) * 100,
-    ) / 100;
+  const totalAllocated = r2(alreadyAllocated + totalApplied);
   const reconcile = totalAllocated >= deposit - RECONCILE_TOLERANCE;
   const bank = await getBankAccount(companyId, txn.bankAccountId);
 
   try {
-    await createInvoiceBalancePaymentsAtomic({
+    await reconcileInvoicesToDepositAtomic({
       companyId,
       importedTransactionId: txn.id,
-      allocations,
+      ops,
       paidDate: txn.transactionDate,
       bankAccountLabel: bank?.name ?? null,
       confidence: 'manual',
@@ -1754,7 +1821,7 @@ export async function matchInvoiceBalancesAction(input: {
   return {
     ok: true,
     reconciled: reconcile,
-    remaining: Math.max(0, Math.round((deposit - totalAllocated) * 100) / 100),
+    remaining: Math.max(0, r2(deposit - totalAllocated)),
   };
 }
 
