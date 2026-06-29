@@ -80,6 +80,7 @@ export default async function EditInvoicePage({
 
       <InvoiceEditForm
         showVat={company.isVatActive}
+        companyVatRatePercent={Number(company.vatRatePercent)}
         initial={{
           id: invoice.id,
           number: invoice.number,

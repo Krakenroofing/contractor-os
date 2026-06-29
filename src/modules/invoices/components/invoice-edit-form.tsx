@@ -82,12 +82,18 @@ export function InvoiceEditForm({
   changeOrderOptions,
   products = [],
   showVat = true,
+  companyVatRatePercent = 0,
 }: {
   initial: InvoiceEditFormInitial;
   changeOrderOptions: InvoiceEditFormChangeOrderOption[];
   products?: ProductPickerOption[];
   /** Hide the Tax/VAT field + totals line for non-VAT companies. */
   showVat?: boolean;
+  /** Company VAT rate (numeric percent). When > 0, the Tax/VAT field
+   *  auto-recomputes to (subtotal − retainage) × rate as lines change, so
+   *  editing the total also updates the VAT — unless the operator overrides
+   *  it by typing in the field. */
+  companyVatRatePercent?: number;
 }) {
   const [state, formAction, pending] = useActionState(
     updateInvoiceFullAction,
@@ -110,6 +116,20 @@ export function InvoiceEditForm({
   const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate);
   const [dueDate, setDueDate] = useState(initial.dueDate);
   const [taxAmount, setTaxAmount] = useState(initial.taxAmount);
+  // Start in auto mode (VAT follows the subtotal) only when the company has a
+  // VAT rate AND the stored VAT already equals (subtotal − retainage) × rate —
+  // i.e. it was the standard auto figure. If a non-standard VAT was entered by
+  // hand, preserve it (start manual) until the operator resets to auto.
+  const [taxAmountManual, setTaxAmountManual] = useState(() => {
+    if (companyVatRatePercent <= 0) return true;
+    let sub = 0;
+    for (const l of initial.lines) {
+      sub = add(sub, multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0));
+    }
+    const ret = Number(initial.retainageAmount) || 0;
+    const auto = Math.round(((sub - ret) * companyVatRatePercent) / 100 * 100) / 100;
+    return Math.abs((Number(initial.taxAmount) || 0) - auto) > 0.005;
+  });
   const [retainagePercent, setRetainagePercent] = useState(initial.retainagePercent);
   const [retainageAmount, setRetainageAmount] = useState(initial.retainageAmount);
   const [retainageAmountManual, setRetainageAmountManual] = useState(false);
@@ -131,19 +151,29 @@ export function InvoiceEditForm({
         multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0),
       );
     }
-    const tax = Number(taxAmount) || 0;
     const pct = Number(retainagePercent) || 0;
     const derivedHeld = pct > 0 ? (subtotal * pct) / 100 : 0;
     const retainage = retainageAmountManual
       ? Number(retainageAmount) || 0
       : Math.round(derivedHeld * 100) / 100;
-    const total = subtract(add(subtotal, tax), retainage);
+    // VAT applies to the post-retainage base (retainage is deferred billing,
+    // so its VAT defers too) — mirrors the create form. Auto-recomputes as
+    // lines change unless the operator has typed in the Tax field.
+    const netOfRetainage = subtract(subtotal, retainage);
+    const autoTax =
+      companyVatRatePercent > 0
+        ? Math.round(((netOfRetainage * companyVatRatePercent) / 100) * 100) / 100
+        : 0;
+    const tax = taxAmountManual ? Number(taxAmount) || 0 : autoTax;
+    const total = add(netOfRetainage, tax);
     const paid = Number(initial.amountPaid) || 0;
     const balance = subtract(total, paid);
     return { subtotal, tax, retainage, total, paid, balance, pct };
   }, [
     lines,
     taxAmount,
+    taxAmountManual,
+    companyVatRatePercent,
     retainagePercent,
     retainageAmount,
     retainageAmountManual,
@@ -153,6 +183,8 @@ export function InvoiceEditForm({
   const retainageDisplay = retainageAmountManual
     ? retainageAmount
     : totals.retainage.toFixed(2);
+  // In auto mode show the derived VAT so the operator sees it follow the total.
+  const taxDisplay = taxAmountManual ? taxAmount : totals.tax.toFixed(2);
 
   const linesPayload = lines.map((l) => ({
     inventoryItemId: l.inventoryItemId,
@@ -394,16 +426,38 @@ export function InvoiceEditForm({
         <legend className="px-2 text-sm font-medium text-slate-700">Totals</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {showVat ? (
-            <Field label="Tax / VAT" error={err('taxAmount')}>
+            <Field
+              label={
+                companyVatRatePercent > 0
+                  ? `Tax / VAT (${companyVatRatePercent.toFixed(2)}% auto)`
+                  : 'Tax / VAT'
+              }
+              error={err('taxAmount')}
+            >
               <Input
                 name="taxAmount"
                 inputMode="decimal"
-                value={taxAmount}
-                onChange={(e) => setTaxAmount(e.target.value)}
+                value={taxDisplay}
+                onChange={(e) => {
+                  setTaxAmount(e.target.value);
+                  setTaxAmountManual(true);
+                }}
               />
+              {companyVatRatePercent > 0 && taxAmountManual && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaxAmountManual(false);
+                    setTaxAmount('0');
+                  }}
+                  className="mt-1 text-[11px] text-slate-500 hover:text-slate-900 underline"
+                >
+                  Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
+                </button>
+              )}
             </Field>
           ) : (
-            <input type="hidden" name="taxAmount" value={taxAmount} />
+            <input type="hidden" name="taxAmount" value={taxDisplay} />
           )}
           <Field label="Retainage %" error={err('retainagePercent')}>
             <Input
