@@ -269,7 +269,11 @@ export async function buildInvoicePayload(
           : baseVatLabel;
       totals.push({ label: vatLabel, value: vatAmount });
     }
-    totals.push({ label: 'Final total', value: total, bold: true });
+    totals.push({
+      label: showVatRow ? 'Final total (incl. VAT)' : 'Final total',
+      value: total,
+      bold: true,
+    });
     pushSettlementRows();
     totals.push({ label: 'Balance due', value: balance, bold: true });
   } else {
@@ -295,7 +299,11 @@ export async function buildInvoicePayload(
           : (template?.vatLabel ?? 'Tax / VAT');
       totals.push({ label: vatLabel, value: vatAmount });
     }
-    totals.push({ label: 'Net amount due', value: total, bold: true });
+    totals.push({
+      label: showVatRow ? 'Net amount due (incl. VAT)' : 'Net amount due',
+      value: total,
+      bold: true,
+    });
     pushSettlementRows();
     totals.push({ label: 'Balance due', value: balance, bold: true });
   }
@@ -388,7 +396,17 @@ export async function buildInvoicePayload(
   const fmtAmount = (n: number, negative = false): string =>
     negative ? `(${formatMoney(n, currency)})` : formatMoney(n, currency);
   const dataTables: DocumentDataTable[] = [];
-  if (template?.showProgressBilling && project) {
+  // Progress billing / "balance to bill" only makes sense on a CONTRACT job.
+  // A service / T&M project has no contract value, so "balance to bill"
+  // (contract − billed) is meaningless and prints as a negative — and the
+  // $0-contract block buries the totals (clients miss the VAT). Skip it.
+  const projectHasContractValue =
+    !!project &&
+    add(
+      originalContractValue,
+      approvedProjectCOs.reduce((acc, co) => add(acc, parseMoney(co.total)), 0),
+    ) > 0;
+  if (template?.showProgressBilling && project && projectHasContractValue) {
     const approvedCOTotal = approvedProjectCOs.reduce(
       (acc, co) => add(acc, parseMoney(co.total)),
       0,

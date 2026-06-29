@@ -470,7 +470,15 @@ export default async function InvoiceDetailPage({
                 value={formatMoney(vatAmount)}
               />
             )}
-            <Row label="Net amount due" value={formatMoney(invoice.total)} bold />
+            <Row
+              label={
+                show('showTaxVat') && company.isVatActive
+                  ? 'Net amount due (incl. VAT)'
+                  : 'Net amount due'
+              }
+              value={formatMoney(invoice.total)}
+              bold
+            />
             <Row label="Amount paid" value={formatMoney(invoice.amountPaid)} />
             <Row
               label="Balance due"
@@ -512,7 +520,13 @@ export default async function InvoiceDetailPage({
           we'd compare CO-3 billings to (base + every CO), which always
           understates the % billed. Base-contract invoices compare against
           the original contract (NOT contract + COs) for the same reason. */}
-      {template?.showProgressBilling && project && (() => {
+      {/* Progress billing / "balance to bill" only applies to a contract job.
+          Service / T&M projects have no contract value, so this whole block
+          (with its $0 contract rows and negative balance-to-bill) is hidden. */}
+      {template?.showProgressBilling &&
+        project &&
+        Number(project.contractValue) > 0 &&
+        (() => {
         // billRevised: base-track invoice that bills against the revised
         // contract (base + approved COs) with prior billings combined.
         const billRevised = invoice.billAgainstRevised && !invoice.changeOrderId;
