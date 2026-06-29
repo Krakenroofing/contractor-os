@@ -942,6 +942,7 @@ function buildInvoice(input: SeedInvoice): {
       bankAccount: p.bankAccount ?? null,
       status: p.status ?? 'received',
       notes: null,
+      importedTransactionId: null,
       createdAt: now,
     })) ?? [];
   const retainageReleases: RetainageRelease[] =
@@ -2421,6 +2422,7 @@ export function createMockPayment(
     bankAccount: input.bankAccount,
     status: input.status,
     notes: input.notes,
+    importedTransactionId: null,
     createdAt: now,
   };
   store.invoicePayments.push(payment);
@@ -3600,6 +3602,7 @@ export async function updateEntityStatus(
             bankAccount: null,
             status: 'received',
             notes: 'Auto-recorded by Mark Paid action',
+            importedTransactionId: null,
             createdAt: now,
           });
         }

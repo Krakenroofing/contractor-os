@@ -8,15 +8,16 @@ import {
   addReceiptToTransactionAction,
   markInterAccountTransferAction,
   matchInvoicePaymentsAction,
+  matchInvoiceBalancesAction,
   matchJobCostEntryAction,
   matchOwnerEquityAction,
   matchReceiptAction,
   matchBillsAction,
   matchTransferAction,
-  searchInvoicePaymentsForMatchAction,
+  searchInvoicesForMatchAction,
   searchBillsForMatchAction,
   unmatchTransactionAction,
-  type InvoicePaymentSearchResult,
+  type InvoiceBalanceSearchResult,
   type BillSearchResult,
 } from '../actions';
 import { Input } from '@/components/ui/input';
@@ -102,14 +103,15 @@ export function MatchPanel(props: MatchPanelProps) {
   const [invoiceMode, setInvoiceMode] = useState(false);
   const [invoiceQuery, setInvoiceQuery] = useState('');
   const [invoiceResults, setInvoiceResults] = useState<
-    InvoicePaymentSearchResult[]
+    InvoiceBalanceSearchResult[]
   >([]);
   const [invoiceSearched, setInvoiceSearched] = useState(false);
   const [searching, setSearching] = useState(false);
-  // Multi-select: payments picked across one or more searches, kept as objects
-  // so the running total survives re-searches that drop a row from view.
+  // Multi-select: invoices picked across one or more searches, keyed by
+  // invoiceId and carrying the open balance so the tally survives re-searches
+  // that drop a row from view.
   const [selected, setSelected] = useState<
-    Map<string, { invoiceNumber: string; amount: number }>
+    Map<string, { invoiceNumber: string; balance: number }>
   >(new Map());
 
   // Amount already linked to this deposit by prior matches.
@@ -117,19 +119,31 @@ export function MatchPanel(props: MatchPanelProps) {
     (s, m) => s + m.amount,
     0,
   );
-  const selectedSum = Array.from(selected.values()).reduce(
-    (s, v) => s + v.amount,
+  const deposit = props.amount;
+  // How much of the deposit is still unallocated before this round of ticks.
+  const depositOpen = Math.round((deposit - alreadyAllocated) * 100) / 100;
+  // Sum of the OPEN BALANCES the user has ticked. The amount actually applied
+  // is capped at what's left of the deposit (mirrors the server's sequential
+  // allocation), so a part-paid invoice never over-pays.
+  const selectedBalanceSum = Array.from(selected.values()).reduce(
+    (s, v) => s + v.balance,
     0,
   );
-  const deposit = props.amount;
-  const liveRemaining =
-    Math.round((deposit - alreadyAllocated - selectedSum) * 100) / 100;
+  const newlyApplied = Math.min(
+    Math.round(selectedBalanceSum * 100) / 100,
+    depositOpen,
+  );
+  const liveRemaining = Math.round((depositOpen - newlyApplied) * 100) / 100;
 
-  function toggleSelected(r: InvoicePaymentSearchResult) {
+  function toggleSelected(r: InvoiceBalanceSearchResult) {
     setSelected((prev) => {
       const next = new Map(prev);
-      if (next.has(r.id)) next.delete(r.id);
-      else next.set(r.id, { invoiceNumber: r.invoiceNumber, amount: r.amount });
+      if (next.has(r.invoiceId)) next.delete(r.invoiceId);
+      else
+        next.set(r.invoiceId, {
+          invoiceNumber: r.invoiceNumber,
+          balance: r.balance,
+        });
       return next;
     });
   }
@@ -138,9 +152,9 @@ export function MatchPanel(props: MatchPanelProps) {
     if (selected.size === 0) return;
     setErr(null);
     startTransition(async () => {
-      const res = await matchInvoicePaymentsAction({
+      const res = await matchInvoiceBalancesAction({
         transactionId: props.transactionId,
-        invoicePaymentIds: Array.from(selected.keys()),
+        invoiceIds: Array.from(selected.keys()),
       });
       if (!res.ok) {
         setErr(res.error ?? 'Match failed.');
@@ -154,7 +168,7 @@ export function MatchPanel(props: MatchPanelProps) {
     setErr(null);
     setSearching(true);
     startTransition(async () => {
-      const res = await searchInvoicePaymentsForMatchAction({
+      const res = await searchInvoicesForMatchAction({
         transactionId: props.transactionId,
         query: invoiceQuery,
       });
@@ -415,8 +429,10 @@ export function MatchPanel(props: MatchPanelProps) {
       <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
         <div className="font-medium text-blue-900">Match deposit to invoices</div>
         <p className="text-blue-800">
-          A single deposit can cover several invoices. Tick invoices until the
-          remaining balance reaches $0. Matches regardless of the date gap.
+          Tick invoices that still owe money. Each one is paid down by the lesser
+          of its balance and what&apos;s left of the deposit, so a deposit can
+          partly pay an invoice — the rest stays owing for a later deposit.
+          Matches regardless of the date gap.
         </p>
 
         {/* Running tally */}
@@ -430,7 +446,7 @@ export function MatchPanel(props: MatchPanelProps) {
           <span className="text-slate-600">
             Allocated{' '}
             <span className="font-semibold tabular-nums text-slate-900">
-              ${fmtMoney(alreadyAllocated + selectedSum)}
+              ${fmtMoney(alreadyAllocated + newlyApplied)}
             </span>
           </span>
           <span
@@ -471,17 +487,18 @@ export function MatchPanel(props: MatchPanelProps) {
 
         {invoiceSearched && invoiceResults.length === 0 && !err && (
           <p className="text-slate-600">
-            No matching invoice payments found. Try a different search.
+            No invoices with an open balance match that search.
           </p>
         )}
 
         {invoiceResults.length > 0 && (
           <div className="space-y-1">
             {invoiceResults.map((r) => {
-              const checked = selected.has(r.id);
+              const checked = selected.has(r.invoiceId);
+              const partlyPaid = r.balance < r.total - 0.005;
               return (
                 <label
-                  key={r.id}
+                  key={r.invoiceId}
                   className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 ${
                     checked ? 'bg-blue-100' : 'bg-white'
                   }`}
@@ -494,14 +511,19 @@ export function MatchPanel(props: MatchPanelProps) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">
-                      Invoice {r.invoiceNumber} — {r.customerName} · $
-                      {fmtMoney(r.amount)}
+                      Invoice {r.invoiceNumber} — {r.customerName} ·{' '}
+                      <span className="font-medium tabular-nums">
+                        ${fmtMoney(r.balance)}
+                      </span>{' '}
+                      owing
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      paid {r.paidDate}{' '}
+                      {partlyPaid
+                        ? `invoice $${fmtMoney(r.total)} · partly paid`
+                        : `invoice total $${fmtMoney(r.total)}`}{' '}
                       {r.sameAmount && (
                         <span className="inline-block rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px]">
-                          same amount
+                          matches deposit
                         </span>
                       )}
                     </div>

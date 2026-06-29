@@ -11,10 +11,63 @@ import {
   importedTransactionLines,
   transactionMatches,
   payrollBills,
+  invoicePayments,
+  invoices,
   type NewTransactionMatch,
   type TransactionMatch,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+
+// A drizzle transaction handle. Inferred from db.transaction's callback so we
+// don't depend on a named export that may differ across drizzle versions.
+type Tx = Parameters<
+  Parameters<NonNullable<ReturnType<typeof getDb>>['transaction']>[0]
+>[0];
+
+/**
+ * Re-derive an invoice's amount_paid + status by summing its received/applied
+ * payments — the tx-aware twin of recomputeInvoicePaymentState (which opens
+ * its own connection and so can't run inside an open transaction).
+ */
+async function recomputeInvoiceStateInTx(
+  tx: Tx,
+  invoiceId: string,
+): Promise<void> {
+  const invRows = await tx
+    .select()
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  const inv = invRows[0];
+  if (!inv) return;
+  const pays = await tx
+    .select()
+    .from(invoicePayments)
+    .where(eq(invoicePayments.invoiceId, invoiceId));
+  const total = Number(inv.total);
+  let paid = 0;
+  for (const p of pays) {
+    if (p.status === 'received' || p.status === 'applied') {
+      paid += Number(p.amount);
+    }
+  }
+  const now = new Date();
+  const patch: Record<string, unknown> = {
+    amountPaid: paid.toFixed(2),
+    updatedAt: now,
+  };
+  if (paid >= total - 0.005) {
+    patch.status = 'paid';
+    patch.paidAt = now;
+  } else if (paid > 0) {
+    patch.status = 'partial';
+    patch.paidAt = null;
+  } else if (inv.status === 'paid' || inv.status === 'partial') {
+    patch.status = 'sent';
+    patch.paidAt = null;
+  }
+  await tx.update(invoices).set(patch).where(eq(invoices.id, invoiceId));
+}
 
 export class TransactionMatchesNotAvailableInDemoError extends Error {
   constructor() {
@@ -124,6 +177,81 @@ export async function createInvoicePaymentMatchesAtomic(input: {
         })
         .returning();
       rows.push(row);
+    }
+    if (input.reconcile) {
+      await tx
+        .update(importedTransactions)
+        .set({ reconciledAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(importedTransactions.id, input.importedTransactionId),
+            eq(importedTransactions.companyId, input.companyId),
+          ),
+        );
+    }
+    return rows;
+  });
+}
+
+/**
+ * Match a deposit against one or more invoice BALANCES. For each allocation we
+ * record a (possibly partial) invoice payment sized to the amount applied,
+ * tagged with imported_transaction_id so Unmatch can remove exactly these
+ * rows, then link it to the deposit via an invoice_payment match. The invoice
+ * amount_paid/status is recomputed in-transaction so a partially-paid invoice
+ * keeps an open balance for the next deposit.
+ *
+ * Atomic: payments + matches + per-invoice recompute + the reconciled_at flip
+ * all commit together. Returns the created match rows.
+ */
+export async function createInvoiceBalancePaymentsAtomic(input: {
+  companyId: string;
+  importedTransactionId: string;
+  /** One per ticked invoice, in allocation order. amount is the applied (≤
+   *  invoice balance, ≤ deposit remaining) figure. */
+  allocations: { invoiceId: string; amount: number }[];
+  paidDate: string;
+  bankAccountLabel?: string | null;
+  confidence: TransactionMatch['confidence'];
+  matchedByUserId: string | null;
+  reconcile: boolean;
+}): Promise<TransactionMatch[]> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const rows: TransactionMatch[] = [];
+    const touchedInvoices = new Set<string>();
+    for (const a of input.allocations) {
+      if (a.amount <= 0.005) continue;
+      const [payment] = await tx
+        .insert(invoicePayments)
+        .values({
+          invoiceId: a.invoiceId,
+          paymentNumber: '',
+          paidDate: input.paidDate,
+          amount: a.amount.toFixed(2),
+          method: 'bank_match',
+          bankAccount: input.bankAccountLabel ?? null,
+          status: 'received',
+          notes: 'Recorded from bank deposit reconciliation',
+          importedTransactionId: input.importedTransactionId,
+        })
+        .returning();
+      const [match] = await tx
+        .insert(transactionMatches)
+        .values({
+          companyId: input.companyId,
+          importedTransactionId: input.importedTransactionId,
+          matchType: 'invoice_payment',
+          invoicePaymentId: payment.id,
+          confidence: input.confidence,
+          matchedByUserId: input.matchedByUserId,
+        })
+        .returning();
+      rows.push(match);
+      touchedInvoices.add(a.invoiceId);
+    }
+    for (const invoiceId of touchedInvoices) {
+      await recomputeInvoiceStateInTx(tx, invoiceId);
     }
     if (input.reconcile) {
       await tx
@@ -326,6 +454,25 @@ export async function reverseMatchAtomic(input: {
       })
       .where(eq(transactionMatches.id, existing.id))
       .returning();
+
+    // A reversed invoice-payment match: if the payment was CREATED by this
+    // deposit's reconciliation (imported_transaction_id == this txn), remove it
+    // and re-open the invoice's balance. Manually-recorded payments (NULL
+    // imported_transaction_id, or linked from a different txn) are left intact.
+    if (existing.matchType === 'invoice_payment' && existing.invoicePaymentId) {
+      const payRows = await tx
+        .select()
+        .from(invoicePayments)
+        .where(eq(invoicePayments.id, existing.invoicePaymentId))
+        .limit(1);
+      const pay = payRows[0];
+      if (pay && pay.importedTransactionId === existing.importedTransactionId) {
+        await tx
+          .delete(invoicePayments)
+          .where(eq(invoicePayments.id, pay.id));
+        await recomputeInvoiceStateInTx(tx, pay.invoiceId);
+      }
+    }
 
     // A reversed payroll-bill match makes the bill payable again.
     if (existing.payrollBillId) {

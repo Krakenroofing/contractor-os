@@ -152,6 +152,13 @@ export const invoicePayments = pgTable(
     bankAccount: text('bank_account'),
     status: paymentStatusEnum('status').notNull().default('received'),
     notes: text('notes'),
+    // Set when this payment was created by reconciling a bank deposit against
+    // the invoice's outstanding balance (the "Match deposit to invoices"
+    // picker). Lets Unmatch remove exactly the payments it created, leaving
+    // manually-recorded payments untouched. Plain uuid column — the FK
+    // constraint is added in the migration to avoid an invoices↔statement
+    // import cycle. ON DELETE SET NULL there.
+    importedTransactionId: uuid('imported_transaction_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
