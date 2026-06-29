@@ -213,21 +213,11 @@ export async function buildInvoicePayload(
   // "Billing #N — X% Progress" / Less Previously Paid / Less Retention /
   // Invoice Total / VAT / Final Total — matching the construction-industry
   // AIA-style progress payment certificate format.
+  // The totals stack shows THIS INVOICE's charges only — subtotal, (retainage),
+  // VAT, total. Settlement (amount paid / credit / balance) is kept in its own
+  // "Payment summary" table below so the current charge isn't muddled with the
+  // running account — operators were finding clients miss the VAT in the mix.
   const totals: DocumentTotalsRow[] = [];
-  // Shared settlement rows: cash payments and credit-memo applications shown
-  // separately so a credit reads as a credit, not as cash paid.
-  const pushSettlementRows = () => {
-    if (cashPaid > 0 || creditApplied === 0) {
-      totals.push({ label: 'Amount paid', value: cashPaid });
-    }
-    if (creditApplied > 0) {
-      totals.push({
-        label: 'Credit applied',
-        value: creditApplied,
-        negative: true,
-      });
-    }
-  };
   // Never render a VAT row for a non-VAT company (e.g. Kraken Roofing LLC,
   // US) — otherwise the PDF shows a "VAT $0.00" line on every invoice.
   const showVatRow = (template ? template.showTaxVat : true) && company.isVatActive;
@@ -274,8 +264,6 @@ export async function buildInvoicePayload(
       value: total,
       bold: true,
     });
-    pushSettlementRows();
-    totals.push({ label: 'Balance due', value: balance, bold: true });
   } else {
     totals.push({ label: 'Subtotal', value: subtotal });
     if (showRetainageRow) {
@@ -304,8 +292,6 @@ export async function buildInvoicePayload(
       value: total,
       bold: true,
     });
-    pushSettlementRows();
-    totals.push({ label: 'Balance due', value: balance, bold: true });
   }
 
   const sections: DocumentSection[] = [];
@@ -518,6 +504,29 @@ export async function buildInvoicePayload(
         { label: 'Amount', align: 'right', widthPct: 30 },
       ],
       rows,
+    });
+  }
+
+  // ---- Payment summary (this invoice's settlement) ----
+  // Kept OUT of the charge totals and in its own table so the current
+  // invoice's "Subtotal / VAT / Total" reads cleanly. Only shown once
+  // something has actually been paid or credited against this invoice.
+  if (cashPaid > 0 || creditApplied > 0) {
+    const paymentRows: string[][] = [['Invoice total', fmtAmount(total)]];
+    if (cashPaid > 0) {
+      paymentRows.push(['Amount paid', fmtAmount(cashPaid, true)]);
+    }
+    if (creditApplied > 0) {
+      paymentRows.push(['Credit applied', fmtAmount(creditApplied, true)]);
+    }
+    paymentRows.push(['Balance due', fmtAmount(balance)]);
+    dataTables.push({
+      title: 'Payment summary',
+      columns: [
+        { label: 'Item', align: 'left', widthPct: 70 },
+        { label: 'Amount', align: 'right', widthPct: 30 },
+      ],
+      rows: paymentRows,
     });
   }
 

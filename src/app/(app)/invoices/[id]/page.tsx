@@ -479,16 +479,29 @@ export default async function InvoiceDetailPage({
               value={formatMoney(invoice.total)}
               bold
             />
-            <Row label="Amount paid" value={formatMoney(invoice.amountPaid)} />
-            <Row
-              label="Balance due"
-              value={formatMoney(balance)}
-              bold
-              valueClassName={
-                balance <= 0 ? 'text-emerald-700' : 'text-amber-700'
-              }
-            />
           </div>
+          {/* Payment summary kept separate from the charge totals so the
+              invoice's Subtotal / VAT / Total reads cleanly. Only shown once
+              something has been paid against it. */}
+          {Number(invoice.amountPaid) > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-200 space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                Payment summary
+              </p>
+              <Row
+                label="Amount paid"
+                value={formatMoney(invoice.amountPaid)}
+              />
+              <Row
+                label="Balance due"
+                value={formatMoney(balance)}
+                bold
+                valueClassName={
+                  balance <= 0 ? 'text-emerald-700' : 'text-amber-700'
+                }
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
