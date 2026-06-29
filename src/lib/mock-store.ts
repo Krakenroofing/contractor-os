@@ -4704,11 +4704,14 @@ export type CreateSnapshotInput = Omit<
 
 export function listMockPaystubSnapshots(
   companyId: string,
-  filters?: { payPeriodId?: string },
+  filters?: { payPeriodId?: string; employeeId?: string },
 ): PeriodPaystubSnapshot[] {
   return getStore().periodPaystubSnapshots.filter((s) => {
     if (s.companyId !== companyId) return false;
     if (filters?.payPeriodId && s.payPeriodId !== filters.payPeriodId) {
+      return false;
+    }
+    if (filters?.employeeId && s.employeeId !== filters.employeeId) {
       return false;
     }
     return true;

@@ -112,6 +112,15 @@ export default async function FieldHomePage() {
         subtitle="Flag an issue or task for the office"
         href="/field/notes/new"
       />
+
+      {/* My pay slips — the worker's own finalized pay slips (PDF). Needs an
+          employee link; the page itself explains if it's missing. */}
+      <ActionCard
+        title="My pay slips"
+        subtitle="View &amp; download your finalized pay"
+        href={employee ? '/field/paystubs' : undefined}
+        disabled={!employee}
+      />
     </div>
   );
 }

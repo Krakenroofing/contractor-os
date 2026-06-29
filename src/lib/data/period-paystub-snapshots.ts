@@ -20,13 +20,16 @@ export type { CreateSnapshotInput };
 
 export async function listPaystubSnapshots(
   companyId: string,
-  filters: { payPeriodId?: string } = {},
+  filters: { payPeriodId?: string; employeeId?: string } = {},
 ): Promise<PeriodPaystubSnapshot[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
     const conds = [eq(periodPaystubSnapshots.companyId, companyId)];
     if (filters.payPeriodId) {
       conds.push(eq(periodPaystubSnapshots.payPeriodId, filters.payPeriodId));
+    }
+    if (filters.employeeId) {
+      conds.push(eq(periodPaystubSnapshots.employeeId, filters.employeeId));
     }
     return await db
       .select()

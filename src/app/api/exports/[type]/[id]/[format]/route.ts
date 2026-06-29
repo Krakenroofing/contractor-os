@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { getActiveEmployee } from '@/lib/active-employee';
+import { canView } from '@/lib/permissions';
 import {
   PAYLOAD_BUILDERS,
   isSupportedDocumentType,
@@ -52,6 +55,20 @@ export async function GET(
   }
 
   const companyId = await getActiveCompanyId();
+
+  // Pay slips are personal. Only the employee the slip belongs to (a field
+  // worker viewing their own pay) or an office payroll-viewer may download
+  // one — otherwise a coworker could pull anyone's pay by guessing the id.
+  if (type === 'payslip') {
+    const role = await getActiveRole();
+    const employeeId = id.split('__')[0];
+    const me = await getActiveEmployee();
+    const allowed = canView(role, 'payroll') || me?.id === employeeId;
+    if (!allowed) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+  }
+
   const builder = PAYLOAD_BUILDERS[type];
   const payload = await builder(companyId, id);
   if (!payload) {
