@@ -26,7 +26,10 @@ import {
 } from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
-import { getChangeOrder } from '@/lib/data/change-orders';
+import {
+  getChangeOrder,
+  listApprovedChangeOrdersForProject,
+} from '@/lib/data/change-orders';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
@@ -73,6 +76,12 @@ export default async function InvoiceDetailPage({
   const co = invoice.changeOrderId
     ? await getChangeOrder(companyId, invoice.changeOrderId)
     : undefined;
+  // Approved change orders on this project — used by the contract summary to
+  // itemise each CO's own value / billed / still-billable instead of rolling
+  // them into one line (which hid a CO's unbilled remainder).
+  const approvedCOs = invoice.projectId
+    ? await listApprovedChangeOrdersForProject(invoice.projectId)
+    : [];
   const template = invoice.templateId
     ? await getInvoiceTemplate(companyId, invoice.templateId)
     : undefined;
@@ -540,18 +549,30 @@ export default async function InvoiceDetailPage({
           const priorBaseBilled = priorToDate
             .filter((i) => !onCoTrack(i))
             .reduce((s, i) => s + Number(i.subtotal), 0);
-          const priorCoBilled = priorToDate
-            .filter((i) => onCoTrack(i))
-            .reduce((s, i) => s + Number(i.subtotal), 0);
           const thisSubtotal = Number(invoice.subtotal);
           const thisOnCo = onCoTrack(invoice);
           const thisBase = thisOnCo ? 0 : thisSubtotal;
-          const thisCo = thisOnCo ? thisSubtotal : 0;
 
           const originalContract = Number(project.originalContractValue);
-          const approvedCOTotal = Number(project.totalChangeOrders);
           const baseStill = originalContract - (priorBaseBilled + thisBase);
-          const coStill = approvedCOTotal - (priorCoBilled + thisCo);
+
+          // Prior billing grouped by the change order it was billed against,
+          // so each CO can show its own remaining balance. A CO-track invoice
+          // with no linked CO falls into the "other" bucket.
+          const coTrackPriors = priorToDate.filter((i) => onCoTrack(i));
+          const billedByCoId = new Map<string, number>();
+          let unlinkedCoBilled = 0;
+          for (const i of coTrackPriors) {
+            if (i.changeOrderId) {
+              billedByCoId.set(
+                i.changeOrderId,
+                (billedByCoId.get(i.changeOrderId) ?? 0) + Number(i.subtotal),
+              );
+            } else {
+              unlinkedCoBilled += Number(i.subtotal);
+            }
+          }
+          const thisCoId = thisOnCo ? invoice.changeOrderId : null;
 
           // Cumulative retainage withheld (net of releases) across all
           // non-void invoices on the project up to and including this one.
@@ -565,7 +586,7 @@ export default async function InvoiceDetailPage({
               Number(invoice.retainageReleased));
 
           const hasCoTrack =
-            approvedCOTotal > 0 || priorCoBilled > 0 || thisCo > 0;
+            approvedCOs.length > 0 || coTrackPriors.length > 0 || thisOnCo;
 
           return (
             <Card>
@@ -597,27 +618,60 @@ export default async function InvoiceDetailPage({
                 </div>
 
                 {hasCoTrack && (
-                  <div className="space-y-1">
+                  <div className="space-y-3">
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">
                       Change orders
                     </p>
-                    <Row
-                      label="Approved change orders"
-                      value={formatMoney(approvedCOTotal)}
-                    />
-                    {priorCoBilled > 0 && (
-                      <Row
-                        label="Previously billed"
-                        value={`(${formatMoney(priorCoBilled)})`}
-                      />
+                    {approvedCOs
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          new Date(a.createdAt).getTime() -
+                          new Date(b.createdAt).getTime(),
+                      )
+                      .map((c) => {
+                      const value = Number(c.total);
+                      const prevBilled = billedByCoId.get(c.id) ?? 0;
+                      const thisAmt = thisCoId === c.id ? thisSubtotal : 0;
+                      const still = value - prevBilled - thisAmt;
+                      return (
+                        <div key={c.id} className="space-y-1">
+                          <p className="text-xs font-medium text-slate-600">
+                            {c.number}
+                            {c.description ? ` · ${c.description}` : ''}
+                          </p>
+                          <Row label="Approved value" value={formatMoney(value)} />
+                          {prevBilled > 0 && (
+                            <Row
+                              label="Previously billed"
+                              value={`(${formatMoney(prevBilled)})`}
+                            />
+                          )}
+                          {thisAmt > 0 && (
+                            <Row
+                              label="This invoice"
+                              value={`(${formatMoney(thisAmt)})`}
+                            />
+                          )}
+                          <Row
+                            label="Still billable"
+                            value={formatMoney(still)}
+                            bold
+                          />
+                        </div>
+                      );
+                    })}
+                    {unlinkedCoBilled > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-slate-600">
+                          Other change-order billing
+                        </p>
+                        <Row
+                          label="Billed"
+                          value={`(${formatMoney(unlinkedCoBilled)})`}
+                        />
+                      </div>
                     )}
-                    {thisCo > 0 && (
-                      <Row
-                        label="This invoice"
-                        value={`(${formatMoney(thisCo)})`}
-                      />
-                    )}
-                    <Row label="Still billable" value={formatMoney(coStill)} bold />
                   </div>
                 )}
 

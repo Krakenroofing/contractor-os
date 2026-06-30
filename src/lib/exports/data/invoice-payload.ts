@@ -392,10 +392,6 @@ export async function buildInvoicePayload(
       approvedProjectCOs.reduce((acc, co) => add(acc, parseMoney(co.total)), 0),
     ) > 0;
   if (template?.showProgressBilling && project && projectHasContractValue) {
-    const approvedCOTotal = approvedProjectCOs.reduce(
-      (acc, co) => add(acc, parseMoney(co.total)),
-      0,
-    );
     const originalContract = parseMoney(project.originalContractValue);
 
     // Prior invoices on the project up to (and including the date of) this
@@ -407,15 +403,28 @@ export async function buildInvoicePayload(
     const priorBaseBilled = priorToDate
       .filter((i) => !isInvoiceOnCoTrack(i))
       .reduce((acc, i) => add(acc, parseMoney(i.subtotal)), 0);
-    const priorCoBilled = priorToDate
-      .filter((i) => isInvoiceOnCoTrack(i))
-      .reduce((acc, i) => add(acc, parseMoney(i.subtotal)), 0);
 
-    // This-invoice contribution lands on exactly one track.
+    // This-invoice base contribution (CO contribution is handled per-CO below).
     const thisBase = thisInvoiceOnCoTrack ? 0 : subtotal;
-    const thisCo = thisInvoiceOnCoTrack ? subtotal : 0;
     const baseStill = subtract(originalContract, add(priorBaseBilled, thisBase));
-    const coStill = subtract(approvedCOTotal, add(priorCoBilled, thisCo));
+
+    // Prior CO billing grouped by the CO it was billed against, so each CO
+    // shows its own remaining balance. CO-track invoices with no linked CO
+    // fall into an "other" bucket.
+    const coTrackPriors = priorToDate.filter((i) => isInvoiceOnCoTrack(i));
+    const billedByCoId = new Map<string, number>();
+    let unlinkedCoBilled = 0;
+    for (const i of coTrackPriors) {
+      if (i.changeOrderId) {
+        billedByCoId.set(
+          i.changeOrderId,
+          add(billedByCoId.get(i.changeOrderId) ?? 0, parseMoney(i.subtotal)),
+        );
+      } else {
+        unlinkedCoBilled = add(unlinkedCoBilled, parseMoney(i.subtotal));
+      }
+    }
+    const thisCoId = thisInvoiceOnCoTrack ? invoice.changeOrderId : null;
 
     // Cumulative retainage withheld (net of releases) across all non-void
     // invoices on the project up to and including this one.
@@ -450,17 +459,38 @@ export async function buildInvoicePayload(
     }
     rows.push(['  Still billable', fmtAmount(baseStill)]);
 
-    // ----- Change orders track -----
-    if (approvedCOTotal > 0 || priorCoBilled > 0 || thisCo > 0) {
+    // ----- Change orders track (itemised per CO) -----
+    if (
+      approvedProjectCOs.length > 0 ||
+      coTrackPriors.length > 0 ||
+      thisInvoiceOnCoTrack
+    ) {
       rows.push([template.changeOrdersLabel || 'Change orders', '']);
-      rows.push(['  Approved change orders', fmtAmount(approvedCOTotal)]);
-      if (priorCoBilled > 0) {
-        rows.push(['  Previously billed', fmtAmount(priorCoBilled, true)]);
+      const itemisedCOs = [...approvedProjectCOs].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+      for (const co of itemisedCOs) {
+        const value = parseMoney(co.total);
+        const prevBilled = billedByCoId.get(co.id) ?? 0;
+        const thisAmt = thisCoId === co.id ? subtotal : 0;
+        const still = subtract(value, add(prevBilled, thisAmt));
+        const label = `  ${co.number}${
+          co.description ? ` — ${co.description.slice(0, 50)}` : ''
+        }`;
+        rows.push([label, '']);
+        rows.push(['    Approved value', fmtAmount(value)]);
+        if (prevBilled > 0) {
+          rows.push(['    Previously billed', fmtAmount(prevBilled, true)]);
+        }
+        if (thisAmt > 0) {
+          rows.push(['    This invoice', fmtAmount(thisAmt, true)]);
+        }
+        rows.push(['    Still billable', fmtAmount(still)]);
       }
-      if (thisCo > 0) {
-        rows.push(['  This invoice', fmtAmount(thisCo, true)]);
+      if (unlinkedCoBilled > 0) {
+        rows.push(['  Other change-order billing', fmtAmount(unlinkedCoBilled, true)]);
       }
-      rows.push(['  Still billable', fmtAmount(coStill)]);
     }
 
     // ----- Cumulative retainage memo -----
