@@ -104,3 +104,59 @@ export async function captureNativePhoto(
   const file = new File([blob], name, { type: mime });
   return { file, mimeType: mime };
 }
+
+/**
+ * Open the native photo library for MULTI-select and return every chosen
+ * photo as a File. Returns an empty array when not in a Capacitor shell or
+ * when the user cancels. Throws on real picker errors.
+ *
+ * Unlike captureNativePhoto (camera = one shot at a time), the OS gallery
+ * lets the worker tap several photos in one pass — so they can attach a
+ * whole morning's worth without re-opening the picker for each one.
+ */
+export async function pickNativePhotos(): Promise<NativePhotoResult[]> {
+  if (!isCapacitorNative()) return [];
+
+  const { Camera } = await import('@capacitor/camera');
+
+  let result;
+  try {
+    result = await Camera.pickImages({
+      // Mirror captureNativePhoto's downsizing so multi-picked photos land
+      // under the upload cap too.
+      quality: 80,
+      width: 2048,
+    });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    if (message.includes('cancel')) return [];
+    throw err;
+  }
+
+  // pickImages returns webPath URLs (blob:/capacitor:) — NOT base64 — which
+  // is the documented way to read multi-picked photos. fetch(webPath) on
+  // those is reliable in the WebView (the data:-URL caveat in
+  // captureNativePhoto does not apply here). The plugin gives no file name,
+  // so synthesise one per photo.
+  const photos = result?.photos ?? [];
+  const out: NativePhotoResult[] = [];
+  for (let i = 0; i < photos.length; i++) {
+    const p = photos[i];
+    try {
+      const resp = await fetch(p.webPath);
+      const blob = await resp.blob();
+      const mime =
+        blob.type || (p.format ? `image/${p.format}` : 'image/jpeg');
+      const ext =
+        mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+      const file = new File([blob], `field-${Date.now()}-${i}.${ext}`, {
+        type: mime,
+      });
+      out.push({ file, mimeType: mime });
+    } catch {
+      // Skip a photo the WebView can't read rather than failing the batch.
+    }
+  }
+  return out;
+}
