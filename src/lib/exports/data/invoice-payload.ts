@@ -368,24 +368,23 @@ export async function buildInvoicePayload(
     ? template.showCompanyBranding || template.showHeader
     : true;
 
-  // ---- Progress billing summary table ----
-  // Two parallel tracks — BASE CONTRACT and CHANGE ORDERS — each with its
-  // own contract value, previously billed, this-invoice contribution, and
-  // remaining balance. Then a small revised-contract summary at the bottom.
+  // ---- Contract summary table ----
+  // Base contract and change-order work are shown on SEPARATE tracks. Each
+  // track foots on its own:  value − previously billed − this invoice =
+  // still billable.  Cumulative retainage held is a separate memo line at
+  // the bottom — NOT a row dangling next to a "balance to bill" that never
+  // subtracted it (the old layout did exactly that, and showed only this
+  // invoice's retainage, so the stack didn't foot and read as confusing).
   //
-  // Why split: when historical change orders are entered later, the
-  // single-line "Revised contract — Less previously billed" view drifts
-  // from the operator's paper trail. Splitting locks each track to its own
-  // denominator so the % and dollar numbers match what the customer
-  // originally received.
+  // "Billed" figures use subtotals (work value, pre-retainage/pre-VAT) so
+  // they share units with the contract value.
   const currency = company.defaultCurrency ?? 'USD';
   const fmtAmount = (n: number, negative = false): string =>
     negative ? `(${formatMoney(n, currency)})` : formatMoney(n, currency);
   const dataTables: DocumentDataTable[] = [];
-  // Progress billing / "balance to bill" only makes sense on a CONTRACT job.
-  // A service / T&M project has no contract value, so "balance to bill"
-  // (contract − billed) is meaningless and prints as a negative — and the
-  // $0-contract block buries the totals (clients miss the VAT). Skip it.
+  // Only a CONTRACT job gets this block. A service / T&M project has no
+  // contract value, so "still billable" (contract − billed) is meaningless
+  // and would print as a negative.
   const projectHasContractValue =
     !!project &&
     add(
@@ -398,107 +397,81 @@ export async function buildInvoicePayload(
       0,
     );
     const originalContract = parseMoney(project.originalContractValue);
-    const revisedContract = add(originalContract, approvedCOTotal);
 
-    // Split prior invoices by track. Same-track = same denominator.
-    const allPriorInvoices = (
-      await listInvoicesForProject(invoice.projectId)
-    )
+    // Prior invoices on the project up to (and including the date of) this
+    // one, excluding this invoice itself and voids.
+    const priorToDate = (await listInvoicesForProject(invoice.projectId))
       .filter((i) => i.id !== invoice.id)
-      .filter((i) => normalizeStatus('invoice', i.status) !== 'void');
-    const priorBase = allPriorInvoices.filter(
-      (i) => !isInvoiceOnCoTrack(i),
-    );
-    const priorCo = allPriorInvoices.filter((i) => isInvoiceOnCoTrack(i));
-    const priorBaseBilled = priorBase.reduce(
-      (acc, i) => add(acc, parseMoney(i.subtotal)),
-      0,
-    );
-    const priorCoBilled = priorCo.reduce(
-      (acc, i) => add(acc, parseMoney(i.subtotal)),
-      0,
-    );
+      .filter((i) => normalizeStatus('invoice', i.status) !== 'void')
+      .filter((i) => i.invoiceDate <= invoice.invoiceDate);
+    const priorBaseBilled = priorToDate
+      .filter((i) => !isInvoiceOnCoTrack(i))
+      .reduce((acc, i) => add(acc, parseMoney(i.subtotal)), 0);
+    const priorCoBilled = priorToDate
+      .filter((i) => isInvoiceOnCoTrack(i))
+      .reduce((acc, i) => add(acc, parseMoney(i.subtotal)), 0);
 
     // This-invoice contribution lands on exactly one track.
     const thisBase = thisInvoiceOnCoTrack ? 0 : subtotal;
     const thisCo = thisInvoiceOnCoTrack ? subtotal : 0;
-    const baseBalance = subtract(
-      originalContract,
-      add(priorBaseBilled, thisBase),
-    );
-    const coBalance = subtract(approvedCOTotal, add(priorCoBilled, thisCo));
-    const totalBilled = add(priorBaseBilled, priorCoBilled, thisBase, thisCo);
-    const totalBalance = subtract(revisedContract, totalBilled);
+    const baseStill = subtract(originalContract, add(priorBaseBilled, thisBase));
+    const coStill = subtract(approvedCOTotal, add(priorCoBilled, thisCo));
 
-    const fmtRow = (label: string, amount: number, negative = false): string[] => [
-      label,
-      fmtAmount(amount, negative),
-    ];
+    // Cumulative retainage withheld (net of releases) across all non-void
+    // invoices on the project up to and including this one.
+    const retainageHeldToDate = add(
+      priorToDate.reduce(
+        (acc, i) =>
+          add(
+            acc,
+            subtract(
+              parseMoney(i.retainageAmount),
+              parseMoney(i.retainageReleased),
+            ),
+          ),
+        0,
+      ),
+      subtract(
+        parseMoney(invoice.retainageAmount),
+        parseMoney(invoice.retainageReleased),
+      ),
+    );
 
     const rows: string[][] = [];
 
     // ----- Base contract track -----
-    rows.push([template.contractValueLabel || 'Base contract value', '']);
-    rows.push(fmtRow('  Original contract', originalContract));
-    if (priorBaseBilled > 0 || priorBase.length > 0) {
-      rows.push(
-        fmtRow(
-          `  ${template.priorBilledLabel || 'Less previously billed'}`,
-          priorBaseBilled,
-          true,
-        ),
-      );
+    rows.push([template.contractValueLabel || 'Base contract', '']);
+    rows.push(['  Contract value', fmtAmount(originalContract)]);
+    if (priorBaseBilled > 0) {
+      rows.push(['  Previously billed', fmtAmount(priorBaseBilled, true)]);
     }
     if (thisBase > 0) {
-      rows.push(fmtRow('  This invoice', thisBase));
+      rows.push(['  This invoice', fmtAmount(thisBase, true)]);
     }
-    rows.push(fmtRow('  Balance (base contract)', baseBalance));
+    rows.push(['  Still billable', fmtAmount(baseStill)]);
 
     // ----- Change orders track -----
-    if (approvedProjectCOs.length > 0 || priorCo.length > 0 || thisCo > 0) {
+    if (approvedCOTotal > 0 || priorCoBilled > 0 || thisCo > 0) {
       rows.push([template.changeOrdersLabel || 'Change orders', '']);
-      // Itemise each approved CO so the customer can see the breakdown.
-      for (const co of approvedProjectCOs) {
-        const coTotal = parseMoney(co.total);
-        const isThisInvoiceForThisCo = invoice.changeOrderId === co.id;
-        const label = `  CO #${co.number}${
-          co.description ? ` — ${co.description.slice(0, 50)}` : ''
-        }${isThisInvoiceForThisCo ? ' (this invoice)' : ''}`;
-        rows.push(fmtRow(label, coTotal));
-      }
-      rows.push(fmtRow('  Total approved change orders', approvedCOTotal));
-      if (priorCoBilled > 0 || priorCo.length > 0) {
-        rows.push(
-          fmtRow(
-            `  ${template.priorBilledLabel || 'Less previously billed (CO)'}`,
-            priorCoBilled,
-            true,
-          ),
-        );
+      rows.push(['  Approved change orders', fmtAmount(approvedCOTotal)]);
+      if (priorCoBilled > 0) {
+        rows.push(['  Previously billed', fmtAmount(priorCoBilled, true)]);
       }
       if (thisCo > 0) {
-        rows.push(fmtRow('  This invoice (CO)', thisCo));
+        rows.push(['  This invoice', fmtAmount(thisCo, true)]);
       }
-      rows.push(fmtRow('  Balance (change orders)', coBalance));
+      rows.push(['  Still billable', fmtAmount(coStill)]);
     }
 
-    // ----- Combined summary -----
-    rows.push(fmtRow('Revised contract', revisedContract));
-    rows.push(fmtRow('Total billed to date', totalBilled));
-    const retainageHeldNow = parseMoney(invoice.retainageAmount);
-    if (retainageHeldNow > 0) {
-      rows.push(
-        fmtRow(
-          template.retainageHeldLabel || 'Less retainage held',
-          retainageHeldNow,
-          true,
-        ),
-      );
+    // ----- Cumulative retainage memo -----
+    const showRetainageMemo =
+      (template ? template.showRetainage : true) && retainageHeldToDate > 0;
+    if (showRetainageMemo) {
+      rows.push(['Retainage held to date', fmtAmount(retainageHeldToDate)]);
     }
-    rows.push(fmtRow('Total balance to bill', totalBalance));
 
     dataTables.push({
-      title: template.progressBillingLabel || 'Progress billing summary',
+      title: template.progressBillingLabel || 'Contract summary',
       columns: [
         { label: 'Item', align: 'left', widthPct: 70 },
         { label: 'Amount', align: 'right', widthPct: 30 },

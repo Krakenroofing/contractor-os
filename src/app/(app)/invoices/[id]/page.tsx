@@ -97,20 +97,6 @@ export default async function InvoiceDetailPage({
   const otherInvoices = allProjectInvoices
     .filter((i) => i.id !== invoice.id && i.status !== 'void')
     .sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
-  // Prior-billed split by contract source. When this invoice is tagged to
-  // a CO, the progress block compares against billings on the SAME source
-  // only — otherwise base-contract billings inflate the "prior billed"
-  // figure on a CO invoice and the % calc is meaningless.
-  const priorOnSameSource = otherInvoices
-    .filter((i) => i.invoiceDate <= invoice.invoiceDate)
-    .filter((i) => (i.changeOrderId ?? null) === (invoice.changeOrderId ?? null))
-    .reduce((sum, i) => sum + Number(i.total), 0);
-  // Kept for backwards compatibility with code paths that still read the
-  // whole-project figure. Most callers should prefer priorOnSameSource.
-  const priorBilledOnProject = otherInvoices
-    .filter((i) => i.invoiceDate <= invoice.invoiceDate)
-    .reduce((sum, i) => sum + Number(i.total), 0);
-
   const balance = subtract(parseMoney(invoice.total), parseMoney(invoice.amountPaid));
 
   // Phase: credit memos. Pull any credits linked to this invoice + the
@@ -528,115 +514,125 @@ export default async function InvoiceDetailPage({
         </CardContent>
       </Card>
 
-      {/* Phase 1: Progress billing summary. When the invoice is tagged to a
-          specific CO, the denominator is that CO's value alone — otherwise
-          we'd compare CO-3 billings to (base + every CO), which always
-          understates the % billed. Base-contract invoices compare against
-          the original contract (NOT contract + COs) for the same reason. */}
-      {/* Progress billing / "balance to bill" only applies to a contract job.
-          Service / T&M projects have no contract value, so this whole block
-          (with its $0 contract rows and negative balance-to-bill) is hidden. */}
+      {/* Contract summary. Base contract and change-order work are shown on
+          SEPARATE tracks — each foots on its own (value − previously billed −
+          this invoice = still billable) — with cumulative retainage held
+          shown as its own memo line rather than dangling next to a
+          "balance to bill" that never subtracted it. "Billed" figures use
+          subtotals (work value, pre-retainage/pre-VAT) so they sit in the
+          same units as the contract value.
+          Only a contract job gets this block; service / T&M projects have no
+          contract value and skip it. */}
       {template?.showProgressBilling &&
         project &&
         Number(project.contractValue) > 0 &&
         (() => {
-        // billRevised: base-track invoice that bills against the revised
-        // contract (base + approved COs) with prior billings combined.
-        const billRevised = invoice.billAgainstRevised && !invoice.changeOrderId;
-        const sourceValue = invoice.changeOrderId && co
-          ? Number(co.total)
-          : billRevised
-            ? Number(project.contractValue)
-            : Number(project.originalContractValue);
-        const sourceLabel = co
-          ? `Bills against ${co.number}`
-          : billRevised
-            ? 'Bills against revised contract'
-            : 'Bills against base contract';
-        const sourceValueLabel = co
-          ? `${co.number} value`
-          : billRevised
-            ? 'Revised contract value'
-            : template.contractValueLabel;
-        // Combined prior (all tracks) when billing against revised; else
-        // same-source prior.
-        const priorForSource = billRevised
-          ? priorBilledOnProject
-          : priorOnSameSource;
-        return (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
+          const onCoTrack = (i: {
+            changeOrderId: string | null;
+            billingType: string;
+          }): boolean =>
+            i.changeOrderId !== null || i.billingType === 'change_order';
+          // Prior invoices on the project up to (and including the date of)
+          // this one, excluding this invoice itself and voids.
+          const priorToDate = otherInvoices.filter(
+            (i) => i.invoiceDate <= invoice.invoiceDate,
+          );
+          const priorBaseBilled = priorToDate
+            .filter((i) => !onCoTrack(i))
+            .reduce((s, i) => s + Number(i.subtotal), 0);
+          const priorCoBilled = priorToDate
+            .filter((i) => onCoTrack(i))
+            .reduce((s, i) => s + Number(i.subtotal), 0);
+          const thisSubtotal = Number(invoice.subtotal);
+          const thisOnCo = onCoTrack(invoice);
+          const thisBase = thisOnCo ? 0 : thisSubtotal;
+          const thisCo = thisOnCo ? thisSubtotal : 0;
+
+          const originalContract = Number(project.originalContractValue);
+          const approvedCOTotal = Number(project.totalChangeOrders);
+          const baseStill = originalContract - (priorBaseBilled + thisBase);
+          const coStill = approvedCOTotal - (priorCoBilled + thisCo);
+
+          // Cumulative retainage withheld (net of releases) across all
+          // non-void invoices on the project up to and including this one.
+          const retainageHeldToDate =
+            priorToDate.reduce(
+              (s, i) =>
+                s + Number(i.retainageAmount) - Number(i.retainageReleased),
+              0,
+            ) +
+            (Number(invoice.retainageAmount) -
+              Number(invoice.retainageReleased));
+
+          const hasCoTrack =
+            approvedCOTotal > 0 || priorCoBilled > 0 || thisCo > 0;
+
+          return (
+            <Card>
+              <CardHeader>
                 <CardTitle>{template.progressBillingLabel}</CardTitle>
-                <span className="text-xs uppercase tracking-wide text-slate-500">
-                  {sourceLabel}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="text-sm">
-              <div className="space-y-1">
-                <Row
-                  label={template.contractValueLabel}
-                  value={formatMoney(project.originalContractValue)}
-                />
-                <Row
-                  label={template.changeOrdersLabel}
-                  value={formatMoney(project.totalChangeOrders)}
-                />
-                <Row
-                  label="Revised project value"
-                  value={formatMoney(project.contractValue)}
-                />
-                <Row
-                  label={sourceValueLabel}
-                  value={formatMoney(sourceValue)}
-                  bold
-                />
-                <Row
-                  label={`% billed against ${
-                    co ? co.number : billRevised ? 'revised contract' : 'base contract'
-                  } (this invoice)`}
-                  value={
-                    sourceValue > 0
-                      ? `${(
-                          (Number(invoice.subtotal) / sourceValue) *
-                          100
-                        ).toFixed(2)}%`
-                      : '—'
-                  }
-                />
-                <Row
-                  label={`${template.priorBilledLabel} (${
-                    co ? co.number : billRevised ? 'revised contract' : 'base contract'
-                  })`}
-                  value={`(${formatMoney(priorForSource)})`}
-                />
-                {Number(invoice.retainageAmount) > 0 && (
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                    Base contract
+                  </p>
                   <Row
-                    label={template.retainageHeldLabel}
-                    value={`(${formatMoney(invoice.retainageAmount)})`}
+                    label="Contract value"
+                    value={formatMoney(originalContract)}
                   />
+                  {priorBaseBilled > 0 && (
+                    <Row
+                      label="Previously billed"
+                      value={`(${formatMoney(priorBaseBilled)})`}
+                    />
+                  )}
+                  {thisBase > 0 && (
+                    <Row
+                      label="This invoice"
+                      value={`(${formatMoney(thisBase)})`}
+                    />
+                  )}
+                  <Row label="Still billable" value={formatMoney(baseStill)} bold />
+                </div>
+
+                {hasCoTrack && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Change orders
+                    </p>
+                    <Row
+                      label="Approved change orders"
+                      value={formatMoney(approvedCOTotal)}
+                    />
+                    {priorCoBilled > 0 && (
+                      <Row
+                        label="Previously billed"
+                        value={`(${formatMoney(priorCoBilled)})`}
+                      />
+                    )}
+                    {thisCo > 0 && (
+                      <Row
+                        label="This invoice"
+                        value={`(${formatMoney(thisCo)})`}
+                      />
+                    )}
+                    <Row label="Still billable" value={formatMoney(coStill)} bold />
+                  </div>
                 )}
-                <Row
-                  label="Invoice subtotal"
-                  value={formatMoney(invoice.subtotal)}
-                />
-                {vatRatePct > 0 && (
-                  <Row
-                    label={`${template.vatLabel} (${vatRatePct.toFixed(2)}%)`}
-                    value={formatMoney(vatAmount)}
-                  />
+
+                {show('showRetainage') && retainageHeldToDate > 0 && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <Row
+                      label="Retainage held to date"
+                      value={formatMoney(retainageHeldToDate)}
+                    />
+                  </div>
                 )}
-                <Row
-                  label="Invoice final total"
-                  value={formatMoney(invoice.total)}
-                  bold
-                />
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
       {/* Phase 1: Account history — prior invoices for the same project. */}
       {template?.showAccountHistory && otherInvoices.length > 0 && (
