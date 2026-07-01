@@ -23,6 +23,8 @@ export type TimesheetCellData = {
   payCount: number;
   /** Day-rate pay that day isn't fully allocated to a job + cost code. */
   payUnassigned: boolean;
+  /** Hours that day that aren't fully allocated to a job + cost code. */
+  hoursUnassigned: boolean;
   /** Variable-pay worker → render the $ pay input under the hours. */
   showPay: boolean;
   /** Hourly worker → render the unpaid-lunch control under the hours. */
@@ -44,6 +46,22 @@ export function TimesheetCell(props: TimesheetCellData) {
         count={props.hoursCount}
         canEdit={props.canEdit}
       />
+      {props.hours > 0 && (
+        // Subtle one-click path to tag these hours to a project + cost code
+        // (the day view has the picker). Unassigned hours never post to the
+        // job's labor cost, so surface a quiet prompt — no loud warning, since
+        // office / overhead hours legitimately stay unassigned.
+        <Link
+          href={{
+            pathname: '/payroll/day',
+            query: { employeeId: props.employeeId, workDate: props.workDate },
+          }}
+          title="Assign these hours to a job + cost code"
+          className="text-[10px] tabular-nums text-slate-400 hover:text-blue-700 hover:underline"
+        >
+          {props.hoursUnassigned ? '+ assign job' : 'job ✓'}
+        </Link>
+      )}
       {props.showPay && (
         <CellInput
           employeeId={props.employeeId}

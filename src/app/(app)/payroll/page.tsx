@@ -227,6 +227,7 @@ export default async function PayrollPage({
         pay: number;
         payCount: number;
         payUnassigned: boolean;
+        hoursUnassigned: boolean;
         lunchMinutes: number;
       }
     > = {};
@@ -238,6 +239,7 @@ export default async function PayrollPage({
         pay: 0,
         payCount: 0,
         payUnassigned: false,
+        hoursUnassigned: false,
         lunchMinutes: 0,
       });
       if (entry.entryType === 'amount') {
@@ -249,6 +251,9 @@ export default async function PayrollPage({
       } else {
         slot.hours += Number(entry.hours);
         slot.hoursCount += 1;
+        // Same for hours: unassigned hours fall into overhead (unpostedWage)
+        // and never land on the job's labor cost — flag for a one-click assign.
+        if (!entry.projectId || !entry.costCodeId) slot.hoursUnassigned = true;
       }
     }
     // Lunch only affects hourly pay; show the deduction line for those.
