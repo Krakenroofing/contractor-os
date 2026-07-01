@@ -82,13 +82,6 @@ export default async function PayrollDayPage({
   const projectById = new Map(allProjects.map((p) => [p.id, p]));
   const costCodeById = new Map(allCostCodes.map((c) => [c.id, c]));
 
-  // Options for the inline allocation pickers (active projects + all codes).
-  const projectOptions = allProjects.map((p) => ({ id: p.id, label: p.name }));
-  const costCodeOptions = allCostCodes.map((c) => ({
-    id: c.id,
-    label: `${c.code} — ${c.description}`,
-  }));
-
   const allEntries = await listTimeEntries(companyId, {
     payPeriodId: period.id,
     employeeId,
@@ -96,6 +89,25 @@ export default async function PayrollDayPage({
   const dayEntries = allEntries
     .filter((e) => e.workDate === workDate)
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+
+  // Options for the inline allocation pickers. Only offer ACTIVE jobs in the
+  // "Allocated to" list — closed / lost projects just clutter it. Keep any
+  // project a day entry already points at (even if since-closed) so an existing
+  // allocation still renders its name instead of going blank.
+  const referencedProjectIds = new Set(
+    dayEntries.map((e) => e.projectId).filter((id): id is string => !!id),
+  );
+  const projectOptions = allProjects
+    .filter(
+      (p) =>
+        (p.status !== 'closed' && p.status !== 'lost') ||
+        referencedProjectIds.has(p.id),
+    )
+    .map((p) => ({ id: p.id, label: p.name }));
+  const costCodeOptions = allCostCodes.map((c) => ({
+    id: c.id,
+    label: `${c.code} — ${c.description}`,
+  }));
 
   const employmentType = employee.employmentType as EmploymentType;
 

@@ -1,11 +1,18 @@
 'use client';
 
 // Inline project + cost-code allocation for a single time entry, used on the
-// day-detail grid. Auto-submits on change so the office can job-cost a
-// day-laborer's day rate (or any unassigned hours) in two taps — no trip to
-// the per-entry edit form. Unassigned rows render amber so they pop out.
+// day-detail grid. Built on the searchable Select combobox so long job / cost-
+// code lists are filterable by typing.
+//
+// Controlled + saved via a direct action call inside a transition — NOT a
+// <form action>. A form here would let React 19 reset the (uncontrolled) fields
+// once the action resolves, snapping a fresh pick back to "— unassigned —" even
+// though it saved. Holding the value in state keeps the selection on screen.
+//
+// Unassigned rows render amber so they pop out on the day grid.
 
-import { useRef } from 'react';
+import { useState, useTransition } from 'react';
+import { Select } from '@/components/ui/select';
 import { OVERHEAD_VALUE } from '../schema';
 import { setTimeEntryAllocationAction } from '../actions';
 
@@ -26,33 +33,40 @@ export function EntryAllocationSelect({
   projects: Option[];
   costCodes: Option[];
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const action = setTimeEntryAllocationAction.bind(null, entryId);
-  const projectValue = isOverhead ? OVERHEAD_VALUE : projectId ?? '';
-  const unassigned = !projectId && !isOverhead;
+  const [project, setProject] = useState(
+    isOverhead ? OVERHEAD_VALUE : projectId ?? '',
+  );
+  const [costCode, setCostCode] = useState(costCodeId ?? '');
+  const [pending, startTransition] = useTransition();
 
-  const submit = () => formRef.current?.requestSubmit();
-  const selectClass =
-    'rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 ';
+  const unassigned = project === '';
+
+  function save(nextProject: string, nextCostCode: string) {
+    const fd = new FormData();
+    fd.set('projectId', nextProject);
+    fd.set('costCodeId', nextCostCode);
+    startTransition(() => {
+      void setTimeEntryAllocationAction(entryId, fd);
+    });
+  }
+
+  const base = `text-xs max-w-[15rem]${pending ? ' opacity-60' : ''} `;
 
   return (
-    <form
-      ref={formRef}
-      action={action}
-      className="flex flex-col gap-1.5 sm:flex-row sm:items-center"
-    >
-      <select
-        name="projectId"
-        defaultValue={projectValue}
-        onChange={submit}
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
+      <Select
+        value={project}
         aria-label="Allocate to project"
         className={
-          selectClass +
-          'max-w-[15rem] ' +
+          base +
           (unassigned
             ? 'border-amber-300 bg-amber-50 text-amber-800'
             : 'border-slate-300 bg-white text-slate-700')
         }
+        onChange={(e) => {
+          setProject(e.target.value);
+          save(e.target.value, costCode);
+        }}
       >
         <option value="">— unassigned —</option>
         <option value={OVERHEAD_VALUE}>Overhead (no job)</option>
@@ -61,13 +75,15 @@ export function EntryAllocationSelect({
             {p.label}
           </option>
         ))}
-      </select>
-      <select
-        name="costCodeId"
-        defaultValue={costCodeId ?? ''}
-        onChange={submit}
+      </Select>
+      <Select
+        value={costCode}
         aria-label="Cost code"
-        className={selectClass + 'max-w-[15rem] border-slate-300 bg-white text-slate-700'}
+        className={base + 'border-slate-300 bg-white text-slate-700'}
+        onChange={(e) => {
+          setCostCode(e.target.value);
+          save(project, e.target.value);
+        }}
       >
         <option value="">— cost code —</option>
         {costCodes.map((c) => (
@@ -75,7 +91,7 @@ export function EntryAllocationSelect({
             {c.label}
           </option>
         ))}
-      </select>
-    </form>
+      </Select>
+    </div>
   );
 }
