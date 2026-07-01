@@ -251,9 +251,12 @@ export default async function PayrollPage({
       } else {
         slot.hours += Number(entry.hours);
         slot.hoursCount += 1;
-        // Same for hours: unassigned hours fall into overhead (unpostedWage)
-        // and never land on the job's labor cost — flag for a one-click assign.
-        if (!entry.projectId || !entry.costCodeId) slot.hoursUnassigned = true;
+        // Hours count as "assigned" once they're on a project (or explicitly
+        // overhead). Clock-posted hours carry the punch's project but usually
+        // NO cost code, so we deliberately DON'T require a cost code here —
+        // otherwise every clocked-in shift would nag. Only truly floating
+        // hours (typed inline, no project, not overhead) prompt "+ assign job".
+        if (!entry.projectId && !entry.isOverhead) slot.hoursUnassigned = true;
       }
     }
     // Lunch only affects hourly pay; show the deduction line for those.
