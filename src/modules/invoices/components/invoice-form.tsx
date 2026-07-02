@@ -582,6 +582,21 @@ export function InvoiceForm({
   // amount so the user sees the math without having to compute it.
   const taxDisplay = taxAmountManual ? taxAmount : totals.tax.toFixed(2);
 
+  // Guard: flag when the entered VAT doesn't match the company rate ×
+  // (subtotal − retainage), so a stale/typo'd manual figure is caught before
+  // the invoice is sent. Never fires in auto mode (taxDisplay == expected).
+  const expectedVat =
+    companyVatRatePercent > 0
+      ? Math.round(((totals.netOfRetainage * companyVatRatePercent) / 100) * 100) / 100
+      : 0;
+  const enteredVat = Number(taxDisplay) || 0;
+  const vatMismatch =
+    showTaxVat &&
+    companyVatRatePercent > 0 &&
+    Math.abs(enteredVat - expectedVat) > 0.01;
+  const effectiveVatPct =
+    totals.netOfRetainage > 0 ? (enteredVat / totals.netOfRetainage) * 100 : 0;
+
   // Keep the visible retainageAmount field synced with the derived value when
   // the user hasn't manually edited it.
   const retainageDisplay = retainageAmountManual
@@ -1186,6 +1201,14 @@ export function InvoiceForm({
                 >
                   Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
                 </button>
+              )}
+              {vatMismatch && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  ⚠ This VAT is {effectiveVatPct.toFixed(2)}% of the base, not{' '}
+                  {companyVatRatePercent.toFixed(2)}% — expected{' '}
+                  {expectedVat.toFixed(2)}. Adjust it or use &ldquo;Reset to
+                  auto&rdquo;.
+                </p>
               )}
             </Field>
           )}

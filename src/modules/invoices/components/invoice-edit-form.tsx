@@ -186,6 +186,22 @@ export function InvoiceEditForm({
   // In auto mode show the derived VAT so the operator sees it follow the total.
   const taxDisplay = taxAmountManual ? taxAmount : totals.tax.toFixed(2);
 
+  // Guard: flag when the entered VAT doesn't match the company rate ×
+  // (subtotal − retainage) — e.g. a manual figure that went stale after the
+  // lines changed — so it's caught before the invoice is sent. In auto mode
+  // taxDisplay equals the expected figure, so this never fires there.
+  const vatBase = subtract(totals.subtotal, totals.retainage);
+  const expectedVat =
+    companyVatRatePercent > 0
+      ? Math.round((vatBase * companyVatRatePercent) / 100 * 100) / 100
+      : 0;
+  const enteredVat = Number(taxDisplay) || 0;
+  const vatMismatch =
+    showVat &&
+    companyVatRatePercent > 0 &&
+    Math.abs(enteredVat - expectedVat) > 0.01;
+  const effectiveVatPct = vatBase > 0 ? (enteredVat / vatBase) * 100 : 0;
+
   const linesPayload = lines.map((l) => ({
     inventoryItemId: l.inventoryItemId,
     description: l.description,
@@ -454,6 +470,14 @@ export function InvoiceEditForm({
                 >
                   Reset to auto ({companyVatRatePercent.toFixed(2)}% of subtotal)
                 </button>
+              )}
+              {vatMismatch && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  ⚠ This VAT is {effectiveVatPct.toFixed(2)}% of the base, not{' '}
+                  {companyVatRatePercent.toFixed(2)}% — expected{' '}
+                  {expectedVat.toFixed(2)}. Adjust it or use &ldquo;Reset to
+                  auto&rdquo;.
+                </p>
               )}
             </Field>
           ) : (
