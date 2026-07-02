@@ -61,6 +61,16 @@ export type PaystubLineItem = {
   description: string | null;
 };
 
+/** One piece-work (amount-type) entry making up `pieceWork`, carried so the
+ *  stub can itemize the gross with each line's job + note. `projectId` is
+ *  resolved to a name at render time by the caller. */
+export type PieceWorkLine = {
+  id: string;
+  amount: number;
+  projectId: string | null;
+  notes: string | null;
+};
+
 export type EmployeePaystub = {
   employeeId: string;
   employeeName: string;
@@ -82,6 +92,8 @@ export type EmployeePaystub = {
   /** Portion of gross from amount-type (piece-work / contract $) entries. It's
    *  already inside `gross`; surfaced separately so the stub can itemize it. */
   pieceWork: number;
+  /** The individual amount-entry lines that sum to `pieceWork`. */
+  pieceWorkLines: PieceWorkLine[];
   /** Optional pay-description text for this period (from the override
    *  row's notes column). Prints on the stub like a slip / check memo
    *  line so contract employees can see what they were paid for. */
@@ -282,6 +294,7 @@ export function computeEmployeePaystub(
       grossSource: 'none',
       baseWage: 0,
       pieceWork: 0,
+      pieceWorkLines: [],
       payDescription: null,
       deductions: [],
       additions: [],
@@ -363,6 +376,18 @@ export function computeEmployeePaystub(
   // into gross); a manual override replaces the whole gross, so no split.
   const pieceWork = myOverride ? 0 : amountTotal;
   const baseWage = Math.max(0, round2(subtract(gross, pieceWork)));
+  // Keep the individual amount-entry lines (job + note) so the stub can list
+  // each piece-work item. An override ignores amount entries, so no lines.
+  const pieceWorkLines: PieceWorkLine[] = myOverride
+    ? []
+    : myEntries
+        .filter((e) => e.entryType === 'amount' && parseMoney(e.amount) > 0)
+        .map((e) => ({
+          id: e.id,
+          amount: parseMoney(e.amount),
+          projectId: e.projectId,
+          notes: e.notes,
+        }));
 
   return {
     employeeId: employee.id,
@@ -377,6 +402,7 @@ export function computeEmployeePaystub(
     grossSource,
     baseWage,
     pieceWork,
+    pieceWorkLines,
     payDescription: myOverride?.notes ?? null,
     deductions,
     additions,
@@ -451,6 +477,7 @@ function paystubFromSnapshot(
     // as base wage on locked periods (no separate piece-work line).
     baseWage: gross,
     pieceWork: 0,
+    pieceWorkLines: [],
     payDescription: myOverride?.notes ?? null,
     deductions,
     additions,

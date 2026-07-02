@@ -4,6 +4,7 @@ import { buildCompanyInfo } from '@/lib/exports/data/company-info';
 import { getEmployee } from '@/lib/data/employees';
 import { getPayPeriod } from '@/lib/data/pay-periods';
 import { listTimeEntries } from '@/lib/data/time-entries';
+import { listProjects } from '@/lib/data/projects';
 import { listPeriodPayOverrides } from '@/lib/data/period-pay-overrides';
 import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
 import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
@@ -72,15 +73,31 @@ export async function buildPayslipPayload(
   }
 
   const totals: DocumentTotalsRow[] = [];
-  // Itemize the gross into base wages + piece work when piece-work pay is
-  // folded on TOP of rate/salary wages, so the slip explains the total.
-  // Pure piece-work (no base) or base-only just shows a single gross line.
-  const splitGross = stub.pieceWork > 0 && stub.baseWage > 0;
-  if (splitGross) {
-    totals.push({ label: 'Base pay (rate / salary)', value: stub.baseWage });
-    totals.push({ label: 'Piece work', value: stub.pieceWork });
+  // Itemize the gross into base wages + each piece-work line (with its job +
+  // note) when piece-work pay is folded in, so the slip explains the total.
+  // Base-only stubs just show a single gross line.
+  if (stub.pieceWork > 0) {
+    const projectNames = new Map(
+      (await listProjects(companyId)).map((p) => [p.id, p.name]),
+    );
+    if (stub.baseWage > 0) {
+      totals.push({ label: 'Base pay (rate / salary)', value: stub.baseWage });
+    }
+    if (stub.pieceWorkLines.length > 0) {
+      for (const pw of stub.pieceWorkLines) {
+        const job = pw.projectId ? projectNames.get(pw.projectId) : undefined;
+        let label = 'Piece work';
+        if (job) label += ` — ${job}`;
+        if (pw.notes && pw.notes.trim() !== '') label += ` (${pw.notes.trim()})`;
+        totals.push({ label, value: pw.amount });
+      }
+    } else {
+      totals.push({ label: 'Piece work', value: stub.pieceWork });
+    }
+    totals.push({ label: 'Gross pay', value: stub.gross, bold: true });
+  } else {
+    totals.push({ label: 'Gross pay', value: stub.gross });
   }
-  totals.push({ label: 'Gross pay', value: stub.gross, bold: splitGross });
   for (const d of stub.deductions) {
     totals.push({ label: `Less ${d.description ?? 'deduction'}`, value: d.amount, negative: true });
   }

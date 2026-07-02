@@ -11,7 +11,7 @@ import {
   EMPLOYMENT_TYPE_LABEL,
   EMPLOYMENT_TYPE_TONE,
 } from '@/modules/employees/schema';
-import type { EmployeePaystub } from '../lib/payroll-math';
+import type { EmployeePaystub, PieceWorkLine } from '../lib/payroll-math';
 import {
   ADJUSTMENT_TYPE_LABEL,
   type AdjustmentType,
@@ -24,10 +24,13 @@ export function PaystubsView({
   paystubs,
   payPeriodId,
   locked,
+  projectNames = {},
 }: {
   paystubs: EmployeePaystub[];
   payPeriodId: string;
   locked: boolean;
+  /** projectId → name, for labelling each piece-work line with its job. */
+  projectNames?: Record<string, string>;
 }) {
   const paid = paystubs.filter((p) => !p.skipped);
   const skipped = paystubs.filter((p) => p.skipped);
@@ -56,6 +59,7 @@ export function PaystubsView({
               paystub={p}
               payPeriodId={payPeriodId}
               locked={locked}
+              projectNames={projectNames}
             />
           ))}
         </div>
@@ -89,10 +93,12 @@ function PaystubCard({
   paystub: p,
   payPeriodId,
   locked,
+  projectNames,
 }: {
   paystub: EmployeePaystub;
   payPeriodId: string;
   locked: boolean;
+  projectNames: Record<string, string>;
 }) {
   // Capped when the NIB insurable wage came in below the (post-deduction)
   // gross — insurableWage then IS the ceiling for this period's date.
@@ -168,10 +174,23 @@ function PaystubCard({
         )}
 
         <div className="border-t border-slate-200 pt-3 space-y-1.5 text-sm">
-          {p.pieceWork > 0 && p.baseWage > 0 ? (
+          {p.pieceWork > 0 ? (
             <>
-              <Line label="Base pay (rate / salary)" amount={p.baseWage} muted />
-              <Line label="Piece work" amount={p.pieceWork} muted />
+              {p.baseWage > 0 && (
+                <Line label="Base pay (rate / salary)" amount={p.baseWage} muted />
+              )}
+              {p.pieceWorkLines.length > 0 ? (
+                p.pieceWorkLines.map((pw) => (
+                  <Line
+                    key={pw.id}
+                    label={pieceWorkLabel(pw, projectNames)}
+                    amount={pw.amount}
+                    muted
+                  />
+                ))
+              ) : (
+                <Line label="Piece work" amount={p.pieceWork} muted />
+              )}
               <Line label="Gross pay" amount={p.gross} bold />
             </>
           ) : (
@@ -277,6 +296,18 @@ function PaystubCard({
 
 function labelForAdditionType(type: AdjustmentType): string {
   return ADJUSTMENT_TYPE_LABEL[type] ?? 'Adjustment';
+}
+
+/** "Piece work — {job} ({note})", omitting whichever parts are missing. */
+function pieceWorkLabel(
+  pw: PieceWorkLine,
+  projectNames: Record<string, string>,
+): string {
+  const job = pw.projectId ? projectNames[pw.projectId] : undefined;
+  let label = 'Piece work';
+  if (job) label += ` — ${job}`;
+  if (pw.notes && pw.notes.trim() !== '') label += ` (${pw.notes.trim()})`;
+  return label;
 }
 
 function Line({

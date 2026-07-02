@@ -537,6 +537,9 @@ export default async function PayrollPage({
                 paystubs={paystubs}
                 payPeriodId={period.id}
                 locked={isLocked}
+                projectNames={Object.fromEntries(
+                  allProjects.map((p) => [p.id, p.name]),
+                )}
               />
             );
           }
