@@ -429,6 +429,7 @@ function paystubFromSnapshot(
   snap: PeriodPaystubSnapshot,
   overrides: PeriodPayOverride[],
   adjustments: PaystubAdjustment[],
+  entries: TimeEntry[],
 ): EmployeePaystub {
   const gross = parseMoney(snap.gross);
   // adjustedGross / deductionsTotal / additionsTotal default to '0' from
@@ -460,6 +461,30 @@ function paystubFromSnapshot(
     .filter((a) => a.type !== 'deduction')
     .map(adjustmentToLineItem);
 
+  // Piece work isn't snapshotted, but the amount-type entries persist (a locked
+  // period can't be edited), so reconstruct the split live — same approach as
+  // the adjustments above. An override snapshot replaced the whole gross, so
+  // there's no piece-work split to show for it.
+  const isOverride = (snap.grossSource as GrossSource) === 'override';
+  const myAmountEntries = isOverride
+    ? []
+    : entries.filter(
+        (e) =>
+          e.employeeId === snap.employeeId &&
+          e.entryType === 'amount' &&
+          parseMoney(e.amount) > 0,
+      );
+  const pieceWork = round2(
+    myAmountEntries.reduce((s, e) => s + parseMoney(e.amount), 0),
+  );
+  const pieceWorkLines: PieceWorkLine[] = myAmountEntries.map((e) => ({
+    id: e.id,
+    amount: parseMoney(e.amount),
+    projectId: e.projectId,
+    notes: e.notes,
+  }));
+  const baseWage = Math.max(0, round2(subtract(gross, pieceWork)));
+
   return {
     employeeId: snap.employeeId,
     employeeName: snap.employeeName,
@@ -473,11 +498,9 @@ function paystubFromSnapshot(
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',
-    // Snapshots don't store the wage/piece-work split — show the whole gross
-    // as base wage on locked periods (no separate piece-work line).
-    baseWage: gross,
-    pieceWork: 0,
-    pieceWorkLines: [],
+    baseWage,
+    pieceWork,
+    pieceWorkLines,
     payDescription: myOverride?.notes ?? null,
     deductions,
     additions,
@@ -517,7 +540,7 @@ export function computePeriodPaystubs(
 ): EmployeePaystub[] {
   if (period.status === 'locked' && snapshots.length > 0) {
     return snapshots
-      .map((s) => paystubFromSnapshot(s, overrides, adjustments))
+      .map((s) => paystubFromSnapshot(s, overrides, adjustments, entries))
       .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
   }
   return employees
