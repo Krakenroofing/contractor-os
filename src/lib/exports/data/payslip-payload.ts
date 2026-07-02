@@ -71,7 +71,16 @@ export async function buildPayslipPayload(
       meta.push({ label: 'Double time (2×)', value: `${stub.doubleTimeHours.toFixed(2)} hrs` });
   }
 
-  const totals: DocumentTotalsRow[] = [{ label: 'Gross pay', value: stub.gross }];
+  const totals: DocumentTotalsRow[] = [];
+  // Itemize the gross into base wages + piece work when piece-work pay is
+  // folded on TOP of rate/salary wages, so the slip explains the total.
+  // Pure piece-work (no base) or base-only just shows a single gross line.
+  const splitGross = stub.pieceWork > 0 && stub.baseWage > 0;
+  if (splitGross) {
+    totals.push({ label: 'Base pay (rate / salary)', value: stub.baseWage });
+    totals.push({ label: 'Piece work', value: stub.pieceWork });
+  }
+  totals.push({ label: 'Gross pay', value: stub.gross, bold: splitGross });
   for (const d of stub.deductions) {
     totals.push({ label: `Less ${d.description ?? 'deduction'}`, value: d.amount, negative: true });
   }

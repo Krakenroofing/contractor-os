@@ -168,7 +168,15 @@ function PaystubCard({
         )}
 
         <div className="border-t border-slate-200 pt-3 space-y-1.5 text-sm">
-          <Line label="Gross pay" amount={p.gross} bold />
+          {p.pieceWork > 0 && p.baseWage > 0 ? (
+            <>
+              <Line label="Base pay (rate / salary)" amount={p.baseWage} muted />
+              <Line label="Piece work" amount={p.pieceWork} muted />
+              <Line label="Gross pay" amount={p.gross} bold />
+            </>
+          ) : (
+            <Line label="Gross pay" amount={p.gross} bold />
+          )}
 
           {hasDeductions && (
             <>

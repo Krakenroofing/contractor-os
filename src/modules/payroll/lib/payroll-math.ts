@@ -77,6 +77,11 @@ export type EmployeePaystub = {
   /** Pre-deduction gross (rate × hours, weekly salary, or override). */
   gross: number;
   grossSource: GrossSource;
+  /** Portion of gross from rate / salary / OT — i.e. gross minus piece work. */
+  baseWage: number;
+  /** Portion of gross from amount-type (piece-work / contract $) entries. It's
+   *  already inside `gross`; surfaced separately so the stub can itemize it. */
+  pieceWork: number;
   /** Optional pay-description text for this period (from the override
    *  row's notes column). Prints on the stub like a slip / check memo
    *  line so contract employees can see what they were paid for. */
@@ -275,6 +280,8 @@ export function computeEmployeePaystub(
       payRate,
       gross: 0,
       grossSource: 'none',
+      baseWage: 0,
+      pieceWork: 0,
       payDescription: null,
       deductions: [],
       additions: [],
@@ -351,6 +358,12 @@ export function computeEmployeePaystub(
     subtract(adjustedGross, nib.employee) + additionsTotal,
   );
 
+  // Split the gross into rate/salary/OT wages vs piece-work so the stub can
+  // explain the total. Piece work = the amount-type entries (already folded
+  // into gross); a manual override replaces the whole gross, so no split.
+  const pieceWork = myOverride ? 0 : amountTotal;
+  const baseWage = Math.max(0, round2(subtract(gross, pieceWork)));
+
   return {
     employeeId: employee.id,
     employeeName,
@@ -362,6 +375,8 @@ export function computeEmployeePaystub(
     payRate,
     gross,
     grossSource,
+    baseWage,
+    pieceWork,
     payDescription: myOverride?.notes ?? null,
     deductions,
     additions,
@@ -432,6 +447,10 @@ function paystubFromSnapshot(
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',
+    // Snapshots don't store the wage/piece-work split — show the whole gross
+    // as base wage on locked periods (no separate piece-work line).
+    baseWage: gross,
+    pieceWork: 0,
     payDescription: myOverride?.notes ?? null,
     deductions,
     additions,
