@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
+import { changeOrders } from './change-orders';
 import { users } from './users';
 import { documentCategoryEnum } from './_enums';
 
@@ -32,6 +33,12 @@ export const projectDocuments = pgTable(
     projectId: uuid('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
+    // Optional link to a specific change order. When set, the file also shows
+    // in that CO's "Files" section (it stays a project document either way).
+    // A voided/removed CO nulls this out rather than deleting the file.
+    changeOrderId: uuid('change_order_id').references(() => changeOrders.id, {
+      onDelete: 'set null',
+    }),
     uploadedBy: uuid('uploaded_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -74,6 +81,9 @@ export const projectDocuments = pgTable(
     projectCategoryIdx: index('project_documents_project_category_idx').on(
       t.projectId,
       t.category,
+    ),
+    changeOrderIdx: index('project_documents_change_order_idx').on(
+      t.changeOrderId,
     ),
     parentIdx: index('project_documents_parent_idx').on(t.parentDocumentId),
   }),

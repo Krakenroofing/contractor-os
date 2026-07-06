@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
+import { getChangeOrder } from '@/lib/data/change-orders';
 import {
   createProjectDocument,
   getProjectDocument,
@@ -201,6 +202,23 @@ export async function uploadDocumentsAction(
     return { errors: meta.error.flatten().fieldErrors };
   }
 
+  // Optional link to a specific change order. Must be a CO in this company that
+  // belongs to this same project — otherwise a file could be pinned to another
+  // project's CO.
+  let changeOrderId: string | null = null;
+  const changeOrderIdRaw = formData.get('changeOrderId');
+  if (typeof changeOrderIdRaw === 'string' && changeOrderIdRaw.trim() !== '') {
+    const coId = changeOrderIdRaw.trim();
+    if (!idSchema.safeParse(coId).success) {
+      return { formError: 'Invalid change order id.' };
+    }
+    const co = await getChangeOrder(companyId, coId);
+    if (!co || co.projectId !== project.id) {
+      return { formError: 'Change order not found on this project.' };
+    }
+    changeOrderId = co.id;
+  }
+
   const files = formData.getAll('file').filter((f): f is File => f instanceof File && f.size > 0);
   const refs = parseUploadRefs(formData);
   if (files.length === 0 && refs.length === 0) {
@@ -246,6 +264,7 @@ export async function uploadDocumentsAction(
         storagePath: ref.storagePath,
         mimeType: mime,
         byteSize: stat.byteSize,
+        changeOrderId,
         category: meta.data.category,
         description: emptyToNull(meta.data.description),
         visibleToClient: meta.data.visibleToClient,
@@ -297,6 +316,7 @@ export async function uploadDocumentsAction(
         storagePath: upload.storagePath,
         mimeType: mime,
         byteSize: file.size,
+        changeOrderId,
         category: meta.data.category,
         description: emptyToNull(meta.data.description),
         visibleToClient: meta.data.visibleToClient,
@@ -320,6 +340,7 @@ export async function uploadDocumentsAction(
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/documents`);
+  if (changeOrderId) revalidatePath(`/change-orders/${changeOrderId}`);
 
   if (failures.length > 0 && successCount === 0) {
     return { formError: failures.join(' · ') };

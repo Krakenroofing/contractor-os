@@ -67,6 +67,28 @@ export async function listProjectDocuments(
     );
 }
 
+export async function listChangeOrderDocuments(
+  companyId: string,
+  changeOrderId: string,
+): Promise<ProjectDocument[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(projectDocuments)
+    .where(
+      and(
+        eq(projectDocuments.companyId, companyId),
+        eq(projectDocuments.changeOrderId, changeOrderId),
+        isNull(projectDocuments.deletedAt),
+      ),
+    )
+    .orderBy(
+      asc(projectDocuments.sortOrder),
+      desc(projectDocuments.uploadedAt),
+    );
+}
+
 export async function countProjectDocuments(
   companyId: string,
   projectId: string,

@@ -855,6 +855,7 @@ export async function createPoFromExtractedAction(
         storagePath: docUpload.storagePath,
         mimeType: data.sourceMimeType,
         byteSize: data.sourceByteSize,
+        changeOrderId: null,
         category: 'estimate',
         description: `Source PDF for PO ${finalNumber}`,
         visibleToClient: false,

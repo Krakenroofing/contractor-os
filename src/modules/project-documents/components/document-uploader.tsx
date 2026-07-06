@@ -39,11 +39,19 @@ const FILE_ACCEPT =
 export function DocumentUploader({
   projectId,
   defaultCategory,
+  changeOrderId,
+  hideQuickCapture = false,
 }: {
   projectId: string;
   // Pre-selects the category dropdown — set from a `?category=` param when the
   // user arrives via a section's "Upload" link (e.g. Change Orders → change_order).
   defaultCategory?: DocumentCategory;
+  // When set, every file uploaded here is pinned to this change order and also
+  // shows in its "Files" section (used by the CO detail page).
+  changeOrderId?: string;
+  // Hides the mobile "Quick photo capture" block — the CO context uses a
+  // compact, document-focused uploader.
+  hideQuickCapture?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -89,6 +97,7 @@ export function DocumentUploader({
         fd.set('category', opts.meta.category);
         fd.set('description', opts.meta.description);
         if (opts.meta.visibleToClient) fd.set('visibleToClient', 'on');
+        if (changeOrderId) fd.set('changeOrderId', changeOrderId);
         const result = await uploadDocumentsAction(projectId, {}, fd);
         finalizeError = result.formError;
       }
@@ -130,6 +139,8 @@ export function DocumentUploader({
   return (
     <div className="space-y-3">
       {/* Quick photo capture — most prominent on phones, useful on desktop too. */}
+      {!hideQuickCapture && (
+      <>
       <div className="rounded-md border border-slate-200 bg-white p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1 text-sm">
           <div className="font-medium text-slate-900">Quick photo capture</div>
@@ -168,6 +179,8 @@ export function DocumentUploader({
       )}
       {quickState.ok && !quickState.formError && (
         <p className="text-xs text-emerald-700 px-1">Photo uploaded.</p>
+      )}
+      </>
       )}
 
       {/* Detailed upload — stacks on mobile, grids on desktop. */}

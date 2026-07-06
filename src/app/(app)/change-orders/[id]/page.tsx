@@ -25,6 +25,12 @@ import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
+import { listChangeOrderDocuments } from '@/lib/data/project-documents';
+import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
+import {
+  DOCUMENT_CATEGORY_LABEL,
+  type DocumentCategory,
+} from '@/modules/project-documents/schema';
 import {
   REASON_LABEL,
   STATUS_LABEL,
@@ -48,8 +54,11 @@ export default async function ChangeOrderDetailPage({
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'change_orders');
+  const allowCreateDocument = canCreate(role, 'documents');
   const co = await getChangeOrder(companyId, id);
   if (!co) notFound();
+
+  const coDocuments = await listChangeOrderDocuments(companyId, co.id);
 
   const project = await getProject(companyId, co.projectId);
   const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
@@ -286,6 +295,87 @@ export default async function ChangeOrderDetailPage({
         </Card>
       </div>
 
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Files ({coDocuments.length})</CardTitle>
+            <Link href={{ pathname: `/projects/${co.projectId}/documents` }}>
+              <Button size="sm" variant="outline">
+                All project documents →
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {allowCreateDocument && (
+            <DocumentUploader
+              projectId={co.projectId}
+              changeOrderId={co.id}
+              defaultCategory="change_order"
+              hideQuickCapture
+            />
+          )}
+          {coDocuments.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No files linked to this change order yet.
+              {allowCreateDocument
+                ? ' Upload the CO proposal, signed change order, or backup above.'
+                : ''}
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Size</TableHead>
+                  <TableHead>Uploaded</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {coDocuments.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium text-slate-900 break-all">
+                      {d.fileName}
+                      {d.description ? (
+                        <span className="block text-xs font-normal text-slate-500">
+                          {d.description}
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs">
+                        {DOCUMENT_CATEGORY_LABEL[d.category as DocumentCategory]}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs text-slate-600">
+                      {formatBytes(d.byteSize)}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600">
+                      {d.uploadedAt instanceof Date
+                        ? d.uploadedAt.toLocaleDateString()
+                        : new Date(d.uploadedAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <a
+                        href={`/projects/${co.projectId}/documents/${d.id}/download`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="sm" variant="outline">
+                          Download
+                        </Button>
+                      </a>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
       <CompanyStandardTerms />
 
       <Card>
@@ -338,6 +428,13 @@ export default async function ChangeOrderDetailPage({
       <ActivityLogCard entityType="change_order" entityId={co.id} />
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
