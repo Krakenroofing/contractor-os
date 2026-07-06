@@ -1,6 +1,10 @@
-// Bahamas Tariff Library — demo seed.
-// Rates here are illustrative and must be verified against the current
-// Bahamas Customs Tariff Schedule and/or a customs broker before use.
+// Bahamas Tariff Library.
+// The "Kraken calibrated" block below is derived from 32 real Pinder's import
+// summaries (2025–26) — HS codes and duty rates observed on actual shipments.
+// Records marked "clean" came from a near-single-material shipment; "blended
+// estimate" ones were isolated from mixed containers and should be confirmed
+// against the SAD/broker. All OTHER records remain illustrative and must be
+// verified against the current Bahamas Customs Tariff Schedule before use.
 
 export const TARIFF_CATEGORIES = [
   'construction_materials',
@@ -90,16 +94,155 @@ function tariff(
   };
 }
 
+const KRAKEN_REF = 'KrakenOps import history 2025–26';
+
 export const SEED_TARIFF_LIBRARY: TariffRecord[] = [
+  // ===== Kraken calibrated (from real import summaries) =====
+  // A quick estimate when you don't yet know the container's exact mix.
+  tariff({
+    tariffCode: 'MIXED-ROOFING',
+    description: 'Mixed roofing container (blended ~16%)',
+    category: 'construction_materials',
+    dutyPercent: 16,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Blended average duty across 32 shipments (range 0–42%). Use for a fast estimate before the line-by-line duty is known; refine once the SAD is available.',
+  }),
+  tariff({
+    tariffCode: '6809.19.00',
+    description: 'Gypsum roof board (DensDeck & similar)',
+    category: 'construction_materials',
+    dutyPercent: 0,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1012483 (DensDeck) landed at 0% duty.',
+  }),
+  tariff({
+    tariffCode: '4418.50.00',
+    description: 'Cedar shingles & shakes',
+    category: 'construction_materials',
+    dutyPercent: 0,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipments 1015835 / 1015943 (cedar) at 0% duty.',
+  }),
+  tariff({
+    tariffCode: '7019.80.10',
+    description: 'Fibreglass insulation board (ISOGARD & similar)',
+    category: 'construction_materials',
+    dutyPercent: 5,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1012495 (ISOGARD) at 5% duty.',
+  }),
+  tariff({
+    tariffCode: '3921.19.00',
+    description: 'Foam / polyiso board insulation (plastic)',
+    category: 'construction_materials',
+    dutyPercent: 45,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Clean: shipment 1012734 — foam board is classified as plastic and hit 45% duty. Watch this one.',
+  }),
+  tariff({
+    tariffCode: '7409.19.00',
+    description: 'Copper drip edge, sheet & coil',
+    category: 'construction_materials',
+    dutyPercent: 0,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1014754 (copper drip edge) at 0% duty.',
+  }),
+  tariff({
+    tariffCode: '7419.99.00',
+    description: 'Copper articles, fittings & guttering',
+    category: 'construction_materials',
+    dutyPercent: 45,
+    vatPercent: 10,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Clean: shipment 1015943 — copper *articles* (7419) run 45%, unlike copper sheet/drip edge (7409) at 0%.',
+  }),
+  tariff({
+    tariffCode: '7318.15.00',
+    description: 'Steel screws, bolts, nuts & washers',
+    category: 'construction_materials',
+    dutyPercent: 0,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1018843 (fasteners) at 0% duty.',
+  }),
+  tariff({
+    tariffCode: '3506.91.00',
+    description: 'Adhesives, bonding agents & sealants',
+    category: 'construction_materials',
+    dutyPercent: 45,
+    vatPercent: 10,
+    isFrequentlyUsed: true,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1015319 (adhesive) at 45% duty.',
+  }),
+  tariff({
+    tariffCode: '7616.99.00',
+    description: 'Aluminium articles & accessories',
+    category: 'construction_materials',
+    dutyPercent: 45,
+    vatPercent: 10,
+    sourceReference: KRAKEN_REF,
+    internalNotes: 'Clean: shipment 1017130 — aluminium *articles* (7616) at 45%.',
+  }),
+  tariff({
+    tariffCode: '7210.49.00',
+    description: 'Steel roofing sheet & deck (coated)',
+    category: 'construction_materials',
+    dutyPercent: 17,
+    vatPercent: 10,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Blended estimate: steel-heavy shipment 1016857 ran ~17%. Confirm the exact line rate on the SAD.',
+  }),
+  tariff({
+    tariffCode: '3902.90.00',
+    description: 'TPO / single-ply roofing membrane (plastic)',
+    category: 'construction_materials',
+    dutyPercent: 45,
+    vatPercent: 10,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Blended estimate: TPO lines appeared at 45% (plastic) inside mixed loads. Confirm on the SAD.',
+  }),
+  tariff({
+    tariffCode: '7610.90.90',
+    description: 'Aluminium gutter, downpipe & roofing',
+    category: 'construction_materials',
+    dutyPercent: 5,
+    vatPercent: 10,
+    envLevyPercent: 1,
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Blended estimate from aluminium-gutter shipments; verify vs SAD (aluminium articles 7616 are higher at 45%).',
+  }),
+
   // ===== Construction materials =====
   tariff({
     tariffCode: '6807.10.00',
     description: 'Asphalt shingles & roofing felt',
     category: 'construction_materials',
-    dutyPercent: 5,
+    dutyPercent: 0,
     vatPercent: 10,
     isFrequentlyUsed: true,
-    internalNotes: 'Standard Kraken roofing import.',
+    sourceReference: KRAKEN_REF,
+    internalNotes:
+      'Calibrated to 0% — asphalt shingle / roofing-felt lines cleared duty-free on Kraken imports (was 5% illustrative). Verify if a shipment shows otherwise.',
   }),
   tariff({
     tariffCode: '4407.11.00',
