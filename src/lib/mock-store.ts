@@ -341,6 +341,8 @@ function buildLandedCost(input: SeedLandedCost): LandedCost {
     totalLandedCost: total.toFixed(2),
     perUnitCost: perUnit.toFixed(4),
     notes: input.notes ?? null,
+    estimateSnapshot: null,
+    reconciledAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -2207,6 +2209,8 @@ export function createMockLandedCost(
     totalLandedCost: input.totalLandedCost,
     perUnitCost: input.perUnitCost,
     notes: input.notes,
+    estimateSnapshot: null,
+    reconciledAt: null,
     createdAt: now,
     updatedAt: now,
   };

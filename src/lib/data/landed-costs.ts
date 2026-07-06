@@ -7,7 +7,11 @@
 
 import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
-import { landedCosts, type LandedCost } from '@/db/schema';
+import {
+  landedCosts,
+  type LandedCost,
+  type LandedCostEstimateSnapshot,
+} from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
   listMockLandedCosts as mockList,
@@ -51,6 +55,8 @@ export type CreateLandedCostInput = {
   totalLandedCost: string;
   perUnitCost: string;
   notes: string | null;
+  // Frozen at create; not overwritten on update (see updateLandedCost).
+  estimateSnapshot?: LandedCostEstimateSnapshot | null;
 };
 
 export async function listLandedCosts(companyId: string): Promise<LandedCost[]> {
@@ -137,6 +143,7 @@ export async function createLandedCost(
         totalLandedCost: input.totalLandedCost,
         perUnitCost: input.perUnitCost,
         notes: input.notes,
+        estimateSnapshot: input.estimateSnapshot ?? undefined,
       })
       .returning();
     const lc = inserted[0];
@@ -223,4 +230,21 @@ export async function updateLandedCost(
     return updated[0];
   }
   return undefined;
+}
+
+// Stamp an entry as reconciled (actuals confirmed against the broker docs).
+// Toggles back to null if already set, so it can be undone.
+export async function markLandedCostReconciled(
+  companyId: string,
+  id: string,
+  reconciled: boolean,
+): Promise<LandedCost | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .update(landedCosts)
+    .set({ reconciledAt: reconciled ? new Date() : null, updatedAt: new Date() })
+    .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)))
+    .returning();
+  return rows[0];
 }

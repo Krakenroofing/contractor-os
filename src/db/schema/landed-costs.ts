@@ -4,11 +4,33 @@ import {
   text,
   timestamp,
   numeric,
+  jsonb,
   index,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
 import { vendors } from './vendors';
+
+// Frozen estimate — the landed-cost line amounts captured at creation. Compared
+// against the live columns to show the estimate-vs-actual variance.
+export type LandedCostEstimateSnapshot = {
+  capturedAt: string;
+  materialCost: number;
+  flDelivery: number;
+  crating: number;
+  freightCost: number;
+  insurance: number;
+  dutyAmount: number;
+  exciseAmount: number;
+  envLevyAmount: number;
+  processingFeeAmount: number;
+  vatAmount: number;
+  brokerage: number;
+  portFees: number;
+  localDelivery: number;
+  totalLandedCost: number;
+  perUnitCost: number;
+};
 
 export const landedCosts = pgTable(
   'landed_costs',
@@ -96,6 +118,13 @@ export const landedCosts = pgTable(
       .notNull()
       .default('0'),
     notes: text('notes'),
+    // Estimate → reconcile: the live columns above hold the current (working /
+    // actual) figures. `estimateSnapshot` freezes the line amounts as they were
+    // when the entry was first created, so the detail page can show
+    // estimate → actual → variance. `reconciledAt` stamps when the user
+    // confirmed the actuals against the broker documents.
+    estimateSnapshot: jsonb('estimate_snapshot').$type<LandedCostEstimateSnapshot>(),
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

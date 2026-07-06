@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, round2 } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -26,6 +26,7 @@ import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
 } from '@/modules/purchase-orders/schema';
+import { ReconcileButton } from '@/modules/landed-cost/components/reconcile-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,100 @@ export default async function LandedCostDetailPage({
           sub={`${Number(lc.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })} units`}
         />
       </div>
+
+      {/* Estimate → actual variance */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle>Estimate vs actual</CardTitle>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {lc.reconciledAt
+                  ? `Reconciled ${new Date(lc.reconciledAt).toLocaleDateString()} — the figures below are the confirmed actuals.`
+                  : 'Estimate. Edit this entry with the broker/Tropical numbers as they arrive, then mark it reconciled.'}
+              </p>
+            </div>
+            {allowEdit && lc.estimateSnapshot && (
+              <ReconcileButton id={lc.id} reconciled={lc.reconciledAt != null} />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!lc.estimateSnapshot ? (
+            <p className="px-6 py-4 text-sm text-slate-500">
+              No estimate snapshot — this entry predates estimate/actual
+              tracking. New entries capture one automatically at creation.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Line</TableHead>
+                  <TableHead className="text-right">Estimate</TableHead>
+                  <TableHead className="text-right">Actual</TableHead>
+                  <TableHead className="text-right">Variance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(
+                  [
+                    ['Material', lc.estimateSnapshot.materialCost, lc.materialCost],
+                    ['FL delivery', lc.estimateSnapshot.flDelivery, lc.flDelivery],
+                    ['Crating', lc.estimateSnapshot.crating, lc.crating],
+                    ['Freight', lc.estimateSnapshot.freightCost, lc.freightCost],
+                    ['Insurance', lc.estimateSnapshot.insurance, lc.insurance],
+                    ['Duty', lc.estimateSnapshot.dutyAmount, lc.dutyAmount],
+                    ['Excise', lc.estimateSnapshot.exciseAmount, lc.exciseAmount],
+                    ['Env. levy', lc.estimateSnapshot.envLevyAmount, lc.envLevyAmount],
+                    ['Processing fee', lc.estimateSnapshot.processingFeeAmount, lc.processingFeeAmount],
+                    ['VAT', lc.estimateSnapshot.vatAmount, lc.vatAmount],
+                    ['Brokerage', lc.estimateSnapshot.brokerage, lc.brokerage],
+                    ['Port / terminal', lc.estimateSnapshot.portFees, lc.portFees],
+                    ['Local delivery', lc.estimateSnapshot.localDelivery, lc.localDelivery],
+                    ['Total landed cost', lc.estimateSnapshot.totalLandedCost, lc.totalLandedCost, true],
+                    ['Per unit', lc.estimateSnapshot.perUnitCost, lc.perUnitCost, true],
+                  ] as [string, number, string, boolean?][]
+                )
+                  .map(([label, est, actRaw, bold]) => {
+                    const act = Number(actRaw);
+                    return [label, est, act, bold] as const;
+                  })
+                  .filter(([, est, act, bold]) => bold || est !== 0 || act !== 0)
+                  .map(([label, est, act, bold]) => {
+                    const delta = round2(act - est);
+                    const pct = est !== 0 ? (delta / est) * 100 : null;
+                    const tone =
+                      delta > 0
+                        ? 'text-red-600'
+                        : delta < 0
+                          ? 'text-emerald-700'
+                          : 'text-slate-400';
+                    return (
+                      <TableRow key={label}>
+                        <TableCell className={bold ? 'font-semibold' : ''}>
+                          {label}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-slate-600">
+                          {formatMoney(est)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${bold ? 'font-semibold text-slate-900' : ''}`}
+                        >
+                          {formatMoney(act)}
+                        </TableCell>
+                        <TableCell className={`text-right tabular-nums ${tone}`}>
+                          {delta === 0
+                            ? '—'
+                            : `${delta > 0 ? '+' : ''}${formatMoney(delta)}${pct != null ? ` (${delta > 0 ? '+' : ''}${pct.toFixed(1)}%)` : ''}`}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

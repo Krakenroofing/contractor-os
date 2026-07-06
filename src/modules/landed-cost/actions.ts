@@ -13,7 +13,11 @@ import {
   DEFAULT_PROCESSING_FEE_PERCENT,
   DEFAULT_PROCESSING_FEE_CAP,
 } from '@/lib/money';
-import { createLandedCost, updateLandedCost } from '@/lib/data/landed-costs';
+import {
+  createLandedCost,
+  updateLandedCost,
+  markLandedCostReconciled,
+} from '@/lib/data/landed-costs';
 import { landedCostFormSchema } from './schema';
 
 export type CreateLandedCostState = {
@@ -84,6 +88,26 @@ export async function createLandedCostAction(
     localDelivery: Number(data.localDelivery),
   });
 
+  // Freeze the estimate at creation so we can show estimate → actual variance.
+  const estimateSnapshot = {
+    capturedAt: new Date().toISOString(),
+    materialCost: totals.supplierSubtotal,
+    flDelivery: Number(data.flDelivery),
+    crating: Number(data.crating),
+    freightCost: Number(data.freightCost),
+    insurance: Number(data.insurance),
+    dutyAmount: totals.duty,
+    exciseAmount: totals.excise,
+    envLevyAmount: totals.envLevy,
+    processingFeeAmount: totals.processingFee,
+    vatAmount: totals.vat,
+    brokerage: Number(data.brokerage),
+    portFees: Number(data.portFees),
+    localDelivery: Number(data.localDelivery),
+    totalLandedCost: totals.total,
+    perUnitCost: totals.perUnit,
+  };
+
   let createdId: string;
   try {
     const lc = await createLandedCost(companyId, {
@@ -120,6 +144,7 @@ export async function createLandedCostAction(
       totalLandedCost: toMoneyString(totals.total),
       perUnitCost: toQuantityString(totals.perUnit),
       notes: emptyToNull(data.notes ?? null),
+      estimateSnapshot,
     });
     createdId = lc.id;
   } catch (err) {
@@ -240,4 +265,29 @@ export async function updateLandedCostAction(
   revalidatePath(`/landed-cost/${id}`);
   revalidatePath('/purchase-orders');
   redirect(`/landed-cost/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile — stamp/unstamp an entry as confirmed against the broker documents.
+// ---------------------------------------------------------------------------
+
+export async function reconcileLandedCostAction(
+  id: string,
+  reconciled: boolean,
+): Promise<{ ok?: boolean; formError?: string }> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'landed_cost')) {
+    return { formError: 'You do not have permission to reconcile entries.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const out = await markLandedCostReconciled(companyId, id, reconciled);
+  if (!out) {
+    return {
+      formError:
+        'Entry not found, or reconciling is not available in demo mode.',
+    };
+  }
+  revalidatePath('/landed-cost');
+  revalidatePath(`/landed-cost/${id}`);
+  return { ok: true };
 }
