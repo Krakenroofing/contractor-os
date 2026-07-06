@@ -406,9 +406,14 @@ export function LandedCostCalculator() {
               value={formatMoney(totals.envLevy)}
             />
             <Result
+              label="Processing fee"
+              value={formatMoney(totals.processingFee)}
+              sub="1% of value, max $1,000"
+            />
+            <Result
               label={`VAT (${num(calc.vatPercent).toFixed(2)}%)`}
               value={formatMoney(totals.vat)}
-              sub="on CIF + duty + excise"
+              sub="on CIF + duty + fees"
             />
             <Result label="Local fees" value={formatMoney(totals.localFees)} sub="brokerage + port + local" />
             <Result

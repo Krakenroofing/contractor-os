@@ -355,6 +355,12 @@ export function LandedCostForm({
           </Field>
           <div />
         </div>
+        <p className="px-2 text-xs text-slate-500">
+          Freight benchmarks (from your import history): 40ft flatrack ≈
+          $8,000–$10,500 · 20ft ≈ $5,000–$8,000 · LCL crate ≈ 15–25% of value.
+          Insurance ≈ 1.85% of value. Heavy loads (e.g. asphalt shingles) run
+          higher — freight tracks weight/volume, not price.
+        </p>
       </fieldset>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
@@ -445,16 +451,21 @@ export function LandedCostForm({
       </fieldset>
 
       {/* ===== Summary cards ===== */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <SummaryCard label="CIF" value={formatMoney(totals.cif)} sub="supplier + freight + insurance" />
         <SummaryCard
           label={`Duty (${num(dutyPercent).toFixed(2)}%)`}
           value={formatMoney(totals.duty)}
         />
         <SummaryCard
+          label="Processing fee"
+          value={formatMoney(totals.processingFee)}
+          sub="1% of value, max $1,000"
+        />
+        <SummaryCard
           label={`VAT (${num(vatPercent).toFixed(2)}%)`}
           value={formatMoney(totals.vat)}
-          sub="on CIF + duty + excise + levy"
+          sub="on CIF + duty + fees"
         />
         <SummaryCard
           label="Total landed cost"

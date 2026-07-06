@@ -169,6 +169,10 @@ export default async function LandedCostDetailPage({
                 />
               )}
               <Row
+                label="Processing fee (1% of value, max $1,000)"
+                value={lc.processingFeeAmount}
+              />
+              <Row
                 label={`VAT (${Number(lc.vatPercent).toFixed(2)}%)`}
                 value={lc.vatAmount}
               />
@@ -217,13 +221,19 @@ export default async function LandedCostDetailPage({
             value: Number(lc.envLevyAmount),
           },
           {
+            label: 'Processing fee',
+            formula: 'min(value × 1%, $1,000)',
+            value: Number(lc.processingFeeAmount),
+          },
+          {
             label: 'VAT base',
-            formula: 'CIF + duty + excise + env levy',
+            formula: 'CIF + duty + excise + env levy + processing fee',
             value:
               Number(lc.cif) +
               Number(lc.dutyAmount) +
               Number(lc.exciseAmount) +
-              Number(lc.envLevyAmount),
+              Number(lc.envLevyAmount) +
+              Number(lc.processingFeeAmount),
           },
           {
             label: `VAT @ ${Number(lc.vatPercent).toFixed(2)}%`,
@@ -241,7 +251,7 @@ export default async function LandedCostDetailPage({
           {
             label: 'Total landed cost',
             formula:
-              'supplier + freight + insurance + duty + excise + envLevy + VAT + local + handling',
+              'supplier + freight + insurance + duty + excise + envLevy + processing fee + VAT + local + handling',
             value: Number(lc.totalLandedCost),
             emphasis: true,
           },

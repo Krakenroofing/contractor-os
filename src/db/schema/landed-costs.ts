@@ -59,6 +59,22 @@ export const landedCosts = pgTable(
     exciseAmount: numeric('excise_amount', { precision: 14, scale: 2 })
       .notNull()
       .default('0'),
+    // Bahamas Customs Processing Fee: 1% of goods value, capped at $1,000.
+    processingFeePercent: numeric('processing_fee_percent', {
+      precision: 6,
+      scale: 3,
+    })
+      .notNull()
+      .default('1'),
+    processingFeeCap: numeric('processing_fee_cap', { precision: 14, scale: 2 })
+      .notNull()
+      .default('1000'),
+    processingFeeAmount: numeric('processing_fee_amount', {
+      precision: 14,
+      scale: 2,
+    })
+      .notNull()
+      .default('0'),
     brokerage: numeric('brokerage', { precision: 14, scale: 2 }).notNull().default('0'),
     portFees: numeric('port_fees', { precision: 14, scale: 2 }).notNull().default('0'),
     localDelivery: numeric('local_delivery', { precision: 14, scale: 2 })

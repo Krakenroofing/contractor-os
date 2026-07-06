@@ -36,6 +36,9 @@ export type CreateLandedCostInput = {
   vatPercent: string;
   envLevyPercent: string;
   excisePercent: string;
+  processingFeePercent?: string;
+  processingFeeCap?: string;
+  processingFeeAmount?: string;
   brokerage: string;
   portFees: string;
   localDelivery: string;
@@ -120,6 +123,9 @@ export async function createLandedCost(
         envLevyAmount: input.envLevyAmount,
         excisePercent: input.excisePercent,
         exciseAmount: input.exciseAmount,
+        processingFeePercent: input.processingFeePercent,
+        processingFeeCap: input.processingFeeCap,
+        processingFeeAmount: input.processingFeeAmount,
         brokerage: input.brokerage,
         portFees: input.portFees,
         localDelivery: input.localDelivery,
@@ -187,6 +193,9 @@ export async function updateLandedCost(
         envLevyAmount: input.envLevyAmount,
         excisePercent: input.excisePercent,
         exciseAmount: input.exciseAmount,
+        processingFeePercent: input.processingFeePercent,
+        processingFeeCap: input.processingFeeCap,
+        processingFeeAmount: input.processingFeeAmount,
         brokerage: input.brokerage,
         portFees: input.portFees,
         localDelivery: input.localDelivery,

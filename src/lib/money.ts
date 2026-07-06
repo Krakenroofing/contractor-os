@@ -286,7 +286,16 @@ export type LandedCostInput = {
   brokerage: number;
   portFees: number;
   localDelivery: number;
+  // Bahamas Customs Processing Fee: 1% of the goods (FOB) value, capped at
+  // $1,000. Confirmed against 32 real Pinder's import summaries — it appears on
+  // every entry (e.g. shipment 1020240 hit the $1,000 cap exactly). Optional so
+  // existing callers get the standard behaviour without change.
+  processingFeePercent?: number; // default 1
+  processingFeeCap?: number; // default 1000
 };
+
+export const DEFAULT_PROCESSING_FEE_PERCENT = 1;
+export const DEFAULT_PROCESSING_FEE_CAP = 1000;
 
 export type LandedCostTotals = {
   supplierSubtotal: number;
@@ -295,6 +304,7 @@ export type LandedCostTotals = {
   duty: number;
   excise: number;
   envLevy: number;
+  processingFee: number;
   vatBase: number;
   vat: number;
   localFees: number;
@@ -311,7 +321,18 @@ export function calcLandedCost(input: LandedCostInput): LandedCostTotals {
   const duty = percent(cif, input.dutyPercent);
   const excise = percent(cif, input.excisePercent);
   const envLevy = percent(cif, input.envLevyPercent);
-  const vatBase = add(cif, duty, excise, envLevy);
+  // Processing fee is 1% of the goods value (not CIF), capped at $1,000.
+  const processingFeePercent =
+    input.processingFeePercent ?? DEFAULT_PROCESSING_FEE_PERCENT;
+  const processingFeeCap = input.processingFeeCap ?? DEFAULT_PROCESSING_FEE_CAP;
+  const processingFee = Math.min(
+    percent(supplierSubtotal, processingFeePercent),
+    processingFeeCap,
+  );
+  // VAT is levied on CIF + duty + excise + env levy + processing fee (the
+  // customs "landed cost" before VAT). The processing fee was previously
+  // omitted from the base.
+  const vatBase = add(cif, duty, excise, envLevy, processingFee);
   const vat = percent(vatBase, input.vatPercent);
   const localFees = add(input.brokerage, input.portFees, input.localDelivery);
   const total = add(
@@ -321,6 +342,7 @@ export function calcLandedCost(input: LandedCostInput): LandedCostTotals {
     duty,
     excise,
     envLevy,
+    processingFee,
     vat,
     localFees,
     handling,
@@ -334,6 +356,7 @@ export function calcLandedCost(input: LandedCostInput): LandedCostTotals {
     duty,
     excise,
     envLevy,
+    processingFee,
     vatBase,
     vat,
     localFees,

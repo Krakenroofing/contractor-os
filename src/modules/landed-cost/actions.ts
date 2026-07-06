@@ -10,6 +10,8 @@ import {
   toMoneyString,
   toPercentString,
   toQuantityString,
+  DEFAULT_PROCESSING_FEE_PERCENT,
+  DEFAULT_PROCESSING_FEE_CAP,
 } from '@/lib/money';
 import { createLandedCost, updateLandedCost } from '@/lib/data/landed-costs';
 import { landedCostFormSchema } from './schema';
@@ -111,6 +113,9 @@ export async function createLandedCostAction(
       dutyAmount: toMoneyString(totals.duty),
       exciseAmount: toMoneyString(totals.excise),
       envLevyAmount: toMoneyString(totals.envLevy),
+      processingFeePercent: toPercentString(DEFAULT_PROCESSING_FEE_PERCENT),
+      processingFeeCap: toMoneyString(DEFAULT_PROCESSING_FEE_CAP),
+      processingFeeAmount: toMoneyString(totals.processingFee),
       vatAmount: toMoneyString(totals.vat),
       totalLandedCost: toMoneyString(totals.total),
       perUnitCost: toQuantityString(totals.perUnit),
@@ -212,6 +217,9 @@ export async function updateLandedCostAction(
       dutyAmount: toMoneyString(totals.duty),
       exciseAmount: toMoneyString(totals.excise),
       envLevyAmount: toMoneyString(totals.envLevy),
+      processingFeePercent: toPercentString(DEFAULT_PROCESSING_FEE_PERCENT),
+      processingFeeCap: toMoneyString(DEFAULT_PROCESSING_FEE_CAP),
+      processingFeeAmount: toMoneyString(totals.processingFee),
       vatAmount: toMoneyString(totals.vat),
       totalLandedCost: toMoneyString(totals.total),
       perUnitCost: toQuantityString(totals.perUnit),
