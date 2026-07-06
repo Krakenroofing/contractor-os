@@ -9,6 +9,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
 import { listProjectDocuments } from '@/lib/data/project-documents';
+import { getChangeOrderNumbers } from '@/lib/data/change-orders';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { users } from '@/db/schema';
 import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
@@ -65,6 +66,15 @@ export default async function ProjectDocumentsPage({
     }
   }
 
+  // Resolve change-order display numbers for documents pinned to a CO.
+  const changeOrderIds = documents
+    .map((d) => d.changeOrderId)
+    .filter((v): v is string => typeof v === 'string');
+  const changeOrderNumberMap = await getChangeOrderNumbers(
+    companyId,
+    changeOrderIds,
+  );
+
   const rowData: DocumentRowData[] = documents.map((d) => ({
     id: d.id,
     fileName: d.fileName,
@@ -79,6 +89,10 @@ export default async function ProjectDocumentsPage({
         ? d.uploadedAt.toISOString()
         : String(d.uploadedAt),
     uploaderName: d.uploadedBy ? uploaderMap.get(d.uploadedBy) ?? null : null,
+    changeOrderId: d.changeOrderId,
+    changeOrderNumber: d.changeOrderId
+      ? changeOrderNumberMap.get(d.changeOrderId) ?? null
+      : null,
   }));
 
   return (

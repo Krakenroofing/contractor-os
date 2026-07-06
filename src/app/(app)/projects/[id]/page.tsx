@@ -27,7 +27,10 @@ import {
   listInvoicesForProject,
 } from '@/lib/data/invoices';
 import { getInvoicePayments } from '@/lib/data/invoice-payments';
-import { listChangeOrdersForProject } from '@/lib/data/change-orders';
+import {
+  listChangeOrdersForProject,
+  getChangeOrderNumbers,
+} from '@/lib/data/change-orders';
 import {
   getContractReductionRefundByProjectMap,
   listCreditMemosForProject,
@@ -145,6 +148,12 @@ export default async function ProjectDetailPage({
   const todayIso = new Date().toISOString().slice(0, 10);
   const projectDocuments = await listProjectDocuments(companyId, project.id);
   const recentDocuments = projectDocuments.slice(0, 5);
+  const recentDocCoNumbers = await getChangeOrderNumbers(
+    companyId,
+    recentDocuments
+      .map((d) => d.changeOrderId)
+      .filter((v): v is string => typeof v === 'string'),
+  );
   const invoices = await listInvoicesForProject(project.id);
   const creditMemos = await listCreditMemosForProject(companyId, project.id);
   const totalCreditAmount = creditMemos.reduce(
@@ -1476,6 +1485,14 @@ export default async function ProjectDetailPage({
                   <TableRow key={d.id}>
                     <TableCell className="font-medium text-slate-900 break-all">
                       {d.fileName}
+                      {d.changeOrderId && recentDocCoNumbers.get(d.changeOrderId) && (
+                        <Link
+                          href={`/change-orders/${d.changeOrderId}`}
+                          className="mt-0.5 inline-flex items-center rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
+                        >
+                          ↳ {recentDocCoNumbers.get(d.changeOrderId)}
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs">

@@ -27,6 +27,7 @@ import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { listChangeOrderDocuments } from '@/lib/data/project-documents';
 import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
+import { DocumentDeleteButton } from '@/modules/project-documents/components/document-delete-button';
 import {
   DOCUMENT_CATEGORY_LABEL,
   type DocumentCategory,
@@ -357,16 +358,24 @@ export default async function ChangeOrderDetailPage({
                         ? d.uploadedAt.toLocaleDateString()
                         : new Date(d.uploadedAt).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <a
-                        href={`/projects/${co.projectId}/documents/${d.id}/download`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Button size="sm" variant="outline">
-                          Download
-                        </Button>
-                      </a>
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1">
+                        <a
+                          href={`/projects/${co.projectId}/documents/${d.id}/download`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Button size="sm" variant="outline">
+                            Download
+                          </Button>
+                        </a>
+                        {allowCreateDocument && (
+                          <DocumentDeleteButton
+                            projectId={co.projectId}
+                            documentId={d.id}
+                          />
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -440,5 +440,8 @@ export async function deleteDocumentAction(
   }
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/documents`);
+  if (existing.changeOrderId) {
+    revalidatePath(`/change-orders/${existing.changeOrderId}`);
+  }
   return { ok: true };
 }

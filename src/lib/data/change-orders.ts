@@ -6,7 +6,7 @@
 // status-transition dispatcher when an existing CO flips to `approved`.
 
 import 'server-only';
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   changeOrderLineItems,
   changeOrders,
@@ -85,6 +85,37 @@ export async function getChangeOrder(
     return rows[0];
   }
   return mockGet(companyId, id);
+}
+
+// Resolve change-order ids to their display numbers (e.g. "CO-2026-003") in
+// one query. Used to label documents linked to a change order. Returns a map
+// keyed by id; ids not found (or from another company) are simply absent.
+export async function getChangeOrderNumbers(
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return map;
+  if (isDatabaseConfigured()) {
+    const db = getDb()!;
+    const rows = await db
+      .select({ id: changeOrders.id, number: changeOrders.number })
+      .from(changeOrders)
+      .where(
+        and(
+          eq(changeOrders.companyId, companyId),
+          inArray(changeOrders.id, unique),
+        ),
+      );
+    for (const r of rows) map.set(r.id, r.number);
+    return map;
+  }
+  for (const id of unique) {
+    const co = mockGet(companyId, id);
+    if (co) map.set(co.id, co.number);
+  }
+  return map;
 }
 
 export async function getChangeOrderLineItems(

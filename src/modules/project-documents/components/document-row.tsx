@@ -30,6 +30,9 @@ export type DocumentRowData = {
   visibleToClient: boolean;
   uploadedAt: string;
   uploaderName: string | null;
+  // Set when the document is pinned to a specific change order.
+  changeOrderId: string | null;
+  changeOrderNumber: string | null;
 };
 
 function formatBytes(bytes: number): string {
@@ -132,6 +135,14 @@ export function DocumentRow({
               <div className="mt-1 text-xs text-slate-600 whitespace-pre-wrap">
                 {document.description}
               </div>
+            )}
+            {document.changeOrderNumber && document.changeOrderId && (
+              <a
+                href={`/change-orders/${document.changeOrderId}`}
+                className="mt-1 inline-flex items-center rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                ↳ {document.changeOrderNumber}
+              </a>
             )}
           </div>
         )}

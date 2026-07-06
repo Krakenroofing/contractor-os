@@ -138,6 +138,14 @@ export function DocumentCard({
                 {document.description}
               </div>
             )}
+            {document.changeOrderNumber && document.changeOrderId && (
+              <a
+                href={`/change-orders/${document.changeOrderId}`}
+                className="mt-1.5 inline-flex items-center rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                ↳ {document.changeOrderNumber}
+              </a>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
