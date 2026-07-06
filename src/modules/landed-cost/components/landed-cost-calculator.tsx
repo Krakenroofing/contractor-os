@@ -113,6 +113,10 @@ export function LandedCostCalculator() {
   const [frequentOnly, setFrequentOnly] = useState(false);
   const [scope, setScope] = useState<Scope>('all');
   const [activeOnly, setActiveOnly] = useState(true);
+  // The library table has 15 columns — too wide to fit. Hide the rarely-edited
+  // metadata columns (permits, notes, source, effective date) by default so the
+  // rate-editing columns fit without horizontal scroll.
+  const [showDetail, setShowDetail] = useState(false);
 
   // ===== Calculator state updates =====
   const update = <K extends keyof CalcInputs>(key: K, value: CalcInputs[K]) => {
@@ -446,7 +450,15 @@ export function LandedCostCalculator() {
             <CardTitle>
               Bahamas Tariff Library ({filteredLibrary.length} of {library.length})
             </CardTitle>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowDetail((v) => !v)}
+              >
+                {showDetail ? 'Hide detail columns' : 'Show detail columns'}
+              </Button>
               <Button
                 type="button"
                 size="sm"
@@ -557,27 +569,33 @@ export function LandedCostCalculator() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10" />
-                  <TableHead className="min-w-[140px]">Tariff / HS code</TableHead>
-                  <TableHead className="min-w-[280px]">Description</TableHead>
-                  <TableHead className="min-w-[180px]">Category</TableHead>
-                  <TableHead className="min-w-[112px] whitespace-nowrap text-right">
+                  <TableHead className="min-w-[120px]">Tariff / HS code</TableHead>
+                  <TableHead className="min-w-[200px]">Description</TableHead>
+                  <TableHead className="min-w-[150px]">Category</TableHead>
+                  <TableHead className="min-w-[84px] whitespace-nowrap text-right">
                     Duty %
                   </TableHead>
-                  <TableHead className="min-w-[104px] whitespace-nowrap text-right">
+                  <TableHead className="min-w-[80px] whitespace-nowrap text-right">
                     VAT %
                   </TableHead>
-                  <TableHead className="min-w-[120px] whitespace-nowrap text-right">
+                  <TableHead className="min-w-[96px] whitespace-nowrap text-right">
                     Env levy %
                   </TableHead>
-                  <TableHead className="min-w-[104px] whitespace-nowrap text-right">
+                  <TableHead className="min-w-[84px] whitespace-nowrap text-right">
                     Excise %
                   </TableHead>
-                  <TableHead className="min-w-[200px]">Permits / docs</TableHead>
-                  <TableHead className="min-w-[160px]">Processing notes</TableHead>
-                  <TableHead className="min-w-[160px]">Source / reference</TableHead>
-                  <TableHead className="min-w-[150px] whitespace-nowrap">Effective</TableHead>
+                  {showDetail && (
+                    <>
+                      <TableHead className="min-w-[180px]">Permits / docs</TableHead>
+                      <TableHead className="min-w-[150px]">Processing notes</TableHead>
+                      <TableHead className="min-w-[150px]">Source / reference</TableHead>
+                      <TableHead className="min-w-[140px] whitespace-nowrap">Effective</TableHead>
+                    </>
+                  )}
                   <TableHead className="min-w-[88px] whitespace-nowrap">Active</TableHead>
-                  <TableHead className="min-w-[160px]">Internal notes</TableHead>
+                  {showDetail && (
+                    <TableHead className="min-w-[150px]">Internal notes</TableHead>
+                  )}
                   <TableHead className="min-w-[48px]" />
                 </TableRow>
               </TableHeader>
@@ -680,38 +698,42 @@ export function LandedCostCalculator() {
                           className="text-right tabular-nums"
                         />
                       </TableCell>
-                      <TableCell>
-                        <Input
-                          value={r.requiredPermits}
-                          onChange={(e) => updateRow(r.id, { requiredPermits: e.target.value })}
-                          placeholder="None"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          value={r.processingFeeNotes}
-                          onChange={(e) =>
-                            updateRow(r.id, { processingFeeNotes: e.target.value })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          value={r.sourceReference}
-                          onChange={(e) =>
-                            updateRow(r.id, { sourceReference: e.target.value })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="date"
-                          value={r.effectiveDate}
-                          onChange={(e) =>
-                            updateRow(r.id, { effectiveDate: e.target.value })
-                          }
-                        />
-                      </TableCell>
+                      {showDetail && (
+                        <>
+                          <TableCell>
+                            <Input
+                              value={r.requiredPermits}
+                              onChange={(e) => updateRow(r.id, { requiredPermits: e.target.value })}
+                              placeholder="None"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={r.processingFeeNotes}
+                              onChange={(e) =>
+                                updateRow(r.id, { processingFeeNotes: e.target.value })
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={r.sourceReference}
+                              onChange={(e) =>
+                                updateRow(r.id, { sourceReference: e.target.value })
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="date"
+                              value={r.effectiveDate}
+                              onChange={(e) =>
+                                updateRow(r.id, { effectiveDate: e.target.value })
+                              }
+                            />
+                          </TableCell>
+                        </>
+                      )}
                       <TableCell>
                         <button
                           type="button"
@@ -725,14 +747,16 @@ export function LandedCostCalculator() {
                           )}
                         </button>
                       </TableCell>
-                      <TableCell>
-                        <Input
-                          value={r.internalNotes}
-                          onChange={(e) =>
-                            updateRow(r.id, { internalNotes: e.target.value })
-                          }
-                        />
-                      </TableCell>
+                      {showDetail && (
+                        <TableCell>
+                          <Input
+                            value={r.internalNotes}
+                            onChange={(e) =>
+                              updateRow(r.id, { internalNotes: e.target.value })
+                            }
+                          />
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Button
                           type="button"
