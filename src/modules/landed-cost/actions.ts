@@ -17,6 +17,7 @@ import {
   createLandedCost,
   updateLandedCost,
   markLandedCostReconciled,
+  deleteLandedCost,
 } from '@/lib/data/landed-costs';
 import { landedCostFormSchema } from './schema';
 
@@ -290,4 +291,27 @@ export async function reconcileLandedCostAction(
   revalidatePath('/landed-cost');
   revalidatePath(`/landed-cost/${id}`);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Delete — removes the entry (and its attachments); redirects to the list.
+// ---------------------------------------------------------------------------
+
+export async function deleteLandedCostAction(
+  id: string,
+): Promise<{ formError?: string }> {
+  const role = await getActiveRole();
+  if (!canCreate(role, 'landed_cost')) {
+    return { formError: 'You do not have permission to delete entries.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const ok = await deleteLandedCost(companyId, id);
+  if (!ok) {
+    return {
+      formError: 'Entry not found, or deleting is not available in demo mode.',
+    };
+  }
+  revalidatePath('/landed-cost');
+  revalidatePath('/purchase-orders');
+  redirect('/landed-cost');
 }

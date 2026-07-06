@@ -252,6 +252,31 @@ export async function markLandedCostReconciled(
   return rows[0];
 }
 
+// Hard-delete a landed-cost entry. Attachment rows cascade away in the DB and
+// any PO back-reference is set null by its FK; we clean the attachment blobs
+// first (best-effort) so storage doesn't orphan them. Returns false in demo
+// mode or when the entry isn't found.
+export async function deleteLandedCost(
+  companyId: string,
+  id: string,
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const atts = await listLandedCostAttachments(companyId, id);
+  for (const a of atts) {
+    try {
+      await deleteProjectDocumentBlob(a.storagePath);
+    } catch {
+      /* orphaned blob is harmless */
+    }
+  }
+  const rows = await db
+    .delete(landedCosts)
+    .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)))
+    .returning({ id: landedCosts.id });
+  return rows.length > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Shipping-document attachments
 // ---------------------------------------------------------------------------

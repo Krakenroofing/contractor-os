@@ -31,6 +31,7 @@ import {
 } from '@/modules/purchase-orders/schema';
 import { ReconcileButton } from '@/modules/landed-cost/components/reconcile-button';
 import { ShippingDocuments } from '@/modules/landed-cost/components/shipping-documents';
+import { DeleteEntryButton } from '@/modules/landed-cost/components/delete-entry-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,11 +84,14 @@ export default async function LandedCostDetailPage({
           projectName={project?.name}
         />
         {allowEdit && (
-          <Link href={{ pathname: `/landed-cost/${lc.id}/edit` }}>
-            <Button size="sm" variant="outline">
-              Edit
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={{ pathname: `/landed-cost/${lc.id}/edit` }}>
+              <Button size="sm" variant="outline">
+                Edit
+              </Button>
+            </Link>
+            <DeleteEntryButton id={lc.id} />
+          </div>
         )}
       </div>
 
