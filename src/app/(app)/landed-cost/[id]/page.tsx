@@ -18,7 +18,10 @@ import { formatMoney, round2 } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { getLandedCost } from '@/lib/data/landed-costs';
+import {
+  getLandedCost,
+  listLandedCostAttachments,
+} from '@/lib/data/landed-costs';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
@@ -27,6 +30,7 @@ import {
   STATUS_TONE as PO_STATUS_TONE,
 } from '@/modules/purchase-orders/schema';
 import { ReconcileButton } from '@/modules/landed-cost/components/reconcile-button';
+import { ShippingDocuments } from '@/modules/landed-cost/components/shipping-documents';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +50,7 @@ export default async function LandedCostDetailPage({
   const lc = await getLandedCost(companyId, id);
   if (!lc) notFound();
 
+  const attachments = await listLandedCostAttachments(companyId, lc.id);
   const project = lc.projectId ? await getProject(companyId, lc.projectId) : undefined;
   const vendor = lc.vendorId ? await getVendor(companyId, lc.vendorId) : undefined;
   const linkedPOs = (await listPurchaseOrders(companyId)).filter(
@@ -277,6 +282,27 @@ export default async function LandedCostDetailPage({
               <SubtotalRow label="Total landed cost" value={lc.totalLandedCost} bold />
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Shipping documents ({attachments.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ShippingDocuments
+            landedCostId={lc.id}
+            allowEdit={allowEdit}
+            documents={attachments.map((a) => ({
+              id: a.id,
+              originalFileName: a.originalFileName,
+              byteSize: a.byteSize,
+              uploadedAt:
+                a.uploadedAt instanceof Date
+                  ? a.uploadedAt.toISOString()
+                  : String(a.uploadedAt),
+            }))}
+          />
         </CardContent>
       </Card>
 

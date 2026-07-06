@@ -4,12 +4,14 @@ import {
   text,
   timestamp,
   numeric,
+  integer,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
 import { vendors } from './vendors';
+import { users } from './users';
 
 // Frozen estimate — the landed-cost line amounts captured at creation. Compared
 // against the live columns to show the estimate-vs-actual variance.
@@ -135,3 +137,37 @@ export const landedCosts = pgTable(
 
 export type LandedCost = typeof landedCosts.$inferSelect;
 export type NewLandedCost = typeof landedCosts.$inferInsert;
+
+// Shipping documents attached to a landed-cost entry (broker/Tropical invoice,
+// SAD, bill of lading, packing list, etc.). Blobs live in the existing
+// `project-documents` Supabase bucket under `{companyId}/landed-cost/{id}/...`
+// so no new bucket is required.
+export const landedCostAttachments = pgTable(
+  'landed_cost_attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    landedCostId: uuid('landed_cost_id')
+      .notNull()
+      .references(() => landedCosts.id, { onDelete: 'cascade' }),
+    storagePath: text('storage_path').notNull(),
+    mimeType: text('mime_type').notNull(),
+    byteSize: integer('byte_size').notNull().default(0),
+    originalFileName: text('original_file_name').notNull(),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => ({
+    landedCostIdx: index('landed_cost_attachments_lc_idx').on(t.landedCostId),
+    companyIdx: index('landed_cost_attachments_company_idx').on(t.companyId),
+  }),
+);
+
+export type LandedCostAttachment = typeof landedCostAttachments.$inferSelect;

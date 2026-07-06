@@ -6,13 +6,16 @@
 // to keep the back-reference consistent across DB / demo modes.
 
 import 'server-only';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import {
   landedCosts,
+  landedCostAttachments,
   type LandedCost,
+  type LandedCostAttachment,
   type LandedCostEstimateSnapshot,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { deleteProjectDocumentBlob } from '@/lib/storage/project-documents';
 import {
   listMockLandedCosts as mockList,
   getMockLandedCost as mockGet,
@@ -247,4 +250,90 @@ export async function markLandedCostReconciled(
     .where(and(eq(landedCosts.id, id), eq(landedCosts.companyId, companyId)))
     .returning();
   return rows[0];
+}
+
+// ---------------------------------------------------------------------------
+// Shipping-document attachments
+// ---------------------------------------------------------------------------
+
+export async function listLandedCostAttachments(
+  companyId: string,
+  landedCostId: string,
+): Promise<LandedCostAttachment[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(landedCostAttachments)
+    .where(
+      and(
+        eq(landedCostAttachments.companyId, companyId),
+        eq(landedCostAttachments.landedCostId, landedCostId),
+        isNull(landedCostAttachments.deletedAt),
+      ),
+    )
+    .orderBy(asc(landedCostAttachments.uploadedAt));
+}
+
+export async function getLandedCostAttachment(
+  companyId: string,
+  id: string,
+): Promise<LandedCostAttachment | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(landedCostAttachments)
+    .where(
+      and(
+        eq(landedCostAttachments.id, id),
+        eq(landedCostAttachments.companyId, companyId),
+        isNull(landedCostAttachments.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export async function createLandedCostAttachment(input: {
+  companyId: string;
+  landedCostId: string;
+  storagePath: string;
+  mimeType: string;
+  byteSize: number;
+  originalFileName: string;
+  uploadedBy: string | null;
+}): Promise<LandedCostAttachment> {
+  const db = getDb()!;
+  const [row] = await db
+    .insert(landedCostAttachments)
+    .values(input)
+    .returning();
+  return row;
+}
+
+export async function softDeleteLandedCostAttachment(
+  companyId: string,
+  id: string,
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const existing = await getLandedCostAttachment(companyId, id);
+  if (!existing) return false;
+  await db
+    .update(landedCostAttachments)
+    .set({ deletedAt: new Date() })
+    .where(
+      and(
+        eq(landedCostAttachments.id, id),
+        eq(landedCostAttachments.companyId, companyId),
+      ),
+    );
+  // Best-effort blob cleanup (same bucket as project documents).
+  try {
+    await deleteProjectDocumentBlob(existing.storagePath);
+  } catch {
+    /* orphaned blob is harmless */
+  }
+  return true;
 }
