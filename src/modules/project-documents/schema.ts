@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const documentCategoryValues = [
   'proposal',
+  'change_order',
   'estimate',
   'invoice',
   'contract',
@@ -19,6 +20,7 @@ export type DocumentCategory = (typeof documentCategoryValues)[number];
 
 export const DOCUMENT_CATEGORY_LABEL: Record<DocumentCategory, string> = {
   proposal: 'Proposal',
+  change_order: 'Change Order',
   estimate: 'Estimate',
   invoice: 'Invoice',
   contract: 'Contract',

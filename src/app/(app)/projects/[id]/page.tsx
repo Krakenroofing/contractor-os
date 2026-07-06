@@ -490,13 +490,27 @@ export default async function ProjectDetailPage({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Estimates ({estimates.length})</CardTitle>
-            {allowCreateEstimate && (
-              <Link href="/estimates/new">
-                <Button size="sm" variant="outline">
-                  + New estimate
-                </Button>
-              </Link>
-            )}
+            <div className="flex items-center gap-2">
+              {allowCreateDocument && (
+                <Link
+                  href={{
+                    pathname: `/projects/${project.id}/documents`,
+                    query: { category: 'estimate' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    Upload file
+                  </Button>
+                </Link>
+              )}
+              {allowCreateEstimate && (
+                <Link href="/estimates/new">
+                  <Button size="sm" variant="outline">
+                    + New estimate
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -550,13 +564,27 @@ export default async function ProjectDetailPage({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Proposals ({proposals.length})</CardTitle>
-            {allowCreateProposal && (
-              <Link href="/proposals/new">
-                <Button size="sm" variant="outline">
-                  + New proposal
-                </Button>
-              </Link>
-            )}
+            <div className="flex items-center gap-2">
+              {allowCreateDocument && (
+                <Link
+                  href={{
+                    pathname: `/projects/${project.id}/documents`,
+                    query: { category: 'proposal' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    Upload file
+                  </Button>
+                </Link>
+              )}
+              {allowCreateProposal && (
+                <Link href="/proposals/new">
+                  <Button size="sm" variant="outline">
+                    + New proposal
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -610,13 +638,27 @@ export default async function ProjectDetailPage({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Change Orders ({changeOrders.length})</CardTitle>
-            {allowCreateCO && (
-              <Link href="/change-orders/new">
-                <Button size="sm" variant="outline">
-                  + New change order
-                </Button>
-              </Link>
-            )}
+            <div className="flex items-center gap-2">
+              {allowCreateDocument && (
+                <Link
+                  href={{
+                    pathname: `/projects/${project.id}/documents`,
+                    query: { category: 'change_order' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    Upload file
+                  </Button>
+                </Link>
+              )}
+              {allowCreateCO && (
+                <Link href="/change-orders/new">
+                  <Button size="sm" variant="outline">
+                    + New change order
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -1011,18 +1053,32 @@ export default async function ProjectDetailPage({
                 </span>
               )}
             </CardTitle>
-            {voidInvoiceCount > 0 && (
-              <Link
-                href={{
-                  pathname: `/projects/${project.id}`,
-                  query: showVoid ? {} : { showVoid: '1' },
-                }}
-              >
-                <Button size="sm" variant="outline">
-                  {showVoid ? 'Hide void' : 'Show void'}
-                </Button>
-              </Link>
-            )}
+            <div className="flex items-center gap-2">
+              {allowCreateDocument && (
+                <Link
+                  href={{
+                    pathname: `/projects/${project.id}/documents`,
+                    query: { category: 'invoice' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    Upload file
+                  </Button>
+                </Link>
+              )}
+              {voidInvoiceCount > 0 && (
+                <Link
+                  href={{
+                    pathname: `/projects/${project.id}`,
+                    query: showVoid ? {} : { showVoid: '1' },
+                  }}
+                >
+                  <Button size="sm" variant="outline">
+                    {showVoid ? 'Hide void' : 'Show void'}
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">

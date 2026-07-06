@@ -14,16 +14,27 @@ import { users } from '@/db/schema';
 import { DocumentUploader } from '@/modules/project-documents/components/document-uploader';
 import { DocumentsListClient } from '@/modules/project-documents/components/documents-list-client';
 import type { DocumentRowData } from '@/modules/project-documents/components/document-row';
-import type { DocumentCategory } from '@/modules/project-documents/schema';
+import {
+  documentCategoryValues,
+  type DocumentCategory,
+} from '@/modules/project-documents/schema';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProjectDocumentsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ category?: string }>;
 }) {
   const { id } = await params;
+  const { category: categoryParam } = await searchParams;
+  const defaultCategory = documentCategoryValues.includes(
+    categoryParam as DocumentCategory,
+  )
+    ? (categoryParam as DocumentCategory)
+    : undefined;
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'documents');
@@ -96,7 +107,12 @@ export default async function ProjectDocumentsPage({
         </div>
       </div>
 
-      {allowCreate && <DocumentUploader projectId={project.id} />}
+      {allowCreate && (
+        <DocumentUploader
+          projectId={project.id}
+          defaultCategory={defaultCategory}
+        />
+      )}
 
       <Card>
         <CardHeader>

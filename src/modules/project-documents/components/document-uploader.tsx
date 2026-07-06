@@ -36,13 +36,24 @@ const FILE_ACCEPT =
 //
 //   Detailed upload: the main form — multi-file, category/description/
 //   visibility set by the operator. Stacks on phones, grids on desktop.
-export function DocumentUploader({ projectId }: { projectId: string }) {
+export function DocumentUploader({
+  projectId,
+  defaultCategory,
+}: {
+  projectId: string;
+  // Pre-selects the category dropdown — set from a `?category=` param when the
+  // user arrives via a section's "Upload" link (e.g. Change Orders → change_order).
+  defaultCategory?: DocumentCategory;
+}) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  const [category, setCategory] = useState<DocumentCategory>('other');
+  const [category, setCategory] = useState<DocumentCategory>(
+    defaultCategory ?? 'other',
+  );
   // Tracks whether the user has manually overridden the category — once they
-  // do, we stop auto-suggesting 'photo' for image-only selections.
-  const categoryTouchedRef = useRef(false);
+  // do, we stop auto-suggesting 'photo' for image-only selections. A category
+  // arriving via link counts as an explicit choice, so we don't clobber it.
+  const categoryTouchedRef = useRef(defaultCategory != null);
 
   const [state, setState] = useState<DocumentActionState>({});
   const [pending, setPending] = useState(false);

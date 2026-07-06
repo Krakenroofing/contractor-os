@@ -286,6 +286,7 @@ export const documentCategoryEnum = pgEnum('document_category', [
   'warranty',
   'closeout',
   'financial',
+  'change_order',
   'other',
 ]);
 
