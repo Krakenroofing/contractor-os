@@ -341,6 +341,12 @@ export function InvoiceEditForm({
         <legend className="px-2 text-sm font-medium text-slate-700">
           Billing breakdown
         </legend>
+        <p className="text-xs text-slate-500">
+          To credit an amount off this bill (a deposit already paid, a
+          reimbursement, a discount), add a line with a{' '}
+          <span className="font-medium">negative unit cost</span>. It reduces the
+          taxable subtotal, so VAT is charged only on the net.
+        </p>
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
         <div className="space-y-2">
           <div className="hidden md:grid grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
@@ -426,7 +432,7 @@ export function InvoiceEditForm({
             );
           })}
         </div>
-        <div>
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
@@ -434,6 +440,19 @@ export function InvoiceEditForm({
             onClick={() => setLines((prev) => [...prev, newEmptyLine()])}
           >
             + Add line
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setLines((prev) => [
+                ...prev,
+                { ...newEmptyLine(), description: 'Less ' },
+              ])
+            }
+          >
+            + Add credit / deduction
           </Button>
         </div>
       </fieldset>

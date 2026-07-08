@@ -1021,6 +1021,13 @@ export function InvoiceForm({
         <legend className="px-2 text-sm font-medium text-slate-700">
           Billing breakdown
         </legend>
+        <p className="text-xs text-slate-500">
+          To credit an amount off this bill (a deposit already paid, a
+          reimbursement, a discount), add a line with a{' '}
+          <span className="font-medium">negative unit cost</span>. It reduces the
+          taxable subtotal, so VAT is charged only on the net — the way a VAT
+          invoice reads.
+        </p>
         {isServiceProject && (
           <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-900">
             <span className="font-medium">Time &amp; Materials.</span> Enter labor
@@ -1124,6 +1131,20 @@ export function InvoiceForm({
             onClick={() => setLines((prev) => [...prev, newEmptyLine()])}
           >
             + Add line
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              addLineFromDefaults({
+                description: 'Less ',
+                quantity: '1',
+                unitCost: '0',
+              })
+            }
+          >
+            + Add credit / deduction
           </Button>
           {isServiceProject && (
             <>

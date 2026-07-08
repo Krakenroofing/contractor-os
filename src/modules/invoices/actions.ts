@@ -223,6 +223,15 @@ export async function createInvoiceAction(
       lineTotal: toMoneyString(lineTotal),
     };
   });
+  // Credit / deduction lines (negative unit costs) may pull the subtotal down,
+  // but the net taxable base still has to be positive — a net-zero-or-negative
+  // invoice is a credit note, not an invoice.
+  if (!(subtotal > 0)) {
+    return {
+      formError:
+        'Invoice subtotal must be greater than zero. Credit / deduction lines can’t meet or exceed the amount billed — issue a credit memo instead.',
+    };
+  }
   const tax = Number(data.taxAmount);
   // If a retainage % is set and a held amount isn't, derive held = subtotal × pct.
   const retainagePctRaw = data.retainagePercent ?? '';
@@ -534,6 +543,12 @@ export async function updateInvoiceFullAction(
       lineTotal: toMoneyString(lineTotal),
     };
   });
+  if (!(subtotal > 0)) {
+    return {
+      formError:
+        'Invoice subtotal must be greater than zero. Credit / deduction lines can’t meet or exceed the amount billed — issue a credit memo instead.',
+    };
+  }
   const tax = Number(data.taxAmount);
   const retainagePctRaw = data.retainagePercent ?? '';
   const retainagePct = retainagePctRaw === '' ? 0 : Number(retainagePctRaw);

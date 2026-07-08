@@ -59,12 +59,23 @@ const numericString = z
     message: 'Must be a non-negative number',
   });
 
+// A signed money field: any real number, positive OR negative. Used for a
+// line's unit cost so an invoice can carry credit / deduction lines (e.g.
+// "Less deposit", "Less reimbursement") that reduce the TAXABLE subtotal
+// before VAT is calculated — matching how a VAT invoice actually reads.
+// Quantity stays non-negative; only the unit cost may go negative.
+const signedNumericString = z
+  .string()
+  .refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)), {
+    message: 'Must be a number',
+  });
+
 export const invoiceLineSchema = z.object({
   inventoryItemId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: optionalString,
   quantity: numericString,
-  unitCost: numericString,
+  unitCost: signedNumericString,
 });
 
 export const invoiceFormSchema = z.object({
