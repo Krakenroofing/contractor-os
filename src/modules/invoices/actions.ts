@@ -35,6 +35,7 @@ import {
   listCreditMemosForCustomer,
 } from '@/lib/data/credit-memos';
 import { getProject } from '@/lib/data/projects';
+import { recomputeProjectContractTotals } from '@/lib/data/change-orders';
 import {
   billingTypeValues,
   changeOrderLinkError,
@@ -221,6 +222,7 @@ export async function createInvoiceAction(
       quantity: toQuantityString(qty),
       unitCost: toQuantityString(unitCost),
       lineTotal: toMoneyString(lineTotal),
+      isProjectCredit: l.isProjectCredit ?? false,
     };
   });
   // Credit / deduction lines (negative unit costs) may pull the subtotal down,
@@ -341,6 +343,15 @@ export async function createInvoiceAction(
     await syncInvoiceGl(companyId, createdId);
   } catch {
     /* best-effort — Rebuild can resync */
+  }
+
+  // A project-credit line is a downward contract adjustment — re-roll the
+  // project's contract totals from source. Best-effort; a hiccup here must
+  // never block the invoice.
+  try {
+    await recomputeProjectContractTotals(data.projectId);
+  } catch {
+    /* best-effort — Rebuild / self-heal can resync */
   }
 
   revalidatePath('/invoices');
@@ -541,6 +552,7 @@ export async function updateInvoiceFullAction(
       quantity: toQuantityString(qty),
       unitCost: toQuantityString(unitCost),
       lineTotal: toMoneyString(lineTotal),
+      isProjectCredit: l.isProjectCredit ?? false,
     };
   });
   if (!(subtotal > 0)) {
@@ -615,6 +627,14 @@ export async function updateInvoiceFullAction(
     /* best-effort — Rebuild can resync */
   }
 
+  // Re-roll the project's contract totals: a project-credit line may have been
+  // added, changed, or removed by this edit. Best-effort.
+  try {
+    await recomputeProjectContractTotals(existing.projectId);
+  } catch {
+    /* best-effort — Rebuild / self-heal can resync */
+  }
+
   revalidatePath('/invoices');
   revalidatePath(`/invoices/${data.id}`);
   revalidatePath('/dashboard');
@@ -666,6 +686,14 @@ export async function deleteDraftInvoiceAction(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to delete invoice: ${message}` };
+  }
+
+  // Deleting a draft that carried a project credit reverses its contract
+  // reduction — re-roll from source. Best-effort.
+  try {
+    await recomputeProjectContractTotals(existing.projectId);
+  } catch {
+    /* best-effort — Rebuild / self-heal can resync */
   }
 
   revalidatePath('/invoices');

@@ -38,6 +38,9 @@ type LineDraft = {
   unit: string;
   quantity: string;
   unitCost: string;
+  /** True for a "project credit" line — reduces the taxable subtotal (pre-VAT)
+   *  and the project's contract value. */
+  isProjectCredit?: boolean;
 };
 
 const initialState: UpdateInvoiceState = {};
@@ -69,6 +72,7 @@ export type InvoiceEditFormInitial = {
     unit: string;
     quantity: string;
     unitCost: string;
+    isProjectCredit?: boolean;
   }>;
 };
 
@@ -108,6 +112,7 @@ export function InvoiceEditForm({
       unit: l.unit,
       quantity: l.quantity,
       unitCost: l.unitCost,
+      isProjectCredit: l.isProjectCredit,
     })),
   );
   const [number, setNumber] = useState(initial.number);
@@ -145,12 +150,16 @@ export function InvoiceEditForm({
 
   const totals = useMemo(() => {
     let subtotal = 0;
+    // Project-credit lines are itemised under the subtotal (see create form).
+    let projectCredit = 0;
     for (const l of lines) {
-      subtotal = add(
-        subtotal,
-        multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0),
-      );
+      const lineTotal = multiply(Number(l.quantity) || 0, Number(l.unitCost) || 0);
+      subtotal = add(subtotal, lineTotal);
+      if (l.isProjectCredit && lineTotal < 0) {
+        projectCredit = add(projectCredit, -lineTotal);
+      }
     }
+    const grossSubtotal = add(subtotal, projectCredit);
     const pct = Number(retainagePercent) || 0;
     const derivedHeld = pct > 0 ? (subtotal * pct) / 100 : 0;
     const retainage = retainageAmountManual
@@ -168,7 +177,17 @@ export function InvoiceEditForm({
     const total = add(netOfRetainage, tax);
     const paid = Number(initial.amountPaid) || 0;
     const balance = subtract(total, paid);
-    return { subtotal, tax, retainage, total, paid, balance, pct };
+    return {
+      subtotal,
+      grossSubtotal,
+      projectCredit,
+      tax,
+      retainage,
+      total,
+      paid,
+      balance,
+      pct,
+    };
   }, [
     lines,
     taxAmount,
@@ -208,6 +227,7 @@ export function InvoiceEditForm({
     unit: l.unit,
     quantity: l.quantity,
     unitCost: l.unitCost,
+    isProjectCredit: l.isProjectCredit ?? false,
   }));
 
   const updateLine = (rowId: string, patch: Partial<LineDraft>) =>
@@ -345,7 +365,10 @@ export function InvoiceEditForm({
           To credit an amount off this bill (a deposit already paid, a
           reimbursement, a discount), add a line with a{' '}
           <span className="font-medium">negative unit cost</span>. It reduces the
-          taxable subtotal, so VAT is charged only on the net.
+          taxable subtotal, so VAT is charged only on the net. Use{' '}
+          <span className="font-medium">Add project credit</span> when the credit
+          reduces the contract itself — same effect on the bill, and it lowers the
+          project&apos;s contract value too.
         </p>
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
         <div className="space-y-2">
@@ -368,29 +391,37 @@ export function InvoiceEditForm({
                 key={line.rowId}
                 className="grid grid-cols-1 md:grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
               >
-                <ProductPicker
-                  value={line.inventoryItemId}
-                  options={products}
-                  onItemSelected={(picked) => {
-                    if (!picked) {
-                      updateLine(line.rowId, { inventoryItemId: '' });
-                      return;
-                    }
-                    updateLine(line.rowId, {
-                      inventoryItemId: picked.id,
-                      description:
-                        line.description.trim() === '' ? picked.name : line.description,
-                      unit:
-                        line.unit.trim() === '' && picked.unit
-                          ? picked.unit
-                          : line.unit,
-                      unitCost:
-                        (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
-                          ? picked.defaultCost.toString()
-                          : line.unitCost,
-                    });
-                  }}
-                />
+                {line.isProjectCredit ? (
+                  <div className="flex h-10 items-center">
+                    <span className="inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200">
+                      Project credit
+                    </span>
+                  </div>
+                ) : (
+                  <ProductPicker
+                    value={line.inventoryItemId}
+                    options={products}
+                    onItemSelected={(picked) => {
+                      if (!picked) {
+                        updateLine(line.rowId, { inventoryItemId: '' });
+                        return;
+                      }
+                      updateLine(line.rowId, {
+                        inventoryItemId: picked.id,
+                        description:
+                          line.description.trim() === '' ? picked.name : line.description,
+                        unit:
+                          line.unit.trim() === '' && picked.unit
+                            ? picked.unit
+                            : line.unit,
+                        unitCost:
+                          (Number(line.unitCost) || 0) === 0 && picked.defaultCost > 0
+                            ? picked.defaultCost.toString()
+                            : line.unitCost,
+                      });
+                    }}
+                  />
+                )}
                 <Input
                   value={line.description}
                   onChange={(e) =>
@@ -453,6 +484,23 @@ export function InvoiceEditForm({
             }
           >
             + Add credit / deduction
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setLines((prev) => [
+                ...prev,
+                {
+                  ...newEmptyLine(),
+                  description: 'Project credit',
+                  isProjectCredit: true,
+                },
+              ])
+            }
+          >
+            + Add project credit
           </Button>
         </div>
       </fieldset>
@@ -550,7 +598,18 @@ export function InvoiceEditForm({
       </fieldset>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-        <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
+        {totals.projectCredit > 0 ? (
+          <>
+            <Stat label="Subtotal" value={formatMoney(totals.grossSubtotal)} />
+            <Stat
+              label="Less project credit"
+              value={`(${formatMoney(totals.projectCredit)})`}
+            />
+            <Stat label="Net subtotal" value={formatMoney(totals.subtotal)} />
+          </>
+        ) : (
+          <Stat label="Subtotal" value={formatMoney(totals.subtotal)} />
+        )}
         {showVat && <Stat label="Tax / VAT" value={formatMoney(totals.tax)} />}
         <Stat
           label={`Retainage held${totals.pct > 0 ? ` (${totals.pct.toFixed(2)}%)` : ''}`}

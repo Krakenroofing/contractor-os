@@ -130,6 +130,11 @@ export const invoiceLineItems = pgTable(
     lineTotal: numeric('line_total', { precision: 14, scale: 2 })
       .notNull()
       .default('0'),
+    // A "project credit" is a negative line that reduces the taxable subtotal
+    // (pre-VAT) AND reduces the project's contract value — a downward contract
+    // adjustment billed as a line. Plain credit / deduction lines (deposit,
+    // reimbursement, discount) leave this false: they only touch the invoice.
+    isProjectCredit: boolean('is_project_credit').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
   },
   (t) => ({

@@ -107,6 +107,7 @@ export default async function EditInvoicePage({
             unit: l.unit ?? '',
             quantity: Number(l.quantity).toString(),
             unitCost: Number(l.unitCost).toString(),
+            isProjectCredit: l.isProjectCredit,
           })),
         }}
         changeOrderOptions={projectChangeOrders.map((co) => ({

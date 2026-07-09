@@ -40,6 +40,15 @@ export async function buildInvoicePayload(
   const lines = await getInvoiceLineItems(invoice.id);
 
   const subtotal = parseMoney(invoice.subtotal);
+  // Project-credit lines are itemised under the subtotal so VAT reads as
+  // charged on the net. `subtotal` (invoice.subtotal) is already the net; the
+  // gross is the pre-credit work value shown above the credit row.
+  const projectCreditTotal = lines.reduce(
+    (s, l) =>
+      l.isProjectCredit && Number(l.lineTotal) < 0 ? add(s, -Number(l.lineTotal)) : s,
+    0,
+  );
+  const grossSubtotal = add(subtotal, projectCreditTotal);
   const retainageAmount = parseMoney(invoice.retainageAmount);
   const netOfRetainage = subtract(subtotal, retainageAmount);
   const total = parseMoney(invoice.total);
@@ -265,7 +274,17 @@ export async function buildInvoicePayload(
       bold: true,
     });
   } else {
-    totals.push({ label: 'Subtotal', value: subtotal });
+    if (projectCreditTotal > 0) {
+      totals.push({ label: 'Subtotal', value: grossSubtotal });
+      totals.push({
+        label: 'Less project credit',
+        value: projectCreditTotal,
+        negative: true,
+      });
+      totals.push({ label: 'Net subtotal', value: subtotal });
+    } else {
+      totals.push({ label: 'Subtotal', value: subtotal });
+    }
     if (showRetainageRow) {
       const rawLabel = template?.retainageHeldLabel ?? 'Retainage held';
       const cleanLabel = rawLabel.replace(/^less\s+/i, '').toLowerCase();

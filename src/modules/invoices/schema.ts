@@ -76,6 +76,10 @@ export const invoiceLineSchema = z.object({
   unit: optionalString,
   quantity: numericString,
   unitCost: signedNumericString,
+  // Marks a "project credit" line: a negative line that reduces both the
+  // taxable subtotal (pre-VAT) and the project's contract value. Posted from
+  // the form as a JSON boolean; absent on ordinary lines → treated as false.
+  isProjectCredit: z.boolean().optional().default(false),
 });
 
 export const invoiceFormSchema = z.object({

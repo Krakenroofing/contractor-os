@@ -140,6 +140,19 @@ export async function transitionStatusAction(
     } catch {
       /* best-effort */
     }
+    // Voiding / un-voiding an invoice flips whether its project-credit lines
+    // count toward the contract reduction — re-roll the project's contract
+    // totals from source. Best-effort.
+    try {
+      const { getInvoice } = await import('@/lib/data/invoices');
+      const { recomputeProjectContractTotals } = await import(
+        '@/lib/data/change-orders'
+      );
+      const inv = await getInvoice(companyId, entityId);
+      if (inv) await recomputeProjectContractTotals(inv.projectId);
+    } catch {
+      /* best-effort */
+    }
   }
 
   // Append activity log entry.

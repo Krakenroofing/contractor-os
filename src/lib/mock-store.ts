@@ -894,6 +894,7 @@ function buildInvoice(input: SeedInvoice): {
       quantity: sl.quantity.toFixed(4),
       unitCost: sl.unitCost.toFixed(4),
       lineTotal: lineTotal.toFixed(2),
+      isProjectCredit: false,
       sortOrder: i,
     };
   });
@@ -2654,6 +2655,7 @@ export type CreateInvoiceInput = {
     quantity: string;
     unitCost: string;
     lineTotal: string;
+    isProjectCredit?: boolean;
   }>;
 };
 
@@ -2714,6 +2716,7 @@ export function createMockInvoice(
       quantity: l.quantity,
       unitCost: l.unitCost,
       lineTotal: l.lineTotal,
+      isProjectCredit: l.isProjectCredit ?? false,
       sortOrder: i,
     });
   });
@@ -4136,6 +4139,7 @@ export function updateMockInvoiceFull(
       quantity: string;
       unitCost: string;
       lineTotal: string;
+      isProjectCredit?: boolean;
     }>;
   },
 ): Invoice | undefined {
@@ -4162,6 +4166,7 @@ export function updateMockInvoiceFull(
       quantity: l.quantity,
       unitCost: l.unitCost,
       lineTotal: l.lineTotal,
+      isProjectCredit: l.isProjectCredit ?? false,
       sortOrder: i,
     });
   }

@@ -15,6 +15,7 @@ import {
   type ChangeOrderLineItem,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { sumProjectCreditForProject } from '@/lib/data/invoices';
 import {
   listMockChangeOrders as mockList,
   getMockChangeOrder as mockGet,
@@ -174,10 +175,88 @@ export async function listApprovedChangeOrdersForProject(
  * In demo mode mutates the in-memory project; in DB mode runs an UPDATE with
  * an arithmetic expression so the change is atomic.
  */
+/**
+ * Pure roll-up of a project's contract totals from its sources. A project
+ * credit (an `is_project_credit` invoice line) is a DOWNWARD contract
+ * adjustment: it nets out of the change-order total the same way an approved
+ * deductive change order would, so the reconciliation invariants still hold:
+ *   totalChangeOrders = approvedCOTotal − creditApplied
+ *   contractValue     = originalContractValue + totalChangeOrders
+ * The credit is clamped so it never drives the contract below zero — a
+ * service / T&M project with no contract value (original + COs = 0) stays at 0
+ * and the credit simply reduces the bill it sits on.
+ */
+export function computeProjectContractTotals(input: {
+  originalContractValue: number;
+  approvedCOTotal: number;
+  projectCreditTotal: number;
+}): { contractValue: number; totalChangeOrders: number; creditApplied: number } {
+  const { originalContractValue, approvedCOTotal, projectCreditTotal } = input;
+  const available = originalContractValue + approvedCOTotal;
+  const creditApplied = Math.max(0, Math.min(projectCreditTotal, available));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    creditApplied: round2(creditApplied),
+    contractValue: round2(available - creditApplied),
+    totalChangeOrders: round2(approvedCOTotal - creditApplied),
+  };
+}
+
+/**
+ * Recompute + persist a project's contract totals from source: original
+ * contract + approved COs − project credits. Idempotent — safe to call after
+ * any invoice mutation (create / edit / void / delete) that could touch a
+ * project-credit line. Never blocks the caller; wrap in try/catch.
+ */
+export async function recomputeProjectContractTotals(
+  projectId: string,
+): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  const proj = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (proj.length === 0) return;
+  const project = proj[0];
+
+  const approvedRows = await db
+    .select({ total: changeOrders.total })
+    .from(changeOrders)
+    .where(
+      and(
+        eq(changeOrders.projectId, projectId),
+        eq(changeOrders.status, 'approved'),
+      ),
+    );
+  const approvedCOTotal = approvedRows.reduce(
+    (acc, r) => acc + Number(r.total),
+    0,
+  );
+  const projectCreditTotal = await sumProjectCreditForProject(projectId);
+
+  const { contractValue, totalChangeOrders } = computeProjectContractTotals({
+    originalContractValue: Number(project.originalContractValue),
+    approvedCOTotal,
+    projectCreditTotal,
+  });
+
+  const lit = (n: number) => sql.raw(`(${n.toFixed(2)})::numeric`);
+  await db
+    .update(projects)
+    .set({
+      contractValue: lit(contractValue),
+      totalChangeOrders: lit(totalChangeOrders),
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+}
+
 // Self-heal: recompute project.totalChangeOrders and project.contractValue
-// from the authoritative sum of approved (non-void) COs. Useful as a
-// recovery action when the running balance drifted (e.g., from an earlier
-// bug or a manual DB edit).
+// from the authoritative sum of approved (non-void) COs, netting project
+// credits. Useful as a recovery action when the running balance drifted
+// (e.g., from an earlier bug or a manual DB edit).
 export async function recomputeProjectContractTotalsFromCOs(
   projectId: string,
 ): Promise<{
@@ -210,20 +289,25 @@ export async function recomputeProjectContractTotalsFromCOs(
     0,
   );
   const originalContractValue = Number(project.originalContractValue);
-  const newContractValue = originalContractValue + approvedCOTotal;
+  const projectCreditTotal = await sumProjectCreditForProject(projectId);
+  const { contractValue, totalChangeOrders } = computeProjectContractTotals({
+    originalContractValue,
+    approvedCOTotal,
+    projectCreditTotal,
+  });
 
   // Embed as numeric literals to avoid any parameter-type ambiguity.
   const lit = (n: number) => sql.raw(`(${n.toFixed(2)})::numeric`);
   await db
     .update(projects)
     .set({
-      totalChangeOrders: lit(approvedCOTotal),
-      contractValue: lit(newContractValue),
+      totalChangeOrders: lit(totalChangeOrders),
+      contractValue: lit(contractValue),
       updatedAt: new Date(),
     })
     .where(eq(projects.id, projectId));
 
-  return { originalContractValue, approvedCOTotal, newContractValue };
+  return { originalContractValue, approvedCOTotal, newContractValue: contractValue };
 }
 
 export async function applyApprovedCOToProject(

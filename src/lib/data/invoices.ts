@@ -5,7 +5,7 @@
 // module is just CRUD.
 
 import 'server-only';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   invoiceLineItems,
   invoicePayments,
@@ -80,6 +80,67 @@ export async function getInvoiceLineItems(
   return mockGetLines(invoiceId);
 }
 
+/**
+ * Sum of project-credit reductions on a project — the total by which project
+ * credits should pull the contract value down. Counts `is_project_credit`
+ * lines (negative line totals) across the project's live invoices (non-void,
+ * non-draft, matching the billed-basis GL filter). Returns a positive number.
+ */
+export async function sumProjectCreditForProject(
+  projectId: string,
+): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      credit: sql<string>`COALESCE(SUM(-${invoiceLineItems.lineTotal}), 0)`,
+    })
+    .from(invoiceLineItems)
+    .innerJoin(invoices, eq(invoices.id, invoiceLineItems.invoiceId))
+    .where(
+      and(
+        eq(invoices.projectId, projectId),
+        eq(invoiceLineItems.isProjectCredit, true),
+        sql`${invoiceLineItems.lineTotal} < 0`,
+        ne(invoices.status, 'void'),
+        ne(invoices.status, 'draft'),
+      ),
+    );
+  return Number(rows[0]?.credit ?? 0);
+}
+
+/**
+ * Project-credit reductions grouped by project for a whole company — one
+ * query, used by the reconciliation engine to verify contract totals without
+ * loading every invoice's line items.
+ */
+export async function sumProjectCreditsByProject(
+  companyId: string,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!isDatabaseConfigured()) return map;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      projectId: invoices.projectId,
+      credit: sql<string>`COALESCE(SUM(-${invoiceLineItems.lineTotal}), 0)`,
+    })
+    .from(invoiceLineItems)
+    .innerJoin(invoices, eq(invoices.id, invoiceLineItems.invoiceId))
+    .where(
+      and(
+        eq(invoices.companyId, companyId),
+        eq(invoiceLineItems.isProjectCredit, true),
+        sql`${invoiceLineItems.lineTotal} < 0`,
+        ne(invoices.status, 'void'),
+        ne(invoices.status, 'draft'),
+      ),
+    )
+    .groupBy(invoices.projectId);
+  for (const r of rows) map.set(r.projectId, Number(r.credit));
+  return map;
+}
+
 export async function listInvoicesForProject(
   projectId: string,
 ): Promise<Invoice[]> {
@@ -149,6 +210,7 @@ export async function createInvoice(
           quantity: l.quantity,
           unitCost: l.unitCost,
           lineTotal: l.lineTotal,
+          isProjectCredit: l.isProjectCredit ?? false,
           sortOrder: i,
         })),
       );
@@ -268,6 +330,7 @@ export type UpdateInvoiceFullInput = {
     quantity: string;
     unitCost: string;
     lineTotal: string;
+    isProjectCredit?: boolean;
   }>;
 };
 
@@ -300,6 +363,7 @@ export async function updateInvoiceFull(
           quantity: l.quantity,
           unitCost: l.unitCost,
           lineTotal: l.lineTotal,
+          isProjectCredit: l.isProjectCredit ?? false,
           sortOrder: i,
         })),
       );

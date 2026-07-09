@@ -10,7 +10,10 @@
 import 'server-only';
 import { listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
-import { listChangeOrders } from '@/lib/data/change-orders';
+import {
+  listChangeOrders,
+  computeProjectContractTotals,
+} from '@/lib/data/change-orders';
 import {
   listPurchaseOrders,
   getPurchaseOrderLines,
@@ -19,6 +22,7 @@ import { listLandedCosts } from '@/lib/data/landed-costs';
 import {
   listInvoices,
   getInvoiceLineItems,
+  sumProjectCreditsByProject,
 } from '@/lib/data/invoices';
 import {
   listPayments,
@@ -237,20 +241,30 @@ export async function buildReconciliationData(
     }
   }
 
-  // 5. Change orders not included in project totals.
-  // For each project, sum approved CO totals and compare to project.totalChangeOrders.
+  // 5. Change orders + project credits not rolled into project totals.
+  // For each project the stored totals must equal the roll-up from source:
+  //   totalChangeOrders = approved CO total − project credits applied
+  //   contractValue     = originalContractValue + totalChangeOrders
+  // Project credits (is_project_credit invoice lines) net down the contract
+  // the same way a deductive change order would (see computeProjectContractTotals).
+  const projectCreditByProject = await sumProjectCreditsByProject(companyId);
   for (const project of projects) {
     const projectCOs = changeOrders.filter((c) => c.projectId === project.id);
     const approvedTotal = projectCOs
       .filter((c) => normalizeStatus('change_order', c.status) === 'approved')
       .reduce((acc, c) => add(acc, parseMoney(c.total)), 0);
+    const expected = computeProjectContractTotals({
+      originalContractValue: parseMoney(project.originalContractValue),
+      approvedCOTotal: approvedTotal,
+      projectCreditTotal: projectCreditByProject.get(project.id) ?? 0,
+    });
     const stored = parseMoney(project.totalChangeOrders);
-    if (Math.abs(approvedTotal - stored) > EPSILON) {
+    if (Math.abs(expected.totalChangeOrders - stored) > EPSILON) {
       warnings.push({
         severity: 'warn',
         category: 'co-not-rolled-up',
         projectId: project.id,
-        message: `Project ${project.name}: approved CO total (${approvedTotal.toFixed(2)}) doesn't match project.totalChangeOrders (${stored.toFixed(2)})`,
+        message: `Project ${project.name}: expected change-order total (${expected.totalChangeOrders.toFixed(2)}, net of project credits) doesn't match project.totalChangeOrders (${stored.toFixed(2)})`,
         href: `/projects/${project.id}`,
       });
     }

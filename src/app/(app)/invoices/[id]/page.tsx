@@ -18,7 +18,7 @@ import {
 import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { formatMoney, parseMoney, subtract } from '@/lib/money';
+import { add, formatMoney, parseMoney, subtract } from '@/lib/money';
 import {
   getInvoice,
   getInvoiceLineItems,
@@ -130,6 +130,18 @@ export default async function InvoiceDetailPage({
     parseMoney(invoice.retainageAmount),
   );
   const vatAmount = Number(invoice.taxAmount);
+
+  // Project-credit lines are itemised under the subtotal so VAT reads as
+  // charged on the net (subtotal − credit). `invoice.subtotal` is already the
+  // net; add the credits back to show the gross work value above them.
+  const projectCreditTotal = lines.reduce(
+    (s, l) =>
+      l.isProjectCredit && Number(l.lineTotal) < 0
+        ? s + -Number(l.lineTotal)
+        : s,
+    0,
+  );
+  const grossSubtotal = add(parseMoney(invoice.subtotal), projectCreditTotal);
 
   // Title override (e.g. "VAT Invoice", "Progress Invoice", "Request for
   // Change Order"). Falls back to a sensible default when the template
@@ -433,7 +445,22 @@ export default async function InvoiceDetailPage({
                 VAT on net -> net amount due. VAT is computed on the
                 post-retainage base so retainage held back isn't taxed
                 until it gets released. */}
-            <Row label="Subtotal" value={formatMoney(invoice.subtotal)} />
+            {projectCreditTotal > 0 ? (
+              <>
+                <Row label="Subtotal" value={formatMoney(grossSubtotal)} />
+                <Row
+                  label="Less project credit"
+                  value={`(${formatMoney(projectCreditTotal)})`}
+                  valueClassName="text-rose-700"
+                />
+                <Row
+                  label="Net subtotal"
+                  value={formatMoney(invoice.subtotal)}
+                />
+              </>
+            ) : (
+              <Row label="Subtotal" value={formatMoney(invoice.subtotal)} />
+            )}
             {show('showRetainage') && Number(invoice.retainageAmount) > 0 && (
               <>
                 <Row
