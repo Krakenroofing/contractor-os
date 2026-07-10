@@ -7,6 +7,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCustomers } from '@/lib/data/customers';
+import { listLaborCostCodeOptions } from '@/lib/data/cost-codes';
 import { getProject } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
@@ -23,10 +24,11 @@ export default async function EditProjectPage({
   const companyId = await getActiveCompanyId();
   const project = await getProject(companyId, id);
   if (!project) notFound();
-  const customers = (await listCustomers(companyId)).map((c) => ({
-    id: c.id,
-    name: c.name,
-  }));
+  const [customersRaw, laborCostCodes] = await Promise.all([
+    listCustomers(companyId),
+    listLaborCostCodeOptions(companyId),
+  ]);
+  const customers = customersRaw.map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
@@ -53,6 +55,7 @@ export default async function EditProjectPage({
 
       <ProjectForm
         customers={customers}
+        laborCostCodes={laborCostCodes}
         mode={{ kind: 'edit', id: project.id }}
         initial={{
           id: project.id,
@@ -75,6 +78,7 @@ export default async function EditProjectPage({
           estimatedBudget: project.currentBudget,
           tmLaborBillRate: project.tmLaborBillRate ?? '',
           tmMaterialMarkupPct: project.tmMaterialMarkupPct ?? '',
+          defaultLaborCostCodeId: project.defaultLaborCostCodeId ?? '',
           notes: project.notes ?? '',
         }}
       />

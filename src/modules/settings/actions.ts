@@ -136,6 +136,7 @@ export async function updateAccountingSettingsAction(
     defaultRetainagePercent: formData.get('defaultRetainagePercent') ?? '0',
     laborCogsAccountId: formData.get('laborCogsAccountId') ?? '',
     laborBurdenAccountId: formData.get('laborBurdenAccountId') ?? '',
+    defaultLaborCostCodeId: formData.get('defaultLaborCostCodeId') ?? '',
   });
 
   if (!parsed.success) {
@@ -154,6 +155,7 @@ export async function updateAccountingSettingsAction(
     defaultRetainagePercent: Number(data.defaultRetainagePercent).toFixed(3),
     laborCogsAccountId: emptyToNull(data.laborCogsAccountId ?? null),
     laborBurdenAccountId: emptyToNull(data.laborBurdenAccountId ?? null),
+    defaultLaborCostCodeId: emptyToNull(data.defaultLaborCostCodeId ?? null),
   });
 
   if (!updated) {

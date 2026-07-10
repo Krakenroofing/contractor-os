@@ -47,6 +47,9 @@ export const projectFormSchema = z
     estimatedBudget: moneyString,
     tmLaborBillRate: optionalMoneyOrNull,
     tmMaterialMarkupPct: optionalMoneyOrNull,
+    // Fallback labor cost code for clock-posted hours on this job. Empty = use
+    // the company default. Kept as an optional string; the action nulls blanks.
+    defaultLaborCostCodeId: z.string().optional().or(z.literal('')),
     notes: z.string().max(2000).optional().or(z.literal('')),
   })
   .transform((data) => {

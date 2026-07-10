@@ -16,6 +16,8 @@ import {
 } from 'drizzle-orm';
 import {
   clockEvents,
+  companies,
+  projects,
   timeEntries,
   type ClockEvent,
   type ClockEventKind,
@@ -536,6 +538,55 @@ export async function postSessionsToTimeEntries(
   let skippedLocked = 0;
   let skippedOther = 0;
 
+  // Default labor cost code fallback. The field clock captures a project but
+  // usually no cost code, so these punches would post with a null cost code and
+  // never reach job-cost labor (computeLaborPostingPlan needs BOTH). When a
+  // punch on a job has no code, fall back to the project's default labor code,
+  // then the company's. Resolution runs only for job punches — overhead (no
+  // project) intentionally stays uncoded.
+  const companyRow = await db
+    .select({ defaultLaborCostCodeId: companies.defaultLaborCostCodeId })
+    .from(companies)
+    .where(eq(companies.id, companyId))
+    .limit(1);
+  const companyDefaultCostCodeId = companyRow[0]?.defaultLaborCostCodeId ?? null;
+
+  // Per-project defaults for the distinct jobs in this batch that need a
+  // fallback (job punch, no code). One query, not one per session.
+  const projectIdsNeedingCode = [
+    ...new Set(
+      sessions
+        .filter((s) => !s.in.costCodeId && s.in.projectId)
+        .map((s) => s.in.projectId as string),
+    ),
+  ];
+  const projectDefaultCostCode = new Map<string, string | null>();
+  if (projectIdsNeedingCode.length > 0) {
+    const rows = await db
+      .select({
+        id: projects.id,
+        defaultLaborCostCodeId: projects.defaultLaborCostCodeId,
+      })
+      .from(projects)
+      .where(inArray(projects.id, projectIdsNeedingCode));
+    for (const r of rows) {
+      projectDefaultCostCode.set(r.id, r.defaultLaborCostCodeId);
+    }
+  }
+
+  // punch code → project default → company default. Null when there's no
+  // project (overhead) or no default configured anywhere.
+  function resolveCostCodeId(
+    costCodeId: string | null,
+    projectId: string | null,
+  ): string | null {
+    if (costCodeId) return costCodeId;
+    if (!projectId) return null;
+    return (
+      projectDefaultCostCode.get(projectId) ?? companyDefaultCostCodeId ?? null
+    );
+  }
+
   // Many sessions on the same Nassau date share a pay period — cache
   // by workDate so we don't hammer getOrCreatePeriodForDate per row.
   const periodCache = new Map<string, { id: string; status: string }>();
@@ -579,7 +630,7 @@ export async function postSessionsToTimeEntries(
             hours: hoursNum.toFixed(2),
             amount: '0',
             projectId: s.in.projectId,
-            costCodeId: s.in.costCodeId,
+            costCodeId: resolveCostCodeId(s.in.costCodeId, s.in.projectId),
             isOverhead: s.in.projectId == null,
             notes,
           })
