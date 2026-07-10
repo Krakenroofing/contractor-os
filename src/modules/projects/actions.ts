@@ -52,6 +52,7 @@ function readForm(formData: FormData) {
     targetCompletionDate: formData.get('targetCompletionDate') ?? '',
     contractValue: formData.get('contractValue') ?? '',
     estimatedBudget: formData.get('estimatedBudget') ?? '',
+    defaultLaborCostCodeId: formData.get('defaultLaborCostCodeId') ?? '',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -97,6 +98,7 @@ export async function createProjectAction(
       currentBudget: data.estimatedBudget,
       tmLaborBillRate: data.tmLaborBillRate,
       tmMaterialMarkupPct: data.tmMaterialMarkupPct,
+      defaultLaborCostCodeId: emptyToNull(data.defaultLaborCostCodeId ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = project.id;
@@ -173,6 +175,7 @@ export async function createProjectInlineAction(input: {
       currentBudget: '0',
       tmLaborBillRate: null,
       tmMaterialMarkupPct: null,
+      defaultLaborCostCodeId: null,
       notes: null,
     });
     revalidatePath('/projects');
@@ -283,6 +286,7 @@ export async function updateProjectAction(
       currentBudget: data.estimatedBudget,
       tmLaborBillRate: data.tmLaborBillRate,
       tmMaterialMarkupPct: data.tmMaterialMarkupPct,
+      defaultLaborCostCodeId: emptyToNull(data.defaultLaborCostCodeId ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

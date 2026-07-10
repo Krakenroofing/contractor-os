@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AccountingAccountPicker } from '@/modules/accounting/components/accounting-account-picker';
 import type { AccountingAccountOption } from '@/modules/accounting/lib/account-options';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import type { LaborCostCodeOption } from '@/lib/data/cost-codes';
 import {
   updateAccountingSettingsAction,
   type AccountingSettingsState,
@@ -35,9 +37,11 @@ const MONTHS = [
 export function AccountingSettingsForm({
   company,
   accounts,
+  laborCostCodes,
 }: {
   company: Company;
   accounts: AccountingAccountOption[];
+  laborCostCodes: LaborCostCodeOption[];
 }) {
   const [state, formAction, pending] = useActionState(
     updateAccountingSettingsAction,
@@ -209,6 +213,20 @@ export function AccountingSettingsForm({
             />
           </Field>
         </div>
+        <Field
+          label="Default labor cost code"
+          error={err('defaultLaborCostCodeId')}
+          className="md:max-w-[24rem]"
+          hint="Clock-posted hours on a job that carry no cost code fall back to this code so they land in job-cost labor instead of overhead. A per-project code (set on the project) overrides it. Leave blank for no fallback."
+        >
+          <CostCodePicker
+            name="defaultLaborCostCodeId"
+            defaultValue={company.defaultLaborCostCodeId ?? ''}
+            options={laborCostCodes}
+            emptyLabel="— No fallback (stay overhead) —"
+            className={SELECT_CLASS}
+          />
+        </Field>
       </fieldset>
 
       <div className="flex items-center gap-3">

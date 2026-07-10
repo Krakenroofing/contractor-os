@@ -62,6 +62,12 @@ export const projects = pgTable(
     //     default markup).
     tmLaborBillRate: numeric('tm_labor_bill_rate', { precision: 12, scale: 2 }),
     tmMaterialMarkupPct: numeric('tm_material_markup_pct', { precision: 6, scale: 3 }),
+    // Per-job labor cost code auto-applied to clock-posted hours that arrive
+    // without one. Takes precedence over the company-wide default. Nullable →
+    // fall through to the company default (or overhead if neither is set). Plain
+    // uuid (FK enforced by the migration) to avoid a projects↔cost_codes import
+    // cycle — same approach as companies.laborCogsAccountId.
+    defaultLaborCostCodeId: uuid('default_labor_cost_code_id'),
     // Reconciliation verification — set when an operator confirms the
     // project's financials match real-world numbers.
     reconciliationVerifiedAt: timestamp('reconciliation_verified_at', {

@@ -158,6 +158,29 @@ export async function listCostCodes(companyId: string): Promise<CostCode[]> {
   return mockList(companyId);
 }
 
+export type LaborCostCodeOption = {
+  id: string;
+  code: string;
+  description: string;
+};
+
+/**
+ * Labor-category cost codes for the company (company library + global),
+ * shaped for the CostCodePicker. Used by the "default labor cost code"
+ * pickers on Accounting Settings and the project form — the code a
+ * clock-posted shift falls back to when the punch carries no cost code.
+ * Kept unfiltered by isActive so a previously-chosen (now inactive) default
+ * still renders as the selected option instead of silently blanking.
+ */
+export async function listLaborCostCodeOptions(
+  companyId: string,
+): Promise<LaborCostCodeOption[]> {
+  const all = await listCostCodes(companyId);
+  return all
+    .filter((c) => c.category === 'labor')
+    .map((c) => ({ id: c.id, code: c.code, description: c.description }));
+}
+
 export async function getCostCode(
   companyId: string,
   id: string,

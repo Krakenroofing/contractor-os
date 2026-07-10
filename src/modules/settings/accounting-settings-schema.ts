@@ -29,6 +29,9 @@ export const accountingSettingsFormSchema = z.object({
   // Payroll → job costs posting targets. Empty = not configured.
   laborCogsAccountId: z.string().optional().or(z.literal('')),
   laborBurdenAccountId: z.string().optional().or(z.literal('')),
+  // Company-wide fallback labor cost code for clock-posted hours with no code.
+  // Empty = no fallback (uncoded clocked hours stay overhead).
+  defaultLaborCostCodeId: z.string().optional().or(z.literal('')),
 });
 
 export type AccountingSettingsFormParsed = z.output<

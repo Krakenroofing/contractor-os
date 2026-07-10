@@ -131,6 +131,7 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     retainageRevenueBasis: 'billed' as const,
     laborCogsAccountId: null,
     laborBurdenAccountId: null,
+    defaultLaborCostCodeId: null,
     // Phase 1 banking / TIN fields — null in mock data.
     tinNumber: null,
     bankName: null,
@@ -193,6 +194,7 @@ function makeProject(
     projectType: 'production',
     tmLaborBillRate: null,
     tmMaterialMarkupPct: null,
+    defaultLaborCostCodeId: null,
     jobsiteAddressLine1: null,
     jobsiteAddressLine2: null,
     jobsiteCity: null,

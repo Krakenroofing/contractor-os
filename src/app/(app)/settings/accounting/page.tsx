@@ -7,6 +7,7 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { listLaborCostCodeOptions } from '@/lib/data/cost-codes';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { AccountingSettingsForm } from '@/modules/settings/components/accounting-settings-form';
 
@@ -17,9 +18,10 @@ export default async function AccountingSettingsPage() {
   if (!canView(role, 'settings')) redirect('/settings' as never);
 
   const company = await getActiveCompany();
-  const accounts = toAccountingAccountOptions(
-    await listAccountingAccounts(company.id),
-  );
+  const [accounts, laborCostCodes] = await Promise.all([
+    listAccountingAccounts(company.id).then(toAccountingAccountOptions),
+    listLaborCostCodeOptions(company.id),
+  ]);
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
@@ -51,7 +53,11 @@ export default async function AccountingSettingsPage() {
 
       <Card>
         <CardContent className="p-6">
-          <AccountingSettingsForm company={company} accounts={accounts} />
+          <AccountingSettingsForm
+            company={company}
+            accounts={accounts}
+            laborCostCodes={laborCostCodes}
+          />
         </CardContent>
       </Card>
 

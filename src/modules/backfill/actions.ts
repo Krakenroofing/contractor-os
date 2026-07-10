@@ -202,6 +202,7 @@ export async function backfillProjectAction(
       currentBudget: data.contractValue,
       tmLaborBillRate: null,
       tmMaterialMarkupPct: null,
+      defaultLaborCostCodeId: null,
       notes: null,
     });
   } catch (err) {

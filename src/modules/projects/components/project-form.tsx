@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { CustomerPicker } from '@/modules/customers/components/customer-picker';
+import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import type { LaborCostCodeOption } from '@/lib/data/cost-codes';
 import {
   createProjectAction,
   updateProjectAction,
@@ -34,6 +36,7 @@ export type ProjectFormInitialValues = {
   estimatedBudget: string;
   tmLaborBillRate: string;
   tmMaterialMarkupPct: string;
+  defaultLaborCostCodeId: string;
   notes: string;
 };
 
@@ -52,6 +55,7 @@ const blankInitial: ProjectFormInitialValues = {
   estimatedBudget: '0',
   tmLaborBillRate: '',
   tmMaterialMarkupPct: '',
+  defaultLaborCostCodeId: '',
   notes: '',
 };
 
@@ -68,11 +72,14 @@ type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
 
 export function ProjectForm({
   customers,
+  laborCostCodes,
   mode = { kind: 'create' },
   initial,
   returnTo,
 }: {
   customers: { id: string; name: string }[];
+  /** Labor-category cost codes for the "default labor cost code" picker. */
+  laborCostCodes: LaborCostCodeOption[];
   mode?: Mode;
   initial?: ProjectFormInitialValues;
   /** Where to send the user after creating (and on Cancel) — the page they
@@ -235,6 +242,20 @@ export function ProjectForm({
             name="targetCompletionDate"
             type="date"
             defaultValue={values.targetCompletionDate}
+          />
+        </Field>
+
+        <Field
+          label="Default labor cost code"
+          error={err('defaultLaborCostCodeId')}
+          className="md:col-span-2"
+          hint="When crew clock into this job without picking a cost code, their hours post to job-cost labor under this code (instead of falling to overhead). Overrides the company-wide default. Leave blank to use the company default."
+        >
+          <CostCodePicker
+            name="defaultLaborCostCodeId"
+            defaultValue={values.defaultLaborCostCodeId}
+            options={laborCostCodes}
+            emptyLabel="— Use company default —"
           />
         </Field>
       </div>

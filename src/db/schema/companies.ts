@@ -61,6 +61,13 @@ export const companies = pgTable('companies', {
   laborCogsAccountId: uuid('labor_cogs_account_id'),
   laborBurdenAccountId: uuid('labor_burden_account_id'),
 
+  // Company-wide fallback labor cost code for clock-posted hours that arrive
+  // without one (the field clock captures a project but no cost code). Applied
+  // at post time when neither the punch nor the project supplies a code, so the
+  // hours post to job-cost labor instead of falling to overhead. Nullable —
+  // null just means no fallback (uncoded hours stay overhead, as before).
+  defaultLaborCostCodeId: uuid('default_labor_cost_code_id'),
+
   // Banking & Receipts (Phase 1). Gate VAT-aware UI/logic on `isVatActive`
   // instead of `vatRatePercent > 0` so a company can mark itself VAT-active
   // ahead of choosing a rate, and so explicit opt-out is possible. Backfilled

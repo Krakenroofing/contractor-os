@@ -6,6 +6,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCustomers } from '@/lib/data/customers';
+import { listLaborCostCodeOptions } from '@/lib/data/cost-codes';
 import { sanitizeReturnTo, returnToLabel } from '@/lib/return-to';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,11 @@ export default async function NewProjectPage({
   const role = await getActiveRole();
   if (!canCreate(role, 'projects')) redirect('/projects');
   const companyId = await getActiveCompanyId();
-  const customers = (await listCustomers(companyId)).map((c) => ({ id: c.id, name: c.name }));
+  const [customersRaw, laborCostCodes] = await Promise.all([
+    listCustomers(companyId),
+    listLaborCostCodeOptions(companyId),
+  ]);
+  const customers = customersRaw.map((c) => ({ id: c.id, name: c.name }));
   const returnTo = sanitizeReturnTo((await searchParams)?.returnTo);
 
   return (
@@ -36,7 +41,11 @@ export default async function NewProjectPage({
         </p>
       </header>
 
-      <ProjectForm customers={customers} returnTo={returnTo ?? undefined} />
+      <ProjectForm
+        customers={customers}
+        laborCostCodes={laborCostCodes}
+        returnTo={returnTo ?? undefined}
+      />
     </div>
   );
 }
