@@ -41,7 +41,7 @@ export default async function NewInvoicePage() {
   // (gross + net), and prior invoice count. The form uses these to power
   // the progress-billing breakdown when the operator enters a % of contract
   // — auto-computing this invoice's subtotal as `cum - prior_billed_gross`,
-  // and showing the "Less previously paid" / "Less retention" rollups.
+  // and showing the "Less previously billed" / "Less retention" rollups.
   //
   // Billing tracks: an invoice linked to a CO (or with billingType
   // 'change_order') lives on that CO's track; everything else is base

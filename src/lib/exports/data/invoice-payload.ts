@@ -246,8 +246,10 @@ export async function buildInvoicePayload(
       value: progressContext.cumulative,
     });
     if (progressContext.priorNet > 0) {
+      // "Previously billed", not "paid" — the figure sums prior invoices
+      // regardless of whether the client has settled them.
       totals.push({
-        label: 'Less previously paid',
+        label: template?.priorBilledLabel ?? 'Less previously billed',
         value: progressContext.priorNet,
         negative: true,
       });
@@ -676,7 +678,7 @@ export async function buildInvoicePayload(
       : undefined,
     meta,
     // In progress-billing mode the totals stack tells the whole story
-    // (cumulative → previously paid → retention → invoice total → VAT →
+    // (cumulative → previously billed → retention → invoice total → VAT →
     // final total), so we suppress the line items table entirely. The line
     // description gets promoted to headerNote so the recipient still sees
     // what's being billed for.

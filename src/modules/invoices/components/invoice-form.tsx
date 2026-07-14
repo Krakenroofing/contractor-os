@@ -82,7 +82,7 @@ export type InvoiceFormProjectOption = {
    *  own priors on InvoiceFormChangeOrderOption. */
   priorBilledGross?: number;
   /** Sum of (subtotal − retainage) on prior non-void base-track invoices.
-   *  Shown on the rendered invoice as "Less previously paid (net)". */
+   *  Shown on the rendered invoice as "Less previously billed (net)". */
   priorBilledNet?: number;
   /** Number of prior non-void base-track invoices on this project. Used to
    *  label this invoice as "Billing #N" in the progress breakdown. */
@@ -1018,6 +1018,7 @@ export function InvoiceForm({
               taxRate={companyVatRatePercent}
               showRetainage={showRetainage}
               showTaxVat={showTaxVat}
+              revisedOptionAvailable={canBillRevised && !billAgainstRevised}
             />
           )}
           {!progressMode &&
@@ -1592,6 +1593,7 @@ function ProgressBreakdown({
   taxRate,
   showRetainage,
   showTaxVat,
+  revisedOptionAvailable,
 }: {
   data: {
     contract: number;
@@ -1609,6 +1611,10 @@ function ProgressBreakdown({
   taxRate: number;
   showRetainage: boolean;
   showTaxVat: boolean;
+  /** True when the project has approved COs, no CO is linked, and the
+   *  "bill against revised contract" option hasn't been ticked yet —
+   *  surfaced in the over-billed warning as the way out. */
+  revisedOptionAvailable: boolean;
 }) {
   // What the customer sees on the rendered invoice — same shape as the PDF
   // breakdown so the operator can verify the math before clicking save.
@@ -1647,7 +1653,7 @@ function ProgressBreakdown({
           {formatMoney(data.cumulativeBilled)}
         </span>
         <span className="text-slate-700">
-          Less previously paid ({data.priorCount} prior invoice
+          Less previously billed ({data.priorCount} prior invoice
           {data.priorCount === 1 ? '' : 's'})
         </span>
         <span className="text-slate-900 text-right">
@@ -1686,6 +1692,16 @@ function ProgressBreakdown({
           {formatMoney(finalTotal)}
         </span>
       </div>
+      {invoiceTotal < 0 && (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800">
+          Prior invoices on the {data.sourceLabel} track already total{' '}
+          {formatMoney(data.priorNet)} — {formatMoney(-invoiceTotal)} more than
+          this draw&apos;s cumulative value, so there is nothing left to bill on
+          this track and the Amount is held at $0.00.
+          {revisedOptionAvailable &&
+            ' If an earlier draw was cut against the revised contract (base + change orders), tick "Bill against revised contract" above — the % then totals from the revised value and nets prior billings across both tracks.'}
+        </p>
+      )}
     </div>
   );
 }
