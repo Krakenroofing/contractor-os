@@ -520,9 +520,13 @@ export async function buildInvoicePayload(
         const prevBilled = billedByCoId.get(co.id) ?? 0;
         const thisAmt = thisCoId === co.id ? subtotal : 0;
         const still = subtract(value, add(prevBilled, thisAmt));
-        const label = `  ${co.number}${
-          co.description ? ` — ${co.description.slice(0, 50)}` : ''
-        }`;
+        // Full description — the cell wraps in the PDF. Cap only extreme
+        // outliers so the unbreakable summary table can't outgrow the page.
+        const desc =
+          co.description && co.description.length > 200
+            ? `${co.description.slice(0, 200)}…`
+            : co.description;
+        const label = `  ${co.number}${desc ? ` — ${desc}` : ''}`;
         rows.push([label, '']);
         rows.push(['    Approved value', fmtAmount(value)]);
         if (prevBilled > 0) {
