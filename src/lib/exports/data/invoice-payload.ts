@@ -469,6 +469,30 @@ export async function buildInvoicePayload(
 
     const rows: string[][] = [];
 
+    if (billRevised) {
+      // ----- Revised-contract draw: ONE combined track -----
+      // This draw's % totals from the revised contract and nets prior
+      // billings across base + CO, so the summary must foot the same way —
+      // a base/CO split would show the base over-billed and the CO
+      // untouched when this draw deliberately covered both.
+      const priorAllBilled = priorToDate.reduce(
+        (acc, i) => add(acc, parseMoney(i.subtotal)),
+        0,
+      );
+      const revisedStill = subtract(
+        revisedContractValue,
+        add(priorAllBilled, subtotal),
+      );
+      rows.push(['Revised contract (base + change orders)', '']);
+      rows.push(['  Contract value', fmtAmount(revisedContractValue)]);
+      if (priorAllBilled > 0) {
+        rows.push(['  Previously billed', fmtAmount(priorAllBilled, true)]);
+      }
+      if (subtotal > 0) {
+        rows.push(['  This invoice', fmtAmount(subtotal, true)]);
+      }
+      rows.push(['  Still billable', fmtAmount(revisedStill)]);
+    } else {
     // ----- Base contract track -----
     rows.push([template.contractValueLabel || 'Base contract', '']);
     rows.push(['  Contract value', fmtAmount(originalContract)]);
@@ -512,6 +536,7 @@ export async function buildInvoicePayload(
       if (unlinkedCoBilled > 0) {
         rows.push(['  Other change-order billing', fmtAmount(unlinkedCoBilled, true)]);
       }
+    }
     }
 
     // ----- Cumulative retainage memo -----

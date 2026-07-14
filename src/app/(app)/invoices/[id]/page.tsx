@@ -583,6 +583,17 @@ export default async function InvoiceDetailPage({
           const originalContract = Number(project.originalContractValue);
           const baseStill = originalContract - (priorBaseBilled + thisBase);
 
+          // A revised-contract draw nets base + CO billing into ONE track —
+          // splitting it here would show the base over-billed and the CO
+          // untouched when this draw deliberately covered both.
+          const billRevised = !!invoice.billAgainstRevised && !thisOnCo;
+          const revisedContract = Number(project.contractValue);
+          const priorAllBilled = priorToDate.reduce(
+            (s, i) => s + Number(i.subtotal),
+            0,
+          );
+          const revisedStill = revisedContract - priorAllBilled - thisSubtotal;
+
           // Prior billing grouped by the change order it was billed against,
           // so each CO can show its own remaining balance. A CO-track invoice
           // with no linked CO falls into the "other" bucket.
@@ -621,6 +632,38 @@ export default async function InvoiceDetailPage({
                 <CardTitle>{template.progressBillingLabel}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm space-y-3">
+                {billRevised ? (
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Revised contract (base + change orders)
+                    </p>
+                    <Row
+                      label="Contract value"
+                      value={formatMoney(revisedContract)}
+                    />
+                    {priorAllBilled > 0 && (
+                      <Row
+                        label="Previously billed"
+                        value={`(${formatMoney(priorAllBilled)})`}
+                      />
+                    )}
+                    {thisSubtotal > 0 && (
+                      <Row
+                        label="This invoice"
+                        value={`(${formatMoney(thisSubtotal)})`}
+                      />
+                    )}
+                    <Row
+                      label="Still billable"
+                      value={formatMoney(revisedStill)}
+                      bold
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      This invoice bills against the revised contract, so base
+                      and change-order billing are netted into one track.
+                    </p>
+                  </div>
+                ) : (
                 <div className="space-y-1">
                   <p className="text-[11px] uppercase tracking-wide text-slate-400">
                     Base contract
@@ -643,8 +686,9 @@ export default async function InvoiceDetailPage({
                   )}
                   <Row label="Still billable" value={formatMoney(baseStill)} bold />
                 </div>
+                )}
 
-                {hasCoTrack && (
+                {!billRevised && hasCoTrack && (
                   <div className="space-y-3">
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">
                       Change orders
