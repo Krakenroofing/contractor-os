@@ -46,7 +46,7 @@ These are real native projects. Don't delete them once generated; commit them lo
 
 ## Setting permission strings
 
-The native shells need to declare camera usage so iOS/Android can show a permission prompt with a clear explanation.
+The native shells need to declare camera + location usage so iOS/Android can show a permission prompt with a clear explanation. **Location matters:** without these declarations the WebView's location requests are denied instantly and every clock-in/out punch saves without GPS — the web app degrades silently by design.
 
 ### iOS — `ios/App/App/Info.plist`
 
@@ -57,15 +57,20 @@ Open the file in Xcode (right-click → Open As → Source Code) and add:
 <string>KrakenOps Pro uses your camera to attach job-site progress photos to daily reports.</string>
 <key>NSPhotoLibraryUsageDescription</key>
 <string>KrakenOps Pro can pick existing photos from your library to attach to daily reports.</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>KrakenOps Pro records your location when you clock in or out so hours can be matched to the jobsite.</string>
 ```
 
 ### Android — `android/app/src/main/AndroidManifest.xml`
 
-The Capacitor camera plugin auto-adds the `<uses-permission>` lines via its `AndroidManifest.xml` merger. If they don't show up after `cap sync`, add manually:
+The Capacitor camera and geolocation plugins auto-add their `<uses-permission>` lines via the `AndroidManifest.xml` merger. If they don't show up after `cap sync`, add manually:
 
 ```xml
 <uses-permission android:name="android.permission.CAMERA" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-feature android:name="android.hardware.location.gps" android:required="false" />
 ```
 
 ---
@@ -118,6 +123,18 @@ npm run cap:sync
 ```
 
 Then re-run from Xcode / Android Studio.
+
+### Updating without logging the crew out
+
+Installing a **new version over the old one** (same `appId`, same signing key, higher `versionCode`) keeps all app data — including the WebView session cookies. The crew stays logged in; the only visible change is the OS asking for the new permission (e.g. location) the first time it's needed.
+
+What logs people out is **uninstalling first** — that wipes the WebView's cookies. So when rolling out a rebuilt shell:
+
+1. Bump `versionCode` (Android: `android/app/build.gradle`) / build number (iOS).
+2. Build a release APK signed with the **same keystore** as the installed version.
+3. Send the APK to the crew (WhatsApp/Drive) — tapping it installs as an update, no uninstall, no re-login.
+
+If Android refuses to install the update ("app not installed"), the signing key doesn't match the installed copy — find the original keystore rather than uninstalling, or everyone re-logs in.
 
 ---
 

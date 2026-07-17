@@ -12,6 +12,7 @@
 // existing update action expects.
 
 import { useActionState, useRef, useState } from 'react';
+import { getCurrentPosition } from '@/lib/capacitor/geolocation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -117,36 +118,34 @@ export function MobileDailyReportForm({
     autosaveTimer.current = setTimeout(runAutosave, 2000);
   }
 
-  function useMyLocation() {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+  // Location comes through the Capacitor-aware bridge — inside the
+  // native shell navigator.geolocation is permission-blocked, so the
+  // "use my location" weather shortcut silently failed for the crew.
+  async function useMyLocation() {
+    setWeatherStatus('locating');
+    const fix = await getCurrentPosition();
+    if (!fix) {
       setWeatherStatus('error');
       return;
     }
-    setWeatherStatus('locating');
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await fetch(
-            `/api/field/weather?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`,
-          );
-          if (!res.ok) throw new Error('weather');
-          const data = (await res.json()) as {
-            condition?: string;
-            temperatureF?: number | null;
-          };
-          if (data.condition) setWeatherCondition(data.condition);
-          if (typeof data.temperatureF === 'number') {
-            setWeatherTemp(String(data.temperatureF));
-          }
-          setWeatherStatus('idle');
-          scheduleAutosave();
-        } catch {
-          setWeatherStatus('error');
-        }
-      },
-      () => setWeatherStatus('error'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
-    );
+    try {
+      const res = await fetch(
+        `/api/field/weather?lat=${fix.latitude}&lng=${fix.longitude}`,
+      );
+      if (!res.ok) throw new Error('weather');
+      const data = (await res.json()) as {
+        condition?: string;
+        temperatureF?: number | null;
+      };
+      if (data.condition) setWeatherCondition(data.condition);
+      if (typeof data.temperatureF === 'number') {
+        setWeatherTemp(String(data.temperatureF));
+      }
+      setWeatherStatus('idle');
+      scheduleAutosave();
+    } catch {
+      setWeatherStatus('error');
+    }
   }
 
   function setRow(i: number, patch: Partial<CrewRow>) {

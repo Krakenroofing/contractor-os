@@ -83,6 +83,42 @@ function durationLabel(ms: number): string {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
+// Tappable map pin for a punch that carried GPS. Raw coordinates mean
+// nothing to a human — a Google Maps link answers the actual question
+// ("were they on the jobsite?") in one tap. Accuracy rides along so a
+// coarse cell-tower fix (±800m) isn't mistaken for a jobsite pin.
+function GpsMapLink({
+  lat,
+  lng,
+  accuracyM,
+  label,
+}: {
+  lat: string | null;
+  lng: string | null;
+  accuracyM: string | null;
+  label?: string;
+}) {
+  if (!lat || !lng) return null;
+  const acc = accuracyM ? Math.round(Number(accuracyM)) : null;
+  return (
+    <a
+      href={`https://www.google.com/maps?q=${lat},${lng}`}
+      target="_blank"
+      rel="noreferrer"
+      className="text-blue-600 hover:underline whitespace-nowrap"
+      title={`Open in Google Maps${acc != null ? ` (accuracy ±${acc}m)` : ''}`}
+    >
+      {label ?? 'map'}
+      {acc != null && (
+        <span className={acc <= 50 ? 'text-emerald-600' : 'text-amber-600'}>
+          {' '}
+          ±{acc}m
+        </span>
+      )}
+    </a>
+  );
+}
+
 export default async function ClockReviewPage({
   searchParams,
 }: {
@@ -420,9 +456,15 @@ export default async function ClockReviewPage({
                       )}
                     </TableCell>
                     <TableCell className="text-slate-500 text-xs">
-                      {r.event.gpsLat && r.event.gpsLng
-                        ? `${r.event.gpsLat}, ${r.event.gpsLng}`
-                        : '—'}
+                      {r.event.gpsLat && r.event.gpsLng ? (
+                        <GpsMapLink
+                          lat={r.event.gpsLat}
+                          lng={r.event.gpsLng}
+                          accuracyM={r.event.gpsAccuracyM}
+                        />
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                     {canEditPunches && (
                       <TableCell className="text-right">
@@ -520,11 +562,25 @@ export default async function ClockReviewPage({
                         {r.employeeLabel}
                       </TableCell>
                       <TableCell className="text-slate-700 text-xs">
-                        {formatNassauTime(r.inEvent.occurredAt)}
+                        {formatNassauTime(r.inEvent.occurredAt)}{' '}
+                        <GpsMapLink
+                          lat={r.inEvent.gpsLat}
+                          lng={r.inEvent.gpsLng}
+                          accuracyM={r.inEvent.gpsAccuracyM}
+                          label="📍"
+                        />
                       </TableCell>
                       <TableCell className="text-slate-700 text-xs">
                         {r.outEvent ? (
-                          formatNassauTime(r.outEvent.occurredAt)
+                          <>
+                            {formatNassauTime(r.outEvent.occurredAt)}{' '}
+                            <GpsMapLink
+                              lat={r.outEvent.gpsLat}
+                              lng={r.outEvent.gpsLng}
+                              accuracyM={r.outEvent.gpsAccuracyM}
+                              label="📍"
+                            />
+                          </>
                         ) : (
                           <Badge tone="amber">still on clock</Badge>
                         )}

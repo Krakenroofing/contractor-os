@@ -4,11 +4,19 @@
 // button" and "clocked in → big red Clock Out button" — but a single
 // shared form so the project picker / notes layout stays consistent.
 //
-// GPS: we ask the browser Geolocation API for a single fix BEFORE
-// submitting. If the worker denied permission or the fix takes too long,
-// we proceed without coords — never block a punch on location.
+// GPS: we start a location watch when the form mounts so the freshest,
+// tightest fix rides along with the punch. Capture goes through the
+// Capacitor-aware bridge (native plugin inside the field-app shell,
+// navigator.geolocation in a browser). If the worker denied permission
+// or no fix arrives, we proceed without coords — never block a punch
+// on location.
 
 import { useActionState, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  watchPosition,
+  type GeoFix,
+  type GeoWatch,
+} from '@/lib/capacitor/geolocation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,7 +46,7 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   // Accuracy (metres) of the best fix we've stored — drives the hint so
   // the crew can tell a sharp jobsite fix from a coarse cell-tower guess.
   const [accuracy, setAccuracy] = useState<number | null>(null);
-  const watchIdRef = useRef<number | null>(null);
+  const watchRef = useRef<GeoWatch | null>(null);
   // Best fix so far: its accuracy + when we took it. Lets us prefer a
   // tighter reading, but also refresh a stale one as the worker moves.
   const bestRef = useRef<{ accuracy: number; ts: number } | null>(null);
@@ -50,10 +58,8 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   const [mode, setMode] = useState<'job' | 'overhead'>('job');
 
   const stopWatch = useCallback(() => {
-    if (watchIdRef.current != null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
+    watchRef.current?.stop();
+    watchRef.current = null;
   }, []);
 
   // Continuously track location (watchPosition, not a single shot) so by
@@ -63,56 +69,63 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   // so the punch itself never waits on location. We never block a punch on
   // GPS: no fix just means the coords save empty.
   const beginCapture = useCallback(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setGpsStatus('unavailable');
-      return;
-    }
     stopWatch();
     bestRef.current = null;
     setGpsStatus('requesting');
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const acc = pos.coords.accuracy;
-        const now = Date.now();
-        const best = bestRef.current;
-        // Store a reading when it's our first, when it's tighter than the
-        // best so far, or when the best is stale (>20s) so coords follow
-        // the worker as they move around the site.
-        const keep = !best || acc <= best.accuracy || now - best.ts > 20_000;
-        if (!keep) return;
-        bestRef.current = { accuracy: acc, ts: now };
-        // Stash on the hidden inputs via DOM — the form action reads these
-        // at submit, so the latest best fix always rides along.
-        const f = formRef.current;
-        if (f) {
-          (f.elements.namedItem('gpsLat') as HTMLInputElement).value =
-            String(pos.coords.latitude);
-          (f.elements.namedItem('gpsLng') as HTMLInputElement).value =
-            String(pos.coords.longitude);
-          (f.elements.namedItem('gpsAccuracyM') as HTMLInputElement).value =
-            String(acc);
-        }
-        setAccuracy(acc);
-        setGpsStatus('ready');
-        // A tight fix (≤20 m) pins the jobsite — stop watching to spare
-        // battery. Coarse fixes keep the watch alive, trying to do better.
-        if (acc <= 20) stopWatch();
+
+    const onFix = (fix: GeoFix) => {
+      const acc = fix.accuracy;
+      const now = Date.now();
+      const best = bestRef.current;
+      // Store a reading when it's our first, when it's tighter than the
+      // best so far, or when the best is stale (>20s) so coords follow
+      // the worker as they move around the site.
+      const keep = !best || acc <= best.accuracy || now - best.ts > 20_000;
+      if (!keep) return;
+      bestRef.current = { accuracy: acc, ts: now };
+      // Stash on the hidden inputs via DOM — the form action reads these
+      // at submit, so the latest best fix always rides along.
+      const f = formRef.current;
+      if (f) {
+        (f.elements.namedItem('gpsLat') as HTMLInputElement).value =
+          String(fix.latitude);
+        (f.elements.namedItem('gpsLng') as HTMLInputElement).value =
+          String(fix.longitude);
+        (f.elements.namedItem('gpsAccuracyM') as HTMLInputElement).value =
+          String(acc);
+      }
+      setAccuracy(acc);
+      setGpsStatus('ready');
+      // A tight fix (≤20 m) pins the jobsite — stop watching to spare
+      // battery. Coarse fixes keep the watch alive, trying to do better.
+      if (acc <= 20) stopWatch();
+    };
+
+    // The bridge starts asynchronously (native permission prompt, plugin
+    // import). `cancelled` covers the gap: a stopWatch() that lands
+    // before the real handle arrives must still kill the watch.
+    let cancelled = false;
+    watchRef.current = {
+      stop: () => {
+        cancelled = true;
       },
-      (err) => {
-        // PERMISSION_DENIED = 1, POSITION_UNAVAILABLE = 2, TIMEOUT = 3.
-        if (err.code === 1) {
-          stopWatch();
-          setGpsStatus('denied');
-        } else if (!bestRef.current) {
-          // Only fall back to "unavailable" if we never got a fix — don't
-          // discard a good earlier reading on a later transient timeout.
-          setGpsStatus('unavailable');
-        }
-      },
-      // Fresh readings only (no cache); high accuracy for jobsite-level
-      // precision. Per-fix timeout keeps the watch from hanging silently.
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
-    );
+    };
+    void watchPosition(onFix, (reason) => {
+      if (reason === 'denied') {
+        stopWatch();
+        setGpsStatus('denied');
+      } else if (!bestRef.current) {
+        // Only fall back to "unavailable" if we never got a fix — don't
+        // discard a good earlier reading on a later transient timeout.
+        setGpsStatus('unavailable');
+      }
+    }).then((watch) => {
+      if (cancelled) {
+        watch.stop();
+        return;
+      }
+      watchRef.current = watch;
+    });
   }, [stopWatch]);
 
   useEffect(() => {
