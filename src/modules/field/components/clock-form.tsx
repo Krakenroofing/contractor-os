@@ -279,11 +279,35 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               {accuracy > 50 && ' — step outside for a sharper fix'}
             </p>
           )}
-          {(gpsStatus === 'denied' || gpsStatus === 'unavailable') && (
+          {gpsStatus === 'denied' && (
+            // Blocked is sticky: the browser remembers a denial for this
+            // site forever, so a quiet grey hint gets ignored punch after
+            // punch (1-in-200 punches carried GPS before this was loud).
+            // Show exactly how to unblock, per platform. Never blocks the
+            // punch itself.
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-left space-y-1">
+              <p className="text-xs font-semibold text-amber-800">
+                Location is blocked — your punches are saving without GPS.
+              </p>
+              <p className="text-[11px] leading-4 text-amber-700">
+                <span className="font-medium">Android:</span> tap the icon
+                left of the web address → Permissions → Location → Allow.
+                <br />
+                <span className="font-medium">iPhone:</span> tap ‘aA’ in the
+                address bar → Website Settings → Location → Allow.
+              </p>
+              <button
+                type="button"
+                onClick={beginCapture}
+                className="text-[11px] font-medium text-blue-600 underline"
+              >
+                I turned it on — retry
+              </button>
+            </div>
+          )}
+          {gpsStatus === 'unavailable' && (
             <p className="text-[11px] text-slate-500">
-              {gpsStatus === 'denied'
-                ? 'Location is off — the punch will save without GPS. '
-                : "Couldn't get a location — the punch will save without GPS. "}
+              Couldn&apos;t get a location — the punch will save without GPS.{' '}
               <button
                 type="button"
                 onClick={beginCapture}
