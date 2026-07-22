@@ -58,7 +58,9 @@ export function PurchaseOrdersListClient({
     project: new Set(),
     status: new Set(),
   });
-  const [sort, setSort] = useState<SortState>(null);
+  // Numerical order by PO number out of the box (PO2 before PO012 before
+  // PO0018) — click any column header to re-sort.
+  const [sort, setSort] = useState<SortState>({ key: 'number', dir: 'asc' });
 
   const vendorOptions = useMemo<FilterOption[]>(() => {
     const map = new Map<string, string>();
@@ -124,7 +126,14 @@ export function PurchaseOrdersListClient({
         }
       };
       rows = [...rows].sort((a, b) => {
-        const cmp = compareValues(get(a), get(b));
+        // PO numbers sort numerically (PO2 < PO012 < PO0018), not lexically.
+        const cmp =
+          sort.key === 'number'
+            ? a.number.localeCompare(b.number, undefined, {
+                numeric: true,
+                sensitivity: 'base',
+              })
+            : compareValues(get(a), get(b));
         return sort.dir === 'asc' ? cmp : -cmp;
       });
     }

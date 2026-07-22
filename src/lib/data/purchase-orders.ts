@@ -1,7 +1,7 @@
 // Async data accessor for purchase orders (header + line items).
 
 import 'server-only';
-import { and, asc, desc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import {
   purchaseOrderLines,
   purchaseOrders,
@@ -47,16 +47,28 @@ export type CreatePurchaseOrderInput = {
   }>;
 };
 
+/** Natural PO-number order: PO2 < PO012 < PO0018 (digit runs compare as
+ *  numbers, not characters). All list endpoints return POs in this order. */
+function byNaturalNumber(rows: PurchaseOrder[]): PurchaseOrder[] {
+  return [...rows].sort((a, b) =>
+    a.number.localeCompare(b.number, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  );
+}
+
 export async function listPurchaseOrders(companyId: string): Promise<PurchaseOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    return await db
-      .select()
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.companyId, companyId))
-      .orderBy(desc(purchaseOrders.createdAt));
+    return byNaturalNumber(
+      await db
+        .select()
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.companyId, companyId)),
+    );
   }
-  return mockList(companyId);
+  return byNaturalNumber(mockList(companyId));
 }
 
 export async function getPurchaseOrder(
@@ -96,13 +108,14 @@ export async function listPurchaseOrdersForProject(
 ): Promise<PurchaseOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    return await db
-      .select()
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.projectId, projectId))
-      .orderBy(desc(purchaseOrders.createdAt));
+    return byNaturalNumber(
+      await db
+        .select()
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.projectId, projectId)),
+    );
   }
-  return mockListForProject(projectId);
+  return byNaturalNumber(mockListForProject(projectId));
 }
 
 export async function listPurchaseOrdersForVendor(
@@ -110,13 +123,14 @@ export async function listPurchaseOrdersForVendor(
 ): Promise<PurchaseOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
-    return await db
-      .select()
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.vendorId, vendorId))
-      .orderBy(desc(purchaseOrders.createdAt));
+    return byNaturalNumber(
+      await db
+        .select()
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.vendorId, vendorId)),
+    );
   }
-  return mockListForVendor(vendorId);
+  return byNaturalNumber(mockListForVendor(vendorId));
 }
 
 export async function findPurchaseOrderForLandedCost(
