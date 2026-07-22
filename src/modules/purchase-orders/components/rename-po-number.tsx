@@ -37,7 +37,7 @@ export function RenamePoNumber({
 
   if (!editing) {
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-2">
         <span className="font-mono text-xs text-slate-500">{number}</span>
         <button
           type="button"
@@ -46,11 +46,10 @@ export function RenamePoNumber({
             setError(null);
             setEditing(true);
           }}
-          className="text-xs text-slate-400 hover:text-slate-600"
+          className="inline-flex items-center gap-1 rounded border border-slate-300 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
           aria-label="Rename PO number"
-          title="Rename PO number"
         >
-          ✎
+          ✎ Rename
         </button>
       </span>
     );
