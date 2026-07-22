@@ -20,6 +20,7 @@ import {
   DuplicatePONumberError,
   getPurchaseOrder,
   getPurchaseOrderLines,
+  renamePurchaseOrder,
   updatePurchaseOrderHeader,
 } from '@/lib/data/purchase-orders';
 import {
@@ -232,6 +233,67 @@ export async function updatePurchaseOrderHeaderAction(
   revalidatePath(`/purchase-orders/${parsed.data.id}`);
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
   redirect(`/purchase-orders/${parsed.data.id}`);
+}
+
+// ===== Rename (number only) =====
+
+const renameSchema = z.object({
+  id: z.string().uuid('Missing or invalid id'),
+  number: z.string().trim().min(1, 'PO number is required').max(50),
+});
+
+/**
+ * Change a PO's human-facing number in any status (typo fixes like
+ * PO012 → PO0012). Everything references the PO by id, so this is cosmetic —
+ * but the new number must still be unique within the company.
+ */
+export async function renamePurchaseOrderAction(input: {
+  id: string;
+  number: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { ok: false, error: 'You do not have permission to edit purchase orders.' };
+  }
+
+  const parsed = renameSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error:
+        parsed.error.flatten().fieldErrors.number?.[0] ?? 'Invalid PO number.',
+    };
+  }
+
+  const companyId = await getActiveCompanyId();
+  const existing = await getPurchaseOrder(companyId, parsed.data.id);
+  if (!existing) {
+    return { ok: false, error: 'Purchase order not found.' };
+  }
+  if (existing.number === parsed.data.number) {
+    return { ok: true };
+  }
+
+  try {
+    const updated = await renamePurchaseOrder(
+      companyId,
+      parsed.data.id,
+      parsed.data.number,
+    );
+    if (!updated) return { ok: false, error: 'PO not found in active company.' };
+  } catch (err) {
+    if (err instanceof DuplicatePONumberError) {
+      return { ok: false, error: 'That PO number is already used.' };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to rename purchase order: ${message}` };
+  }
+
+  revalidatePath('/purchase-orders');
+  revalidatePath(`/purchase-orders/${parsed.data.id}`);
+  if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  return { ok: true };
 }
 
 // ===== Receiving (Phase 6.1) =====

@@ -28,6 +28,7 @@ import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { CreateBillFromPoButton } from '@/modules/purchase-orders/components/create-bill-from-po-button';
+import { RenamePoNumber } from '@/modules/purchase-orders/components/rename-po-number';
 import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -140,7 +141,11 @@ export default async function PurchaseOrderDetailPage({
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-xs text-slate-500">{po.number}</p>
+          {allowCreate ? (
+            <RenamePoNumber poId={po.id} number={po.number} />
+          ) : (
+            <p className="font-mono text-xs text-slate-500">{po.number}</p>
+          )}
           <h1 className="text-2xl font-semibold text-slate-900">
             {vendor?.name ?? 'Purchase order'}
           </h1>

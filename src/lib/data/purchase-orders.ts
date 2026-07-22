@@ -1,7 +1,7 @@
 // Async data accessor for purchase orders (header + line items).
 
 import 'server-only';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, ne } from 'drizzle-orm';
 import {
   purchaseOrderLines,
   purchaseOrders,
@@ -240,6 +240,44 @@ export type UpdatePurchaseOrderHeaderInput = {
   shipToPostalCode: string | null;
   notes: string | null;
 };
+
+/**
+ * Rename a PO (its human-facing number only). Allowed in any status — every
+ * link (lines, receipts, bills, job costing) is by id, so the number is
+ * purely cosmetic. Throws DuplicatePONumberError when another PO in the
+ * company already uses the number.
+ */
+export async function renamePurchaseOrder(
+  companyId: string,
+  id: string,
+  number: string,
+): Promise<PurchaseOrder | undefined> {
+  if (!isDatabaseConfigured()) {
+    throw new Error('Renaming POs requires a configured database.');
+  }
+  const db = getDb()!;
+  const clash = await db
+    .select({ id: purchaseOrders.id })
+    .from(purchaseOrders)
+    .where(
+      and(
+        eq(purchaseOrders.companyId, companyId),
+        eq(purchaseOrders.number, number),
+        ne(purchaseOrders.id, id),
+      ),
+    )
+    .limit(1);
+  if (clash.length > 0) throw new DuplicatePONumberError();
+
+  const rows = await db
+    .update(purchaseOrders)
+    .set({ number, updatedAt: new Date() })
+    .where(
+      and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, companyId)),
+    )
+    .returning();
+  return rows[0];
+}
 
 export async function updatePurchaseOrderHeader(
   companyId: string,
