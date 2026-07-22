@@ -57,6 +57,9 @@ export function ProductPicker({
 }) {
   const [localOptions, setLocalOptions] = useState<ProductPickerOption[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Name typed into the dropdown's filter when "+ Add new product…" was
+  // clicked — that's the product they wanted, so seed the create form with it.
+  const [typedName, setTypedName] = useState('');
 
   // Locally-created items first so a just-added product is easy to spot.
   const merged = [
@@ -77,7 +80,9 @@ export function ProductPicker({
         onChange={(e) => {
           const next = e.target.value;
           if (next === ADD_NEW) {
-            // Don't change the selection; just open the create drawer.
+            // Don't change the selection; just open the create drawer,
+            // seeded with whatever was typed in the search box.
+            setTypedName(e.query?.trim() ?? '');
             setDrawerOpen(true);
             return;
           }
@@ -98,19 +103,21 @@ export function ProductPicker({
         }}
       >
         <option value="">— Free text —</option>
+        {/* Kept at the top (not buried under the whole catalog) so adding a
+            product is discoverable without scrolling hundreds of rows. */}
+        <option value={ADD_NEW}>+ Add new product…</option>
         {merged.map((o) => (
           <option key={o.id} value={o.id}>
             {[o.category, o.name].filter(Boolean).join(' • ')}
             {o.sku ? ` (${o.sku})` : ''}
           </option>
         ))}
-        <option value={ADD_NEW}>+ Add new product…</option>
       </Select>
 
       <QuickAddProductDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        initialName={defaultNewName}
+        initialName={typedName || defaultNewName}
         onCreated={(item) => {
           setLocalOptions((prev) => [
             {

@@ -66,6 +66,9 @@ function extractOptions(children: React.ReactNode): OptionItem[] {
 
 type SyntheticChangeEvent = {
   target: { name?: string; value: string };
+  /** Whatever was typed in the typeahead filter when the option was chosen.
+   *  Lets "+ Add new…" rows seed their create form with the searched name. */
+  query?: string;
 };
 
 export type SelectProps = Omit<
@@ -158,21 +161,28 @@ export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
         if (disabled) return;
         setQuery(initialQuery);
         setOpen(true);
-        const startList = initialQuery
-          ? options.filter((o) =>
-              o.searchText.includes(initialQuery.toLowerCase()),
+        // Mirror the `filtered` list (pinned rows stay visible) so the
+        // highlight index matches what's rendered.
+        const q = initialQuery.trim().toLowerCase();
+        const startList = q
+          ? options.filter(
+              (o) => o.searchText.includes(q) || pinned.has(o.value),
             )
           : options;
-        const idx = startList.findIndex((o) => o.value === value);
+        const idx = q
+          ? startList.findIndex(
+              (o) => !o.disabled && !o.isGroup && !pinned.has(o.value),
+            )
+          : startList.findIndex((o) => o.value === value);
         setHighlight(idx >= 0 ? idx : 0);
         setTimeout(() => filterInputRef.current?.focus(), 0);
       },
-      [disabled, options, value],
+      [disabled, options, value, pinned],
     );
 
     function selectValue(next: string) {
       if (!isControlled) setUncontrolledValue(next);
-      onChange?.({ target: { name, value: next } });
+      onChange?.({ target: { name, value: next }, query });
       setOpen(false);
       setQuery('');
       setTimeout(() => buttonRef.current?.focus(), 0);
@@ -268,8 +278,22 @@ export const Select = React.forwardRef<HTMLInputElement, SelectProps>(
                 type="text"
                 value={query}
                 onChange={(e) => {
-                  setQuery(e.target.value);
-                  setHighlight(0);
+                  const next = e.target.value;
+                  setQuery(next);
+                  // Land the highlight on the first real match, skipping
+                  // pinned action rows (e.g. a "+ Add new…" kept at the top)
+                  // so Enter still picks the best match. When nothing else
+                  // matches, the pinned row is the right target.
+                  const q = next.trim().toLowerCase();
+                  const list = q
+                    ? options.filter(
+                        (o) => o.searchText.includes(q) || pinned.has(o.value),
+                      )
+                    : options;
+                  const firstReal = list.findIndex(
+                    (o) => !o.disabled && !o.isGroup && !pinned.has(o.value),
+                  );
+                  setHighlight(firstReal >= 0 ? firstReal : 0);
                 }}
                 onKeyDown={onListKeyDown}
                 placeholder="Type to filter…"
