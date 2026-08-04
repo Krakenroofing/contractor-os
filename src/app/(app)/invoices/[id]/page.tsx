@@ -818,26 +818,53 @@ export default async function InvoiceDetailPage({
               <CardTitle>Wire instructions</CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              <div className="space-y-1">
-                {company.bankName && (
-                  <Row label="Bank name" value={company.bankName} />
-                )}
-                {company.bankBranch && (
-                  <Row label="Branch" value={company.bankBranch} />
-                )}
-                {company.bankAccountName && (
-                  <Row label="Account name" value={company.bankAccountName} />
-                )}
-                {company.bankAddress && (
-                  <Row label="Address" value={company.bankAddress} />
-                )}
-                {company.bankAccountNumber && (
+              {/* A routing number marks a US (ACH) account → Beneficiary /
+                  Bank / Routing (ACH) / Account number. Without one, keep the
+                  Bahamas-style Bank / Branch / Account name layout. */}
+              {company.bankRoutingNumber ? (
+                <div className="space-y-1">
+                  {company.bankAccountName && (
+                    <Row label="Beneficiary" value={company.bankAccountName} />
+                  )}
+                  {company.bankName && (
+                    <Row label="Bank" value={company.bankName} />
+                  )}
                   <Row
-                    label="Account number"
-                    value={company.bankAccountNumber}
+                    label="Routing (ACH)"
+                    value={company.bankRoutingNumber}
                   />
-                )}
-              </div>
+                  {company.bankAccountNumber && (
+                    <Row
+                      label="Account number"
+                      value={company.bankAccountNumber}
+                    />
+                  )}
+                  {company.bankAddress && (
+                    <Row label="Bank address" value={company.bankAddress} />
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {company.bankName && (
+                    <Row label="Bank name" value={company.bankName} />
+                  )}
+                  {company.bankBranch && (
+                    <Row label="Branch" value={company.bankBranch} />
+                  )}
+                  {company.bankAccountName && (
+                    <Row label="Account name" value={company.bankAccountName} />
+                  )}
+                  {company.bankAddress && (
+                    <Row label="Address" value={company.bankAddress} />
+                  )}
+                  {company.bankAccountNumber && (
+                    <Row
+                      label="Account number"
+                      value={company.bankAccountNumber}
+                    />
+                  )}
+                </div>
+              )}
               {(company.paymentNotes || template.wireInstructionsNote) && (
                 <p className="mt-3 text-slate-700 whitespace-pre-wrap">
                   {company.paymentNotes ?? template.wireInstructionsNote}

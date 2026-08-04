@@ -345,13 +345,27 @@ export async function buildInvoicePayload(
     // company settings) plus the template's free-text note. Either alone
     // is enough to render the section; both together is the common case.
     const bankLines: string[] = [];
-    if (company.bankName) bankLines.push(`Bank: ${company.bankName}`);
-    if (company.bankBranch) bankLines.push(`Branch: ${company.bankBranch}`);
-    if (company.bankAccountName)
-      bankLines.push(`Account name: ${company.bankAccountName}`);
-    if (company.bankAccountNumber)
-      bankLines.push(`Account number: ${company.bankAccountNumber}`);
-    if (company.bankAddress) bankLines.push(`Bank address: ${company.bankAddress}`);
+    if (company.bankRoutingNumber) {
+      // US (ACH) account — Beneficiary / Bank / Routing / Account number.
+      if (company.bankAccountName)
+        bankLines.push(`Beneficiary: ${company.bankAccountName}`);
+      if (company.bankName) bankLines.push(`Bank: ${company.bankName}`);
+      bankLines.push(`Routing (ACH): ${company.bankRoutingNumber}`);
+      if (company.bankAccountNumber)
+        bankLines.push(`Account number: ${company.bankAccountNumber}`);
+      if (company.bankAddress)
+        bankLines.push(`Bank address: ${company.bankAddress}`);
+    } else {
+      // Bahamas-style account — Bank / Branch / Account name.
+      if (company.bankName) bankLines.push(`Bank: ${company.bankName}`);
+      if (company.bankBranch) bankLines.push(`Branch: ${company.bankBranch}`);
+      if (company.bankAccountName)
+        bankLines.push(`Account name: ${company.bankAccountName}`);
+      if (company.bankAccountNumber)
+        bankLines.push(`Account number: ${company.bankAccountNumber}`);
+      if (company.bankAddress)
+        bankLines.push(`Bank address: ${company.bankAddress}`);
+    }
     if (company.paymentNotes) bankLines.push(company.paymentNotes);
     const templateNote = template?.wireInstructionsNote?.trim() ?? '';
     const body = [bankLines.join('\n'), templateNote].filter(Boolean).join('\n\n');

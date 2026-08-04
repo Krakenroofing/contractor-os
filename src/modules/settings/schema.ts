@@ -34,6 +34,7 @@ export const companySettingsFormSchema = z.object({
   tinNumber: z.string().max(100).optional().or(z.literal('')),
   bankName: z.string().max(200).optional().or(z.literal('')),
   bankBranch: z.string().max(200).optional().or(z.literal('')),
+  bankRoutingNumber: z.string().max(100).optional().or(z.literal('')),
   bankAccountName: z.string().max(200).optional().or(z.literal('')),
   bankAccountNumber: z.string().max(100).optional().or(z.literal('')),
   bankAddress: z.string().max(500).optional().or(z.literal('')),

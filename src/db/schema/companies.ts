@@ -77,6 +77,10 @@ export const companies = pgTable('companies', {
   tinNumber: text('tin_number'),
   bankName: text('bank_name'),
   bankBranch: text('bank_branch'),
+  // US-style ACH routing number. When set, invoice wire-instruction blocks
+  // render US labels (Beneficiary / Bank / Routing (ACH) / Account number)
+  // instead of the Bahamas-style Bank / Branch / Account name layout.
+  bankRoutingNumber: text('bank_routing_number'),
   bankAccountName: text('bank_account_name'),
   bankAccountNumber: text('bank_account_number'),
   bankAddress: text('bank_address'),

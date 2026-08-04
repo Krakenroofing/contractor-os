@@ -135,6 +135,7 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     tinNumber: null,
     bankName: null,
     bankBranch: null,
+    bankRoutingNumber: null,
     bankAccountName: null,
     bankAccountNumber: null,
     bankAddress: null,

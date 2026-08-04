@@ -139,10 +139,16 @@ export function CompanySettingsForm({ company }: { company: Company }) {
           <Field label="Bank name" error={err('bankName')}>
             <Input name="bankName" defaultValue={company.bankName ?? ''} />
           </Field>
-          <Field label="Branch" error={err('bankBranch')}>
+          <Field label="Branch (Bahamas banks)" error={err('bankBranch')}>
             <Input name="bankBranch" defaultValue={company.bankBranch ?? ''} />
           </Field>
-          <Field label="Account name" error={err('bankAccountName')}>
+          <Field label="Routing number — ACH (US banks)" error={err('bankRoutingNumber')}>
+            <Input
+              name="bankRoutingNumber"
+              defaultValue={company.bankRoutingNumber ?? ''}
+            />
+          </Field>
+          <Field label="Account name / Beneficiary" error={err('bankAccountName')}>
             <Input
               name="bankAccountName"
               defaultValue={company.bankAccountName ?? ''}
