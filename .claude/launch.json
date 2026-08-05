@@ -13,7 +13,7 @@
       "runtimeArgs": [
         "-NoProfile",
         "-Command",
-        "$env:NEXT_PUBLIC_SUPABASE_URL=' '; $env:NEXT_PUBLIC_SUPABASE_ANON_KEY=' '; npm run dev -- -p 3001"
+        "$env:NEXT_PUBLIC_SUPABASE_ANON_KEY=' '; npm run dev -- -p 3001"
       ],
       "port": 3001
     }

@@ -1,10 +1,10 @@
 // Photos browser — per-project gallery. Every photo a project's daily reports
-// have collected, in one place, with per-photo download and a link back to the
-// source report (the photos still live in those reports — this is just a view).
+// have collected, in one place, with per-photo download, multi-select batch
+// download (by day or hand-picked), and a link back to the source report
+// (the photos still live in those reports — this is just a view).
 
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
@@ -12,6 +12,10 @@ import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { listPhotosForProject } from '@/lib/data/daily-reports';
 import { createSignedPhotoUrl } from '@/lib/storage/daily-report-photos';
+import {
+  PhotoGalleryClient,
+  type PhotoCard,
+} from '@/modules/photos/components/photo-gallery-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,10 +37,15 @@ export default async function ProjectPhotosPage({
     listPhotosForProject(companyId, projectId),
   ]);
 
-  const cards = await Promise.all(
+  const cards: PhotoCard[] = await Promise.all(
     photos.map(async (p) => ({
-      photo: p,
+      id: p.id,
       url: await createSignedPhotoUrl(p.storagePath).catch(() => null),
+      category: p.category,
+      date: p.uploadedAt.toISOString().slice(0, 10),
+      caption: p.caption,
+      reportHref: `/projects/${projectId}/daily-reports/${p.dailyReportId}`,
+      downloadHref: `/api/photos/download/${p.id}`,
     })),
   );
 
@@ -75,58 +84,7 @@ export default async function ProjectPhotosPage({
           daily reports.
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {cards.map(({ photo, url }) => (
-            <div
-              key={photo.id}
-              className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col"
-            >
-              <div className="aspect-square bg-slate-100">
-                {url ? (
-                  <a href={url} target="_blank" rel="noopener noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={photo.caption ?? 'Daily report photo'}
-                      className="w-full h-full object-cover"
-                    />
-                  </a>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-[10px] text-slate-400">
-                    Unavailable
-                  </div>
-                )}
-              </div>
-              <div className="p-2 space-y-1 text-xs flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <Badge tone="slate">{photo.category}</Badge>
-                  <span className="text-slate-400 tabular-nums">
-                    {photo.uploadedAt.toISOString().slice(0, 10)}
-                  </span>
-                </div>
-                {photo.caption && (
-                  <p className="text-slate-700 line-clamp-2">{photo.caption}</p>
-                )}
-                <div className="flex items-center justify-between pt-1">
-                  <Link
-                    href={{
-                      pathname: `/projects/${projectId}/daily-reports/${photo.dailyReportId}`,
-                    }}
-                    className="text-blue-600 hover:underline"
-                  >
-                    Report →
-                  </Link>
-                  <a
-                    href={`/api/photos/download/${photo.id}`}
-                    className="text-slate-600 hover:text-slate-900 font-medium"
-                  >
-                    Download
-                  </a>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <PhotoGalleryClient projectId={projectId} cards={cards} />
       )}
     </div>
   );
