@@ -529,12 +529,25 @@ export async function updateInvoiceFullAction(
       };
     }
   }
+  // The project link is normally immutable (void + recreate to move an
+  // invoice). Exception: when the linked project has been deleted the invoice
+  // is orphaned — reconciliation flags it and nothing else can repair it — so
+  // re-linking to a live project in the same company is allowed.
+  let projectReassigned = false;
   if (existing.projectId !== data.projectId) {
-    return {
-      errors: {
-        projectId: ['Project link is locked. Void + recreate to move this invoice to another project.'],
-      },
-    };
+    const currentProject = await getProject(companyId, existing.projectId);
+    if (currentProject) {
+      return {
+        errors: {
+          projectId: ['Project link is locked. Void + recreate to move this invoice to another project.'],
+        },
+      };
+    }
+    const newProject = await getProject(companyId, data.projectId);
+    if (!newProject) {
+      return { errors: { projectId: ['Pick a valid project.'] } };
+    }
+    projectReassigned = true;
   }
 
   // Recompute totals server-authoritatively, exactly as createInvoiceAction does.
@@ -582,9 +595,12 @@ export async function updateInvoiceFullAction(
   try {
     await updateInvoiceFull(companyId, data.id, {
       number: newNumber,
+      ...(projectReassigned ? { projectId: data.projectId } : {}),
       billingType: data.billingType,
+      // A CO link always belongs to the invoice's project — when re-linking
+      // an orphaned invoice, any stale CO reference resets to base contract.
       changeOrderId:
-        data.changeOrderId && data.changeOrderId.trim() !== ''
+        !projectReassigned && data.changeOrderId && data.changeOrderId.trim() !== ''
           ? data.changeOrderId
           : null,
       invoiceDate: data.invoiceDate,
@@ -628,11 +644,19 @@ export async function updateInvoiceFullAction(
   }
 
   // Re-roll the project's contract totals: a project-credit line may have been
-  // added, changed, or removed by this edit. Best-effort.
+  // added, changed, or removed by this edit. Best-effort. On a re-link the
+  // NEW project's totals absorb the invoice, so recompute that one too.
   try {
     await recomputeProjectContractTotals(existing.projectId);
   } catch {
     /* best-effort — Rebuild / self-heal can resync */
+  }
+  if (projectReassigned) {
+    try {
+      await recomputeProjectContractTotals(data.projectId);
+    } catch {
+      /* best-effort — Rebuild / self-heal can resync */
+    }
   }
 
   revalidatePath('/invoices');
@@ -640,6 +664,7 @@ export async function updateInvoiceFullAction(
   revalidatePath('/dashboard');
   revalidatePath('/accounts-receivable');
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  if (projectReassigned) revalidatePath(`/projects/${data.projectId}`);
   if (retainage > 0) revalidatePath('/retainage');
   redirect(`/invoices/${data.id}`);
 }

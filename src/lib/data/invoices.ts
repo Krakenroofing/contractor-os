@@ -304,6 +304,10 @@ export async function setInvoiceRevenueCategory(
 export type UpdateInvoiceFullInput = {
   /** New invoice number. Omit to leave it unchanged. */
   number?: string;
+  /** Re-link to another project. Only supplied when repairing an invoice
+   *  whose project was deleted (orphan) — the action layer refuses the
+   *  change while the current link is valid. Omit to leave unchanged. */
+  projectId?: string;
   billingType: Invoice['billingType'];
   /** Reclassification: which change order this invoice bills against. Null
    *  means "base contract". Editable post-send because the link drives
@@ -373,6 +377,7 @@ export async function updateInvoiceFull(
       .update(invoices)
       .set({
         ...(patch.number !== undefined ? { number: patch.number } : {}),
+        ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
         billingType: patch.billingType,
         changeOrderId: patch.changeOrderId,
         invoiceDate: patch.invoiceDate,

@@ -7,7 +7,7 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getInvoice, getInvoiceLineItems } from '@/lib/data/invoices';
-import { getProject } from '@/lib/data/projects';
+import { getProject, listProjects } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { listChangeOrdersForProject } from '@/lib/data/change-orders';
 import { listInventoryItems } from '@/lib/data/inventory-items';
@@ -39,10 +39,19 @@ export default async function EditInvoicePage({
   const customer = project
     ? await getCustomer(companyId, project.customerId)
     : undefined;
+  // Orphaned invoice: the linked project was deleted. The normally-locked
+  // project field becomes a picker so the invoice can be re-linked to a
+  // live project (reconciliation flags these as errors until repaired).
+  const projectLinkBroken = !project;
+  const projectOptions = projectLinkBroken
+    ? (await listProjects(companyId)).map((p) => ({ id: p.id, label: p.name }))
+    : [];
   const lines = await getInvoiceLineItems(invoice.id);
   // Load every CO on the project so the operator can retroactively tag this
   // invoice as billing against a specific CO (or null = base contract).
-  const projectChangeOrders = await listChangeOrdersForProject(invoice.projectId);
+  const projectChangeOrders = projectLinkBroken
+    ? []
+    : await listChangeOrdersForProject(invoice.projectId);
   const products = (await listInventoryItems(companyId)).map((p) => ({
     id: p.id,
     name: p.name,
@@ -85,7 +94,7 @@ export default async function EditInvoicePage({
           id: invoice.id,
           number: invoice.number,
           projectId: invoice.projectId,
-          projectLabel: project?.name ?? 'Unknown project',
+          projectLabel: project?.name ?? 'Deleted project',
           customerLabel: customer?.name ?? 'Unknown customer',
           status: invoice.status,
           billingType: invoice.billingType,
@@ -115,6 +124,8 @@ export default async function EditInvoicePage({
           label: `${co.number} — ${co.description.slice(0, 60)}`,
         }))}
         products={products}
+        projectLinkBroken={projectLinkBroken}
+        projectOptions={projectOptions}
       />
     </div>
   );

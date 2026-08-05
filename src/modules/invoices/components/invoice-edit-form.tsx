@@ -87,10 +87,17 @@ export function InvoiceEditForm({
   products = [],
   showVat = true,
   companyVatRatePercent = 0,
+  projectLinkBroken = false,
+  projectOptions = [],
 }: {
   initial: InvoiceEditFormInitial;
   changeOrderOptions: InvoiceEditFormChangeOrderOption[];
   products?: ProductPickerOption[];
+  /** True when the linked project has been deleted — unlocks the normally
+   *  immutable project field so the orphaned invoice can be re-linked. */
+  projectLinkBroken?: boolean;
+  /** Live projects to re-link to. Only used when projectLinkBroken. */
+  projectOptions?: { id: string; label: string }[];
   /** Hide the Tax/VAT field + totals line for non-VAT companies. */
   showVat?: boolean;
   /** Company VAT rate (numeric percent). When > 0, the Tax/VAT field
@@ -116,6 +123,8 @@ export function InvoiceEditForm({
     })),
   );
   const [number, setNumber] = useState(initial.number);
+  // Only mutable when the linked project was deleted (projectLinkBroken).
+  const [projectId, setProjectId] = useState(initial.projectId);
   const [billingType, setBillingType] = useState<BillingType>(initial.billingType);
   const [changeOrderId, setChangeOrderId] = useState(initial.changeOrderId);
   const [invoiceDate, setInvoiceDate] = useState(initial.invoiceDate);
@@ -253,18 +262,29 @@ export function InvoiceEditForm({
       )}
 
       <input type="hidden" name="id" value={initial.id} />
-      <input type="hidden" name="projectId" value={initial.projectId} />
+      {!projectLinkBroken && (
+        <input type="hidden" name="projectId" value={initial.projectId} />
+      )}
       <input type="hidden" name="status" value={initial.status} />
       <input type="hidden" name="amountPaid" value={initial.amountPaid} />
       <input type="hidden" name="lines" value={JSON.stringify(linesPayload)} />
 
-      <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-        Editing existing invoice. <strong>Customer</strong> and{' '}
-        <strong>project</strong> are locked — to move this invoice, void it and
-        create a new one. The invoice number can be changed (it must stay unique).
-        After saving, balance and status auto-derive from existing payments
-        against the new total.
-      </div>
+      {projectLinkBroken ? (
+        <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-900">
+          This invoice&apos;s project has been <strong>deleted</strong>, so the
+          invoice is orphaned (reconciliation flags it as an error). Pick a
+          live project below to re-link it — the project field locks again
+          once a valid project is assigned.
+        </div>
+      ) : (
+        <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+          Editing existing invoice. <strong>Customer</strong> and{' '}
+          <strong>project</strong> are locked — to move this invoice, void it and
+          create a new one. The invoice number can be changed (it must stay unique).
+          After saving, balance and status auto-derive from existing payments
+          against the new total.
+        </div>
+      )}
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
@@ -293,9 +313,32 @@ export function InvoiceEditForm({
               ))}
             </Select>
           </Field>
-          <Field label="Project (locked)">
-            <Input value={initial.projectLabel} readOnly disabled />
-          </Field>
+          {projectLinkBroken ? (
+            <Field label="Project (re-link required)" error={err('projectId')} required>
+              <Select
+                name="projectId"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+              >
+                <option value={initial.projectId}>
+                  — {initial.projectLabel} (deleted) —
+                </option>
+                {projectOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-slate-500 mt-1">
+                Any change-order link resets to base contract when the invoice
+                moves to the new project.
+              </p>
+            </Field>
+          ) : (
+            <Field label="Project (locked)">
+              <Input value={initial.projectLabel} readOnly disabled />
+            </Field>
+          )}
           <Field label="Customer (locked)">
             <Input value={initial.customerLabel} readOnly disabled />
           </Field>

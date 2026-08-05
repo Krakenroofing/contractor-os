@@ -4118,6 +4118,7 @@ export function updateMockInvoiceFull(
   companyId: string,
   id: string,
   patch: {
+    projectId?: string;
     billingType: Invoice['billingType'];
     changeOrderId: string | null;
     invoiceDate: string;
@@ -4172,6 +4173,7 @@ export function updateMockInvoiceFull(
     });
   }
 
+  if (patch.projectId !== undefined) inv.projectId = patch.projectId;
   inv.billingType = patch.billingType;
   inv.changeOrderId = patch.changeOrderId;
   inv.invoiceDate = patch.invoiceDate;

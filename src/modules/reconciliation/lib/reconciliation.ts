@@ -181,9 +181,12 @@ export async function buildReconciliationData(
     }
   }
 
-  // 2. Invoices not linked to projects (FK at DB level prevents this; check
-  //    anyway in case of mock store edge-cases).
+  // 2. Invoices not linked to projects (happens when a project is soft-
+  //    deleted out from under its invoices). Void invoices are skipped:
+  //    they're excluded from every roll-up, and voids can't be edited, so a
+  //    dangling link on one is unrepairable noise rather than an error.
   for (const inv of invoices) {
+    if (normalizeStatus('invoice', inv.status) === 'void') continue;
     if (!projectIds.has(inv.projectId)) {
       warnings.push({
         severity: 'error',
