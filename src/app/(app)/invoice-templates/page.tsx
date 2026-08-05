@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +13,7 @@ import {
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { listInvoiceTemplates } from '@/lib/data/invoice-templates';
 import {
   HEADER_LAYOUT_LABEL,
@@ -25,6 +26,7 @@ export const dynamic = 'force-dynamic';
 export default async function InvoiceTemplatesPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'invoice_templates')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'invoice_templates');
 
   const templates = await listInvoiceTemplates(companyId);

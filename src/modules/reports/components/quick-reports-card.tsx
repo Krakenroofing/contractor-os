@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { Role } from '@/lib/permissions';
 import {
+  canViewReportType,
   REPORT_DESCRIPTION,
   REPORT_LABEL,
   type ReportType,
@@ -18,7 +20,8 @@ const FEATURED: { type: ReportType; tagline: string }[] = [
   { type: 'job-cost', tagline: 'Estimated vs. actual cost' },
 ];
 
-export function QuickReportsCard() {
+export function QuickReportsCard({ role }: { role: Role }) {
+  const featured = FEATURED.filter((f) => canViewReportType(role, f.type));
   return (
     <Card>
       <CardHeader>
@@ -33,7 +36,7 @@ export function QuickReportsCard() {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {FEATURED.map((f) => (
+          {featured.map((f) => (
             <Link
               key={f.type}
               href={{ pathname: `/reports/${f.type}` }}

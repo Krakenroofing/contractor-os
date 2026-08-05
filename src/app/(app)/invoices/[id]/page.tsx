@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { add, formatMoney, parseMoney, subtract } from '@/lib/money';
 import {
   getInvoice,
@@ -63,6 +63,7 @@ export default async function InvoiceDetailPage({
   const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'invoices')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'invoices');
 
   const invoice = await getInvoice(companyId, id);

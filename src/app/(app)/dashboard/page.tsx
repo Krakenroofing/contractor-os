@@ -537,7 +537,7 @@ export default async function DashboardPage() {
           <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
             Quick reports
           </h2>
-          <QuickReportsCard />
+          <QuickReportsCard role={role} />
         </section>
       )}
 

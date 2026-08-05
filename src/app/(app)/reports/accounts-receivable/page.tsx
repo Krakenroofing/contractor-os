@@ -32,7 +32,7 @@ export default async function ARReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) redirect('/dashboard');
+  if (!canView(role, 'reports') || !canView(role, 'accounts_receivable')) redirect('/dashboard');
   const company = await getActiveCompany();
   const filters = parseReportFilters(await searchParams);
   const [report, projects, openCreditMap] = await Promise.all([

@@ -28,7 +28,7 @@ export default async function ProjectFinancialReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) redirect('/dashboard');
+  if (!canView(role, 'reports') || !canView(role, 'invoices')) redirect('/dashboard');
   const company = await getActiveCompany();
   const tax = taxLabel(company.isVatActive);
   const exTax = exTaxLabel(company.isVatActive);

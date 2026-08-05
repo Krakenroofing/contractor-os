@@ -2,14 +2,14 @@ import { NextResponse } from 'next/server';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { getActiveEmployee } from '@/lib/active-employee';
-import { canView } from '@/lib/permissions';
+import { canView, type Resource } from '@/lib/permissions';
 import {
   PAYLOAD_BUILDERS,
   isSupportedDocumentType,
 } from '@/lib/exports/registry';
 import { renderDocumentPdf } from '@/lib/exports/pdf/render';
 import { renderDocumentXlsx } from '@/lib/exports/xlsx/render';
-import type { ExportFormat } from '@/lib/exports/types';
+import type { DocumentType, ExportFormat } from '@/lib/exports/types';
 
 // Single dispatch route: /api/exports/{type}/{id}/{format}
 //
@@ -65,6 +65,22 @@ export async function GET(
     const me = await getActiveEmployee();
     const allowed = canView(role, 'payroll') || me?.id === employeeId;
     if (!allowed) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+  }
+
+  // Financial documents follow the same resource gates as their detail
+  // pages — roles locked out of invoicing (e.g. PM) can't pull the PDFs
+  // by guessing ids either.
+  const FINANCIAL_DOC_RESOURCE: Partial<Record<DocumentType, Resource>> = {
+    invoice: 'invoices',
+    credit_memo: 'invoices',
+    payment: 'payments',
+  };
+  const requiredResource = FINANCIAL_DOC_RESOURCE[type];
+  if (requiredResource) {
+    const role = await getActiveRole();
+    if (!canView(role, requiredResource)) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
   }

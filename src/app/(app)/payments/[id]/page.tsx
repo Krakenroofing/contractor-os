@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney, parseMoney, subtract } from '@/lib/money';
 import { getInvoice } from '@/lib/data/invoices';
 import { getPayment } from '@/lib/data/invoice-payments';
@@ -38,6 +38,7 @@ export default async function PaymentDetailPage({
   const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'payments')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'payments');
 
   const payment = await getPayment(companyId, id);

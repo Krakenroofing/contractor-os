@@ -1,5 +1,8 @@
+import { redirect } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
+import { getActiveRole } from '@/lib/active-role';
+import { canView } from '@/lib/permissions';
 import { isDevDemoMode } from '@/lib/auth';
 import { formatMoney } from '@/lib/money';
 import {
@@ -13,6 +16,8 @@ import { ARListClient } from '@/modules/accounts-receivable/components/ar-list-c
 export const dynamic = 'force-dynamic';
 
 export default async function AccountsReceivablePage() {
+  const role = await getActiveRole();
+  if (!canView(role, 'accounts_receivable')) redirect('/dashboard');
   const company = await getActiveCompany();
   const companyId = company.id;
   const asOf = new Date();

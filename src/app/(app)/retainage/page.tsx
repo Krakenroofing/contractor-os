@@ -1,11 +1,12 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import {
   buildRetainageRowsForCompany,
@@ -19,6 +20,7 @@ export const dynamic = 'force-dynamic';
 export default async function RetainagePage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'retainage')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'retainage');
   const asOf = new Date();
 

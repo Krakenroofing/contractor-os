@@ -37,6 +37,9 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/clock', label: 'Time Clock', resource: 'clock_events' },
   { href: '/payroll', label: 'Payroll', resource: 'payroll' },
   { href: '/banking', label: 'Banking & Receipts', resource: 'bank_accounts' },
+  // Fallback for roles (e.g. PM) that submit receipts but can't see the
+  // rest of Banking — hidden below whenever the full Banking link shows.
+  { href: '/banking/receipts', label: 'Receipts', resource: 'receipts' },
   { href: '/accounting/todo', label: 'Accounting To-Do', resource: 'statement_imports' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },
@@ -100,7 +103,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         .map((c) => ({ id: c.id, name: c.name }))
     : (await listCompanies()).map((c) => ({ id: c.id, name: c.name }));
 
-  const filteredNav = mainNav.filter((item) => canView(role, item.resource));
+  const filteredNav = mainNav.filter((item) => {
+    if (item.href === '/banking/receipts' && canView(role, 'bank_accounts')) {
+      return false;
+    }
+    return canView(role, item.resource);
+  });
   const settingsAllowed = canView(role, 'settings');
 
   return (

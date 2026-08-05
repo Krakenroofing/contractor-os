@@ -37,7 +37,9 @@ export default async function ReimbursementsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const role = await getActiveRole();
-  if (!canView(role, 'receipts')) redirect('/banking' as never);
+  // Reimbursements is a payout surface (cash owed to employees), not part
+  // of receipt submission — so it rides the banking gate, not receipts.
+  if (!canView(role, 'bank_accounts')) redirect('/dashboard' as never);
   const company = await getActiveCompany();
   const sp = await searchParams;
   const tab = firstString(sp.tab) === 'paid' ? 'paid' : 'pending';

@@ -1,10 +1,11 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { add, formatMoney, parseMoney } from '@/lib/money';
 import { listInvoices } from '@/lib/data/invoices';
 import { listInvoicePaymentsForCompany } from '@/lib/data/invoice-payments';
@@ -28,6 +29,7 @@ export default async function InvoicesPage() {
   const companyId = company.id;
   const isVatActive = company.isVatActive;
   const role = await getActiveRole();
+  if (!canView(role, 'invoices')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'invoices');
 
   const allInvoices = await listInvoices(companyId);

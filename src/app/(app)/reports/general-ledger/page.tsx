@@ -34,7 +34,7 @@ export default async function GeneralLedgerDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) redirect('/dashboard');
+  if (!canView(role, 'reports') || !canView(role, 'accounting_accounts')) redirect('/dashboard');
   const company = await getActiveCompany();
   const sp = await searchParams;
   const from = str(sp.from) || null;

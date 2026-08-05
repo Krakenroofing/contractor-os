@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) return new Response('Forbidden', { status: 403 });
+  if (!canView(role, 'reports') || !canView(role, 'accounts_receivable')) return new Response('Forbidden', { status: 403 });
   const companyId = await getActiveCompanyId();
   const filters = parseReportFilters(
     Object.fromEntries(req.nextUrl.searchParams.entries()),

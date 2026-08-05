@@ -1,12 +1,12 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { getInvoiceTemplate } from '@/lib/data/invoice-templates';
 import {
   HEADER_LAYOUT_LABEL,
@@ -25,6 +25,7 @@ export default async function InvoiceTemplateDetailPage({
   const { id } = await params;
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'invoice_templates')) redirect('/dashboard');
   const allowEdit = canCreate(role, 'invoice_templates');
   const tpl = await getInvoiceTemplate(companyId, id);
   if (!tpl) notFound();

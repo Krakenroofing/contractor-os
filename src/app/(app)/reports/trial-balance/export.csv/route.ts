@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) return new Response('Forbidden', { status: 403 });
+  if (!canView(role, 'reports') || !canView(role, 'accounting_accounts')) return new Response('Forbidden', { status: 403 });
   const companyId = await getActiveCompanyId();
   const asOf = req.nextUrl.searchParams.get('asOf') || null;
   const tb = await getTrialBalance(companyId, asOf);

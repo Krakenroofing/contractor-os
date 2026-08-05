@@ -1,10 +1,11 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { add, formatMoney, parseMoney } from '@/lib/money';
 import { getInvoice } from '@/lib/data/invoices';
 import { listPayments } from '@/lib/data/invoice-payments';
@@ -24,6 +25,7 @@ export const dynamic = 'force-dynamic';
 export default async function PaymentsPage() {
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'payments')) redirect('/dashboard');
   const allowCreate = canCreate(role, 'payments');
 
   const payments = await listPayments(companyId);

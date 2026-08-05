@@ -1,6 +1,8 @@
 // Client-safe shared types + helpers for parsing report filter query params.
 // Used by both the page renderers and the CSV route handlers.
 
+import { canView, type Resource, type Role } from '@/lib/permissions';
+
 export type ReportFilters = {
   /** Inclusive lower bound, ISO YYYY-MM-DD. Empty string = no lower bound. */
   from: string;
@@ -82,6 +84,31 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
   'payroll-summary':
     'Per-employee payroll roll-up across any date range: hours, gross, deductions, NIB, reimbursements / per diem / expenses, net, and fully-loaded labor cost. Includes NIB-exempt staff.',
 };
+
+/**
+ * Money-side reports require this resource on top of `reports`, mirroring
+ * the per-page gates — so a role locked out of financials (e.g. PM) keeps
+ * the operational reports (job cost, WIP, POs, landed cost) but never sees
+ * links to the financial ones.
+ */
+export const REPORT_EXTRA_RESOURCE: Partial<Record<ReportType, Resource>> = {
+  'project-financial': 'invoices',
+  'accounts-receivable': 'accounts_receivable',
+  'accounts-payable': 'accounting_accounts',
+  'profit-loss': 'accounting_accounts',
+  'invoice-summary': 'invoices',
+  'payment-summary': 'payments',
+  'vat-quarterly': 'accounting_accounts',
+  'vendor-vat': 'accounting_accounts',
+  'customer-summary': 'invoices',
+  'nib-monthly': 'payroll',
+  'payroll-summary': 'payroll',
+};
+
+export function canViewReportType(role: Role, type: ReportType): boolean {
+  const extra = REPORT_EXTRA_RESOURCE[type];
+  return !extra || canView(role, extra);
+}
 
 /**
  * Whether a particular report supports a project filter (some are

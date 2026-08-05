@@ -14,7 +14,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function JournalPage() {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) redirect('/dashboard');
+  // The GL journal is a financial surface — gate it on chart-of-accounts
+  // visibility, not the general reports permission that PMs also hold.
+  if (!canView(role, 'accounting_accounts')) redirect('/dashboard');
   const company = await getActiveCompany();
   const canEdit = canCreate(role, 'settings');
 

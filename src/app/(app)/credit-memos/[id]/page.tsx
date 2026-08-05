@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import {
   getCreditMemo,
@@ -55,6 +55,7 @@ export default async function CreditMemoDetailPage({
   const fromProject = from === 'project';
   const companyId = await getActiveCompanyId();
   const role = await getActiveRole();
+  if (!canView(role, 'invoices')) redirect('/dashboard');
   const allowEdit = canCreate(role, 'invoices');
 
   const cm = await getCreditMemo(companyId, id);

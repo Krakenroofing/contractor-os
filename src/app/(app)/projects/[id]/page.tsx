@@ -16,7 +16,7 @@ import { ArchiveProjectForm } from '@/modules/projects/components/archive-projec
 import { RecomputeTotalsButton } from '@/modules/projects/components/recompute-totals-button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { sanitizeReturnTo, returnToLabel } from '@/lib/return-to';
 import { formatMoney, parseMoney } from '@/lib/money';
 import { computeRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
@@ -114,6 +114,9 @@ export default async function ProjectDetailPage({
   const allowCreateCO = canCreate(role, 'change_orders');
   const allowCreatePO = canCreate(role, 'purchase_orders');
   const allowCreateInvoice = canCreate(role, 'invoices');
+  // Billing/collections cards below are money-side — hidden entirely from
+  // roles locked out of invoices (e.g. PM keeps the job but not the money).
+  const allowViewInvoices = canView(role, 'invoices');
   const allowCreateDailyReport = canCreate(role, 'daily_reports');
   const allowCreateDocument = canCreate(role, 'documents');
   const project = await getProject(companyId, id);
@@ -309,11 +312,13 @@ export default async function ProjectDetailPage({
             Purchase Orders →
           </Button>
         </Link>
-        <Link href="/invoices">
-          <Button size="sm" variant="outline">
-            Invoices →
-          </Button>
-        </Link>
+        {allowViewInvoices && (
+          <Link href="/invoices">
+            <Button size="sm" variant="outline">
+              Invoices →
+            </Button>
+          </Link>
+        )}
         <Link href={`/job-costing/${project.id}`}>
           <Button size="sm" variant="outline">
             Job Costing →
@@ -799,6 +804,8 @@ export default async function ProjectDetailPage({
         </CardContent>
       </Card>
 
+      {allowViewInvoices && (
+        <>
       {/* Invoicing summary */}
       <Card>
         <CardHeader>
@@ -1304,6 +1311,8 @@ export default async function ProjectDetailPage({
           )}
         </CardContent>
       </Card>
+        </>
+      )}
 
       {/* Landed Cost / Shipping */}
       <Card>

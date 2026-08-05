@@ -19,7 +19,8 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   owner: 'Full access',
-  project_manager: 'Projects, customers, POs, change orders, job-costing view',
+  project_manager:
+    'Projects, customers, POs, change orders, job costing — no banking or financials',
   estimator: 'Estimates, proposals, cost codes',
   accounting: 'POs, vendors, landed cost, job costing',
   field_user: 'Mobile field app — daily reports, clock in/out, photos',
@@ -132,31 +133,32 @@ const PERMS: Record<Role, Record<Resource, Action[]>> = {
     purchase_orders: RW,
     landed_cost: READ,
     job_costing: RW,
-    invoices: RW,
-    invoice_templates: READ,
-    payments: RW,
-    accounts_receivable: READ,
-    retainage: RW,
+    // Money side is fully closed to PMs: no invoicing, payments, AR,
+    // retainage, banking, reconciliation, or accountant exports. PMs run
+    // the job (POs, COs, job costing, daily reports, photos) — billing and
+    // cash stay with Owner / Accounting.
+    invoices: NONE,
+    invoice_templates: NONE,
+    payments: NONE,
+    accounts_receivable: NONE,
+    retainage: NONE,
     backfill: NONE,
-    reconciliation: READ,
+    reconciliation: NONE,
     reports: RW,
     daily_reports: RW,
     documents: RW,
     team_tasks: RW,
     invitations: NONE,
     settings: NONE,
-    // PMs can VIEW the banking ledger and the COA but not create accounts
-    // or run imports — that stays with Accounting / Owner. Phase 3 will
-    // additionally gate per-row edits on `is_reviewed` so PMs cannot
-    // unilaterally re-categorize a reconciled txn.
-    bank_accounts: READ,
-    statement_imports: READ,
-    accounting_accounts: READ,
-    // PM can view rules and apply suggestions on transactions (apply is
-    // gated by statement_imports:create above), but cannot author rules.
-    banking_rules: READ,
+    bank_accounts: NONE,
+    statement_imports: NONE,
+    accounting_accounts: NONE,
+    banking_rules: NONE,
+    // Receipts stay open so PMs can capture job expenses (with photos)
+    // from the field flow — they draft/submit only; approve+post remains
+    // owner/accounting via canApproveReceipt.
     receipts: RW,
-    exports: READ,
+    exports: NONE,
     // PMs don't see payroll — pay info stays with owner + accounting.
     employees: NONE,
     payroll: NONE,

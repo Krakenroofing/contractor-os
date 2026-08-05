@@ -31,7 +31,7 @@ export default async function PayrollSummaryReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const role = await getActiveRole();
-  if (!canView(role, 'reports')) redirect('/dashboard');
+  if (!canView(role, 'reports') || !canView(role, 'payroll')) redirect('/dashboard');
   const company = await getActiveCompany();
   const filters = parseReportFilters(await searchParams);
   const [report, projects] = await Promise.all([

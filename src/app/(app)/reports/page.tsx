@@ -7,6 +7,7 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView, ROLE_LABELS } from '@/lib/permissions';
 import {
+  canViewReportType,
   REPORT_DESCRIPTION,
   REPORT_LABEL,
   REPORT_TYPES,
@@ -68,9 +69,13 @@ export default async function ReportsIndexPage() {
   // VAT reports are meaningless for a non-VAT company (e.g. Kraken Roofing
   // LLC, US) — hide them from the grid.
   const VAT_REPORTS: ReportType[] = ['vat-quarterly', 'vendor-vat'];
+  const allowed = (r: ReportType) => canViewReportType(role, r);
+  const featured = FEATURED.filter(allowed);
+  const showAccountingReports = canView(role, 'accounting_accounts');
   const others = REPORT_TYPES.filter(
     (r) =>
       !FEATURED.includes(r) &&
+      allowed(r) &&
       (company.isVatActive || !VAT_REPORTS.includes(r)),
   );
 
@@ -85,21 +90,25 @@ export default async function ReportsIndexPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Reports</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {REPORT_TYPES.length} report types available · scoped to {company.name} ·
+          {featured.length + others.length} report types available · scoped to {company.name} ·
           viewing as {ROLE_LABELS[role]}
         </p>
       </header>
 
       {/* ===== Data integrity ===== */}
-      <DataIntegrityPanel companyId={company.id} />
+      {/* Links into reconciliation, so it follows that gate. */}
+      {canView(role, 'reconciliation') && (
+        <DataIntegrityPanel companyId={company.id} />
+      )}
 
       {/* ===== Featured / quick-access ===== */}
+      {featured.length > 0 && (
       <section className="space-y-3">
         <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
           Quick access
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {FEATURED.map((type) => (
+          {featured.map((type) => (
             <Card
               key={type}
               className="border-slate-300 hover:border-slate-400 transition-colors"
@@ -124,8 +133,10 @@ export default async function ReportsIndexPage() {
           ))}
         </div>
       </section>
+      )}
 
       {/* ===== Accounting reports (GL-based financial statements) ===== */}
+      {showAccountingReports && (
       <section className="space-y-3">
         <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
           Accounting reports
@@ -155,6 +166,7 @@ export default async function ReportsIndexPage() {
           invoices &amp; payments”.
         </p>
       </section>
+      )}
 
       {/* ===== Full report grid ===== */}
       <section className="space-y-3">
