@@ -27,6 +27,12 @@ import { listPaystubSnapshots } from '@/lib/data/period-paystub-snapshots';
 import { listPaystubAdjustments } from '@/lib/data/paystub-adjustments';
 import { PeriodLockButton } from '@/modules/payroll/components/period-lock-button';
 import { PostLaborButton } from '@/modules/payroll/components/post-labor-button';
+import {
+  LaborAllocationPanel,
+  type LaborAllocationProjectRow,
+  type LaborAllocationUnpostedRow,
+} from '@/modules/payroll/components/labor-allocation-panel';
+import { computeLaborPostingPlan } from '@/modules/payroll/lib/labor-posting';
 import { GeneratePayrollBillsButton } from '@/modules/payroll/components/generate-bills-button';
 import { PayrollAdjustmentsSection } from '@/modules/payroll/components/payroll-adjustments-section';
 import { PieceWorkSection } from '@/modules/payroll/components/piece-work-section';
@@ -129,9 +135,12 @@ export default async function PayrollPage({
   const laborAccountsConfigured = !!(
     activeCompany.laborCogsAccountId && activeCompany.laborBurdenAccountId
   );
-  const laborPostedCount = (
-    await listJobCostEntriesBySource(companyId, 'labor_entry', period.id)
-  ).length;
+  const laborPostedEntries = await listJobCostEntriesBySource(
+    companyId,
+    'labor_entry',
+    period.id,
+  );
+  const laborPostedCount = laborPostedEntries.length;
   const payrollBillCount = (await listPayrollBills(companyId, period.id)).length;
   // Unpaid lunch overrides for this period, indexed by employee+date.
   const lunchOverrides = await listLunchOverrides(companyId, period.id);
@@ -458,12 +467,75 @@ export default async function PayrollPage({
               };
             })
             .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+          // Payroll-side view of the labor → job-costing split. The plan is
+          // recomputed live from the timesheet; when a posting exists we
+          // compare totals so a stale posting surfaces as a drift warning.
+          const allocationPlan = computeLaborPostingPlan(payRunStubs, allEntries);
+          const projectNameById = new Map(allProjects.map((p) => [p.id, p.name]));
+          const allocByProject = new Map<
+            string,
+            { wage: number; burden: number; employees: Set<string> }
+          >();
+          for (const a of allocationPlan.allocations) {
+            for (const b of a.buckets) {
+              const agg = allocByProject.get(b.projectId) ?? {
+                wage: 0,
+                burden: 0,
+                employees: new Set<string>(),
+              };
+              agg.wage = round2(agg.wage + b.wage);
+              agg.burden = round2(agg.burden + b.burden);
+              agg.employees.add(a.employeeName);
+              allocByProject.set(b.projectId, agg);
+            }
+          }
+          const allocationRows: LaborAllocationProjectRow[] = [...allocByProject]
+            .map(([projectId, agg]) => ({
+              projectId,
+              projectName: projectNameById.get(projectId) ?? 'Deleted project',
+              employees: [...agg.employees].sort(),
+              wage: agg.wage,
+              burden: agg.burden,
+            }))
+            .sort((a, b) => b.wage - a.wage);
+          const unpostedRows: LaborAllocationUnpostedRow[] =
+            allocationPlan.allocations
+              .filter((a) => a.unpostedWage > 0.004)
+              .map((a) => ({
+                employeeName: a.employeeName,
+                amount: a.unpostedWage,
+                hasTime: allEntries.some((e) => e.employeeId === a.employeeId),
+              }))
+              .sort((a, b) => b.amount - a.amount);
+          const postedWage = round2(
+            laborPostedEntries
+              .filter((e) => e.costType === 'labor')
+              .reduce((s, e) => s + parseMoney(e.amount), 0),
+          );
+          const postedBurden = round2(
+            laborPostedEntries
+              .filter((e) => e.costType === 'labor_burden')
+              .reduce((s, e) => s + parseMoney(e.amount), 0),
+          );
+          const allocationDrift =
+            laborPostedCount > 0 &&
+            (Math.abs(postedWage - allocationPlan.totalWagePosted) > 0.01 ||
+              Math.abs(postedBurden - allocationPlan.totalBurdenPosted) > 0.01);
           return (
             <div className="space-y-4">
               <PayRunTable
                 rows={rows}
                 payPeriodId={period.id}
                 locked={isLocked}
+              />
+              <LaborAllocationPanel
+                rows={allocationRows}
+                unposted={unpostedRows}
+                locked={isLocked}
+                postedCount={laborPostedCount}
+                postedWage={postedWage}
+                postedBurden={postedBurden}
+                drift={allocationDrift}
               />
               <div className="rounded-lg border border-slate-200 p-4">
                 <h3 className="text-sm font-medium text-slate-700">
