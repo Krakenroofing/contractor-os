@@ -19,6 +19,7 @@ import 'server-only';
 import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
+  creditMemos,
   importedTransactions,
   importedTransactionLines,
   transactionMatches,
@@ -55,6 +56,7 @@ export type ProfitLossReport = {
   from: string | null;
   to: string | null;
   income: {
+    /** Net revenue: invoiced (per the recognition basis) MINUS credit memos. */
     total: number;
     invoiceCount: number;
     /** Revenue split by income category (invoices carrying a revenue
@@ -63,6 +65,10 @@ export type ProfitLossReport = {
     /** Invoices with no revenue category — shown as one "Uncategorized
      *  revenue" line so the income still ties to the total. */
     uncategorized: { total: number; invoiceCount: number };
+    /** Contra-revenue: credit memos issued in range (ex-VAT amounts). A job
+     *  credit / backcharge reduces what was earned, so it nets off income
+     *  rather than appearing as a cost. */
+    creditMemos: { total: number; count: number };
   };
   cogs: {
     total: number;
@@ -158,6 +164,7 @@ export async function buildProfitLossReport(
       invoiceCount: 0,
       accounts: [],
       uncategorized: { total: 0, invoiceCount: 0 },
+      creditMemos: { total: 0, count: 0 },
     },
     cogs: { total: 0, accounts: [] },
     opex: { total: 0, accounts: [] },
@@ -245,6 +252,31 @@ export async function buildProfitLossReport(
   incomeAccounts.sort((a, b) => b.amount - a.amount);
   incomeTotal = Math.round(incomeTotal * 100) / 100;
   uncatIncomeTotal = Math.round(uncatIncomeTotal * 100) / 100;
+
+  // ----- Income side (contra): credit memos -----
+  // A credit memo (job credit / backcharge / refund) reduces what was earned,
+  // so it nets off revenue rather than appearing as a cost. Amounts are
+  // stored ex-VAT — same basis as the invoice subtotals above. Recognized on
+  // the ISSUE date (accrual: the obligation exists once issued), regardless
+  // of when it's applied against an invoice. Void/draft memos don't count.
+  const cmConds = [
+    eq(creditMemos.companyId, companyId),
+    isNull(creditMemos.voidedAt),
+    ne(creditMemos.status, 'draft'),
+    ne(creditMemos.status, 'void'),
+  ];
+  if (filters.from) cmConds.push(gte(creditMemos.issueDate, filters.from));
+  if (filters.to) cmConds.push(lte(creditMemos.issueDate, filters.to));
+  const cmRows = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${creditMemos.amount}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(creditMemos)
+    .where(and(...cmConds));
+  const creditMemoTotal = Math.round(Number(cmRows[0]?.total ?? '0') * 100) / 100;
+  const creditMemoCount = Number(cmRows[0]?.count ?? 0);
+  incomeTotal = Math.round((incomeTotal - creditMemoTotal) * 100) / 100;
 
   // ----- Expense side: grouped by accounting_account_id -----
   const costConds = [
@@ -546,6 +578,7 @@ export async function buildProfitLossReport(
         total: uncatIncomeTotal,
         invoiceCount: uncatIncomeCount,
       },
+      creditMemos: { total: creditMemoTotal, count: creditMemoCount },
     },
     cogs: { total: cogsTotal, accounts: cogsAccounts },
     opex: { total: opexTotal, accounts: opexAccounts },

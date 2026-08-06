@@ -42,6 +42,13 @@ export async function GET(req: NextRequest) {
     ...(report.income.uncategorized.total > 0
       ? ([['INCOME', 'Uncategorized revenue', report.income.uncategorized.total]] as CsvCell[][])
       : []),
+    ...(report.income.creditMemos.total > 0
+      ? ([[
+          'INCOME',
+          `Less credit memos (${report.income.creditMemos.count})`,
+          -report.income.creditMemos.total,
+        ]] as CsvCell[][])
+      : []),
     ['INCOME', 'Total', report.income.total],
     [],
 

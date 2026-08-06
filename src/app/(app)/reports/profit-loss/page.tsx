@@ -191,6 +191,33 @@ export default async function ProfitLossReportPage({
                     </TableCell>
                   </TableRow>
                 )}
+                {report.income.creditMemos.total > 0 && (
+                  <TableRow>
+                    <TableCell className="text-slate-700">
+                      Less credit memos
+                      <span className="ml-2 text-xs text-slate-500">
+                        job credits / backcharges / refunds — contra-revenue
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {report.income.creditMemos.count}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium text-red-700">
+                      ({formatMoney(report.income.creditMemos.total)})
+                    </TableCell>
+                  </TableRow>
+                )}
+                {report.income.creditMemos.total > 0 && (
+                  <TableRow>
+                    <TableCell className="font-medium text-slate-900">
+                      Net revenue
+                    </TableCell>
+                    <TableCell />
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {formatMoney(report.income.total)}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
