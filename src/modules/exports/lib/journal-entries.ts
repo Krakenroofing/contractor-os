@@ -457,6 +457,62 @@ export function buildJournalEntries(
     });
   }
 
+  // ===== Single-category bank expenses =====
+  // A bank expense categorized directly on the transaction (no split lines,
+  // no matched receipt) — e.g. a utility bill coded straight to an OpEx
+  // account. The GL posts these (Dr category / Cr bank) and the P&L counts
+  // them, so the accountant export must carry them too. The "splits only"
+  // limitation above predated the GL posting single-category rows.
+  // Skip anything another section already represents: matched txns
+  // (transfer / owner / invoice payment) and reconciled rows (receipt /
+  // payroll-bill payments).
+  const matchedTxnIds = new Set(
+    input.transactionMatches
+      .filter((m) => !m.reversedAt)
+      .map((m) => m.importedTransactionId),
+  );
+  for (const t of input.importedTransactions) {
+    if (t.isIgnored) continue;
+    if (t.reconciledAt) continue;
+    if (!t.accountingAccountId) continue;
+    const tLines = linesByTxn.get(t.id);
+    if (tLines && tLines.length > 0) continue; // split section covers it
+    if (matchedTxnIds.has(t.id)) continue;
+    const amt = Number(t.amount);
+    if (!(amt < 0)) continue; // expenses (money out) only
+    if (!inRange(t.transactionDate, input.fromDate, input.toDate)) continue;
+
+    const gross = round2(Math.abs(amt));
+    const bankLabel = bankAccountLabel(bankById.get(t.bankAccountId), coaById);
+    const vendor = t.vendorId ? vendorById.get(t.vendorId) : null;
+    const who = vendor?.name ?? t.payee ?? t.description;
+    const memo = `Bank expense — ${who}`.slice(0, 140);
+    rows.push({
+      date: t.transactionDate,
+      memo,
+      account: accountLabelById(
+        t.accountingAccountId,
+        coaById,
+        expenseFallbackLabel,
+      ),
+      debit: toMoneyString(gross),
+      credit: '',
+      source: 'bank_expense',
+      sourceRefId: t.id,
+      reference: '',
+    });
+    rows.push({
+      date: t.transactionDate,
+      memo,
+      account: bankLabel,
+      debit: '',
+      credit: toMoneyString(gross),
+      source: 'bank_expense',
+      sourceRefId: t.id,
+      reference: '',
+    });
+  }
+
   // Sort by date ASC, then preserve source emit order (stable).
   rows.sort((a, b) => a.date.localeCompare(b.date));
   return rows;
