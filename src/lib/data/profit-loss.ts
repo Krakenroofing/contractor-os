@@ -314,6 +314,51 @@ export async function buildProfitLossReport(
       accountingAccounts.rollupGroup,
     );
 
+  // ----- Expense side (2b): SPLIT bank transactions -----
+  // A split/itemized transaction stores its categories on
+  // imported_transaction_lines and leaves the transaction-level category
+  // NULL, so source 2 misses it entirely — the classic case being an
+  // auto-VAT split (cost line + Vat Receivable line). Sum the lines of
+  // unreconciled, non-ignored, txn-level-uncategorized transactions by
+  // line account; balance-sheet lines (e.g. Vat Receivable) fall out of
+  // the P&L via the rollup-group filter below, exactly as intended. Line
+  // amounts are positive magnitudes; a debit txn (amount < 0) is an
+  // expense, a credit split is a refund.
+  const splitConds = [
+    eq(importedTransactionLines.companyId, companyId),
+    eq(importedTransactions.isIgnored, false),
+    isNull(importedTransactions.reconciledAt),
+    isNull(importedTransactions.accountingAccountId),
+    isNotNull(importedTransactionLines.accountingAccountId),
+  ];
+  if (filters.from)
+    splitConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    splitConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const splitRows = await db
+    .select({
+      accountId: importedTransactionLines.accountingAccountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      total: sql<string>`COALESCE(SUM(CASE WHEN ${importedTransactions.amount} < 0 THEN ${importedTransactionLines.amount} ELSE -${importedTransactionLines.amount} END), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactionLines.accountingAccountId),
+    )
+    .where(and(...splitConds))
+    .groupBy(
+      importedTransactionLines.accountingAccountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+
   // ----- Expense side (3): overhead posted-receipt lines -----
   // A posted receipt line with a category but NO project/cost code (e.g. a
   // cash gas receipt) never creates a job_cost_entry, so it isn't in source 1;
@@ -386,6 +431,7 @@ export async function buildProfitLossReport(
   };
   accumulate(categorizedRows);
   accumulate(bankRows);
+  accumulate(splitRows);
   accumulate(receiptOverheadRows);
 
   // ----- Bank fees on bill payments -----
@@ -617,6 +663,37 @@ export async function listProfitLossAccountEntries(
     .from(importedTransactions)
     .where(and(...btConds));
 
+  // Split-transaction lines on this account. The parent transaction has no
+  // txn-level category (categories live per line), so the query above misses
+  // these — mirrors expense source 2b in buildProfitLossReport.
+  const slConds = [
+    eq(importedTransactionLines.companyId, companyId),
+    eq(importedTransactionLines.accountingAccountId, accountId),
+    eq(importedTransactions.isIgnored, false),
+    isNull(importedTransactions.reconciledAt),
+    isNull(importedTransactions.accountingAccountId),
+  ];
+  if (filters.from)
+    slConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    slConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const slRows = await db
+    .select({
+      id: importedTransactions.id,
+      date: importedTransactions.transactionDate,
+      txnDescription: importedTransactions.description,
+      lineDescription: importedTransactionLines.description,
+      lineAmount: importedTransactionLines.amount,
+      txnAmount: importedTransactions.amount,
+      vendorId: importedTransactions.vendorId,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .where(and(...slConds));
+
   const entries: ProfitLossAccountEntry[] = [
     ...jceRows.map((r) => ({
       date: r.date,
@@ -631,6 +708,19 @@ export async function listProfitLossAccountEntries(
       description: r.description,
       // Stored signed (negative = debit); expense magnitude is -amount.
       amount: -Number(r.amount),
+      source: 'Bank transaction' as const,
+      importedTransactionId: r.id,
+      vendorId: r.vendorId,
+    })),
+    ...slRows.map((r) => ({
+      date: r.date,
+      description:
+        r.lineDescription && r.lineDescription.trim() !== ''
+          ? `${r.txnDescription} — ${r.lineDescription}`
+          : r.txnDescription,
+      // Line amounts are positive magnitudes; the parent txn's sign says
+      // whether this is an expense (debit) or a refund (credit).
+      amount: Number(r.txnAmount) < 0 ? Number(r.lineAmount) : -Number(r.lineAmount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
       vendorId: r.vendorId,
