@@ -19,6 +19,8 @@ import { formatMoney } from '@/lib/money';
 
 export type RevenueTableEntry = {
   invoiceId: string;
+  /** Set on credit-memo (contra) rows — links to the memo, not an invoice. */
+  creditMemoId?: string;
   number: string;
   date: string;
   customerName: string;
@@ -113,7 +115,11 @@ export function RevenueTable({
             <TableCell className="tabular-nums text-slate-700">{e.date}</TableCell>
             <TableCell>
               <Link
-                href={`/invoices/${e.invoiceId}`}
+                href={
+                  e.creditMemoId
+                    ? `/credit-memos/${e.creditMemoId}`
+                    : `/invoices/${e.invoiceId}`
+                }
                 target="_blank"
                 className="text-blue-700 hover:underline"
               >
@@ -129,11 +135,17 @@ export function RevenueTable({
             >
               {e.categoryName ?? 'Uncategorized'}
             </TableCell>
-            <TableCell className="text-right tabular-nums font-medium">
-              {formatMoney(e.subtotal)}
+            <TableCell
+              className={`text-right tabular-nums font-medium ${
+                e.subtotal < 0 ? 'text-red-700' : ''
+              }`}
+            >
+              {e.subtotal < 0
+                ? `(${formatMoney(-e.subtotal)})`
+                : formatMoney(e.subtotal)}
             </TableCell>
             <TableCell className="text-right tabular-nums text-slate-500">
-              {formatMoney(e.total)}
+              {e.total < 0 ? `(${formatMoney(-e.total)})` : formatMoney(e.total)}
             </TableCell>
           </TableRow>
         ))}

@@ -779,7 +779,10 @@ export async function listProfitLossAccountEntries(
 // ---------------------------------------------------------------------------
 
 export type ProfitLossRevenueEntry = {
+  /** Invoice id, or the credit memo's own id for contra rows (unique key). */
   invoiceId: string;
+  /** Set on contra rows so the UI links to the credit memo, not an invoice. */
+  creditMemoId?: string;
   number: string;
   date: string;
   status: string;
@@ -879,6 +882,46 @@ export async function listProfitLossRevenueEntries(
       total: Number(r.total),
     };
   });
+
+  // Contra rows: credit memos net off revenue on the statement, so the
+  // all-revenue drill lists them as negative rows (like the "Discounts
+  // given" section of a QuickBooks transaction report) — the list total
+  // then ties to the statement's net Income figure. Category-scoped drills
+  // skip them (memos carry no revenue category).
+  if (!accountId) {
+    const cmConds = [
+      eq(creditMemos.companyId, companyId),
+      isNull(creditMemos.voidedAt),
+      ne(creditMemos.status, 'draft'),
+      ne(creditMemos.status, 'void'),
+    ];
+    if (filters.from) cmConds.push(gte(creditMemos.issueDate, filters.from));
+    if (filters.to) cmConds.push(lte(creditMemos.issueDate, filters.to));
+    const cmRows = await db
+      .select()
+      .from(creditMemos)
+      .where(and(...cmConds))
+      .orderBy(creditMemos.issueDate);
+    for (const cm of cmRows) {
+      const project = cm.projectId ? projectById.get(cm.projectId) : undefined;
+      const customer = customerById.get(cm.customerId);
+      const amount = Number(cm.amount);
+      total -= amount;
+      entries.push({
+        invoiceId: cm.id,
+        creditMemoId: cm.id,
+        number: cm.number,
+        date: cm.issueDate,
+        status: cm.status,
+        customerName: customer?.name ?? '—',
+        projectName: project?.name ?? '—',
+        categoryName: 'Credit memo',
+        subtotal: -amount,
+        total: -amount,
+      });
+    }
+    entries.sort((a, b) => a.date.localeCompare(b.date));
+  }
 
   const scopeLabel =
     accountId === 'uncategorized'

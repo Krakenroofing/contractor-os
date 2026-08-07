@@ -56,7 +56,7 @@ export default async function ProfitLossRevenueDetailPage({
           {detail.scopeLabel}
         </h1>
         <p className="text-sm text-slate-500">
-          {describeRange(filters)} · {detail.entries.length} invoice
+          {describeRange(filters)} · {detail.entries.length} row
           {detail.entries.length === 1 ? '' : 's'} ·{' '}
           <span className="font-medium text-slate-900">
             {formatMoney(detail.total)}
@@ -67,7 +67,7 @@ export default async function ProfitLossRevenueDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Invoices</CardTitle>
+          <CardTitle>Invoices &amp; credit memos</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {detail.entries.length === 0 ? (

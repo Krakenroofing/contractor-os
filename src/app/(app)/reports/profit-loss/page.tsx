@@ -194,7 +194,12 @@ export default async function ProfitLossReportPage({
                 {report.income.creditMemos.total > 0 && (
                   <TableRow>
                     <TableCell className="text-slate-700">
-                      Less credit memos
+                      <Link
+                        href={revenueHref() as never}
+                        className="underline-offset-2 hover:underline"
+                      >
+                        Less credit memos
+                      </Link>
                       <span className="ml-2 text-xs text-slate-500">
                         job credits / backcharges / refunds — contra-revenue
                       </span>
