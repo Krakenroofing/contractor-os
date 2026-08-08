@@ -29,10 +29,17 @@ export type VatComputeResult = {
  *  Rules:
  *    - driver='total' + rate + vat_included=true  → split gross into net/vat
  *    - driver='subtotal' + rate + vat_included=false → vat=sub*rate, total=sub+vat
- *    - driver='vatAmount' → preserve the explicit VAT, recompute the other side
- *      based on whichever of subtotal/total is still set
+ *    - driver='vatAmount' → the VAT is an explicit override (customs receipts
+ *      compute VAT on a different base than the invoice net, so vat ≠ rate·net
+ *      is legitimate). Keep the typed VAT AND the anchor the operator already
+ *      entered: gross stays put when vat_included (net = gross − vat), net
+ *      stays put otherwise (gross = net + vat). Only when neither is set does
+ *      the rate derive the missing side.
  *    - driver='rate' → re-derive vat using the same vat_included strategy
- *    - driver='init' → just normalize whatever was passed in
+ *    - driver='init' → a CONSISTENT triplet (net + vat = gross) is accepted
+ *      verbatim even when vat ≠ rate·net — this is what lets a manually
+ *      overridden VAT survive the server-side recompute on save. Anything
+ *      inconsistent is normalized from the rate as before.
  *
  *  When inputs are ambiguous (e.g. only rate provided) the function leaves
  *  numeric fields at 0 rather than guessing.
@@ -42,6 +49,18 @@ export function computeVat(input: VatComputeInput): VatComputeResult {
   const sub0 = round2(input.subtotal ?? 0);
   const vat0 = round2(input.vatAmount ?? 0);
   const total0 = round2(input.total ?? 0);
+
+  // Consistent triplet on init → trust it. The operator (or a prior save)
+  // already balanced the line; re-deriving from the rate here would clobber
+  // manual VAT overrides on every round-trip.
+  if (
+    input.driver === 'init' &&
+    total0 > 0 &&
+    vat0 >= 0 &&
+    Math.abs(round2(sub0 + vat0) - total0) <= 0.011
+  ) {
+    return { subtotal: sub0, vatAmount: vat0, total: total0, vatRatePercent: rate };
+  }
 
   if (rate <= 0) {
     // Zero-VAT path. subtotal == total, vat == 0.
@@ -74,7 +93,17 @@ export function computeVat(input: VatComputeInput): VatComputeResult {
       return { subtotal: sub0, vatAmount: vat, total, vatRatePercent: rate };
     }
     if (input.driver === 'vatAmount') {
-      // Preserve VAT, derive sub from rate: sub = vat * 100 / rate.
+      // Manual VAT override. Keep the gross the operator already typed and
+      // fit the net around it; fall back to keeping the net; derive from
+      // the rate only when neither anchor exists.
+      if (total0 > 0) {
+        const sub = subtract(total0, vat0);
+        return { subtotal: sub, vatAmount: vat0, total: total0, vatRatePercent: rate };
+      }
+      if (sub0 > 0) {
+        const total = round2(sub0 + vat0);
+        return { subtotal: sub0, vatAmount: vat0, total, vatRatePercent: rate };
+      }
       const sub = round2((vat0 * 100) / rate);
       const total = round2(sub + vat0);
       return { subtotal: sub, vatAmount: vat0, total, vatRatePercent: rate };
@@ -97,6 +126,17 @@ export function computeVat(input: VatComputeInput): VatComputeResult {
       return { subtotal: sub, vatAmount: vat, total: total0, vatRatePercent: rate };
     }
     if (input.driver === 'vatAmount') {
+      // Manual VAT override (VAT-excluded entry): keep the net the operator
+      // typed and put the VAT on top; fall back to fitting inside a typed
+      // gross; derive from the rate only when neither anchor exists.
+      if (sub0 > 0) {
+        const total = round2(sub0 + vat0);
+        return { subtotal: sub0, vatAmount: vat0, total, vatRatePercent: rate };
+      }
+      if (total0 > 0) {
+        const sub = subtract(total0, vat0);
+        return { subtotal: sub, vatAmount: vat0, total: total0, vatRatePercent: rate };
+      }
       const sub = round2((vat0 * 100) / rate);
       const total = round2(sub + vat0);
       return { subtotal: sub, vatAmount: vat0, total, vatRatePercent: rate };

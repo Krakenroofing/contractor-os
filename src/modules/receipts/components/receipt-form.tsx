@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useMemo, useState, useTransition } from 'react';
+import { useActionState, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -196,8 +196,12 @@ export function ReceiptForm(props: ReceiptFormProps) {
     setLines((prev) =>
       prev.map((l) => {
         if (l.key !== key) return l;
+        // An explicit per-line "0" is a real zero-rate override — only an
+        // EMPTY override falls back to the header rate.
         const effectiveRate =
-          Number(l.vatRatePercent) || Number(vatRatePercent) || 0;
+          l.vatRatePercent.trim() !== ''
+            ? Number(l.vatRatePercent) || 0
+            : Number(vatRatePercent) || 0;
         const out = computeVat({
           subtotal: Number(l.subtotal) || 0,
           vatAmount: Number(l.vatAmount) || 0,
@@ -480,8 +484,10 @@ export function ReceiptForm(props: ReceiptFormProps) {
             </div>
           </div>
           <p className="text-[11px] text-slate-500">
-            Each line inherits this rate unless overridden. Edit net / VAT /
-            gross per line below — the other two recompute on blur.
+            Each line inherits this rate unless overridden (an explicit 0
+            makes the line VAT-free). Typing the VAT amount directly keeps
+            your net / gross and is saved as-is — for customs and other
+            receipts where the VAT isn&apos;t exactly the rate times the net.
           </p>
         </div>
       )}
@@ -564,6 +570,43 @@ export function ReceiptForm(props: ReceiptFormProps) {
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * Money/rate input that triggers the VAT recompute ONLY when its value
+ * actually changed while focused. Tabbing through an untouched Gross field
+ * used to re-split it by the rate and clobber a manually-typed VAT — the
+ * exact "when I change the total back the VAT changes" loop.
+ */
+function RecomputeOnChangeInput({
+  value,
+  onChange,
+  onDirtyBlur,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onDirtyBlur: () => void;
+  placeholder?: string;
+}) {
+  const focusValue = useRef<string | null>(null);
+  return (
+    <Input
+      inputMode="decimal"
+      value={value}
+      placeholder={placeholder}
+      onFocus={(e) => {
+        focusValue.current = e.target.value;
+      }}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={(e) => {
+        const dirty =
+          focusValue.current === null || e.target.value !== focusValue.current;
+        focusValue.current = null;
+        if (dirty) onDirtyBlur();
+      }}
+    />
   );
 }
 
@@ -677,38 +720,34 @@ function LineEditor(props: {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <Label>Net</Label>
-            <Input
-              inputMode="decimal"
+            <RecomputeOnChangeInput
               value={l.subtotal}
-              onChange={(e) => props.onChange({ subtotal: e.target.value })}
-              onBlur={() => props.onRecompute('subtotal')}
+              onChange={(v) => props.onChange({ subtotal: v })}
+              onDirtyBlur={() => props.onRecompute('subtotal')}
             />
           </div>
           <div>
             <Label>VAT</Label>
-            <Input
-              inputMode="decimal"
+            <RecomputeOnChangeInput
               value={l.vatAmount}
-              onChange={(e) => props.onChange({ vatAmount: e.target.value })}
-              onBlur={() => props.onRecompute('vatAmount')}
+              onChange={(v) => props.onChange({ vatAmount: v })}
+              onDirtyBlur={() => props.onRecompute('vatAmount')}
             />
           </div>
           <div>
             <Label>Gross</Label>
-            <Input
-              inputMode="decimal"
+            <RecomputeOnChangeInput
               value={l.total}
-              onChange={(e) => props.onChange({ total: e.target.value })}
-              onBlur={() => props.onRecompute('total')}
+              onChange={(v) => props.onChange({ total: v })}
+              onDirtyBlur={() => props.onRecompute('total')}
             />
           </div>
           <div>
             <Label>Rate % (override)</Label>
-            <Input
-              inputMode="decimal"
+            <RecomputeOnChangeInput
               value={l.vatRatePercent}
-              onChange={(e) => props.onChange({ vatRatePercent: e.target.value })}
-              onBlur={() => props.onRecompute('rate')}
+              onChange={(v) => props.onChange({ vatRatePercent: v })}
+              onDirtyBlur={() => props.onRecompute('rate')}
               placeholder="header"
             />
           </div>
