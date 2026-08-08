@@ -20,6 +20,7 @@ import {
 } from '@/lib/data/statement-imports';
 import { BANK_ACCOUNT_TYPE_LABEL } from '@/modules/banking/schema';
 import { DeleteImportBatchButton } from '@/modules/banking/components/delete-import-batch-button';
+import { BankingSearchBox } from '@/modules/banking/components/banking-search-box';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,8 @@ export default async function BankingHome() {
           )}
         </div>
       </div>
+
+      <BankingSearchBox />
 
       <Card>
         <CardHeader>
