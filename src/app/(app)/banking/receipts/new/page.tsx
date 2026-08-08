@@ -13,6 +13,8 @@ import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listMembersForCompany } from '@/lib/data/memberships';
 import { requireAuth } from '@/lib/auth';
 import { ReceiptForm } from '@/modules/receipts/components/receipt-form';
+import { ScanReceiptDropzone } from '@/modules/receipts/components/scan-receipt-dropzone';
+import { isOcrConfigured } from '@/lib/ocr/document-ai';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 
 export const dynamic = 'force-dynamic';
@@ -55,12 +57,21 @@ export default async function NewReceiptPage() {
           New receipt
         </h1>
         <p className="text-sm text-slate-500">
-          Save a draft first, then attach a photo / PDF and Post when ready.
+          Drop the receipt image to create everything in one step, or fill the
+          form below.
           {company.isVatActive
             ? ' VAT is on — split is computed live.'
             : ' VAT is off for this company.'}
         </p>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Scan a receipt</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScanReceiptDropzone ocrEnabled={isOcrConfigured()} />
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Receipt details</CardTitle>

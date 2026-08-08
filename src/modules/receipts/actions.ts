@@ -58,6 +58,7 @@ import {
 } from './schema';
 import { computeVat, vatQuarterForDate } from './lib/vat';
 import { listVendors } from '@/lib/data/vendors';
+import { getUserNamesByIds } from '@/lib/data/users';
 import {
   extractReceipt,
   isOcrConfigured,
@@ -1089,6 +1090,174 @@ export async function bulkCreateReceiptDraftsAction(
 
   revalidatePath('/banking/receipts');
   return { results };
+}
+
+// =====================================================================
+// Scan-to-create (drag & drop on the New receipt page)
+// =====================================================================
+//
+// One step instead of two: the operator drops a photo / PDF, the blob is
+// already in storage (signed-URL direct upload), and this action creates
+// the draft receipt WITH the attachment and — when Document AI is
+// configured — OCR-prefilled vendor / date / total / VAT. The caller then
+// navigates to the draft for review. Mirrors the per-page logic of the
+// multi-receipt PDF splitter below, for a single file of any supported type.
+
+export type ScanReceiptResult =
+  | {
+      ok: true;
+      receiptId: string;
+      ocrEnabled: boolean;
+      vendorName?: string;
+      vendorMatched: boolean;
+      total?: number;
+      receiptDate?: string;
+    }
+  | { ok: false; error: string };
+
+export async function createReceiptFromScanAction(input: {
+  ref: unknown;
+}): Promise<ScanReceiptResult> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'receipts')) {
+    return { ok: false, error: 'No permission to create receipts.' };
+  }
+  // Dev-demo auth uses a synthetic user id that isn't in the users table —
+  // stamp uploaded-by only when the id really exists so the FK can't fail.
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const uploadedByUserId = knownUsers.has(user.id) ? user.id : null;
+  const refParse = directUploadRefSchema.safeParse(input.ref);
+  if (!refParse.success) {
+    return { ok: false, error: 'Invalid upload reference — retry the upload.' };
+  }
+  const ref = refParse.data;
+  const company = await getActiveCompany();
+
+  const verified = await verifyReceiptUploadRef(company.id, ref);
+  if (!verified.ok) return { ok: false, error: verified.error };
+
+  // OCR first so the draft lands prefilled. A scan failure never blocks
+  // creation — worst case the operator types the fields like before.
+  const ocrEnabled = isOcrConfigured();
+  let extracted: OcrExtractResult = {};
+  if (ocrEnabled) {
+    try {
+      const blob = await downloadReceiptBlob(ref.storagePath);
+      if (blob) {
+        extracted = await extractReceipt({
+          bytes: blob.bytes,
+          mimeType: verified.mimeType,
+        });
+      }
+    } catch {
+      extracted = {};
+    }
+  }
+
+  let matchedVendorId: string | null = null;
+  if (extracted.vendorName) {
+    const vendors = await listVendors(company.id);
+    const needle = extracted.vendorName.toLowerCase().trim();
+    const hit =
+      vendors.find((v) => v.name.toLowerCase() === needle) ??
+      vendors.find((v) => v.name.toLowerCase().includes(needle)) ??
+      vendors.find((v) => needle.includes(v.name.toLowerCase()));
+    matchedVendorId = hit?.id ?? null;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const receiptDate = extracted.receiptDate ?? today;
+  const currency = (extracted.currency ?? company.defaultCurrency)
+    .toUpperCase()
+    .slice(0, 3);
+  const vatRate =
+    typeof extracted.vatRate === 'number' && Number.isFinite(extracted.vatRate)
+      ? extracted.vatRate
+      : company.isVatActive
+        ? Number(company.vatRatePercent) || 0
+        : 0;
+
+  try {
+    const receipt = await createReceipt({
+      companyId: company.id,
+      receiptDate,
+      currency,
+      paymentSourceType: 'cash',
+      vatIncluded: true,
+      vatRecoverable: true,
+      vatRatePercent: vatRate > 0 ? toPercentString(vatRate) : null,
+      vatPeriodQuarter: company.isVatActive
+        ? vatQuarterForDate(receiptDate)
+        : null,
+      vendorId: matchedVendorId,
+      subtotal: '0',
+      vatAmount: '0',
+      total: '0',
+      uploadedByUserId,
+    });
+
+    const ocrTotal =
+      extracted.total ??
+      (extracted.subtotal !== undefined && extracted.vatAmount !== undefined
+        ? extracted.subtotal + extracted.vatAmount
+        : undefined);
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const lineGross = ocrTotal && ocrTotal > 0 ? round(ocrTotal) : 0;
+    const lineSub =
+      lineGross > 0 && vatRate > 0
+        ? round(lineGross / (1 + vatRate / 100))
+        : lineGross;
+    const lineVat = round(lineGross - lineSub);
+
+    await createReceiptLine({
+      companyId: company.id,
+      receiptId: receipt.id,
+      sortOrder: 0,
+      description: extracted.vendorName ?? null,
+      subtotal: toMoneyString(lineSub),
+      vatAmount: toMoneyString(lineVat),
+      total: toMoneyString(lineGross),
+      vatRatePercent: vatRate > 0 ? toPercentString(vatRate) : null,
+      isBillable: false,
+      isReimbursable: false,
+    });
+    await recalcReceiptHeaderTotals(company.id, receipt.id);
+
+    await createReceiptAttachment({
+      companyId: company.id,
+      receiptId: receipt.id,
+      storagePath: ref.storagePath,
+      mimeType: verified.mimeType,
+      byteSize: verified.byteSize,
+      originalFilename: ref.fileName,
+      kind:
+        verified.mimeType === 'application/pdf'
+          ? 'supplier_invoice'
+          : 'receipt_image',
+      uploadedByUserId,
+    });
+
+    revalidatePath('/banking/receipts');
+    revalidatePath(`/banking/receipts/${receipt.id}`);
+    return {
+      ok: true,
+      receiptId: receipt.id,
+      ocrEnabled,
+      vendorName: extracted.vendorName,
+      vendorMatched: matchedVendorId !== null,
+      total: ocrTotal,
+      receiptDate: extracted.receiptDate,
+    };
+  } catch (err) {
+    if (err instanceof ReceiptStorageNotConfiguredError) {
+      return { ok: false, error: err.message };
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to create receipt.',
+    };
+  }
 }
 
 // Silence the helper-only import warnings.
