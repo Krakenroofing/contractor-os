@@ -329,9 +329,27 @@ export default async function ReceiptDetailPage({
               />
               {receipt.status === 'posted' && lines.length > 0 && (
                 <p className="mt-3 text-[11px] text-slate-500">
-                  {lines.length === 1
-                    ? 'Posted to 1 job cost entry.'
-                    : `Posted to ${lines.length} job cost entries.`}
+                  {(() => {
+                    // Say what actually happened: lines WITH a project post
+                    // to job costing; category-only lines are overhead and
+                    // hit the P&L directly. The old copy called everything a
+                    // "job cost entry", which read as a bug when an overhead
+                    // receipt showed no job cost anywhere.
+                    const jobLines = lines.filter(
+                      (l) => l.postedJobCostEntryId,
+                    ).length;
+                    const overhead = lines.length - jobLines;
+                    const parts: string[] = [];
+                    if (jobLines > 0)
+                      parts.push(
+                        `${jobLines} job-cost ${jobLines === 1 ? 'entry' : 'entries'}`,
+                      );
+                    if (overhead > 0)
+                      parts.push(
+                        `${overhead} overhead line${overhead === 1 ? '' : 's'} (P&L only)`,
+                      );
+                    return `Posted: ${parts.join(' + ')}.`;
+                  })()}
                 </p>
               )}
             </CardContent>
