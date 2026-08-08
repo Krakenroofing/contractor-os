@@ -140,7 +140,9 @@ export default async function ProfitLossAccountDetailPage({
                           />
                         ) : (
                           <span className="text-xs text-slate-400">
-                            edit on transaction ↗
+                            {e.source === 'Payroll'
+                              ? 'from payroll'
+                              : 'edit on transaction ↗'}
                           </span>
                         )}
                       </TableCell>

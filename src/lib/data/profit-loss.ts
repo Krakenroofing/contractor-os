@@ -20,11 +20,15 @@ import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-
 import {
   accountingAccounts,
   creditMemos,
+  employees,
   importedTransactions,
   importedTransactionLines,
   transactionMatches,
   invoices,
   jobCostEntries,
+  payPeriods,
+  paystubAdjustments,
+  periodPaystubSnapshots,
   receipts,
   receiptLines,
 } from '@/db/schema';
@@ -116,6 +120,146 @@ export type ProfitLossFilters = {
   to: string;
 };
 
+// ---------------------------------------------------------------------------
+// Payroll → P&L account targets.
+//
+// Wages only reach the P&L through job-tagged labor postings (job_cost_entries
+// with source 'labor_entry'). Everything else in a finalized pay run — the
+// untagged share of wages, the untagged share of employer NIB, and the
+// post-NIB additions (per diem / reimbursements / expenses / bonuses) — lives
+// only in payroll tables, so the report sums it directly (see expense source 4
+// in buildProfitLossReport). These are the accounts those buckets report
+// under. Resolution is by the same account names the payroll-bill GL posting
+// uses (resolveGlSystemAccounts), but READ-ONLY — a report must never create
+// accounts — with fallbacks so a company missing the finer-grained accounts
+// still sees the cost somewhere rather than nowhere.
+// ---------------------------------------------------------------------------
+
+type PayrollPnlTarget = {
+  id: string;
+  name: string;
+  rollupGroup: RollupGroup;
+};
+
+export type PayrollPnlTargets = {
+  /** Untagged wages + bonus adjustments. */
+  wages: PayrollPnlTarget | null;
+  /** Untagged employer NIB. */
+  burden: PayrollPnlTarget | null;
+  /** Per-diem adjustments. */
+  perDiem: PayrollPnlTarget | null;
+  /** Reimbursement + expense adjustments. */
+  reimbursement: PayrollPnlTarget | null;
+};
+
+async function resolvePayrollPnlTargets(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+): Promise<PayrollPnlTargets> {
+  const rows = await db
+    .select({
+      id: accountingAccounts.id,
+      name: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      isArchived: accountingAccounts.isArchived,
+    })
+    .from(accountingAccounts)
+    .where(eq(accountingAccounts.companyId, companyId));
+  const byName = (n: string): PayrollPnlTarget | null => {
+    const found = rows.find(
+      (r) => !r.isArchived && r.name.trim().toLowerCase() === n.toLowerCase(),
+    );
+    return found
+      ? {
+          id: found.id,
+          name: found.name,
+          rollupGroup: found.rollupGroup as RollupGroup,
+        }
+      : null;
+  };
+  const wages = byName('Payroll Expenses');
+  const burden = byName('NIB Expense (Employer)') ?? wages;
+  const reimbursement = byName('Employee Reimbursements') ?? wages;
+  const perDiem = byName('Per Diem') ?? reimbursement;
+  return { wages, burden, perDiem, reimbursement };
+}
+
+/** Locked pay periods (with frozen paystub snapshots) whose end date falls in
+ *  range, with per-period gross + employer NIB totals. The end date is the
+ *  expense date — the same convention the labor posting uses. */
+async function listFinalizedPayrollPeriods(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+  filters: ProfitLossFilters,
+): Promise<
+  { id: string; startDate: string; endDate: string; gross: number; employerNib: number }[]
+> {
+  const conds = [
+    eq(payPeriods.companyId, companyId),
+    eq(payPeriods.status, 'locked'),
+  ];
+  if (filters.from) conds.push(gte(payPeriods.endDate, filters.from));
+  if (filters.to) conds.push(lte(payPeriods.endDate, filters.to));
+  const rows = await db
+    .select({
+      id: payPeriods.id,
+      startDate: payPeriods.startDate,
+      endDate: payPeriods.endDate,
+      gross: sql<string>`COALESCE(SUM(${periodPaystubSnapshots.gross}), 0)`,
+      employerNib: sql<string>`COALESCE(SUM(${periodPaystubSnapshots.employerNib}), 0)`,
+    })
+    .from(payPeriods)
+    .innerJoin(
+      periodPaystubSnapshots,
+      eq(periodPaystubSnapshots.payPeriodId, payPeriods.id),
+    )
+    .where(and(...conds))
+    .groupBy(payPeriods.id, payPeriods.startDate, payPeriods.endDate);
+  return rows.map((r) => ({
+    id: r.id,
+    startDate: r.startDate,
+    endDate: r.endDate,
+    gross: Number(r.gross),
+    employerNib: Number(r.employerNib),
+  }));
+}
+
+/** Wages + burden already posted to job costs per pay period (source
+ *  'labor_entry'), so the payroll source only reports the RESIDUAL and never
+ *  double-counts what source 1 already shows as Direct Labor / Labor Burden. */
+async function sumPostedLaborByPeriod(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+  periodIds: string[],
+): Promise<Map<string, { wage: number; burden: number }>> {
+  const posted = new Map<string, { wage: number; burden: number }>();
+  if (periodIds.length === 0) return posted;
+  const rows = await db
+    .select({
+      periodId: jobCostEntries.sourceRefId,
+      costType: jobCostEntries.costType,
+      total: sql<string>`COALESCE(SUM(${jobCostEntries.amount}), 0)`,
+    })
+    .from(jobCostEntries)
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        sql`${jobCostEntries.deletedAt} IS NULL`,
+        eq(jobCostEntries.source, 'labor_entry'),
+        inArray(jobCostEntries.sourceRefId, periodIds),
+      ),
+    )
+    .groupBy(jobCostEntries.sourceRefId, jobCostEntries.costType);
+  for (const r of rows) {
+    if (!r.periodId) continue;
+    const cur = posted.get(r.periodId) ?? { wage: 0, burden: 0 };
+    if (r.costType === 'labor_burden') cur.burden += Number(r.total);
+    else cur.wage += Number(r.total);
+    posted.set(r.periodId, cur);
+  }
+  return posted;
+}
+
 /**
  * Earliest date that contributes to the P&L (min over income invoices, posted
  * job-cost entries, and categorized bank lines), plus today as the upper bound.
@@ -143,6 +287,10 @@ export async function getProfitLossActivityRange(
         WHERE ${importedTransactions.companyId} = ${companyId}
           AND ${importedTransactions.isIgnored} = false
           AND ${importedTransactions.accountingAccountId} IS NOT NULL
+      UNION ALL
+      SELECT MIN(${payPeriods.endDate}) AS d FROM ${payPeriods}
+        WHERE ${payPeriods.companyId} = ${companyId}
+          AND ${payPeriods.status} = 'locked'
     ) AS mins
   `);
   return { from: rows[0]?.from ?? null, to };
@@ -516,6 +664,90 @@ export async function buildProfitLossReport(
     );
   accumulate(feeRows);
 
+  // ----- Expense side (4): finalized payroll -----
+  // A locked pay run's job-tagged wages/burden already show as Direct Labor /
+  // Labor Burden via source 1 (job_cost_entries). The REST of the run never
+  // creates a job cost, bank category, or receipt, so it's summed here:
+  //   - untagged wages   = period gross − wages posted to jobs   → 'Payroll Expenses'
+  //   - untagged burden  = employer NIB − burden posted to jobs  → 'NIB Expense (Employer)'
+  //   - per-diem adjustments                                     → 'Per Diem'
+  //   - reimbursement / expense adjustments                      → 'Employee Reimbursements'
+  //   - bonus adjustments (post-NIB comp)                        → 'Payroll Expenses'
+  // Dated by pay-period end (same as the labor posting). Deductions are NOT
+  // netted off — QB-style: the full gross is the wage expense; a deduction is
+  // a payable withheld from the employee, not a cost reduction.
+  const payrollTargets = await resolvePayrollPnlTargets(db, companyId);
+  const payrollPeriods = await listFinalizedPayrollPeriods(db, companyId, filters);
+  if (payrollPeriods.length > 0) {
+    const postedLabor = await sumPostedLaborByPeriod(
+      db,
+      companyId,
+      payrollPeriods.map((p) => p.id),
+    );
+    const payrollRows: Array<{
+      accountId: string | null;
+      accountName: string;
+      rollupGroup: string;
+      total: string;
+      count: number;
+    }> = [];
+    const addPayroll = (
+      target: PayrollPnlTargets[keyof PayrollPnlTargets],
+      amount: number,
+      count: number,
+    ) => {
+      if (!target || Math.abs(amount) < 0.005) return;
+      payrollRows.push({
+        accountId: target.id,
+        accountName: target.name,
+        rollupGroup: target.rollupGroup,
+        total: amount.toFixed(2),
+        count,
+      });
+    };
+    for (const p of payrollPeriods) {
+      const posted = postedLabor.get(p.id) ?? { wage: 0, burden: 0 };
+      addPayroll(
+        payrollTargets.wages,
+        Math.round(Math.max(0, p.gross - posted.wage) * 100) / 100,
+        1,
+      );
+      addPayroll(
+        payrollTargets.burden,
+        Math.round(Math.max(0, p.employerNib - posted.burden) * 100) / 100,
+        1,
+      );
+    }
+    const adjRows = await db
+      .select({
+        type: paystubAdjustments.type,
+        total: sql<string>`COALESCE(SUM(${paystubAdjustments.amount}), 0)`,
+        count: sql<number>`COUNT(*)::int`,
+      })
+      .from(paystubAdjustments)
+      .where(
+        and(
+          eq(paystubAdjustments.companyId, companyId),
+          inArray(
+            paystubAdjustments.payPeriodId,
+            payrollPeriods.map((p) => p.id),
+          ),
+          ne(paystubAdjustments.type, 'deduction'),
+        ),
+      )
+      .groupBy(paystubAdjustments.type);
+    for (const r of adjRows) {
+      const target =
+        r.type === 'per_diem'
+          ? payrollTargets.perDiem
+          : r.type === 'bonus'
+            ? payrollTargets.wages
+            : payrollTargets.reimbursement;
+      addPayroll(target, Number(r.total), Number(r.count ?? 0));
+    }
+    accumulate(payrollRows);
+  }
+
   const cogsAccounts: ProfitLossAccountRow[] = [];
   const opexAccounts: ProfitLossAccountRow[] = [];
   let cogsTotal = 0;
@@ -612,7 +844,7 @@ export type ProfitLossAccountEntry = {
   date: string;
   description: string;
   amount: number;
-  source: 'Bank transaction' | 'Job cost';
+  source: 'Bank transaction' | 'Job cost' | 'Payroll';
   /** Source row id so the drill-down can deep-link to the full record.
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
@@ -727,7 +959,107 @@ export async function listProfitLossAccountEntries(
     )
     .where(and(...slConds));
 
+  // Payroll rows — mirrors expense source 4 in buildProfitLossReport. Only
+  // runs when this account is one of the resolved payroll targets, so the
+  // drill total keeps tying to the statement line.
+  const payrollEntries: ProfitLossAccountEntry[] = [];
+  const targets = await resolvePayrollPnlTargets(db, companyId);
+  const isWages = targets.wages?.id === accountId;
+  const isBurden = targets.burden?.id === accountId;
+  const isPerDiem = targets.perDiem?.id === accountId;
+  const isReimb = targets.reimbursement?.id === accountId;
+  if (isWages || isBurden || isPerDiem || isReimb) {
+    const periods = await listFinalizedPayrollPeriods(db, companyId, filters);
+    if (periods.length > 0) {
+      const periodById = new Map(periods.map((p) => [p.id, p]));
+      if (isWages || isBurden) {
+        const postedLabor = await sumPostedLaborByPeriod(
+          db,
+          companyId,
+          periods.map((p) => p.id),
+        );
+        for (const p of periods) {
+          const posted = postedLabor.get(p.id) ?? { wage: 0, burden: 0 };
+          const label = `${p.startDate} – ${p.endDate}`;
+          if (isWages) {
+            const residual =
+              Math.round(Math.max(0, p.gross - posted.wage) * 100) / 100;
+            if (residual >= 0.005) {
+              payrollEntries.push({
+                date: p.endDate,
+                description: `Wages not assigned to a job (pay period ${label})`,
+                amount: residual,
+                source: 'Payroll',
+              });
+            }
+          }
+          if (isBurden) {
+            const residual =
+              Math.round(Math.max(0, p.employerNib - posted.burden) * 100) / 100;
+            if (residual >= 0.005) {
+              payrollEntries.push({
+                date: p.endDate,
+                description: `Employer NIB — unassigned share (pay period ${label})`,
+                amount: residual,
+                source: 'Payroll',
+              });
+            }
+          }
+        }
+      }
+      // Which adjustment types report to THIS account (fallbacks collapse
+      // several types onto one account when the finer accounts don't exist).
+      const adjTypes: string[] = [];
+      if (isPerDiem) adjTypes.push('per_diem');
+      if (isReimb) adjTypes.push('reimbursement', 'expense');
+      if (isWages) adjTypes.push('bonus');
+      if (adjTypes.length > 0) {
+        const adjRows = await db
+          .select({
+            payPeriodId: paystubAdjustments.payPeriodId,
+            type: paystubAdjustments.type,
+            amount: paystubAdjustments.amount,
+            description: paystubAdjustments.description,
+            employeeName: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+          })
+          .from(paystubAdjustments)
+          .innerJoin(employees, eq(employees.id, paystubAdjustments.employeeId))
+          .where(
+            and(
+              eq(paystubAdjustments.companyId, companyId),
+              inArray(
+                paystubAdjustments.payPeriodId,
+                periods.map((p) => p.id),
+              ),
+              inArray(paystubAdjustments.type, adjTypes),
+            ),
+          );
+        const TYPE_LABEL: Record<string, string> = {
+          per_diem: 'Per diem',
+          reimbursement: 'Reimbursement',
+          expense: 'Expense',
+          bonus: 'Bonus',
+        };
+        for (const r of adjRows) {
+          const p = periodById.get(r.payPeriodId);
+          if (!p) continue;
+          const extra =
+            r.description && r.description.trim() !== ''
+              ? ` — ${r.description.trim()}`
+              : '';
+          payrollEntries.push({
+            date: p.endDate,
+            description: `${TYPE_LABEL[r.type] ?? r.type} — ${r.employeeName} (pay period ${p.startDate} – ${p.endDate})${extra}`,
+            amount: Number(r.amount),
+            source: 'Payroll',
+          });
+        }
+      }
+    }
+  }
+
   const entries: ProfitLossAccountEntry[] = [
+    ...payrollEntries,
     ...jceRows.map((r) => ({
       date: r.date,
       description: r.description,
