@@ -697,6 +697,10 @@ export async function postReceiptAction(input: {
       error: 'Only owners or accounting can approve and post receipts.',
     };
   }
+  // Dev-demo auth: the synthetic user id isn't in users — stamp audit FKs
+  // only when the id really exists so the insert can't fail on the FK.
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const auditUserId = knownUsers.has(user.id) ? user.id : null;
   const company = await getActiveCompany();
   const receipt = await getReceipt(company.id, input.id);
   if (!receipt) return { ok: false, error: 'Receipt not found.' };
@@ -791,7 +795,7 @@ export async function postReceiptAction(input: {
       vendorInvoiceNumber: null,
       attachmentUrl: null,
       notes: line.description ?? receipt.notes,
-      createdByUserId: user.id,
+      createdByUserId: auditUserId,
     });
 
     await updateReceiptLine(company.id, line.id, {
@@ -806,7 +810,7 @@ export async function postReceiptAction(input: {
     status: 'posted',
     postedAt: now,
     approvedAt: now,
-    approvedByUserId: user.id,
+    approvedByUserId: auditUserId,
     // Clear any prior rejection note — it shouldn't linger on a posted record.
     rejectionReason: null,
   });
