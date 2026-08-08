@@ -32,6 +32,7 @@ export default async function EmployeesPage() {
     hireDate: e.hireDate,
     active: e.active,
     nibExempt: e.nibExempt,
+    isSubcontractor: e.isSubcontractor,
   }));
 
   const activeCount = rows.filter((r) => r.active).length;

@@ -38,6 +38,11 @@ export const employees = pgTable(
     // anyone not covered by Bahamas NIB. When true, paystub shows no NIB
     // lines and the C-10 summary excludes them.
     nibExempt: boolean('nib_exempt').notNull().default(false),
+    // Economically a subcontractor (typically NIB-exempt) even though they
+    // run through payroll for time/pay mechanics. Routes their labor cost to
+    // the Subcontractors COGS category (job-cost posting, P&L payroll
+    // source, payroll-bill GL) instead of Direct Labor / Payroll Expenses.
+    isSubcontractor: boolean('is_subcontractor').notNull().default(false),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -33,6 +33,7 @@ export type EmployeeFormInitialValues = {
   terminationDate: string;
   active: boolean;
   nibExempt: boolean;
+  isSubcontractor: boolean;
   notes: string;
 };
 
@@ -48,6 +49,7 @@ const blankInitial: EmployeeFormInitialValues = {
   terminationDate: '',
   active: true,
   nibExempt: false,
+  isSubcontractor: false,
   notes: '',
 };
 
@@ -76,6 +78,9 @@ export function EmployeeForm({
     values.employmentType,
   );
   const [nibExempt, setNibExempt] = useState<boolean>(values.nibExempt);
+  const [isSubcontractor, setIsSubcontractor] = useState<boolean>(
+    values.isSubcontractor,
+  );
 
   return (
     <form action={formAction} className="space-y-6">
@@ -205,7 +210,7 @@ export function EmployeeForm({
           )}
         </div>
 
-        <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3 space-y-2">
+        <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3 space-y-3">
           <label className="flex items-start gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -222,6 +227,33 @@ export function EmployeeForm({
                 For expats and others not covered by Bahamas NIB. When on, no
                 NIB is deducted from their paycheck, no employer NIB is owed,
                 and they don't appear on the C-10 filing summary.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="isSubcontractor"
+              checked={isSubcontractor}
+              onChange={(e) => {
+                setIsSubcontractor(e.target.checked);
+                // A subcontractor is responsible for their own NIB — pair
+                // the flags automatically (still visible + uncheckable).
+                if (e.target.checked && !nibExempt) setNibExempt(true);
+              }}
+              className="h-4 w-4 mt-0.5 rounded border-slate-300"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-900">
+                Classify as subcontractor
+              </span>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                They still run through payroll (hours, rate, pay slips), but
+                their labor cost books to the <b>Subcontractors</b> category —
+                job costs, P&amp;L, and payroll bills — instead of Direct
+                Labor / Payroll Expenses. Checking this also marks them NIB
+                exempt (subcontractors handle their own NIB).
               </p>
             </div>
           </label>

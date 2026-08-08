@@ -77,6 +77,7 @@ export async function createEmployeeInlineAction(input: {
       terminationDate: null,
       active: data.active,
       nibExempt: data.nibExempt,
+      isSubcontractor: data.isSubcontractor,
       notes: null,
     });
     revalidatePath('/employees');
@@ -118,6 +119,9 @@ function readForm(formData: FormData) {
     nibExempt:
       formData.get('nibExempt') === 'on' ||
       formData.get('nibExempt') === 'true',
+    isSubcontractor:
+      formData.get('isSubcontractor') === 'on' ||
+      formData.get('isSubcontractor') === 'true',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -155,6 +159,7 @@ export async function createEmployeeAction(
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
       nibExempt: data.nibExempt,
+      isSubcontractor: data.isSubcontractor,
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = employee.id;
@@ -205,6 +210,7 @@ export async function updateEmployeeAction(
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
       nibExempt: data.nibExempt,
+      isSubcontractor: data.isSubcontractor,
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

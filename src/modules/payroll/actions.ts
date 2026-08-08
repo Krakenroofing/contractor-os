@@ -41,6 +41,7 @@ import {
 } from '@/lib/data/period-paystub-snapshots';
 import { listEmployees } from '@/lib/data/employees';
 import { listTimeEntries } from '@/lib/data/time-entries';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import {
   clearLunchOverride,
   listLunchOverrides,
@@ -972,21 +973,36 @@ export async function postPayrollLaborAction(
   }
 
   const periodLabel = `${period.startDate} – ${period.endDate}`;
+
+  // Subcontractor-classified workers book to the Subcontractors COGS
+  // category (QB 53600), not Direct Labor. Read-only name lookup with a
+  // Direct-Labor fallback so a missing account never blocks posting.
+  const allAccounts = await listAccountingAccounts(companyId);
+  const subcontractorAcct =
+    allAccounts.find(
+      (acc) =>
+        !acc.isArchived && acc.name.trim().toLowerCase() === 'subcontractors',
+    )?.id ?? laborAcct;
+  const subFlagByEmployee = new Map(
+    employees.map((e) => [e.id, e.isSubcontractor]),
+  );
+
   try {
     // Idempotent: reverse any prior posting for this period before re-posting.
     await softDeleteJobCostEntriesBySource(companyId, 'labor_entry', payPeriodId);
 
     for (const a of plan.allocations) {
+      const isSub = subFlagByEmployee.get(a.employeeId) === true;
       for (const b of a.buckets) {
         if (b.wage > 0) {
           await createJobCostEntry({
             companyId,
             projectId: b.projectId,
             costCodeId: b.costCodeId,
-            accountingAccountId: laborAcct,
+            accountingAccountId: isSub ? subcontractorAcct : laborAcct,
             source: 'labor_entry',
             sourceRefId: payPeriodId,
-            costType: 'labor',
+            costType: isSub ? 'subcontractor' : 'labor',
             entryDate: period.endDate,
             vendorId: null,
             description: `Payroll — ${a.employeeName} (${periodLabel})`,
@@ -1133,6 +1149,18 @@ export async function generatePayrollBillsAction(
   try {
     const accounts = await resolveGlSystemAccounts(companyId);
 
+    // Subcontractor-classified workers: gross debits the Subcontractors
+    // COGS account instead of Payroll Expenses (same routing as the labor
+    // posting and the P&L payroll source).
+    const allAccounts = await listAccountingAccounts(companyId);
+    const subcontractorAcct = allAccounts.find(
+      (acc) =>
+        !acc.isArchived && acc.name.trim().toLowerCase() === 'subcontractors',
+    )?.id;
+    const subFlagByEmployee = new Map(
+      employees.map((e) => [e.id, e.isSubcontractor]),
+    );
+
     // Idempotent: clear any prior bills + their journal entries first.
     const existing = await listPayrollBills(companyId, payPeriodId);
     for (const b of existing) {
@@ -1159,12 +1187,19 @@ export async function generatePayrollBillsAction(
         billDate: period.endDate,
         ...amounts,
       });
+      const isSub =
+        subFlagByEmployee.get(p.employeeId) === true && !!subcontractorAcct;
       await postJournalEntry(companyId, {
         entryDate: period.endDate,
         memo: `Payroll — ${p.employeeName} (${period.startDate} – ${period.endDate})`,
         sourceType: 'payroll_bill',
         sourceId: bill.id,
-        lines: buildPayrollBillLines(amounts, accounts),
+        lines: buildPayrollBillLines(
+          amounts,
+          isSub
+            ? { ...accounts, payrollExpense: subcontractorAcct! }
+            : accounts,
+        ),
       });
       count += 1;
       total += p.net;

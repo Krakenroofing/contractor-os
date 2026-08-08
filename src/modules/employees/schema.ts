@@ -101,6 +101,7 @@ export const employeeFormSchema = z.object({
   terminationDate: optionalDate,
   active: z.coerce.boolean().default(true),
   nibExempt: z.coerce.boolean().default(false),
+  isSubcontractor: z.coerce.boolean().default(false),
   notes: z.string().max(2000).optional().or(z.literal('')),
 });
 

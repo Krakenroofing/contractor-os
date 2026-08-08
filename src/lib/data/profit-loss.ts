@@ -150,6 +150,8 @@ export type PayrollPnlTargets = {
   perDiem: PayrollPnlTarget | null;
   /** Reimbursement + expense adjustments. */
   reimbursement: PayrollPnlTarget | null;
+  /** Untagged wages of subcontractor-classified workers (QB 53600). */
+  subcontractors: PayrollPnlTarget | null;
 };
 
 async function resolvePayrollPnlTargets(
@@ -181,18 +183,30 @@ async function resolvePayrollPnlTargets(
   const burden = byName('NIB Expense (Employer)') ?? wages;
   const reimbursement = byName('Employee Reimbursements') ?? wages;
   const perDiem = byName('Per Diem') ?? reimbursement;
-  return { wages, burden, perDiem, reimbursement };
+  const subcontractors = byName('Subcontractors') ?? wages;
+  return { wages, burden, perDiem, reimbursement, subcontractors };
 }
 
 /** Locked pay periods (with frozen paystub snapshots) whose end date falls in
- *  range, with per-period gross + employer NIB totals. The end date is the
- *  expense date — the same convention the labor posting uses. */
+ *  range, with per-period gross + employer NIB totals. Gross is split by the
+ *  worker's classification (employee vs subcontractor) so each residual can
+ *  report under its own category. The end date is the expense date — the
+ *  same convention the labor posting uses. */
 async function listFinalizedPayrollPeriods(
   db: NonNullable<ReturnType<typeof getDb>>,
   companyId: string,
   filters: ProfitLossFilters,
 ): Promise<
-  { id: string; startDate: string; endDate: string; gross: number; employerNib: number }[]
+  {
+    id: string;
+    startDate: string;
+    endDate: string;
+    /** Gross of regular employees. */
+    gross: number;
+    /** Gross of subcontractor-classified workers. */
+    grossSub: number;
+    employerNib: number;
+  }[]
 > {
   const conds = [
     eq(payPeriods.companyId, companyId),
@@ -205,7 +219,8 @@ async function listFinalizedPayrollPeriods(
       id: payPeriods.id,
       startDate: payPeriods.startDate,
       endDate: payPeriods.endDate,
-      gross: sql<string>`COALESCE(SUM(${periodPaystubSnapshots.gross}), 0)`,
+      gross: sql<string>`COALESCE(SUM(CASE WHEN COALESCE(${employees.isSubcontractor}, false) THEN 0 ELSE ${periodPaystubSnapshots.gross} END), 0)`,
+      grossSub: sql<string>`COALESCE(SUM(CASE WHEN COALESCE(${employees.isSubcontractor}, false) THEN ${periodPaystubSnapshots.gross} ELSE 0 END), 0)`,
       employerNib: sql<string>`COALESCE(SUM(${periodPaystubSnapshots.employerNib}), 0)`,
     })
     .from(payPeriods)
@@ -213,6 +228,7 @@ async function listFinalizedPayrollPeriods(
       periodPaystubSnapshots,
       eq(periodPaystubSnapshots.payPeriodId, payPeriods.id),
     )
+    .leftJoin(employees, eq(employees.id, periodPaystubSnapshots.employeeId))
     .where(and(...conds))
     .groupBy(payPeriods.id, payPeriods.startDate, payPeriods.endDate);
   return rows.map((r) => ({
@@ -220,6 +236,7 @@ async function listFinalizedPayrollPeriods(
     startDate: r.startDate,
     endDate: r.endDate,
     gross: Number(r.gross),
+    grossSub: Number(r.grossSub),
     employerNib: Number(r.employerNib),
   }));
 }
@@ -231,8 +248,11 @@ async function sumPostedLaborByPeriod(
   db: NonNullable<ReturnType<typeof getDb>>,
   companyId: string,
   periodIds: string[],
-): Promise<Map<string, { wage: number; burden: number }>> {
-  const posted = new Map<string, { wage: number; burden: number }>();
+): Promise<Map<string, { wage: number; subWage: number; burden: number }>> {
+  const posted = new Map<
+    string,
+    { wage: number; subWage: number; burden: number }
+  >();
   if (periodIds.length === 0) return posted;
   const rows = await db
     .select({
@@ -252,8 +272,10 @@ async function sumPostedLaborByPeriod(
     .groupBy(jobCostEntries.sourceRefId, jobCostEntries.costType);
   for (const r of rows) {
     if (!r.periodId) continue;
-    const cur = posted.get(r.periodId) ?? { wage: 0, burden: 0 };
+    const cur =
+      posted.get(r.periodId) ?? { wage: 0, subWage: 0, burden: 0 };
     if (r.costType === 'labor_burden') cur.burden += Number(r.total);
+    else if (r.costType === 'subcontractor') cur.subWage += Number(r.total);
     else cur.wage += Number(r.total);
     posted.set(r.periodId, cur);
   }
@@ -706,10 +728,16 @@ export async function buildProfitLossReport(
       });
     };
     for (const p of payrollPeriods) {
-      const posted = postedLabor.get(p.id) ?? { wage: 0, burden: 0 };
+      const posted =
+        postedLabor.get(p.id) ?? { wage: 0, subWage: 0, burden: 0 };
       addPayroll(
         payrollTargets.wages,
         Math.round(Math.max(0, p.gross - posted.wage) * 100) / 100,
+        1,
+      );
+      addPayroll(
+        payrollTargets.subcontractors,
+        Math.round(Math.max(0, p.grossSub - posted.subWage) * 100) / 100,
         1,
       );
       addPayroll(
@@ -968,18 +996,20 @@ export async function listProfitLossAccountEntries(
   const isBurden = targets.burden?.id === accountId;
   const isPerDiem = targets.perDiem?.id === accountId;
   const isReimb = targets.reimbursement?.id === accountId;
-  if (isWages || isBurden || isPerDiem || isReimb) {
+  const isSubs = targets.subcontractors?.id === accountId;
+  if (isWages || isBurden || isPerDiem || isReimb || isSubs) {
     const periods = await listFinalizedPayrollPeriods(db, companyId, filters);
     if (periods.length > 0) {
       const periodById = new Map(periods.map((p) => [p.id, p]));
-      if (isWages || isBurden) {
+      if (isWages || isBurden || isSubs) {
         const postedLabor = await sumPostedLaborByPeriod(
           db,
           companyId,
           periods.map((p) => p.id),
         );
         for (const p of periods) {
-          const posted = postedLabor.get(p.id) ?? { wage: 0, burden: 0 };
+          const posted =
+            postedLabor.get(p.id) ?? { wage: 0, subWage: 0, burden: 0 };
           const label = `${p.startDate} – ${p.endDate}`;
           if (isWages) {
             const residual =
@@ -988,6 +1018,18 @@ export async function listProfitLossAccountEntries(
               payrollEntries.push({
                 date: p.endDate,
                 description: `Wages not assigned to a job (pay period ${label})`,
+                amount: residual,
+                source: 'Payroll',
+              });
+            }
+          }
+          if (isSubs) {
+            const residual =
+              Math.round(Math.max(0, p.grossSub - posted.subWage) * 100) / 100;
+            if (residual >= 0.005) {
+              payrollEntries.push({
+                date: p.endDate,
+                description: `Subcontractor labor not assigned to a job (pay period ${label})`,
                 amount: residual,
                 source: 'Payroll',
               });

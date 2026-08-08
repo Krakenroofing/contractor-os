@@ -54,6 +54,9 @@ export default async function EmployeeDetailPage({
               <Badge tone="slate">Inactive</Badge>
             )}
             {employee.nibExempt && <Badge tone="amber">NIB exempt</Badge>}
+            {employee.isSubcontractor && (
+              <Badge tone="purple">Subcontractor</Badge>
+            )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
             {employee.nibExempt

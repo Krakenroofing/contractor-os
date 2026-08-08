@@ -41,6 +41,7 @@ export type EmployeeRow = {
   hireDate: string | null;
   active: boolean;
   nibExempt: boolean;
+  isSubcontractor: boolean;
 };
 
 type FilterKey = 'employmentType' | 'active';
@@ -248,6 +249,9 @@ export function EmployeesListClient({
                         <Badge tone="slate">Inactive</Badge>
                       )}
                       {e.nibExempt && <Badge tone="amber">NIB exempt</Badge>}
+                      {e.isSubcontractor && (
+                        <Badge tone="purple">Subcontractor</Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
