@@ -872,11 +872,12 @@ export type ProfitLossAccountEntry = {
   date: string;
   description: string;
   amount: number;
-  source: 'Bank transaction' | 'Job cost' | 'Payroll';
+  source: 'Bank transaction' | 'Job cost' | 'Payroll' | 'Receipt';
   /** Source row id so the drill-down can deep-link to the full record.
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
   jobCostEntryId?: string;
+  receiptId?: string;
   /** Linked supplier, when the source row has one — lets the row name
    *  deep-link to the vendor's transaction history. */
   vendorId?: string | null;
@@ -1100,6 +1101,73 @@ export async function listProfitLossAccountEntries(
     }
   }
 
+  // Split lines on RECONCILED bill-payment transactions — mirrors the
+  // report's fee-line source. The bill payment reconciles the parent txn
+  // (so the plain bank source above skips it), but its split lines are
+  // real expenses on the payment date and count on the statement.
+  const billPaymentTxnIds = db
+    .select({ id: transactionMatches.importedTransactionId })
+    .from(transactionMatches)
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'receipt'),
+        isNull(transactionMatches.reversedAt),
+      ),
+    );
+  const feeConds = [
+    eq(importedTransactionLines.companyId, companyId),
+    eq(importedTransactionLines.accountingAccountId, accountId),
+    isNotNull(importedTransactions.reconciledAt),
+    inArray(importedTransactions.id, billPaymentTxnIds),
+  ];
+  if (filters.from)
+    feeConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    feeConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const feeRows = await db
+    .select({
+      id: importedTransactions.id,
+      date: importedTransactions.transactionDate,
+      txnDescription: importedTransactions.description,
+      lineDescription: importedTransactionLines.description,
+      lineAmount: importedTransactionLines.amount,
+      vendorId: importedTransactions.vendorId,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .where(and(...feeConds));
+
+  // Overhead posted-receipt lines — mirrors the report's receipt source
+  // (posted receipts, line not job-posted, same net/gross basis).
+  const company = await getCompany(companyId);
+  const receiptExpenseAmt = company?.isVatActive
+    ? sql<string>`CASE WHEN ${receipts.vatRecoverable} THEN ${receiptLines.subtotal} ELSE ${receiptLines.total} END`
+    : sql<string>`${receiptLines.total}`;
+  const receiptConds = [
+    eq(receipts.companyId, companyId),
+    eq(receipts.status, 'posted'),
+    isNull(receipts.deletedAt),
+    isNull(receiptLines.postedJobCostEntryId),
+    eq(receiptLines.accountingAccountId, accountId),
+  ];
+  if (filters.from) receiptConds.push(gte(receipts.receiptDate, filters.from));
+  if (filters.to) receiptConds.push(lte(receipts.receiptDate, filters.to));
+  const receiptRows = await db
+    .select({
+      receiptId: receipts.id,
+      date: receipts.receiptDate,
+      lineDescription: receiptLines.description,
+      amount: receiptExpenseAmt,
+      vendorId: receipts.vendorId,
+    })
+    .from(receiptLines)
+    .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
+    .where(and(...receiptConds));
+
   const entries: ProfitLossAccountEntry[] = [
     ...payrollEntries,
     ...jceRows.map((r) => ({
@@ -1130,6 +1198,30 @@ export async function listProfitLossAccountEntries(
       amount: Number(r.txnAmount) < 0 ? Number(r.lineAmount) : -Number(r.lineAmount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
+      vendorId: r.vendorId,
+    })),
+    // Reconciled bill-payment split lines: the report sums the raw positive
+    // line amount, so the drill does the same to keep the total tying.
+    ...feeRows.map((r) => ({
+      date: r.date,
+      description:
+        r.lineDescription && r.lineDescription.trim() !== ''
+          ? `${r.txnDescription} — ${r.lineDescription}`
+          : `${r.txnDescription} (bill payment)`,
+      amount: Number(r.lineAmount),
+      source: 'Bank transaction' as const,
+      importedTransactionId: r.id,
+      vendorId: r.vendorId,
+    })),
+    ...receiptRows.map((r) => ({
+      date: r.date,
+      description:
+        r.lineDescription && r.lineDescription.trim() !== ''
+          ? r.lineDescription
+          : `Receipt — ${r.date}`,
+      amount: Number(r.amount),
+      source: 'Receipt' as const,
+      receiptId: r.receiptId,
       vendorId: r.vendorId,
     })),
   ];

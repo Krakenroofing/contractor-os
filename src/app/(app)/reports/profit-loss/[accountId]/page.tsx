@@ -157,6 +157,15 @@ export default async function ProfitLossAccountDetailPage({
                         >
                           {formatMoney(e.amount)}
                         </Link>
+                      ) : e.receiptId ? (
+                        <Link
+                          href={`/banking/receipts/${e.receiptId}`}
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                          title="View this receipt"
+                        >
+                          {formatMoney(e.amount)}
+                        </Link>
                       ) : (
                         formatMoney(e.amount)
                       )}
