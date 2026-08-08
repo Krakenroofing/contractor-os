@@ -56,6 +56,9 @@ export default async function BankingHome() {
           <Link href={{ pathname: '/banking/rules' }}>
             <Button variant="outline">Rules</Button>
           </Link>
+          <Link href={{ pathname: '/banking/reconcile' }}>
+            <Button variant="outline">Reconcile</Button>
+          </Link>
           {canCreateBank && (
             <Link href={{ pathname: '/banking/accounts/new' }}>
               <Button variant="outline">Add account</Button>

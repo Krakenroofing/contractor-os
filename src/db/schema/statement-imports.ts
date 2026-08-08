@@ -188,6 +188,12 @@ export const importedTransactions = pgTable(
     // Unmatch. The actual link lives in transaction_matches.
     reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
 
+    // Statement reconciliation: the bank_reconciliations row this transaction
+    // cleared in (NULL = uncleared). Declared without the FK reference to
+    // avoid a circular import — the constraint lives in the SQL migration
+    // (ON DELETE SET NULL, so cancelling a reconciliation releases its rows).
+    bankReconciliationId: uuid('bank_reconciliation_id'),
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
