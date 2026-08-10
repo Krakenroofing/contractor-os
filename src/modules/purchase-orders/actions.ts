@@ -21,6 +21,7 @@ import {
   getPurchaseOrder,
   getPurchaseOrderLines,
   renamePurchaseOrder,
+  setPurchaseOrderVendorInvoiceNumber,
   updatePurchaseOrderHeader,
 } from '@/lib/data/purchase-orders';
 import {
@@ -293,6 +294,46 @@ export async function renamePurchaseOrderAction(input: {
   revalidatePath('/purchase-orders');
   revalidatePath(`/purchase-orders/${parsed.data.id}`);
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  return { ok: true };
+}
+
+// Record the supplier's own invoice number on a PO — works in any status
+// (the vendor bill shows up long after issue). Empty string clears it.
+export async function setVendorInvoiceNumberAction(input: {
+  id: string;
+  vendorInvoiceNumber: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { ok: false, error: 'You do not have permission to edit purchase orders.' };
+  }
+  const parsed = z
+    .object({
+      id: z.string().uuid(),
+      vendorInvoiceNumber: z.string().trim().max(100),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid invoice number.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const updated = await setPurchaseOrderVendorInvoiceNumber(
+      companyId,
+      parsed.data.id,
+      parsed.data.vendorInvoiceNumber === ''
+        ? null
+        : parsed.data.vendorInvoiceNumber,
+    );
+    if (!updated) return { ok: false, error: 'PO not found in active company.' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Failed to save invoice number: ${message}` };
+  }
+  revalidatePath('/purchase-orders');
+  revalidatePath(`/purchase-orders/${parsed.data.id}`);
+  revalidatePath('/reports/accounts-payable');
   return { ok: true };
 }
 

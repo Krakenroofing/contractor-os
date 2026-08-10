@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
     [
       'Source type',
       'Source ID',
+      'Vendor invoice #',
       'Vendor',
       'Project',
       'Issue date',
@@ -79,6 +80,7 @@ export async function GET(req: NextRequest) {
     ...report.agingRows.map((r) => [
       r.sourceType === 'po' ? 'PO' : 'Sub payment',
       r.sourceLabel,
+      r.vendorInvoiceNumber ?? '',
       r.vendorName,
       r.projectName ?? '',
       r.issueDate,

@@ -175,6 +175,7 @@ export default async function APReportPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Source</TableHead>
+                  <TableHead>Vendor inv #</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>Issue date</TableHead>
@@ -187,16 +188,22 @@ export default async function APReportPage({
               <TableBody>
                 {report.agingRows.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="text-xs text-slate-600">
+                    <TableCell className="text-xs">
                       {r.sourceType === 'po' ? (
                         <Link
                           href={{ pathname: `/purchase-orders/${r.sourceId}` }}
-                          className="font-mono hover:underline"
+                          className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="Open this PO — add the vendor's invoice number there"
                         >
                           {r.sourceLabel}
                         </Link>
                       ) : (
                         <Badge tone="amber">Sub</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-600">
+                      {r.vendorInvoiceNumber ?? (
+                        <span className="text-slate-300">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-slate-700">{r.vendorName}</TableCell>

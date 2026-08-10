@@ -72,12 +72,20 @@ export function FilterBar({
     });
   }
 
-  const csvHref = buildCsvUrl(reportType, {
-    from,
-    to,
-    projectId,
-    customerId,
-  });
+  // AP aging's default-terms picker lives outside this bar but the CSV
+  // export reads the same param — carry it through so the file matches
+  // the visible rows.
+  const defaultTermsDays = searchParams.get('defaultTermsDays') ?? '';
+  const csvHref = buildCsvUrl(
+    reportType,
+    {
+      from,
+      to,
+      projectId,
+      customerId,
+    },
+    defaultTermsDays ? { defaultTermsDays } : undefined,
+  );
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 print:hidden">
@@ -137,11 +145,15 @@ export function FilterBar({
           <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
             Print / Save as PDF
           </Button>
-          <Link href={{ pathname: csvHref }} target="_blank" rel="noopener noreferrer">
+          {/* Plain <a>, NOT next/link: putting "path?query" into Link's
+              `pathname` URL-encodes the "?" (…export.csv%3Ffrom=…) and the
+              route 404s whenever filters are set. The CSV is a file
+              download anyway — no client navigation wanted. */}
+          <a href={csvHref} target="_blank" rel="noopener noreferrer">
             <Button type="button" variant="outline" size="sm">
               Download CSV
             </Button>
-          </Link>
+          </a>
         </div>
         <p className="text-xs text-slate-500">
           Print opens your browser&apos;s dialog — choose &ldquo;Save as PDF&rdquo; for

@@ -1186,6 +1186,9 @@ export type ApAgingRow = {
   amount: number;
   /** "Net 30" / "Net 15" / etc, or "Default (Net X)" when fallback used. */
   termsLabel: string;
+  /** Supplier's own invoice number recorded on the PO (null for sub rows
+   *  and POs with none on file). */
+  vendorInvoiceNumber: string | null;
 };
 
 export type ApVendorRow = {
@@ -1310,6 +1313,7 @@ export async function buildAPReport(
       bucket: bucketize(days),
       amount,
       termsLabel: terms.label,
+      vendorInvoiceNumber: po.vendorInvoiceNumber ?? null,
     });
   }
 
@@ -1345,6 +1349,7 @@ export async function buildAPReport(
       bucket: bucketize(days),
       amount: owed,
       termsLabel: terms.label,
+      vendorInvoiceNumber: null,
     });
   }
 

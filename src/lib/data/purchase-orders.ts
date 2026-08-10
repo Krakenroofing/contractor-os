@@ -293,6 +293,27 @@ export async function renamePurchaseOrder(
   return rows[0];
 }
 
+/** Record / change the supplier's own invoice number on a PO. Allowed in
+ *  any status — the vendor's bill arrives long after the PO is issued. */
+export async function setPurchaseOrderVendorInvoiceNumber(
+  companyId: string,
+  id: string,
+  vendorInvoiceNumber: string | null,
+): Promise<PurchaseOrder | undefined> {
+  if (!isDatabaseConfigured()) {
+    throw new Error('Editing POs requires a configured database.');
+  }
+  const db = getDb()!;
+  const rows = await db
+    .update(purchaseOrders)
+    .set({ vendorInvoiceNumber, updatedAt: new Date() })
+    .where(
+      and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, companyId)),
+    )
+    .returning();
+  return rows[0];
+}
+
 export async function updatePurchaseOrderHeader(
   companyId: string,
   id: string,

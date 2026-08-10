@@ -29,6 +29,7 @@ import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { CreateBillFromPoButton } from '@/modules/purchase-orders/components/create-bill-from-po-button';
 import { RenamePoNumber } from '@/modules/purchase-orders/components/rename-po-number';
+import { VendorInvoiceNumberEditor } from '@/modules/purchase-orders/components/vendor-invoice-number-editor';
 import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -160,6 +161,21 @@ export default async function PurchaseOrderDetailPage({
                 <span className="text-slate-400">·</span>
                 <span>{customer.name}</span>
               </>
+            )}
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              Vendor invoice #
+            </span>
+            {allowCreate ? (
+              <VendorInvoiceNumberEditor
+                poId={po.id}
+                value={po.vendorInvoiceNumber}
+              />
+            ) : (
+              <span className="font-mono text-xs text-slate-700">
+                {po.vendorInvoiceNumber ?? '—'}
+              </span>
             )}
           </div>
         </div>

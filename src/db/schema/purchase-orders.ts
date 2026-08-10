@@ -48,6 +48,10 @@ export const purchaseOrders = pgTable(
     shipping: numeric('shipping', { precision: 14, scale: 2 }).notNull().default('0'),
     total: numeric('total', { precision: 14, scale: 2 }).notNull().default('0'),
     notes: text('notes'),
+    // The supplier's own invoice number, recorded when their bill arrives
+    // for this PO (any status — invoices land long after issue). Shown on
+    // the AP aging report so commitments tie to vendor paperwork.
+    vendorInvoiceNumber: text('vendor_invoice_number'),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
