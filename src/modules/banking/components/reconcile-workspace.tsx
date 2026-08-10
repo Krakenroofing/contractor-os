@@ -114,6 +114,21 @@ export function ReconcileWorkspace({
 
   const balanced = Math.abs(totals.difference) < 0.005;
 
+  // Statement-style running balance: beginning balance plus each CLEARED row
+  // in display (date) order. Unchecked rows contribute nothing (they're not
+  // on the statement), so the last cleared row's balance equals the statement
+  // ending balance exactly when the difference is 0.00.
+  const runningBalanceById = useMemo(() => {
+    const map = new Map<string, number>();
+    let bal = beginningBalance;
+    for (const r of rows) {
+      if (!(clearedById.get(r.id) ?? r.cleared)) continue;
+      bal = Math.round((bal + r.amount) * 100) / 100;
+      map.set(r.id, bal);
+    }
+    return map;
+  }, [rows, clearedById, beginningBalance]);
+
   function toggle(row: ReconcileTxnRow) {
     if (completed) return;
     const next = !(clearedById.get(row.id) ?? row.cleared);
@@ -308,6 +323,7 @@ export function ReconcileWorkspace({
                   <TableHead className="w-24">Ref</TableHead>
                   <TableHead className="text-right w-32">Payment</TableHead>
                   <TableHead className="text-right w-32">Deposit</TableHead>
+                  <TableHead className="text-right w-36">Balance</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -373,6 +389,17 @@ export function ReconcileWorkspace({
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-emerald-700">
                         {r.amount > 0 ? formatMoney(r.amount, currency) : ''}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${
+                          (runningBalanceById.get(r.id) ?? 0) < 0
+                            ? 'text-red-600'
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        {runningBalanceById.has(r.id)
+                          ? formatMoney(runningBalanceById.get(r.id)!, currency)
+                          : ''}
                       </TableCell>
                     </TableRow>
                   );
