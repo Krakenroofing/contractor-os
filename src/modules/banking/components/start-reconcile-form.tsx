@@ -49,33 +49,47 @@ export function StartReconcileForm({
   }
 
   return (
-    <form action={formAction} className="space-y-4 max-w-xl">
-      <div className="space-y-1.5">
-        <Label htmlFor="rec-account">Account</Label>
-        <select
-          id="rec-account"
-          name="bankAccountId"
-          value={accountId}
-          onChange={(e) => {
-            setAccountId(e.target.value);
-            const next = accounts.find((a) => a.id === e.target.value);
-            if (next) setBeginning(next.beginningBalance.toFixed(2));
+    <form action={formAction} className="space-y-4 max-w-2xl">
+      <div className="flex items-end gap-3">
+        <div className="space-y-1.5 flex-1 max-w-xl">
+          <Label htmlFor="rec-account">Account</Label>
+          <select
+            id="rec-account"
+            name="bankAccountId"
+            value={accountId}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              const next = accounts.find((a) => a.id === e.target.value);
+              if (next) setBeginning(next.beginningBalance.toFixed(2));
+            }}
+            className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.last4 ? ` ····${a.last4}` : ''} ({a.currency})
+              </option>
+            ))}
+          </select>
+        </div>
+        {/* The auditors' button: the ORIGINAL uploaded statement files,
+            unmodified — same placement as QuickBooks' "View statements". */}
+        <Link
+          href={{
+            pathname: '/banking/statements',
+            query: accountId ? { account: accountId } : {},
           }}
-          className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
         >
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-              {a.last4 ? ` ····${a.last4}` : ''} ({a.currency})
-            </option>
-          ))}
-        </select>
-        {selected?.lastStatementDate && (
-          <p className="text-xs text-slate-500">
-            Last reconciled statement: {selected.lastStatementDate}
-          </p>
-        )}
+          <Button type="button" variant="outline">
+            View statements
+          </Button>
+        </Link>
       </div>
+      {selected?.lastStatementDate && (
+        <p className="text-xs text-slate-500 -mt-2">
+          Last reconciled statement: {selected.lastStatementDate}
+        </p>
+      )}
 
       {selected?.openReconciliationId ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 space-y-2">
