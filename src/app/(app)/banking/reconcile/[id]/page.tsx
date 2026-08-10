@@ -53,6 +53,7 @@ export default async function BankReconcileWorkspacePage({
       : null,
     amount: Number(t.amount),
     cleared: t.bankReconciliationId === rec.id,
+    manual: t.sourceFilename === 'Manual entry',
   }));
 
   return (

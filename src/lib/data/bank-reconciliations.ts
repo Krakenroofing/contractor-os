@@ -309,6 +309,58 @@ export async function insertManualBankTransaction(
   });
 }
 
+/** Correct a hand-entered bank line (date / description / signed amount).
+ *  Only rows created via insertManualBankTransaction qualify — imported
+ *  statement rows mirror the bank and must never be edited. */
+export async function updateManualBankTransaction(
+  companyId: string,
+  id: string,
+  patch: { transactionDate: string; description: string; amount: number },
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const rows = await db
+    .update(importedTransactions)
+    .set({
+      transactionDate: patch.transactionDate,
+      description: patch.description,
+      debit: patch.amount < 0 ? Math.abs(patch.amount).toFixed(2) : null,
+      credit: patch.amount > 0 ? patch.amount.toFixed(2) : null,
+      amount: patch.amount.toFixed(2),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(importedTransactions.companyId, companyId),
+        eq(importedTransactions.id, id),
+        eq(importedTransactions.sourceFilename, 'Manual entry'),
+      ),
+    )
+    .returning({ id: importedTransactions.id });
+  return rows.length > 0;
+}
+
+/** Remove a hand-entered bank line (e.g. it duplicated an imported row).
+ *  Split lines cascade via FK; the caller clears any GL entry. */
+export async function deleteManualBankTransaction(
+  companyId: string,
+  id: string,
+): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const rows = await db
+    .delete(importedTransactions)
+    .where(
+      and(
+        eq(importedTransactions.companyId, companyId),
+        eq(importedTransactions.id, id),
+        eq(importedTransactions.sourceFilename, 'Manual entry'),
+      ),
+    )
+    .returning({ id: importedTransactions.id });
+  return rows.length > 0;
+}
+
 /** Cleared deposits/payments totals for a reconciliation — the server-side
  *  version of the workspace math, used by the finish action so the $0.00
  *  difference check can't be spoofed by a stale client. */

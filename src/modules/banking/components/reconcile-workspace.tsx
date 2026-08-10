@@ -25,9 +25,11 @@ import { useActionState } from 'react';
 import {
   addManualTransactionAction,
   cancelReconciliationAction,
+  deleteManualTransactionAction,
   finishReconciliationAction,
   setAllClearedAction,
   toggleClearedAction,
+  updateManualTransactionAction,
   updateReconciliationInfoAction,
   type ReconcileActionState,
 } from '../reconcile-actions';
@@ -42,6 +44,9 @@ export type ReconcileTxnRow = {
   /** Signed: positive = deposit, negative = payment. */
   amount: number;
   cleared: boolean;
+  /** Hand-entered via "Add missing transaction" — editable/deletable.
+   *  Imported statement rows mirror the bank and are not. */
+  manual: boolean;
 };
 
 export function ReconcileWorkspace({
@@ -71,6 +76,8 @@ export function ReconcileWorkspace({
   );
   const [showEditInfo, setShowEditInfo] = useState(false);
   const [showAddTxn, setShowAddTxn] = useState(false);
+  /** Manual row currently open in the inline editor, if any. */
+  const [editTxn, setEditTxn] = useState<ReconcileTxnRow | null>(null);
 
   const totals = useMemo(() => {
     let deposits = 0;
@@ -249,6 +256,15 @@ export function ReconcileWorkspace({
         />
       )}
 
+      {editTxn && !completed && (
+        <EditTxnForm
+          key={editTxn.id}
+          txn={editTxn}
+          statementDate={statementDate}
+          onDone={() => setEditTxn(null)}
+        />
+      )}
+
       {/* ===== Transactions ===== */}
       <Card>
         <CardHeader>
@@ -307,6 +323,27 @@ export function ReconcileWorkspace({
                         >
                           {r.payee || r.description}
                         </Link>
+                        {r.manual && (
+                          <span className="ml-2 inline-flex items-center gap-1">
+                            <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                              manual
+                            </span>
+                            {!completed && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddTxn(false);
+                                  setShowEditInfo(false);
+                                  setEditTxn(r);
+                                }}
+                                className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                                title="Edit this manual entry (fix amount / direction / date)"
+                              >
+                                ✎ Edit
+                              </button>
+                            )}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-slate-500">
                         {r.categoryName ?? '—'}
@@ -409,6 +446,126 @@ function EditInfoForm({
           </Button>
           {state.formError && (
             <p className="text-sm text-red-600 w-full">{state.formError}</p>
+          )}
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EditTxnForm({
+  txn,
+  statementDate,
+  onDone,
+}: {
+  txn: ReconcileTxnRow;
+  statementDate: string;
+  onDone: () => void;
+}) {
+  const [state, formAction, pending] = useActionState<
+    ReconcileActionState,
+    FormData
+  >(async (prev, fd) => {
+    const res = await updateManualTransactionAction(prev, fd);
+    if (res.ok) onDone();
+    return res;
+  }, {});
+  const [deleting, startDeleting] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  function remove() {
+    if (
+      !confirm(
+        `Delete the manual entry "${txn.description}" (${Math.abs(txn.amount).toFixed(2)})?\n\nUse this when it duplicates an imported statement row.`,
+      )
+    ) {
+      return;
+    }
+    setDeleteError(null);
+    startDeleting(async () => {
+      const res = await deleteManualTransactionAction(txn.id);
+      if (res.formError) {
+        setDeleteError(res.formError);
+        return;
+      }
+      onDone();
+    });
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-4 space-y-2">
+        <p className="text-xs text-slate-500">
+          Editing the manual entry <b>{txn.description}</b> — fix the amount,
+          flip money in/out, or correct the date. Imported statement rows
+          can&apos;t be edited (they mirror the bank).
+        </p>
+        <form action={formAction} className="flex flex-wrap items-end gap-3">
+          <input type="hidden" name="transactionId" value={txn.id} />
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-txn-date">Date</Label>
+            <Input
+              id="edit-txn-date"
+              name="transactionDate"
+              type="date"
+              max={statementDate}
+              defaultValue={txn.date}
+              required
+              className="w-44"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-txn-desc">Description</Label>
+            <Input
+              id="edit-txn-desc"
+              name="description"
+              defaultValue={txn.description}
+              required
+              className="w-64"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-txn-direction">Type</Label>
+            <select
+              id="edit-txn-direction"
+              name="direction"
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+              defaultValue={txn.amount < 0 ? 'out' : 'in'}
+            >
+              <option value="out">Money out (payment)</option>
+              <option value="in">Money in (deposit)</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-txn-amount">Amount</Label>
+            <Input
+              id="edit-txn-amount"
+              name="amount"
+              inputMode="decimal"
+              defaultValue={Math.abs(txn.amount).toFixed(2)}
+              required
+              className="w-32"
+            />
+          </div>
+          <Button type="submit" disabled={pending || deleting}>
+            {pending ? 'Saving…' : 'Save'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={remove}
+            disabled={pending || deleting}
+            className="text-red-600 hover:text-red-700"
+          >
+            {deleting ? 'Deleting…' : 'Delete entry'}
+          </Button>
+          <Button type="button" variant="outline" onClick={onDone}>
+            Close
+          </Button>
+          {(state.formError || deleteError) && (
+            <p className="text-sm text-red-600 w-full">
+              {state.formError ?? deleteError}
+            </p>
           )}
         </form>
       </CardContent>

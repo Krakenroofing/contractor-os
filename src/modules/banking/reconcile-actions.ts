@@ -23,6 +23,7 @@ import {
 } from '@/lib/data/statement-imports';
 import {
   deleteBankReconciliation,
+  deleteManualBankTransaction,
   getBankReconciliation,
   getOpenBankReconciliation,
   insertBankReconciliation,
@@ -32,7 +33,10 @@ import {
   setTransactionsCleared,
   sumClearedForReconciliation,
   updateBankReconciliation,
+  updateManualBankTransaction,
 } from '@/lib/data/bank-reconciliations';
+import { getImportedTransaction } from '@/lib/data/statement-imports';
+import { deleteJournalEntriesForSource } from '@/lib/data/general-ledger';
 import { getUserNamesByIds } from '@/lib/data/users';
 
 const EPSILON = 0.005;
@@ -265,6 +269,147 @@ export async function setAllClearedAction(
     cleared,
   );
   revalidatePath(`/banking/reconcile/${rec.id}`);
+  return { ok: true };
+}
+
+// ===== Edit / delete a manual entry =====
+//
+// Hand-typed lines can be wrong (money out that should have been money in,
+// a typo'd amount). Imported statement rows mirror the bank and stay
+// immutable; ONLY rows from the "Manual entries" batch are editable, and
+// only while unmatched and not locked inside a completed reconciliation.
+
+async function guardManualTxn(
+  companyId: string,
+  txnId: string,
+): Promise<
+  | { error: string }
+  | { txn: NonNullable<Awaited<ReturnType<typeof getImportedTransaction>>> }
+> {
+  const txn = await getImportedTransaction(companyId, txnId);
+  if (!txn) return { error: 'Transaction not found.' };
+  if (txn.sourceFilename !== 'Manual entry') {
+    return {
+      error:
+        'Only manually added entries can be edited — imported statement rows mirror the bank.',
+    };
+  }
+  if (txn.reconciledAt) {
+    return {
+      error:
+        'This entry is matched to a receipt / invoice — unmatch it first.',
+    };
+  }
+  if (txn.bankReconciliationId) {
+    const rec = await getBankReconciliation(
+      companyId,
+      txn.bankReconciliationId,
+    );
+    if (rec && rec.status !== 'in_progress') {
+      return {
+        error:
+          'This entry is locked inside a completed reconciliation — reopen it first.',
+      };
+    }
+  }
+  return { txn };
+}
+
+export async function updateManualTransactionAction(
+  _prev: ReconcileActionState,
+  formData: FormData,
+): Promise<ReconcileActionState> {
+  const auth = await requireReconcilePermission();
+  if ('error' in auth) return { formError: auth.error };
+
+  const parsed = z
+    .object({
+      transactionId: idSchema,
+      transactionDate: dateSchema,
+      description: z.string().trim().min(1, 'Description is required'),
+      direction: z.enum(['out', 'in']),
+      amount: moneySchema.refine((v) => v > 0, {
+        message: 'Amount must be greater than zero',
+      }),
+    })
+    .safeParse({
+      transactionId: formData.get('transactionId'),
+      transactionDate: formData.get('transactionDate'),
+      description: formData.get('description'),
+      direction: formData.get('direction'),
+      amount: formData.get('amount'),
+    });
+  if (!parsed.success) {
+    return {
+      formError:
+        parsed.error.issues[0]?.message ?? 'Fill in the transaction fields.',
+    };
+  }
+  const input = parsed.data;
+
+  const guarded = await guardManualTxn(auth.companyId, input.transactionId);
+  if ('error' in guarded) return { formError: guarded.error };
+  const { txn } = guarded;
+
+  // Keep a cleared row inside its reconciliation's window — a date past the
+  // statement date would drop it from the visible list while still counting
+  // in the server-side totals.
+  if (txn.bankReconciliationId) {
+    const rec = await getBankReconciliation(
+      auth.companyId,
+      txn.bankReconciliationId,
+    );
+    if (rec && input.transactionDate > rec.statementDate) {
+      return {
+        formError: 'The transaction date is after the statement ending date.',
+      };
+    }
+  }
+
+  const signed = input.direction === 'out' ? -input.amount : input.amount;
+  const ok = await updateManualBankTransaction(
+    auth.companyId,
+    txn.id,
+    {
+      transactionDate: input.transactionDate,
+      description: input.description,
+      amount: signed,
+    },
+  );
+  if (!ok) return { formError: 'Could not update the entry.' };
+
+  if (txn.bankReconciliationId) {
+    revalidatePath(`/banking/reconcile/${txn.bankReconciliationId}`);
+  }
+  revalidatePath('/banking');
+  return { ok: true };
+}
+
+export async function deleteManualTransactionAction(
+  transactionId: string,
+): Promise<ReconcileActionState> {
+  const auth = await requireReconcilePermission();
+  if ('error' in auth) return { formError: auth.error };
+  if (!idSchema.safeParse(transactionId).success) {
+    return { formError: 'Missing transaction id.' };
+  }
+  const guarded = await guardManualTxn(auth.companyId, transactionId);
+  if ('error' in guarded) return { formError: guarded.error };
+  const { txn } = guarded;
+
+  const ok = await deleteManualBankTransaction(auth.companyId, txn.id);
+  if (!ok) return { formError: 'Could not delete the entry.' };
+  // Clear any GL entry the bank-txn sync/rebuild may have posted for it.
+  try {
+    await deleteJournalEntriesForSource(auth.companyId, 'bank', txn.id);
+  } catch {
+    // GL cleanup is best-effort; the rebuild script reconverges anyway.
+  }
+
+  if (txn.bankReconciliationId) {
+    revalidatePath(`/banking/reconcile/${txn.bankReconciliationId}`);
+  }
+  revalidatePath('/banking');
   return { ok: true };
 }
 
