@@ -9,6 +9,9 @@ import {
   listReconciliationCandidates,
 } from '@/lib/data/bank-reconciliations';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { listVendors } from '@/lib/data/vendors';
+import { listProjects } from '@/lib/data/projects';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import {
   ReconcileWorkspace,
   type ReconcileTxnRow,
@@ -31,7 +34,7 @@ export default async function BankReconcileWorkspacePage({
   const account = await getBankAccount(company.id, rec.bankAccountId);
   if (!account) notFound();
 
-  const [txns, categories] = await Promise.all([
+  const [txns, categories, vendors, projects] = await Promise.all([
     listReconciliationCandidates(
       company.id,
       rec.bankAccountId,
@@ -39,6 +42,8 @@ export default async function BankReconcileWorkspacePage({
       rec.statementDate,
     ),
     listAccountingAccounts(company.id),
+    listVendors(company.id),
+    listProjects(company.id),
   ]);
   const categoryById = new Map(categories.map((c) => [c.id, c.name]));
 
@@ -86,6 +91,13 @@ export default async function BankReconcileWorkspacePage({
         endingBalance={Number(rec.endingBalance)}
         completed={rec.status === 'completed'}
         rows={rows}
+        accountOptions={toAccountingAccountOptions(
+          categories.filter(
+            (a) => a.type !== 'bank' && a.type !== 'credit_card',
+          ),
+        )}
+        vendorOptions={vendors.map((v) => ({ id: v.id, label: v.name }))}
+        projectOptions={projects.map((p) => ({ id: p.id, label: p.name }))}
       />
     </div>
   );

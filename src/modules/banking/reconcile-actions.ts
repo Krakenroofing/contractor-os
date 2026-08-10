@@ -513,6 +513,9 @@ export async function addManualTransactionAction(
   const auth = await requireReconcilePermission();
   if ('error' in auth) return { formError: auth.error };
 
+  const optionalId = z
+    .union([idSchema, z.literal('')])
+    .transform((v) => (v === '' ? null : v));
   const parsed = z
     .object({
       reconciliationId: idSchema,
@@ -522,6 +525,11 @@ export async function addManualTransactionAction(
       amount: moneySchema.refine((v) => v > 0, {
         message: 'Amount must be greater than zero',
       }),
+      // All optional — a bare date/description/amount entry is still valid;
+      // category/payee/job just save a later categorization trip.
+      accountingAccountId: optionalId,
+      vendorId: optionalId,
+      projectId: optionalId,
     })
     .safeParse({
       reconciliationId: formData.get('reconciliationId'),
@@ -529,6 +537,9 @@ export async function addManualTransactionAction(
       description: formData.get('description'),
       direction: formData.get('direction'),
       amount: formData.get('amount'),
+      accountingAccountId: formData.get('accountingAccountId') ?? '',
+      vendorId: formData.get('vendorId') ?? '',
+      projectId: formData.get('projectId') ?? '',
     });
   if (!parsed.success) {
     return {
@@ -581,6 +592,9 @@ export async function addManualTransactionAction(
       amount: signed,
       dedupeHash: `manual:${randomUUID()}`,
       bankReconciliationId: rec.id,
+      accountingAccountId: input.accountingAccountId,
+      vendorId: input.vendorId,
+      projectId: input.projectId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

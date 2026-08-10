@@ -282,6 +282,10 @@ export type NewManualBankTransactionInput = {
   amount: number;
   dedupeHash: string;
   bankReconciliationId: string | null;
+  /** Optional upfront categorization — skips the review queue detour. */
+  accountingAccountId?: string | null;
+  vendorId?: string | null;
+  projectId?: string | null;
 };
 
 /** A hand-entered bank line for something the statement import missed. Flows
@@ -306,6 +310,12 @@ export async function insertManualBankTransaction(
     dedupeHash: input.dedupeHash,
     rawRow: { manual: true },
     bankReconciliationId: input.bankReconciliationId,
+    accountingAccountId: input.accountingAccountId ?? null,
+    vendorId: input.vendorId ?? null,
+    projectId: input.projectId ?? null,
+    // Categorized on entry = already reviewed; uncategorized rows land in
+    // the normal review queue like any imported line.
+    isReviewed: !!input.accountingAccountId,
   });
 }
 

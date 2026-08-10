@@ -11,6 +11,11 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
+import {
+  AccountingAccountPicker,
+  type AccountingAccountOption,
+} from '@/modules/accounting/components/accounting-account-picker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -49,6 +54,8 @@ export type ReconcileTxnRow = {
   manual: boolean;
 };
 
+export type ReconcileOption = { id: string; label: string };
+
 export function ReconcileWorkspace({
   reconciliationId,
   accountName,
@@ -58,6 +65,9 @@ export function ReconcileWorkspace({
   endingBalance,
   completed,
   rows,
+  accountOptions,
+  vendorOptions,
+  projectOptions,
 }: {
   reconciliationId: string;
   accountName: string;
@@ -67,6 +77,10 @@ export function ReconcileWorkspace({
   endingBalance: number;
   completed: boolean;
   rows: ReconcileTxnRow[];
+  /** Grouped accounting categories for the add-transaction form. */
+  accountOptions: AccountingAccountOption[];
+  vendorOptions: ReconcileOption[];
+  projectOptions: ReconcileOption[];
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -252,6 +266,9 @@ export function ReconcileWorkspace({
         <AddTxnForm
           reconciliationId={reconciliationId}
           statementDate={statementDate}
+          accountOptions={accountOptions}
+          vendorOptions={vendorOptions}
+          projectOptions={projectOptions}
           onDone={() => setShowAddTxn(false)}
         />
       )}
@@ -576,10 +593,16 @@ function EditTxnForm({
 function AddTxnForm({
   reconciliationId,
   statementDate,
+  accountOptions,
+  vendorOptions,
+  projectOptions,
   onDone,
 }: {
   reconciliationId: string;
   statementDate: string;
+  accountOptions: AccountingAccountOption[];
+  vendorOptions: ReconcileOption[];
+  projectOptions: ReconcileOption[];
   onDone: () => void;
 }) {
   const [state, formAction, pending] = useActionState<
@@ -590,13 +613,15 @@ function AddTxnForm({
     if (res.ok) onDone();
     return res;
   }, {});
+  const [categoryId, setCategoryId] = useState('');
   return (
     <Card>
       <CardContent className="py-4 space-y-2">
         <p className="text-xs text-slate-500">
-          On the statement but missing from the import? Add it here — it lands
-          in the normal categorization queue and is checked into this
-          reconciliation.
+          On the statement but missing from the import? Add it here — it&apos;s
+          checked into this reconciliation. Category, payee, and job are
+          optional: set the category now to skip the review queue, or leave
+          everything blank and categorize later like any imported row.
         </p>
         <form action={formAction} className="flex flex-wrap items-end gap-3">
           <input type="hidden" name="reconciliationId" value={reconciliationId} />
@@ -643,6 +668,39 @@ function AddTxnForm({
               required
               className="w-32"
             />
+          </div>
+          <div className="space-y-1.5 w-64">
+            <Label htmlFor="add-category">Accounting category (optional)</Label>
+            <AccountingAccountPicker
+              id="add-category"
+              name="accountingAccountId"
+              value={categoryId}
+              onChange={setCategoryId}
+              accounts={accountOptions}
+              placeholder="— none —"
+            />
+          </div>
+          <div className="space-y-1.5 w-56">
+            <Label htmlFor="add-vendor">Payee / vendor (optional)</Label>
+            <Select id="add-vendor" name="vendorId" defaultValue="">
+              <option value="">— none —</option>
+              {vendorOptions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1.5 w-56">
+            <Label htmlFor="add-project">Job / project (optional)</Label>
+            <Select id="add-project" name="projectId" defaultValue="">
+              <option value="">— none —</option>
+              {projectOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
           </div>
           <Button type="submit" disabled={pending}>
             {pending ? 'Adding…' : 'Add'}
