@@ -2,6 +2,7 @@ import 'server-only';
 import {
   listTeamTasks,
   listAttachmentsForTasks,
+  listRepliesForTasks,
 } from '@/lib/data/team-tasks';
 
 export type TeamTaskAttachmentView = {
@@ -9,6 +10,14 @@ export type TeamTaskAttachmentView = {
   fileName: string;
   mimeType: string;
   byteSize: number;
+};
+
+export type TeamTaskReplyView = {
+  id: string;
+  createdById: string | null;
+  createdByName: string;
+  createdAtISO: string;
+  body: string;
 };
 
 export type TeamTaskView = {
@@ -21,6 +30,7 @@ export type TeamTaskView = {
   resolvedByName: string | null;
   resolvedAtISO: string | null;
   attachments: TeamTaskAttachmentView[];
+  replies: TeamTaskReplyView[];
 };
 
 /**
@@ -34,7 +44,10 @@ export async function buildTeamTasks(companyId: string): Promise<{
 }> {
   const tasks = await listTeamTasks(companyId, { includeDone: true, doneLimit: 8 });
   const ids = tasks.map((t) => t.id);
-  const attachments = await listAttachmentsForTasks(companyId, ids);
+  const [attachments, replies] = await Promise.all([
+    listAttachmentsForTasks(companyId, ids),
+    listRepliesForTasks(companyId, ids),
+  ]);
 
   const byTask = new Map<string, TeamTaskAttachmentView[]>();
   for (const a of attachments) {
@@ -48,6 +61,19 @@ export async function buildTeamTasks(companyId: string): Promise<{
     byTask.set(a.taskId, list);
   }
 
+  const repliesByTask = new Map<string, TeamTaskReplyView[]>();
+  for (const r of replies) {
+    const list = repliesByTask.get(r.taskId) ?? [];
+    list.push({
+      id: r.id,
+      createdById: r.createdBy,
+      createdByName: r.createdByName || 'Team member',
+      createdAtISO: r.createdAt.toISOString(),
+      body: r.body,
+    });
+    repliesByTask.set(r.taskId, list);
+  }
+
   return {
     tasks: tasks.map((t) => ({
       id: t.id,
@@ -59,6 +85,7 @@ export async function buildTeamTasks(companyId: string): Promise<{
       resolvedByName: t.resolvedByName,
       resolvedAtISO: t.resolvedAt ? t.resolvedAt.toISOString() : null,
       attachments: byTask.get(t.id) ?? [],
+      replies: repliesByTask.get(t.id) ?? [],
     })),
     openCount: tasks.filter((t) => t.status === 'open').length,
   };

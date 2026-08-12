@@ -9,8 +9,10 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   teamTasks,
   teamTaskAttachments,
+  teamTaskReplies,
   type TeamTask,
   type TeamTaskAttachment,
+  type TeamTaskReply,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { deleteTeamTaskAttachmentBlob } from '@/lib/storage/team-task-attachments';
@@ -170,6 +172,81 @@ export async function createTeamTaskAttachment(
     .values(input)
     .returning();
   return row;
+}
+
+// ===== Replies =====
+
+export async function listRepliesForTasks(
+  companyId: string,
+  taskIds: string[],
+): Promise<TeamTaskReply[]> {
+  if (!isDatabaseConfigured() || taskIds.length === 0) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(teamTaskReplies)
+    .where(
+      and(
+        eq(teamTaskReplies.companyId, companyId),
+        inArray(teamTaskReplies.taskId, taskIds),
+        isNull(teamTaskReplies.deletedAt),
+      ),
+    )
+    .orderBy(teamTaskReplies.createdAt);
+}
+
+export async function createTeamTaskReply(input: {
+  companyId: string;
+  taskId: string;
+  createdBy: string | null;
+  createdByName: string;
+  body: string;
+}): Promise<TeamTaskReply> {
+  const db = requireDb();
+  const [row] = await db
+    .insert(teamTaskReplies)
+    .values(input)
+    .returning();
+  return row;
+}
+
+export async function getTeamTaskReply(
+  companyId: string,
+  id: string,
+): Promise<TeamTaskReply | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(teamTaskReplies)
+    .where(
+      and(
+        eq(teamTaskReplies.id, id),
+        eq(teamTaskReplies.companyId, companyId),
+        isNull(teamTaskReplies.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export async function softDeleteTeamTaskReply(
+  companyId: string,
+  id: string,
+): Promise<TeamTaskReply | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(teamTaskReplies)
+    .set({ deletedAt: new Date() })
+    .where(
+      and(
+        eq(teamTaskReplies.id, id),
+        eq(teamTaskReplies.companyId, companyId),
+        isNull(teamTaskReplies.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
 }
 
 export async function resolveTeamTask(

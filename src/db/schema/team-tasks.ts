@@ -96,3 +96,34 @@ export const teamTaskAttachments = pgTable(
 
 export type TeamTaskAttachment = typeof teamTaskAttachments.$inferSelect;
 export type NewTeamTaskAttachment = typeof teamTaskAttachments.$inferInsert;
+
+// Threaded replies under a note — the follow-up answer or discussion a note
+// often needs beyond open/done. Same name-snapshot convention as the task.
+export const teamTaskReplies = pgTable(
+  'team_task_replies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => teamTasks.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdByName: text('created_by_name').notNull().default(''),
+    body: text('body').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => ({
+    taskIdx: index('team_task_replies_task_idx').on(t.taskId),
+    companyIdx: index('team_task_replies_company_idx').on(t.companyId),
+  }),
+);
+
+export type TeamTaskReply = typeof teamTaskReplies.$inferSelect;
+export type NewTeamTaskReply = typeof teamTaskReplies.$inferInsert;

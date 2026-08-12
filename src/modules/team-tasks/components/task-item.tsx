@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
@@ -8,9 +8,11 @@ import {
   resolveTeamTaskAction,
   reopenTeamTaskAction,
   deleteTeamTaskAction,
+  deleteTeamTaskReplyAction,
+  replyToTeamTaskAction,
   type TeamTaskActionState,
 } from '../actions';
-import type { TeamTaskView } from '../lib/build-team-tasks';
+import type { TeamTaskReplyView, TeamTaskView } from '../lib/build-team-tasks';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '';
@@ -150,6 +152,7 @@ export function TaskItem({
               {task.resolvedAtISO ? ` · ${relativeTime(task.resolvedAtISO)}` : ''}
             </p>
           )}
+          <ReplyThread taskId={task.id} replies={task.replies} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {canResolve && !done && (
@@ -180,6 +183,110 @@ export function TaskItem({
           )}
         </div>
       </div>
+    </li>
+  );
+}
+
+/** Threaded replies under a note + the "Respond" composer. Replies post via
+ *  the shared team-task permission (anyone who can post can respond), so a
+ *  question in the inbox can get an answer instead of just open/done. */
+function ReplyThread({
+  taskId,
+  replies,
+}: {
+  taskId: string;
+  replies: TeamTaskReplyView[];
+}) {
+  const [composing, setComposing] = useState(false);
+  const [state, formAction, pending] = useActionState<
+    TeamTaskActionState,
+    FormData
+  >(replyToTeamTaskAction.bind(null, taskId), {});
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Successful post → clear + close the composer (the new reply arrives via
+  // the server revalidation).
+  useEffect(() => {
+    if (state.ok) {
+      formRef.current?.reset();
+      setComposing(false);
+    }
+  }, [state.ok]);
+
+  return (
+    <div className="mt-2">
+      {replies.length > 0 && (
+        <ul className="space-y-1.5 border-l-2 border-slate-200 pl-3">
+          {replies.map((r) => (
+            <ReplyRow key={r.id} reply={r} />
+          ))}
+        </ul>
+      )}
+      {composing ? (
+        <form ref={formRef} action={formAction} className="mt-2 space-y-1.5">
+          <textarea
+            name="body"
+            rows={2}
+            autoFocus
+            placeholder="Write a reply…"
+            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          />
+          <div className="flex items-center gap-2">
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? 'Posting…' : 'Post reply'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setComposing(false)}
+            >
+              Cancel
+            </Button>
+            {state.formError && (
+              <span className="text-xs text-red-600">{state.formError}</span>
+            )}
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setComposing(true)}
+          className="mt-1.5 text-xs font-medium text-blue-700 hover:underline"
+        >
+          ↩ Respond
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ReplyRow({ reply }: { reply: TeamTaskReplyView }) {
+  const [, deleteAction] = useActionState<TeamTaskActionState, FormData>(
+    deleteTeamTaskReplyAction.bind(null, reply.id),
+    {},
+  );
+  return (
+    <li className="group text-sm">
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="font-medium text-slate-700">{reply.createdByName}</span>
+        <span>·</span>
+        <span>{relativeTime(reply.createdAtISO)}</span>
+        <form action={deleteAction} className="hidden group-hover:block">
+          <ConfirmButton
+            size="sm"
+            variant="ghost"
+            confirmLabel="Sure?"
+            pendingLabel="…"
+            className="h-5 px-1 text-[11px] text-slate-400"
+          >
+            ✕
+          </ConfirmButton>
+        </form>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-slate-800">
+        {reply.body}
+      </p>
     </li>
   );
 }

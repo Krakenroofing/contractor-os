@@ -10,10 +10,13 @@ import { getUserNamesByIds } from '@/lib/data/users';
 import {
   createTeamTask,
   createTeamTaskAttachment,
+  createTeamTaskReply,
   getTeamTask,
+  getTeamTaskReply,
   resolveTeamTask,
   reopenTeamTask,
   softDeleteTeamTask,
+  softDeleteTeamTaskReply,
   TeamTasksNotAvailableInDemoError,
 } from '@/lib/data/team-tasks';
 import {
@@ -192,9 +195,11 @@ export async function createTeamTaskAction(
   let task;
   try {
     const displayName = await resolveDisplayName(user.id, user.email);
+    // Dev-demo guard: only stamp created_by when the user id exists in users.
+    const known = await getUserNamesByIds([user.id]);
     task = await createTeamTask({
       companyId,
-      createdBy: user.id,
+      createdBy: known.has(user.id) ? user.id : null,
       createdByName: displayName,
       body: body.trim(),
     });
@@ -259,6 +264,90 @@ export async function createTeamTaskAction(
       formError: `Posted, but ${failures.length} attachment(s) failed: ${failures.join(' · ')}`,
     };
   }
+  return { ok: true };
+}
+
+// =============================================================================
+// Replies — the follow-up answer or discussion under a note (Olga's ask).
+// Anyone who can post a note can reply; replying to a resolved note is fine
+// (it stays done — reopen separately if it needs more work).
+// =============================================================================
+
+export async function replyToTeamTaskAction(
+  taskId: string,
+  _prev: TeamTaskActionState,
+  formData: FormData,
+): Promise<TeamTaskActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'team_tasks')) {
+    return { formError: 'You do not have permission to reply.' };
+  }
+  if (!idSchema.safeParse(taskId).success) {
+    return { formError: 'Missing or invalid task id.' };
+  }
+  const body = String(formData.get('body') ?? '').trim();
+  if (body === '') return { formError: 'Write a reply first.' };
+  if (body.length > 4000) {
+    return { formError: 'Your reply is too long. Trim it and try again.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const task = await getTeamTask(companyId, taskId);
+  if (!task) return { formError: 'Note not found.' };
+
+  try {
+    const displayName = await resolveDisplayName(user.id, user.email);
+    // Same dev-demo guard as elsewhere: only stamp created_by when the user
+    // id really exists (the synthetic demo id isn't in users).
+    const known = await getUserNamesByIds([user.id]);
+    await createTeamTaskReply({
+      companyId,
+      taskId,
+      createdBy: known.has(user.id) ? user.id : null,
+      createdByName: displayName,
+      body,
+    });
+  } catch (err) {
+    if (err instanceof TeamTasksNotAvailableInDemoError) {
+      return { formError: err.message };
+    }
+    return {
+      formError: err instanceof Error ? err.message : 'Could not post the reply.',
+    };
+  }
+  revalidatePath('/dashboard');
+  return { ok: true };
+}
+
+export async function deleteTeamTaskReplyAction(
+  replyId: string,
+  _prev: TeamTaskActionState,
+  _formData: FormData,
+): Promise<TeamTaskActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!idSchema.safeParse(replyId).success) {
+    return { formError: 'Missing or invalid reply id.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const existing = await getTeamTaskReply(companyId, replyId);
+  if (!existing) return { formError: 'Reply not found.' };
+
+  // Mirrors the note rule: admins remove anything, others only their own.
+  const isAdmin = canResolveTeamTask(role);
+  const isOwn = existing.createdBy === user.id;
+  if (!isAdmin && !isOwn) {
+    return { formError: 'You can only delete replies you posted.' };
+  }
+
+  try {
+    await softDeleteTeamTaskReply(companyId, replyId);
+  } catch (err) {
+    return {
+      formError: err instanceof Error ? err.message : 'Could not delete reply.',
+    };
+  }
+  revalidatePath('/dashboard');
   return { ok: true };
 }
 
