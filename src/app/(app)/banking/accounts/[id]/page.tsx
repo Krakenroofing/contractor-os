@@ -38,6 +38,7 @@ import { listCustomers } from '@/lib/data/customers';
 import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
+import { listBankReconciliations } from '@/lib/data/bank-reconciliations';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
@@ -160,6 +161,17 @@ export default async function BankAccountDetailPage({
       );
     })(),
   ]);
+
+  // Statement reconciliation status — the QB-style "R". A transaction cleared
+  // inside a COMPLETED bank reconciliation is proven against the statement.
+  const bankRecs = await listBankReconciliations(company.id, {
+    bankAccountId: account.id,
+  });
+  const completedRecDateById = new Map(
+    bankRecs
+      .filter((r) => r.status === 'completed')
+      .map((r) => [r.id, r.statementDate]),
+  );
 
   // Split lines for the visible transactions (one extra query, batched).
   const allLines = await listLinesForTransactionIds(
@@ -616,6 +628,9 @@ export default async function BankAccountDetailPage({
                           takenJobCostEntryIds,
                         });
                   const activeMatch = nonInvoiceMatchByTxn.get(t.id);
+                  const reconciledStmtDate = t.bankReconciliationId
+                    ? (completedRecDateById.get(t.bankReconciliationId) ?? null)
+                    : null;
                   const txnInvoiceMatches =
                     invoiceMatchesByTxn.get(t.id) ?? [];
                   let activeLabel = '';
@@ -700,11 +715,17 @@ export default async function BankAccountDetailPage({
                           {t.debit !== null
                             ? formatMoney(t.debit, t.currency)
                             : '—'}
+                          {t.debit !== null && reconciledStmtDate && (
+                            <ReconciledR statementDate={reconciledStmtDate} />
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-emerald-700">
                           {t.credit !== null
                             ? formatMoney(t.credit, t.currency)
                             : '—'}
+                          {t.credit !== null && reconciledStmtDate && (
+                            <ReconciledR statementDate={reconciledStmtDate} />
+                          )}
                         </TableCell>
                         <TableCell className="text-xs font-mono text-slate-500">
                           {t.reference ?? '—'}
@@ -891,5 +912,18 @@ export default async function BankAccountDetailPage({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** QB-style "R": this transaction cleared inside a COMPLETED bank
+ *  reconciliation, i.e. it is proven against the bank statement. */
+function ReconciledR({ statementDate }: { statementDate: string }) {
+  return (
+    <span
+      title={`Reconciled — cleared on the ${statementDate} bank statement`}
+      className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-emerald-100 align-middle text-[10px] font-bold text-emerald-700"
+    >
+      R
+    </span>
   );
 }
