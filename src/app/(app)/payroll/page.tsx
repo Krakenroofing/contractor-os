@@ -558,12 +558,15 @@ export default async function PayrollPage({
                   Generate payroll bills
                 </h3>
                 <p className="mt-0.5 mb-2 text-xs text-slate-500">
-                  One QuickBooks-style bill per employee — gross, NIB
-                  (employee + employer), and net pay posted to the GL (Dr
-                  Payroll Expense / Cr Accounts Payable). The net is the
-                  payable a bank payment settles. Don&apos;t use this AND
-                  &quot;Post labor to job costs&quot; for the same period —
-                  they&apos;d double-count.
+                  One QuickBooks-style bill per employee: gross wages expensed,
+                  employee NIB withheld to NIB Payable, employer NIB expensed
+                  and accrued to NIB Payable, net pay to Accounts Payable. Then
+                  match the bank withdrawal to these bills (&quot;Pay
+                  bills…&quot; on the bank line) — do NOT also categorize the
+                  withdrawal as a payroll expense, or it double-counts. Fine to
+                  use together with &quot;Post labor to job costs&quot; (that
+                  feeds job costing / P&amp;L; this feeds the GL and the
+                  payables).
                 </p>
                 <GeneratePayrollBillsButton
                   payPeriodId={period.id}
