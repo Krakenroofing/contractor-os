@@ -45,6 +45,10 @@ export type ActiveMatchInfo = {
   /** Short human label, e.g. "Invoice #103 — Acme Corp $5,000". Built by the
    *  caller from the matched record so we don't need an extra fetch here. */
   targetLabel: string;
+  /** The matched receipt when matchType === 'receipt'. Lets the reconciled
+   *  panel keep accepting extra receipt files (and link to the receipt)
+   *  without unmatching first. */
+  receiptId?: string | null;
 };
 
 export type TransferCandidate = {
@@ -291,6 +295,26 @@ export function MatchPanel(props: MatchPanelProps) {
   // as a paperclip on the transaction row.
   const [receiptUploading, setReceiptUploading] = useState(false);
 
+  // Upload files to storage and attach them to an existing receipt. Shared by
+  // the create-new path below and the already-reconciled "+ Add file" path.
+  async function uploadFilesToReceipt(receiptId: string, files: File[]) {
+    const outcome = await directUploadFiles({
+      files,
+      requestUrls: createReceiptUploadUrlsAction,
+    });
+    if (outcome.formError) {
+      setErr(outcome.formError);
+    } else if (outcome.refs.length > 0) {
+      const fd = new FormData();
+      fd.set('uploads', JSON.stringify(outcome.refs));
+      const fin = await uploadReceiptAttachmentAction(receiptId, {}, fd);
+      if (fin.formError) setErr(fin.formError);
+    }
+    if (!outcome.formError && outcome.failures.length > 0) {
+      setErr(outcome.failures.join(' / '));
+    }
+  }
+
   async function addReceiptWithFiles(files: File[]) {
     if (files.length === 0) return;
     setErr(null);
@@ -303,21 +327,27 @@ export function MatchPanel(props: MatchPanelProps) {
         setErr(res.error ?? 'Could not add receipt.');
         return;
       }
-      const outcome = await directUploadFiles({
-        files,
-        requestUrls: createReceiptUploadUrlsAction,
-      });
-      if (outcome.formError) {
-        setErr(outcome.formError);
-      } else if (outcome.refs.length > 0) {
-        const fd = new FormData();
-        fd.set('uploads', JSON.stringify(outcome.refs));
-        const fin = await uploadReceiptAttachmentAction(res.receiptId, {}, fd);
-        if (fin.formError) setErr(fin.formError);
-      }
-      if (!outcome.formError && outcome.failures.length > 0) {
-        setErr(outcome.failures.join(' / '));
-      }
+      await uploadFilesToReceipt(res.receiptId, files);
+      router.refresh();
+    } catch {
+      setErr(
+        'Could not upload the receipt — check your connection and try again.',
+      );
+    } finally {
+      setReceiptUploading(false);
+    }
+  }
+
+  // Already matched to a receipt: extra files (a second paper receipt, a
+  // delivery slip, the card slip) attach to that same receipt — no need to
+  // unmatch first.
+  async function appendFilesToMatchedReceipt(files: File[]) {
+    const receiptId = props.active?.receiptId;
+    if (!receiptId || files.length === 0) return;
+    setErr(null);
+    setReceiptUploading(true);
+    try {
+      await uploadFilesToReceipt(receiptId, files);
       router.refresh();
     } catch {
       setErr(
@@ -342,30 +372,70 @@ export function MatchPanel(props: MatchPanelProps) {
 
   // ----- Reconciled state -----
   if (props.active) {
+    const matchedReceiptId =
+      props.active.matchType === 'receipt' ? props.active.receiptId : null;
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
         <div className="flex items-center justify-between gap-2">
           <div className="text-emerald-900">
             <span className="font-semibold">Reconciled</span> —{' '}
-            {props.active.targetLabel}
+            {matchedReceiptId ? (
+              <a
+                href={`/banking/receipts/${matchedReceiptId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-emerald-700"
+              >
+                {props.active.targetLabel}
+              </a>
+            ) : (
+              props.active.targetLabel
+            )}
           </div>
-          {props.canEdit && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() =>
-                runAndRefresh(() =>
-                  unmatchTransactionAction({
-                    transactionId: props.transactionId,
-                  }),
-                )
-              }
-            >
-              {pending ? '…' : 'Unmatch'}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {props.canEdit && matchedReceiptId && (
+              <label
+                className={`inline-flex items-center justify-center rounded-md border border-emerald-300 bg-white px-2.5 h-7 text-xs font-medium text-emerald-900 hover:bg-emerald-100 focus-within:ring-2 focus-within:ring-emerald-400 ${
+                  pending || receiptUploading
+                    ? 'opacity-50 pointer-events-none'
+                    : 'cursor-pointer'
+                }`}
+                aria-disabled={pending || receiptUploading}
+                title="Attach more receipt files (photos or PDFs) to the matched receipt"
+              >
+                {receiptUploading ? 'Uploading…' : '+ Add file'}
+                <input
+                  type="file"
+                  accept={RECEIPT_ACCEPT}
+                  multiple
+                  className="sr-only"
+                  disabled={pending || receiptUploading}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    e.target.value = '';
+                    void appendFilesToMatchedReceipt(files);
+                  }}
+                />
+              </label>
+            )}
+            {props.canEdit && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() =>
+                  runAndRefresh(() =>
+                    unmatchTransactionAction({
+                      transactionId: props.transactionId,
+                    }),
+                  )
+                }
+              >
+                {pending ? '…' : 'Unmatch'}
+              </Button>
+            )}
+          </div>
         </div>
         {err && <p className="mt-1 text-red-700">{err}</p>}
       </div>

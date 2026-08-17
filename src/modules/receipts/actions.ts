@@ -477,6 +477,11 @@ export async function uploadReceiptAttachmentAction(
   const failures: string[] = [];
   let okCount = 0;
 
+  // Dev-demo auth uses a synthetic user id that isn't in the users table —
+  // stamp uploaded-by only when the id really exists so the FK can't fail.
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const uploadedByUserId = knownUsers.has(user.id) ? user.id : null;
+
   // Direct-to-storage refs: blob already in the bucket — verify + record.
   for (const ref of refs) {
     const verified = await verifyReceiptUploadRef(companyId, ref);
@@ -496,7 +501,7 @@ export async function uploadReceiptAttachmentAction(
           verified.mimeType === 'application/pdf'
             ? 'supplier_invoice'
             : 'receipt_image',
-        uploadedByUserId: user.id,
+        uploadedByUserId,
       });
       okCount++;
     } catch (err) {
@@ -532,7 +537,7 @@ export async function uploadReceiptAttachmentAction(
         byteSize: file.size,
         originalFilename: file.name,
         kind: mime === 'application/pdf' ? 'supplier_invoice' : 'receipt_image',
-        uploadedByUserId: user.id,
+        uploadedByUserId,
       });
       okCount++;
     } catch (err) {

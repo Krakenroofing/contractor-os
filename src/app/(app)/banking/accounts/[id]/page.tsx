@@ -875,6 +875,10 @@ export default async function BankAccountDetailPage({
                                       matchType:
                                         activeMatch.matchType as ActiveMatchType,
                                       targetLabel: activeLabel || 'Reconciled',
+                                      receiptId:
+                                        activeMatch.matchType === 'receipt'
+                                          ? activeMatch.receiptId
+                                          : null,
                                     }
                                   : null
                               }
