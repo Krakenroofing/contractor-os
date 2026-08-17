@@ -28,6 +28,13 @@ import {
   STATUS_TONE as PO_STATUS_TONE,
 } from '@/modules/purchase-orders/schema';
 import { ArchiveVendorForm } from '@/modules/vendors/components/archive-vendor-form';
+import {
+  VendorCreditsCard,
+  type VendorCreditView,
+} from '@/modules/vendors/components/vendor-credits-card';
+import { listVendorCredits } from '@/lib/data/vendor-credits';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { TYPE_LABEL, TYPE_TONE } from '@/modules/vendors/schema';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +58,21 @@ export default async function VendorDetailPage({
     includeIgnored: true,
     limit: 100,
   });
+  const [vendorCredits, allAccounts] = await Promise.all([
+    listVendorCredits(companyId, { vendorId: vendor.id }),
+    listAccountingAccounts(companyId),
+  ]);
+  const accountNameById = new Map(allAccounts.map((a) => [a.id, a.name]));
+  const creditViews: VendorCreditView[] = vendorCredits.map((c) => ({
+    id: c.id,
+    creditDate: c.creditDate,
+    amount: Number(c.amount),
+    appliedTotal: c.appliedTotal,
+    categoryName: accountNameById.get(c.accountingAccountId) ?? '—',
+    reference: c.reference,
+    notes: c.notes,
+  }));
+  const canManageCredits = canCreate(role, 'receipts');
 
   let committed = 0;
   let received = 0;
@@ -192,6 +214,17 @@ export default async function VendorDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <VendorCreditsCard
+        vendorId={vendor.id}
+        credits={creditViews}
+        accountOptions={toAccountingAccountOptions(
+          allAccounts.filter(
+            (a) => a.type !== 'bank' && a.type !== 'credit_card',
+          ),
+        )}
+        canEdit={canManageCredits}
+      />
 
       <Card>
         <CardHeader>

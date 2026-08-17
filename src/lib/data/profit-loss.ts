@@ -33,6 +33,10 @@ import {
   receiptLines,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import {
+  listVendorCreditsForAccount,
+  sumVendorCreditsByAccount,
+} from '@/lib/data/vendor-credits';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
 import { getCompany } from '@/lib/data/companies';
@@ -776,6 +780,24 @@ export async function buildProfitLossReport(
     accumulate(payrollRows);
   }
 
+  // ----- Expense side (5): vendor credits (contra) -----
+  // A vendor credit reduces the expense category it was issued against, the
+  // same way it reduces AP on the GL — so the category's statement line is
+  // net of credits.
+  const vendorCreditRows = await sumVendorCreditsByAccount(companyId, {
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+  });
+  accumulate(
+    vendorCreditRows.map((r) => ({
+      accountId: r.accountingAccountId,
+      accountName: r.accountName,
+      rollupGroup: r.rollupGroup,
+      total: (-r.total).toFixed(2),
+      count: r.count,
+    })),
+  );
+
   const cogsAccounts: ProfitLossAccountRow[] = [];
   const opexAccounts: ProfitLossAccountRow[] = [];
   let cogsTotal = 0;
@@ -872,7 +894,7 @@ export type ProfitLossAccountEntry = {
   date: string;
   description: string;
   amount: number;
-  source: 'Bank transaction' | 'Job cost' | 'Payroll' | 'Receipt';
+  source: 'Bank transaction' | 'Job cost' | 'Payroll' | 'Receipt' | 'Vendor credit';
   /** Source row id so the drill-down can deep-link to the full record.
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
@@ -1168,7 +1190,24 @@ export async function listProfitLossAccountEntries(
     .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
     .where(and(...receiptConds));
 
+  // Vendor credits against this category — contra rows (negative), mirrors
+  // report expense source 5.
+  const vendorCreditEntries = await listVendorCreditsForAccount(
+    companyId,
+    accountId,
+    { from: filters.from || undefined, to: filters.to || undefined },
+  );
+
   const entries: ProfitLossAccountEntry[] = [
+    ...vendorCreditEntries.map((vc) => ({
+      date: vc.creditDate,
+      description: `Vendor credit${vc.reference ? ` ${vc.reference}` : ''}${
+        vc.notes ? ` — ${vc.notes}` : ''
+      }`,
+      amount: -Number(vc.amount),
+      source: 'Vendor credit' as const,
+      vendorId: vc.vendorId,
+    })),
     ...payrollEntries,
     ...jceRows.map((r) => ({
       date: r.date,

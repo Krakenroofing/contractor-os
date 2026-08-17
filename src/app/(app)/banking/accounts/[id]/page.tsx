@@ -40,6 +40,7 @@ import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listBankReconciliations } from '@/lib/data/bank-reconciliations';
+import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
@@ -252,12 +253,23 @@ export default async function BankAccountDetailPage({
         customerName: cust?.name ?? '—',
       };
     });
+  // Vendor credits reduce what a bill's bank payment should be — candidates
+  // match on the NET due (total − applied credits), which is exactly how a
+  // payment of (bill − credit) reconciles.
+  const appliedCreditByReceipt = await sumAppliedCreditsByReceipt(
+    company.id,
+    receipts.map((r) => r.id),
+  );
   const receiptCandidates: ReceiptCandidate[] = receipts.map((r) => {
     const v = r.vendorId ? vendorById.get(r.vendorId) : null;
+    const netDue =
+      Math.round(
+        (Number(r.total) - (appliedCreditByReceipt.get(r.id) ?? 0)) * 100,
+      ) / 100;
     return {
       id: r.id,
       receiptDate: r.receiptDate,
-      amount: Number(r.total),
+      amount: netDue,
       vendorName: v?.name ?? 'Receipt',
       description: r.notes ?? '',
     };
@@ -379,7 +391,11 @@ export default async function BankAccountDetailPage({
         (r) =>
           !takenReceiptIds.has(r.id) &&
           r.receiptDate === t.transactionDate &&
-          Math.round(Math.abs(Number(r.total)) * 100) === absCents,
+          Math.round(
+            Math.abs(
+              Number(r.total) - (appliedCreditByReceipt.get(r.id) ?? 0),
+            ) * 100,
+          ) === absCents,
       );
       if (has) exactPairCount += 1;
     }

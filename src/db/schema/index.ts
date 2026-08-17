@@ -24,6 +24,7 @@ export * from './accounting-accounts';
 export * from './general-ledger';
 export * from './bank-accounts';
 export * from './bank-reconciliations';
+export * from './vendor-credits';
 export * from './statement-imports';
 export * from './banking-rules';
 export * from './receipts';

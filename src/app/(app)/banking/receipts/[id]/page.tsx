@@ -36,6 +36,15 @@ import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
 import { isOcrConfigured } from '@/lib/ocr/document-ai';
 import { createSignedReceiptUrl } from '@/lib/storage/receipt-files';
 import { toMoneyString } from '@/lib/money';
+import {
+  listApplicationsForReceipts,
+  listVendorCredits,
+} from '@/lib/data/vendor-credits';
+import {
+  ReceiptVendorCreditsCard,
+  type AppliedCreditView,
+  type OpenCreditOption,
+} from '@/modules/receipts/components/receipt-vendor-credits-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,6 +146,34 @@ export default async function ReceiptDetailPage({
       kind: a.kind,
     })),
   );
+
+  // Vendor credits: what's applied to this bill + the vendor's open credits.
+  const creditApplications = await listApplicationsForReceipts(company.id, [
+    receipt.id,
+  ]);
+  const vendorCreditList = receipt.vendorId
+    ? await listVendorCredits(company.id, { vendorId: receipt.vendorId })
+    : [];
+  const creditById = new Map(vendorCreditList.map((c) => [c.id, c]));
+  const appliedCreditViews: AppliedCreditView[] = creditApplications.map(
+    (a) => {
+      const c = creditById.get(a.creditId);
+      return {
+        applicationId: a.id,
+        creditDate: c?.creditDate ?? '',
+        reference: c?.reference ?? null,
+        amount: Number(a.amount),
+      };
+    },
+  );
+  const openCreditOptions: OpenCreditOption[] = vendorCreditList
+    .map((c) => ({
+      creditId: c.id,
+      creditDate: c.creditDate,
+      reference: c.reference,
+      available: Math.round((Number(c.amount) - c.appliedTotal) * 100) / 100,
+    }))
+    .filter((c) => c.available > 0.005);
 
   const canEdit = canCreate(role, 'receipts');
   const canSubmit = canCreate(role, 'receipts');
@@ -354,6 +391,14 @@ export default async function ReceiptDetailPage({
               )}
             </CardContent>
           </Card>
+
+          <ReceiptVendorCreditsCard
+            receiptId={receipt.id}
+            receiptTotal={Number(receipt.total)}
+            applied={appliedCreditViews}
+            openCredits={openCreditOptions}
+            canEdit={canEdit}
+          />
         </div>
       </div>
     </div>
