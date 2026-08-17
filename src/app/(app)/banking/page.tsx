@@ -123,12 +123,22 @@ export default async function BankingHome() {
                       {formatMoney(a.openingBalance, a.currency)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link
-                        href={{ pathname: `/banking/accounts/${a.id}` }}
-                        className="text-xs underline text-slate-600 hover:text-slate-900"
-                      >
-                        View
-                      </Link>
+                      <span className="inline-flex items-center gap-3">
+                        <Link
+                          href={{ pathname: `/banking/accounts/${a.id}` }}
+                          className="text-xs underline text-slate-600 hover:text-slate-900"
+                        >
+                          View
+                        </Link>
+                        {canCreateBank && (
+                          <Link
+                            href={{ pathname: `/banking/accounts/${a.id}/edit` }}
+                            className="text-xs underline text-slate-600 hover:text-slate-900"
+                          >
+                            Edit
+                          </Link>
+                        )}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}

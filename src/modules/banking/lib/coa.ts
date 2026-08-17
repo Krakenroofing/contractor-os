@@ -7,7 +7,7 @@
 // companies (Kraken) never see VAT Payable / VAT Input in their COA.
 
 import 'server-only';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { accountingAccounts, type AccountingAccount } from '@/db/schema';
 import type { Company } from '@/db/schema';
@@ -88,6 +88,35 @@ export async function ensureDefaultCoaForCompany(
  * posting. We do not assign a `code` to these auto-rows; users can name them
  * freely.
  */
+/** Keep the paired chart-of-accounts entry in sync when a bank account is
+ *  edited: name follows, and a bank↔credit-card type flip also flips the
+ *  rollup (bank = asset, CC balance = liability). */
+export async function updatePairedAccountingAccount(input: {
+  companyId: string;
+  accountingAccountId: string;
+  name: string;
+  type: 'bank' | 'credit_card';
+  currency: string;
+}): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  await db
+    .update(accountingAccounts)
+    .set({
+      name: input.name,
+      type: input.type,
+      rollupGroup: input.type === 'bank' ? 'asset' : 'liability',
+      currency: input.currency,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(accountingAccounts.id, input.accountingAccountId),
+        eq(accountingAccounts.companyId, input.companyId),
+      ),
+    );
+}
+
 export async function createPairedAccountingAccount(input: {
   companyId: string;
   name: string;

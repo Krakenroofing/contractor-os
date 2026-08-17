@@ -19,6 +19,7 @@ import {
 import {
   createBankAccount,
   getBankAccount,
+  updateBankAccount,
 } from '@/lib/data/bank-accounts';
 import {
   createImportBatch,
@@ -73,6 +74,7 @@ import { createReceipt, getReceipt, listReceipts } from '@/lib/data/receipts';
 import {
   ensureDefaultCoaForCompany,
   createPairedAccountingAccount,
+  updatePairedAccountingAccount,
 } from './lib/coa';
 import { parseStatementBytes } from './lib/parse';
 import { commitImport, previewMapping } from './lib/import';
@@ -141,6 +143,67 @@ export async function createBankAccountAction(
     openingDate: parsed.data.openingDate,
   });
   revalidatePath('/banking');
+  return { ok: true };
+}
+
+// Edit an existing account — fixes a wrong type (bank vs credit card), name,
+// last-4, currency, or the opening balance/date. The paired chart-of-accounts
+// entry follows (a type flip also flips its asset/liability rollup). Opening
+// changes take full effect on the balance sheet at the next GL rebuild.
+export async function updateBankAccountAction(
+  _prev: BankingActionState,
+  formData: FormData,
+): Promise<BankingActionState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'bank_accounts')) {
+    return { formError: 'You do not have permission to edit bank accounts.' };
+  }
+  const company = await getActiveCompany();
+  const id = String(formData.get('id') ?? '');
+  if (!z.string().uuid().safeParse(id).success) {
+    return { formError: 'Missing account id.' };
+  }
+  const parsed = createBankAccountSchema.safeParse({
+    name: formData.get('name') ?? '',
+    type: formData.get('type') ?? 'bank',
+    last4: formData.get('last4') ?? '',
+    currency: formData.get('currency') ?? company.defaultCurrency,
+    openingBalance: formData.get('openingBalance') ?? '0',
+    openingDate: formData.get('openingDate') ?? '',
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const existing = await getBankAccount(company.id, id);
+  if (!existing) return { formError: 'Account not found.' };
+
+  try {
+    await updateBankAccount(company.id, id, {
+      name: parsed.data.name,
+      type: parsed.data.type,
+      last4: parsed.data.last4,
+      currency: parsed.data.currency,
+      openingBalance: toMoneyString(Number(parsed.data.openingBalance || 0)),
+      openingDate: parsed.data.openingDate,
+    });
+    if (existing.accountingAccountId) {
+      await updatePairedAccountingAccount({
+        companyId: company.id,
+        accountingAccountId: existing.accountingAccountId,
+        name: parsed.data.name,
+        type: parsed.data.type,
+        currency: parsed.data.currency,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to save the account: ${message}` };
+  }
+
+  revalidatePath('/banking');
+  revalidatePath(`/banking/accounts/${id}`);
   return { ok: true };
 }
 

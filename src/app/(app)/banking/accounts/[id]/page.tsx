@@ -438,6 +438,11 @@ export default async function BankAccountDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canCreate(role, 'bank_accounts') && (
+            <Link href={{ pathname: `/banking/accounts/${account.id}/edit` }}>
+              <Button variant="outline">Edit account</Button>
+            </Link>
+          )}
           {canEdit && (
             <Link href={{ pathname: `/banking/accounts/${account.id}/categorize` }}>
               <Button variant="outline">Categorize to jobs</Button>

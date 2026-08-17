@@ -56,3 +56,22 @@ export async function createBankAccount(
   const [row] = await db.insert(bankAccounts).values(input).returning();
   return row;
 }
+
+export async function updateBankAccount(
+  companyId: string,
+  id: string,
+  patch: Partial<
+    Pick<
+      NewBankAccount,
+      'name' | 'type' | 'last4' | 'currency' | 'openingBalance' | 'openingDate'
+    >
+  >,
+): Promise<BankAccount | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(bankAccounts)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(and(eq(bankAccounts.id, id), eq(bankAccounts.companyId, companyId)))
+    .returning();
+  return rows[0];
+}
