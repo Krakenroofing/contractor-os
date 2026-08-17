@@ -33,6 +33,8 @@ export const teamTasks = pgTable(
     createdByName: text('created_by_name').notNull().default(''),
 
     body: text('body').notNull().default(''),
+    // "(edited)" marker — null until the body is first edited.
+    editedAt: timestamp('edited_at', { withTimezone: true }),
     status: teamTaskStatusEnum('status').notNull().default('open'),
 
     resolvedBy: uuid('resolved_by').references(() => users.id, {
@@ -114,6 +116,8 @@ export const teamTaskReplies = pgTable(
     }),
     createdByName: text('created_by_name').notNull().default(''),
     body: text('body').notNull().default(''),
+    // "(edited)" marker — null until the body is first edited.
+    editedAt: timestamp('edited_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

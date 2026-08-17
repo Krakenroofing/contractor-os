@@ -230,6 +230,47 @@ export async function getTeamTaskReply(
   return rows[0];
 }
 
+export async function updateTeamTaskReplyBody(
+  companyId: string,
+  id: string,
+  body: string,
+): Promise<TeamTaskReply | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(teamTaskReplies)
+    .set({ body, editedAt: new Date() })
+    .where(
+      and(
+        eq(teamTaskReplies.id, id),
+        eq(teamTaskReplies.companyId, companyId),
+        isNull(teamTaskReplies.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+export async function updateTeamTaskBody(
+  companyId: string,
+  id: string,
+  body: string,
+): Promise<TeamTask | undefined> {
+  const db = requireDb();
+  const now = new Date();
+  const rows = await db
+    .update(teamTasks)
+    .set({ body, editedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(teamTasks.id, id),
+        eq(teamTasks.companyId, companyId),
+        isNull(teamTasks.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
 export async function softDeleteTeamTaskReply(
   companyId: string,
   id: string,

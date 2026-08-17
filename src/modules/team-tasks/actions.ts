@@ -17,6 +17,8 @@ import {
   reopenTeamTask,
   softDeleteTeamTask,
   softDeleteTeamTaskReply,
+  updateTeamTaskBody,
+  updateTeamTaskReplyBody,
   TeamTasksNotAvailableInDemoError,
 } from '@/lib/data/team-tasks';
 import {
@@ -313,6 +315,81 @@ export async function replyToTeamTaskAction(
     }
     return {
       formError: err instanceof Error ? err.message : 'Could not post the reply.',
+    };
+  }
+  revalidatePath('/dashboard');
+  return { ok: true };
+}
+
+export async function editTeamTaskReplyAction(
+  replyId: string,
+  _prev: TeamTaskActionState,
+  formData: FormData,
+): Promise<TeamTaskActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!idSchema.safeParse(replyId).success) {
+    return { formError: 'Missing or invalid reply id.' };
+  }
+  const body = String(formData.get('body') ?? '').trim();
+  if (body === '') return { formError: 'A reply cannot be empty — delete it instead.' };
+  if (body.length > 4000) {
+    return { formError: 'Your reply is too long. Trim it and try again.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const existing = await getTeamTaskReply(companyId, replyId);
+  if (!existing) return { formError: 'Reply not found.' };
+
+  // Mirrors delete: admins edit anything, others only their own.
+  const isAdmin = canResolveTeamTask(role);
+  const isOwn = existing.createdBy === user.id;
+  if (!isAdmin && !isOwn) {
+    return { formError: 'You can only edit replies you posted.' };
+  }
+
+  try {
+    await updateTeamTaskReplyBody(companyId, replyId, body);
+  } catch (err) {
+    return {
+      formError: err instanceof Error ? err.message : 'Could not save the edit.',
+    };
+  }
+  revalidatePath('/dashboard');
+  return { ok: true };
+}
+
+export async function editTeamTaskAction(
+  taskId: string,
+  _prev: TeamTaskActionState,
+  formData: FormData,
+): Promise<TeamTaskActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!idSchema.safeParse(taskId).success) {
+    return { formError: 'Missing or invalid task id.' };
+  }
+  const body = String(formData.get('body') ?? '').trim();
+  if (body === '') {
+    return { formError: 'A note cannot be empty — delete it instead.' };
+  }
+  if (body.length > 4000) {
+    return { formError: 'Your note is too long. Trim it and try again.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const existing = await getTeamTask(companyId, taskId);
+  if (!existing) return { formError: 'Note not found.' };
+
+  const isAdmin = canResolveTeamTask(role);
+  const isOwn = existing.createdBy === user.id;
+  if (!isAdmin && !isOwn) {
+    return { formError: 'You can only edit notes you posted.' };
+  }
+
+  try {
+    await updateTeamTaskBody(companyId, taskId, body);
+  } catch (err) {
+    return {
+      formError: err instanceof Error ? err.message : 'Could not save the edit.',
     };
   }
   revalidatePath('/dashboard');

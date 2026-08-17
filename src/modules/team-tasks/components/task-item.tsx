@@ -9,6 +9,8 @@ import {
   reopenTeamTaskAction,
   deleteTeamTaskAction,
   deleteTeamTaskReplyAction,
+  editTeamTaskAction,
+  editTeamTaskReplyAction,
   replyToTeamTaskAction,
   type TeamTaskActionState,
 } from '../actions';
@@ -87,15 +89,13 @@ export function TaskItem({
             <span>{relativeTime(task.createdAtISO)}</span>
             {done && <Badge tone="green">Done</Badge>}
           </div>
-          {task.body && (
-            <p
-              className={`mt-1 text-sm whitespace-pre-wrap break-words ${
-                done ? 'text-slate-500' : 'text-slate-900'
-              }`}
-            >
-              {task.body}
-            </p>
-          )}
+          <EditableBody
+            body={task.body}
+            edited={task.edited}
+            muted={done}
+            canEdit={canDelete}
+            editAction={editTeamTaskAction.bind(null, task.id)}
+          />
           {task.attachments.length > 0 && (
             <div className="mt-1.5 space-y-1.5">
               {/* Image attachments render as thumbnails — click opens the
@@ -262,31 +262,165 @@ function ReplyThread({
 }
 
 function ReplyRow({ reply }: { reply: TeamTaskReplyView }) {
+  const [editing, setEditing] = useState(false);
   const [, deleteAction] = useActionState<TeamTaskActionState, FormData>(
     deleteTeamTaskReplyAction.bind(null, reply.id),
     {},
   );
+  const [editState, editFormAction, editPending] = useActionState<
+    TeamTaskActionState,
+    FormData
+  >(async (prev, fd) => {
+    const res = await editTeamTaskReplyAction(reply.id, prev, fd);
+    if (res.ok) setEditing(false);
+    return res;
+  }, {});
+
   return (
     <li className="group text-sm">
       <div className="flex items-center gap-2 text-xs text-slate-500">
         <span className="font-medium text-slate-700">{reply.createdByName}</span>
         <span>·</span>
         <span>{relativeTime(reply.createdAtISO)}</span>
-        <form action={deleteAction} className="hidden group-hover:block">
-          <ConfirmButton
+        {reply.edited && <span className="text-slate-400">(edited)</span>}
+        {!editing && (
+          <span className="hidden items-center gap-1 group-hover:inline-flex">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="h-5 rounded px-1 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Edit reply"
+            >
+              ✎
+            </button>
+            <form action={deleteAction}>
+              <ConfirmButton
+                size="sm"
+                variant="ghost"
+                confirmLabel="Sure?"
+                pendingLabel="…"
+                className="h-5 px-1 text-[11px] text-slate-400"
+              >
+                ✕
+              </ConfirmButton>
+            </form>
+          </span>
+        )}
+      </div>
+      {editing ? (
+        <form action={editFormAction} className="mt-1 space-y-1.5">
+          <textarea
+            name="body"
+            rows={2}
+            autoFocus
+            defaultValue={reply.body}
+            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          />
+          <div className="flex items-center gap-2">
+            <Button type="submit" size="sm" disabled={editPending}>
+              {editPending ? 'Saving…' : 'Save'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </Button>
+            {editState.formError && (
+              <span className="text-xs text-red-600">{editState.formError}</span>
+            )}
+          </div>
+        </form>
+      ) : (
+        <p className="whitespace-pre-wrap break-words text-slate-800">
+          {reply.body}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** The note's own body with an inline edit mode (admins any note, posters
+ *  their own — enforced server-side; the pencil shows when `canEdit`). */
+function EditableBody({
+  body,
+  edited,
+  muted,
+  canEdit,
+  editAction,
+}: {
+  body: string;
+  edited: boolean;
+  muted: boolean;
+  canEdit: boolean;
+  editAction: (
+    prev: TeamTaskActionState,
+    fd: FormData,
+  ) => Promise<TeamTaskActionState>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [state, formAction, pending] = useActionState<
+    TeamTaskActionState,
+    FormData
+  >(async (prev, fd) => {
+    const res = await editAction(prev, fd);
+    if (res.ok) setEditing(false);
+    return res;
+  }, {});
+
+  if (editing) {
+    return (
+      <form action={formAction} className="mt-1 space-y-1.5">
+        <textarea
+          name="body"
+          rows={3}
+          autoFocus
+          defaultValue={body}
+          className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+        />
+        <div className="flex items-center gap-2">
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? 'Saving…' : 'Save'}
+          </Button>
+          <Button
+            type="button"
             size="sm"
             variant="ghost"
-            confirmLabel="Sure?"
-            pendingLabel="…"
-            className="h-5 px-1 text-[11px] text-slate-400"
+            onClick={() => setEditing(false)}
           >
-            ✕
-          </ConfirmButton>
-        </form>
-      </div>
-      <p className="whitespace-pre-wrap break-words text-slate-800">
-        {reply.body}
-      </p>
-    </li>
+            Cancel
+          </Button>
+          {state.formError && (
+            <span className="text-xs text-red-600">{state.formError}</span>
+          )}
+        </div>
+      </form>
+    );
+  }
+
+  if (!body) return null;
+  return (
+    <p
+      className={`group/body mt-1 text-sm whitespace-pre-wrap break-words ${
+        muted ? 'text-slate-500' : 'text-slate-900'
+      }`}
+    >
+      {body}
+      {edited && (
+        <span className="ml-1.5 text-[11px] text-slate-400">(edited)</span>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="ml-1.5 rounded px-1 text-[11px] text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover/body:opacity-100"
+          aria-label="Edit note"
+        >
+          ✎ Edit
+        </button>
+      )}
+    </p>
   );
 }

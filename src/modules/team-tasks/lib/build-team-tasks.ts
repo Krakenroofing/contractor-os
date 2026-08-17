@@ -18,6 +18,7 @@ export type TeamTaskReplyView = {
   createdByName: string;
   createdAtISO: string;
   body: string;
+  edited: boolean;
 };
 
 export type TeamTaskView = {
@@ -29,6 +30,7 @@ export type TeamTaskView = {
   createdAtISO: string;
   resolvedByName: string | null;
   resolvedAtISO: string | null;
+  edited: boolean;
   attachments: TeamTaskAttachmentView[];
   replies: TeamTaskReplyView[];
 };
@@ -70,6 +72,7 @@ export async function buildTeamTasks(companyId: string): Promise<{
       createdByName: r.createdByName || 'Team member',
       createdAtISO: r.createdAt.toISOString(),
       body: r.body,
+      edited: r.editedAt !== null,
     });
     repliesByTask.set(r.taskId, list);
   }
@@ -84,6 +87,7 @@ export async function buildTeamTasks(companyId: string): Promise<{
       createdAtISO: t.createdAt.toISOString(),
       resolvedByName: t.resolvedByName,
       resolvedAtISO: t.resolvedAt ? t.resolvedAt.toISOString() : null,
+      edited: t.editedAt !== null,
       attachments: byTask.get(t.id) ?? [],
       replies: repliesByTask.get(t.id) ?? [],
     })),
