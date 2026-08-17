@@ -518,8 +518,10 @@ export async function commitImportAction(
 // edit notes/payee/memo. Phase 1 explicitly does NOT post these anywhere.
 
 // Split lines arrive as a JSON-encoded hidden field (dynamic count). Amount is
-// coerced from string|number and must be a positive money value; the per-line
-// total is validated against the parent's gross in the action.
+// coerced from string|number and must be non-zero — NEGATIVE lines are allowed
+// so income and expense can share one transaction (e.g. a deposit that is
+// revenue minus a small bank charge); the SIGNED sum is validated against the
+// parent's gross in the action.
 const splitLineParseSchema = z.object({
   // Category is OPTIONAL on a split line. This lets the operator auto-split
   // VAT (net + VAT-input) on a transaction NOW and assign the cost category to
@@ -532,7 +534,10 @@ const splitLineParseSchema = z.object({
   projectId: z.union([z.string(), z.null()]).optional(),
   costCodeId: z.union([z.string(), z.null()]).optional(),
   description: z.union([z.string().max(500), z.null()]).optional(),
-  amount: z.coerce.number().finite().positive(),
+  amount: z.coerce
+    .number()
+    .finite()
+    .refine((v) => Math.abs(v) >= 0.005, 'Line amount cannot be zero.'),
 });
 const splitLinesParseSchema = z.array(splitLineParseSchema).max(50);
 
@@ -594,7 +599,7 @@ export async function updateImportedTransactionAction(
     const result = splitLinesParseSchema.safeParse(rawLines);
     if (!result.success) {
       return {
-        formError: 'Each split line needs an amount greater than zero.',
+        formError: 'Each split line needs a non-zero amount.',
       };
     }
     const lines = result.data;

@@ -473,12 +473,16 @@ export async function postBankTxnToGl(
     // cleared = bank amount − fees.
     let feeTotal = 0;
     for (const l of splitLines) {
-      const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;
+      const signed = Number(l.amount);
+      const amt = Math.round(Math.abs(signed) * 100) / 100;
       if (amt <= 0) continue;
-      feeTotal += amt;
+      // Signed: a NEGATIVE fee line posts on the opposite side (a refund
+      // inside the payment) and enlarges the AP cleared instead of shrinking it.
+      feeTotal += signed > 0 ? amt : -amt;
       const acct = l.accountingAccountId ?? accounts.uncatExpense;
+      const creditSide = signed > 0 ? isDeposit : !isDeposit;
       lines.push(
-        isDeposit
+        creditSide
           ? { accountId: acct, debit: 0, credit: amt, projectId: l.projectId }
           : { accountId: acct, debit: amt, credit: 0, projectId: l.projectId },
       );
@@ -493,13 +497,19 @@ export async function postBankTxnToGl(
     }
   } else if (splitLines.length > 0) {
     for (const l of splitLines) {
-      const amt = Math.round(Math.abs(Number(l.amount)) * 100) / 100;
+      const signed = Number(l.amount);
+      const amt = Math.round(Math.abs(signed) * 100) / 100;
       if (amt <= 0) continue;
+      // Signed line amounts: a NEGATIVE line posts on the opposite side, so
+      // one transaction can mix income and expense (e.g. a deposit that is
+      // revenue minus a small charge). The signed sum equals the txn amount
+      // (validated on save), so the entry still balances against the bank line.
+      const creditSide = signed > 0 ? isDeposit : !isDeposit;
       const acct =
         l.accountingAccountId ??
-        (isDeposit ? accounts.uncatIncome : accounts.uncatExpense);
+        (creditSide ? accounts.uncatIncome : accounts.uncatExpense);
       lines.push(
-        isDeposit
+        creditSide
           ? { accountId: acct, debit: 0, credit: amt, projectId: l.projectId }
           : { accountId: acct, debit: amt, credit: 0, projectId: l.projectId },
       );

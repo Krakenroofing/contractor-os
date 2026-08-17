@@ -352,7 +352,6 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
                 <Input
                   type="number"
                   step="0.01"
-                  min="0"
                   value={l.amount}
                   onChange={(e) => setLine(i, { amount: e.target.value })}
                   placeholder="0.00"
