@@ -21,6 +21,8 @@ import {
   accountingAccounts,
   creditMemos,
   employees,
+  journalEntries,
+  journalLines,
   importedTransactions,
   importedTransactionLines,
   transactionMatches,
@@ -780,6 +782,49 @@ export async function buildProfitLossReport(
     accumulate(payrollRows);
   }
 
+  // ----- Expense side (6): MANUAL journal entries -----
+  // Accruals / reclasses typed at /accounting/journal count on the income
+  // statement: for a cogs/opex account a debit adds expense, a credit
+  // reduces it (debit − credit). Reversal entries mirror their original, so
+  // reversed pairs net to zero without special-casing. Income-side manual
+  // lines are intentionally NOT counted — revenue adjustments belong in
+  // invoices / credit memos, which the P&L models with full drill-downs.
+  const manualJeConds = [
+    eq(journalEntries.companyId, companyId),
+    eq(journalEntries.sourceType, 'manual'),
+  ];
+  if (filters.from) manualJeConds.push(gte(journalEntries.entryDate, filters.from));
+  if (filters.to) manualJeConds.push(lte(journalEntries.entryDate, filters.to));
+  const manualJeRows = await db
+    .select({
+      accountId: journalLines.accountId,
+      accountName: accountingAccounts.name,
+      rollupGroup: accountingAccounts.rollupGroup,
+      total: sql<string>`COALESCE(SUM(${journalLines.debit} - ${journalLines.credit}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, journalLines.accountId),
+    )
+    .where(and(...manualJeConds))
+    .groupBy(
+      journalLines.accountId,
+      accountingAccounts.name,
+      accountingAccounts.rollupGroup,
+    );
+  accumulate(
+    manualJeRows.map((r) => ({
+      accountId: r.accountId,
+      accountName: r.accountName,
+      rollupGroup: r.rollupGroup,
+      total: r.total,
+      count: Number(r.count ?? 0),
+    })),
+  );
+
   // ----- Expense side (5): vendor credits (contra) -----
   // A vendor credit reduces the expense category it was issued against, the
   // same way it reduces AP on the GL — so the category's statement line is
@@ -894,7 +939,13 @@ export type ProfitLossAccountEntry = {
   date: string;
   description: string;
   amount: number;
-  source: 'Bank transaction' | 'Job cost' | 'Payroll' | 'Receipt' | 'Vendor credit';
+  source:
+    | 'Bank transaction'
+    | 'Job cost'
+    | 'Payroll'
+    | 'Receipt'
+    | 'Vendor credit'
+    | 'Journal entry';
   /** Source row id so the drill-down can deep-link to the full record.
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
@@ -1198,7 +1249,35 @@ export async function listProfitLossAccountEntries(
     { from: filters.from || undefined, to: filters.to || undefined },
   );
 
+  // Manual journal lines on this account — mirrors expense source 6.
+  const jeLineConds = [
+    eq(journalEntries.companyId, companyId),
+    eq(journalEntries.sourceType, 'manual'),
+    eq(journalLines.accountId, accountId),
+  ];
+  if (filters.from) jeLineConds.push(gte(journalEntries.entryDate, filters.from));
+  if (filters.to) jeLineConds.push(lte(journalEntries.entryDate, filters.to));
+  const jeLineRows = await db
+    .select({
+      date: journalEntries.entryDate,
+      memo: journalEntries.memo,
+      lineDescription: journalLines.description,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.journalEntryId))
+    .where(and(...jeLineConds));
+
   const entries: ProfitLossAccountEntry[] = [
+    ...jeLineRows.map((r) => ({
+      date: r.date,
+      description:
+        [r.memo, r.lineDescription].filter(Boolean).join(' — ') ||
+        'Manual journal entry',
+      amount: Math.round((Number(r.debit) - Number(r.credit)) * 100) / 100,
+      source: 'Journal entry' as const,
+    })),
     ...vendorCreditEntries.map((vc) => ({
       date: vc.creditDate,
       description: `Vendor credit${vc.reference ? ` ${vc.reference}` : ''}${

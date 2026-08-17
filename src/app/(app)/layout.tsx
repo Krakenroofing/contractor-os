@@ -41,6 +41,7 @@ const mainNav: { href: string; label: string; resource: Resource }[] = [
   // rest of Banking — hidden below whenever the full Banking link shows.
   { href: '/banking/receipts', label: 'Receipts', resource: 'receipts' },
   { href: '/accounting/todo', label: 'Accounting To-Do', resource: 'statement_imports' },
+  { href: '/accounting/journal', label: 'Journal / GL', resource: 'accounting_accounts' },
   { href: '/reconciliation', label: 'Reconciliation', resource: 'reconciliation' },
   { href: '/reports', label: 'Reports', resource: 'reports' },
   { href: '/exports', label: 'Exports (CSV)', resource: 'exports' },
