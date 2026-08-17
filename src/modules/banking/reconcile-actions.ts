@@ -37,6 +37,7 @@ import {
 } from '@/lib/data/bank-reconciliations';
 import { getImportedTransaction } from '@/lib/data/statement-imports';
 import { deleteJournalEntriesForSource } from '@/lib/data/general-ledger';
+import { createTransferPairAtomic } from '@/lib/data/transaction-matches';
 import { getUserNamesByIds } from '@/lib/data/users';
 
 const EPSILON = 0.005;
@@ -272,6 +273,147 @@ export async function setAllClearedAction(
   return { ok: true };
 }
 
+// ===== Register add-transaction (QB-style, outside reconciliation) =====
+//
+// The account register can take typed entries directly, like QuickBooks'
+// credit-card / bank register: an expense (money out), a deposit / CC credit
+// (money in), or a transfer between two of our accounts. Transfers create the
+// mirrored entry in the other account and match the pair atomically, so
+// neither side ever lands in the categorization queue or the P&L.
+
+export async function addRegisterTransactionAction(
+  _prev: ReconcileActionState,
+  formData: FormData,
+): Promise<ReconcileActionState> {
+  const auth = await requireReconcilePermission();
+  if ('error' in auth) return { formError: auth.error };
+
+  const optionalId = z
+    .union([idSchema, z.literal('')])
+    .transform((v) => (v === '' ? null : v));
+  const parsed = z
+    .object({
+      bankAccountId: idSchema,
+      transactionDate: dateSchema,
+      description: z.string().trim().min(1, 'Description is required'),
+      entryType: z.enum(['out', 'in', 'transfer']),
+      amount: moneySchema.refine((v) => v > 0, {
+        message: 'Amount must be greater than zero',
+      }),
+      accountingAccountId: optionalId,
+      vendorId: optionalId,
+      projectId: optionalId,
+      /** Transfer only: the OTHER account. */
+      transferAccountId: optionalId,
+      /** Transfer only: 'out' = money leaves this account. */
+      transferDirection: z.enum(['out', 'in']).default('out'),
+    })
+    .safeParse({
+      bankAccountId: formData.get('bankAccountId'),
+      transactionDate: formData.get('transactionDate'),
+      description: formData.get('description'),
+      entryType: formData.get('entryType'),
+      amount: formData.get('amount'),
+      accountingAccountId: formData.get('accountingAccountId') ?? '',
+      vendorId: formData.get('vendorId') ?? '',
+      projectId: formData.get('projectId') ?? '',
+      transferAccountId: formData.get('transferAccountId') ?? '',
+      transferDirection: formData.get('transferDirection') ?? 'out',
+    });
+  if (!parsed.success) {
+    return {
+      formError:
+        parsed.error.issues[0]?.message ?? 'Fill in the transaction fields.',
+    };
+  }
+  const input = parsed.data;
+
+  const account = await getBankAccount(auth.companyId, input.bankAccountId);
+  if (!account) return { formError: 'Bank account not found.' };
+
+  try {
+    const batch = await getOrCreateManualBatch(
+      auth.companyId,
+      input.bankAccountId,
+      auth.userId,
+    );
+
+    if (input.entryType === 'transfer') {
+      if (!input.transferAccountId) {
+        return { formError: 'Pick the other account for the transfer.' };
+      }
+      if (input.transferAccountId === input.bankAccountId) {
+        return { formError: 'A transfer needs two different accounts.' };
+      }
+      const other = await getBankAccount(
+        auth.companyId,
+        input.transferAccountId,
+      );
+      if (!other) return { formError: 'The other account was not found.' };
+
+      const signedHere =
+        input.transferDirection === 'out' ? -input.amount : input.amount;
+      const hereId = await insertManualBankTransaction({
+        companyId: auth.companyId,
+        batchId: batch.id,
+        bankAccountId: input.bankAccountId,
+        transactionDate: input.transactionDate,
+        description: input.description,
+        amount: signedHere,
+        dedupeHash: `manual:${randomUUID()}`,
+        bankReconciliationId: null,
+      });
+      const otherBatch = await getOrCreateManualBatch(
+        auth.companyId,
+        other.id,
+        auth.userId,
+      );
+      const otherId = await insertManualBankTransaction({
+        companyId: auth.companyId,
+        batchId: otherBatch.id,
+        bankAccountId: other.id,
+        transactionDate: input.transactionDate,
+        description: input.description,
+        amount: -signedHere,
+        dedupeHash: `manual:${randomUUID()}`,
+        bankReconciliationId: null,
+      });
+      await createTransferPairAtomic({
+        companyId: auth.companyId,
+        txnAId: hereId,
+        txnBId: otherId,
+        matchedByUserId: auth.userId,
+        notes: 'Manual transfer entered on the register',
+      });
+    } else {
+      const signed =
+        input.entryType === 'out' ? -input.amount : input.amount;
+      await insertManualBankTransaction({
+        companyId: auth.companyId,
+        batchId: batch.id,
+        bankAccountId: input.bankAccountId,
+        transactionDate: input.transactionDate,
+        description: input.description,
+        amount: signed,
+        dedupeHash: `manual:${randomUUID()}`,
+        bankReconciliationId: null,
+        accountingAccountId: input.accountingAccountId,
+        vendorId: input.vendorId,
+        projectId: input.projectId,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { formError: `Failed to add transaction: ${message}` };
+  }
+
+  revalidatePath(`/banking/accounts/${input.bankAccountId}`);
+  if (input.transferAccountId) {
+    revalidatePath(`/banking/accounts/${input.transferAccountId}`);
+  }
+  return { ok: true };
+}
+
 // ===== Edit / delete a manual entry =====
 //
 // Hand-typed lines can be wrong (money out that should have been money in,
@@ -500,6 +642,30 @@ export async function cancelReconciliationAction(
   redirect('/banking/reconcile');
 }
 
+/** Find-or-create the per-account "Manual entries" batch that hand-typed
+ *  bank lines hang off (imported_transactions.batch_id is NOT NULL). */
+async function getOrCreateManualBatch(
+  companyId: string,
+  bankAccountId: string,
+  userId: string | null,
+) {
+  const batches = await listImportBatches(companyId, {
+    bankAccountId,
+    limit: 200,
+  });
+  const existing = batches.find((b) => b.sourceFilename === 'Manual entries');
+  if (existing) return existing;
+  return await createImportBatch({
+    companyId,
+    bankAccountId,
+    status: 'imported',
+    sourceFilename: 'Manual entries',
+    storagePath: 'manual',
+    mimeType: 'manual/entry',
+    uploadedByUserId: userId,
+  });
+}
+
 // ===== Add a missing transaction =====
 //
 // The statement shows a line the import missed (Chris's QB pain point). The
@@ -564,23 +730,11 @@ export async function addManualTransactionAction(
   }
 
   try {
-    // Find-or-create the per-account manual batch.
-    const batches = await listImportBatches(auth.companyId, {
-      bankAccountId: rec.bankAccountId,
-      limit: 200,
-    });
-    let manualBatch = batches.find((b) => b.sourceFilename === 'Manual entries');
-    if (!manualBatch) {
-      manualBatch = await createImportBatch({
-        companyId: auth.companyId,
-        bankAccountId: rec.bankAccountId,
-        status: 'imported',
-        sourceFilename: 'Manual entries',
-        storagePath: 'manual',
-        mimeType: 'manual/entry',
-        uploadedByUserId: auth.userId,
-      });
-    }
+    const manualBatch = await getOrCreateManualBatch(
+      auth.companyId,
+      rec.bankAccountId,
+      auth.userId,
+    );
     const signed =
       input.direction === 'out' ? -input.amount : input.amount;
     await insertManualBankTransaction({

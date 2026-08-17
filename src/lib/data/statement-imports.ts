@@ -48,6 +48,40 @@ function requireDb() {
   return getDb()!;
 }
 
+/**
+ * Statement-style running balance per transaction for one account:
+ * opening balance + cumulative signed amount in bank order
+ * (transaction_date, created_at, id — deterministic within a day).
+ * Ignored rows are excluded from the ledger, exactly like every other
+ * balance surface. Filter-independent: each row's balance reflects the FULL
+ * ledger up to that row, so it stays correct on a filtered register view.
+ */
+export async function getRunningBalancesForAccount(
+  companyId: string,
+  bankAccountId: string,
+  openingBalance: number,
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured()) return new Map();
+  const db = getDb()!;
+  const rows = await db.execute<{ id: string; cum: string }>(sql`
+    SELECT ${importedTransactions.id} AS id,
+           SUM(${importedTransactions.amount}) OVER (
+             ORDER BY ${importedTransactions.transactionDate},
+                      ${importedTransactions.createdAt},
+                      ${importedTransactions.id}
+           ) AS cum
+    FROM ${importedTransactions}
+    WHERE ${importedTransactions.companyId} = ${companyId}
+      AND ${importedTransactions.bankAccountId} = ${bankAccountId}
+      AND ${importedTransactions.isIgnored} = false
+  `);
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    map.set(r.id, Math.round((openingBalance + Number(r.cum)) * 100) / 100);
+  }
+  return map;
+}
+
 // ===== Mappings =====
 
 export async function listMappingsForAccount(

@@ -20,6 +20,7 @@ import { formatMoney } from '@/lib/money';
 import { getBankAccount } from '@/lib/data/bank-accounts';
 import {
   countImportedTransactions,
+  getRunningBalancesForAccount,
   listImportedTransactions,
   listLinesForTransactionIds,
 } from '@/lib/data/statement-imports';
@@ -45,6 +46,7 @@ import { TransactionRulePanel } from '@/modules/banking/components/transaction-r
 import { MatchPanel } from '@/modules/banking/components/match-panel';
 import type { ActiveMatchInfo } from '@/modules/banking/components/match-panel';
 import { BulkAutoMatchButton } from '@/modules/banking/components/bulk-auto-match-button';
+import { RegisterAddTransaction } from '@/modules/banking/components/register-add-transaction';
 
 type ActiveMatchType = ActiveMatchInfo['matchType'];
 import { BANK_ACCOUNT_TYPE_LABEL } from '@/modules/banking/schema';
@@ -171,6 +173,14 @@ export default async function BankAccountDetailPage({
     bankRecs
       .filter((r) => r.status === 'completed')
       .map((r) => [r.id, r.statementDate]),
+  );
+
+  // Register running balance (opening + full-ledger cumulative sum) — correct
+  // per row regardless of the filters applied to the visible list.
+  const runningBalanceById = await getRunningBalancesForAccount(
+    company.id,
+    account.id,
+    Number(account.openingBalance),
   );
 
   // Split lines for the visible transactions (one extra query, batched).
@@ -437,6 +447,14 @@ export default async function BankAccountDetailPage({
             <Button variant="outline">Rules</Button>
           </Link>
           {canEdit && (
+            <Link href={{ pathname: '/accounting/journal' }}>
+              <Button variant="outline">Journal entry</Button>
+            </Link>
+          )}
+          <Link href={{ pathname: '/banking/reconcile' }}>
+            <Button variant="outline">Reconcile</Button>
+          </Link>
+          {canEdit && (
             <BulkAutoMatchButton
               bankAccountId={account.id}
               exactCount={exactPairCount}
@@ -449,6 +467,19 @@ export default async function BankAccountDetailPage({
           )}
         </div>
       </div>
+
+      {canEdit && (
+        <RegisterAddTransaction
+          bankAccountId={account.id}
+          isCreditCard={account.type === 'credit_card'}
+          accountOptions={categories}
+          vendorOptions={vendorOptions.map((v) => ({ id: v.id, label: v.label }))}
+          projectOptions={projectOptions}
+          otherAccounts={bankAccountList
+            .filter((b) => b.id !== account.id && !b.archivedAt)
+            .map((b) => ({ id: b.id, label: b.name }))}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -547,6 +578,7 @@ export default async function BankAccountDetailPage({
                   <TableHead>Payee</TableHead>
                   <TableHead className="text-right">Debit</TableHead>
                   <TableHead className="text-right">Credit</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
                   <TableHead>Reference</TableHead>
                   <TableHead>Flags</TableHead>
                   <TableHead className="text-center">Attach</TableHead>
@@ -727,6 +759,17 @@ export default async function BankAccountDetailPage({
                             <ReconciledR statementDate={reconciledStmtDate} />
                           )}
                         </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${
+                            (runningBalanceById.get(t.id) ?? 0) < 0
+                              ? 'text-red-600'
+                              : 'text-slate-700'
+                          }`}
+                        >
+                          {runningBalanceById.has(t.id)
+                            ? formatMoney(runningBalanceById.get(t.id)!, t.currency)
+                            : '—'}
+                        </TableCell>
                         <TableCell className="text-xs font-mono text-slate-500">
                           {t.reference ?? '—'}
                         </TableCell>
@@ -795,7 +838,7 @@ export default async function BankAccountDetailPage({
                       {showMatchPanel && (
                         <TableRow>
                           <TableCell
-                            colSpan={8}
+                            colSpan={9}
                             className="bg-white px-3 pt-2 pb-0"
                           >
                             <MatchPanel
@@ -825,7 +868,7 @@ export default async function BankAccountDetailPage({
                       {showRulePanel && (
                         <TableRow>
                           <TableCell
-                            colSpan={8}
+                            colSpan={9}
                             className="bg-white px-3 pt-2 pb-0"
                           >
                             <TransactionRulePanel
@@ -858,7 +901,7 @@ export default async function BankAccountDetailPage({
                         </TableRow>
                       )}
                       <TableRow>
-                        <TableCell colSpan={8} className="bg-slate-50 p-3">
+                        <TableCell colSpan={9} className="bg-slate-50 p-3">
                           <TransactionRowForm
                             id={t.id}
                             initial={{
@@ -899,7 +942,7 @@ export default async function BankAccountDetailPage({
                           feedback). A thick band clearly delimits each txn. */}
                       <TableRow aria-hidden className="hover:bg-transparent">
                         <TableCell
-                          colSpan={8}
+                          colSpan={9}
                           className="h-3 p-0 bg-slate-200/70 border-y border-slate-300"
                         />
                       </TableRow>

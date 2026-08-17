@@ -292,12 +292,12 @@ export type NewManualBankTransactionInput = {
  *  into the normal categorization queue like any imported row. */
 export async function insertManualBankTransaction(
   input: NewManualBankTransactionInput,
-): Promise<void> {
+): Promise<string> {
   if (!isDatabaseConfigured()) {
     throw new Error('Manual bank entries require a configured database.');
   }
   const db = getDb()!;
-  await db.insert(importedTransactions).values({
+  const rows = await db.insert(importedTransactions).values({
     companyId: input.companyId,
     batchId: input.batchId,
     bankAccountId: input.bankAccountId,
@@ -316,7 +316,8 @@ export async function insertManualBankTransaction(
     // Categorized on entry = already reviewed; uncategorized rows land in
     // the normal review queue like any imported line.
     isReviewed: !!input.accountingAccountId,
-  });
+  }).returning({ id: importedTransactions.id });
+  return rows[0].id;
 }
 
 /** Correct a hand-entered bank line (date / description / signed amount).
