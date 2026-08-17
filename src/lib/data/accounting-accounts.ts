@@ -142,6 +142,46 @@ export async function renameAccountingAccount(
   return row;
 }
 
+/** Re-hang a category under a new parent (another category for QB-style
+ *  subaccounts, or back under its group's section header). Cycle safety is
+ *  the ACTION's job — this just writes. */
+export async function setAccountingAccountParent(
+  companyId: string,
+  id: string,
+  parentId: string,
+): Promise<AccountingAccount | undefined> {
+  const db = requireDb();
+  const [row] = await db
+    .update(accountingAccounts)
+    .set({ parentId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(accountingAccounts.id, id),
+        eq(accountingAccounts.companyId, companyId),
+      ),
+    )
+    .returning();
+  return row;
+}
+
+export async function countAccountChildren(
+  companyId: string,
+  id: string,
+): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(accountingAccounts)
+    .where(
+      and(
+        eq(accountingAccounts.companyId, companyId),
+        eq(accountingAccounts.parentId, id),
+      ),
+    );
+  return rows[0]?.n ?? 0;
+}
+
 export async function setAccountingAccountArchived(
   companyId: string,
   id: string,

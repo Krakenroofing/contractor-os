@@ -8,12 +8,14 @@ import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import type { AccountingAccount } from '@/db/schema';
 import {
+  countAccountChildren,
   findActiveAccountByName,
   findSectionHeader,
   getAccountingAccount,
   insertAccountingAccount,
   renameAccountingAccount,
   setAccountingAccountArchived,
+  setAccountingAccountParent,
 } from '@/lib/data/accounting-accounts';
 import {
   CATEGORY_GROUPS,
@@ -52,11 +54,48 @@ function revalidateCategorySurfaces() {
 const createSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120),
   group: z.enum(CATEGORY_GROUPS),
+  /** QB-style subaccount: the CATEGORY (not section header) to nest under. */
+  parentCategoryId: z
+    .union([z.string().uuid(), z.literal('')])
+    .optional()
+    .transform((v) => (v ? v : null)),
 });
+
+/**
+ * A valid subaccount parent is a manageable CATEGORY in the same group —
+ * i.e. its own parent is a section header (top level), it isn't archived,
+ * and it isn't a subaccount itself (tree caps at header → category → sub).
+ */
+async function validateParentCategory(
+  companyId: string,
+  parentId: string,
+  rollup: AccountingAccount['rollupGroup'],
+): Promise<{ ok: true; parent: AccountingAccount } | { ok: false; error: string }> {
+  const parent = await getAccountingAccount(companyId, parentId);
+  if (!parent) return { ok: false, error: 'Parent category not found.' };
+  if (parent.isArchived) {
+    return { ok: false, error: 'The parent category is archived.' };
+  }
+  if (parent.rollupGroup !== rollup) {
+    return { ok: false, error: 'A subaccount must stay in the same group as its parent.' };
+  }
+  if (parent.parentId === null) {
+    return { ok: false, error: 'Pick a category, not a section header.' };
+  }
+  const grandparent = await getAccountingAccount(companyId, parent.parentId);
+  if (grandparent && grandparent.parentId !== null) {
+    return {
+      ok: false,
+      error: 'That category is itself a subaccount — nesting stops at one level.',
+    };
+  }
+  return { ok: true, parent };
+}
 
 export async function createCategoryAction(input: {
   name: string;
   group: string;
+  parentCategoryId?: string;
 }): Promise<CategoryActionResult> {
   await requireAuth();
   const role = await getActiveRole();
@@ -70,7 +109,7 @@ export async function createCategoryAction(input: {
       error: parsed.error.flatten().fieldErrors.name?.[0] ?? 'Invalid input.',
     };
   }
-  const { name, group } = parsed.data;
+  const { name, group, parentCategoryId } = parsed.data;
   const meta = GROUP_META[group];
   const companyId = await getActiveCompanyId();
 
@@ -83,22 +122,30 @@ export async function createCategoryAction(input: {
   }
 
   try {
-    // Hang the new line off the group's section header, creating the header
-    // if this company never installed the standard structure.
-    let header = await findSectionHeader(companyId, meta.rollup);
-    if (!header) {
-      header = await insertAccountingAccount(companyId, {
-        name: meta.header,
-        type: meta.type,
-        rollupGroup: meta.rollup,
-        parentId: null,
-      });
+    let parentId: string;
+    if (parentCategoryId) {
+      const check = await validateParentCategory(companyId, parentCategoryId, meta.rollup);
+      if (!check.ok) return check;
+      parentId = check.parent.id;
+    } else {
+      // Hang the new line off the group's section header, creating the header
+      // if this company never installed the standard structure.
+      let header = await findSectionHeader(companyId, meta.rollup);
+      if (!header) {
+        header = await insertAccountingAccount(companyId, {
+          name: meta.header,
+          type: meta.type,
+          rollupGroup: meta.rollup,
+          parentId: null,
+        });
+      }
+      parentId = header.id;
     }
     await insertAccountingAccount(companyId, {
       name,
       type: meta.type,
       rollupGroup: meta.rollup,
-      parentId: header.id,
+      parentId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -191,6 +238,67 @@ export async function setCategoryArchivedAction(input: {
   if (!guard.ok) return guard;
 
   await setAccountingAccountArchived(companyId, input.id, input.archived);
+  revalidateCategorySurfaces();
+  return { ok: true };
+}
+
+const setParentSchema = z.object({
+  id: z.string().uuid(),
+  // '' = revert to a top-level category under the group's section header.
+  parentCategoryId: z
+    .union([z.string().uuid(), z.literal('')])
+    .transform((v) => (v ? v : null)),
+});
+
+export async function setCategoryParentAction(input: {
+  id: string;
+  parentCategoryId: string;
+}): Promise<CategoryActionResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { ok: false, error: 'You do not have permission to manage categories.' };
+  }
+  const parsed = setParentSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input.' };
+
+  const companyId = await getActiveCompanyId();
+  const guard = await loadManageableLeaf(companyId, parsed.data.id);
+  if (!guard.ok) return guard;
+  const account = guard.account;
+
+  if (parsed.data.parentCategoryId === account.id) {
+    return { ok: false, error: 'A category cannot be its own parent.' };
+  }
+
+  if (parsed.data.parentCategoryId) {
+    // Becoming a subaccount: the account must not have children of its own
+    // (tree caps at header → category → subaccount).
+    const childCount = await countAccountChildren(companyId, account.id);
+    if (childCount > 0) {
+      return {
+        ok: false,
+        error:
+          'This category has subaccounts of its own — move those out before making it a subaccount.',
+      };
+    }
+    const check = await validateParentCategory(
+      companyId,
+      parsed.data.parentCategoryId,
+      account.rollupGroup,
+    );
+    if (!check.ok) return check;
+    await setAccountingAccountParent(companyId, account.id, check.parent.id);
+  } else {
+    // Revert to top level under the group's section header.
+    const header = await findSectionHeader(companyId, account.rollupGroup);
+    if (!header) {
+      return { ok: false, error: 'Section header for this group is missing.' };
+    }
+    if (account.parentId === header.id) return { ok: true };
+    await setAccountingAccountParent(companyId, account.id, header.id);
+  }
+
   revalidateCategorySurfaces();
   return { ok: true };
 }

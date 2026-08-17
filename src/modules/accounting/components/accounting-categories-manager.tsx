@@ -9,6 +9,7 @@ import {
   createCategoryAction,
   renameCategoryAction,
   setCategoryArchivedAction,
+  setCategoryParentAction,
 } from '../actions';
 import {
   CATEGORY_GROUPS,
@@ -21,7 +22,27 @@ export type ManagedCategory = {
   name: string;
   group: CategoryGroup;
   archived: boolean;
+  /** Another category's id when this is a subaccount; null = top level. */
+  parentCategoryId: string | null;
 };
+
+/** Top-level categories first (alphabetical), each followed by its
+ *  subaccounts — QB-style tree order. Archived rows sink to the bottom. */
+function treeRows(categories: ManagedCategory[], group: CategoryGroup) {
+  const inGroup = categories.filter((c) => c.group === group);
+  const byName = (a: ManagedCategory, b: ManagedCategory) => a.name.localeCompare(b.name);
+  const active = inGroup.filter((c) => !c.archived);
+  const tops = active.filter((c) => !c.parentCategoryId).sort(byName);
+  const rows: ManagedCategory[] = [];
+  for (const t of tops) {
+    rows.push(t);
+    rows.push(...active.filter((c) => c.parentCategoryId === t.id).sort(byName));
+  }
+  // Orphan subs (parent archived) still need to show somewhere.
+  rows.push(...active.filter((c) => !rows.includes(c)).sort(byName));
+  rows.push(...inGroup.filter((c) => c.archived).sort(byName));
+  return rows;
+}
 
 export function AccountingCategoriesManager({
   categories,
@@ -34,9 +55,26 @@ export function AccountingCategoriesManager({
 
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState<CategoryGroup>('opex');
+  const [newIsSub, setNewIsSub] = useState(false);
+  const [newParentId, setNewParentId] = useState('');
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editIsSub, setEditIsSub] = useState(false);
+  const [editParentId, setEditParentId] = useState('');
+
+  // Eligible parents = active top-level categories in a group (a subaccount
+  // can't be a parent; nesting is one level, like QB's sensible limit).
+  const parentOptions = (group: CategoryGroup, excludeId?: string) =>
+    categories
+      .filter(
+        (c) =>
+          c.group === group &&
+          !c.archived &&
+          !c.parentCategoryId &&
+          c.id !== excludeId,
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) {
     setError(null);
@@ -56,9 +94,56 @@ export function AccountingCategoriesManager({
       setError('Enter a category name.');
       return;
     }
+    if (newIsSub && !newParentId) {
+      setError('Pick the parent account for this subaccount.');
+      return;
+    }
     run(
-      () => createCategoryAction({ name: newName, group: newGroup }),
-      () => setNewName(''),
+      () =>
+        createCategoryAction({
+          name: newName,
+          group: newGroup,
+          parentCategoryId: newIsSub ? newParentId : '',
+        }),
+      () => {
+        setNewName('');
+        setNewIsSub(false);
+        setNewParentId('');
+      },
+    );
+  }
+
+  function startEdit(c: ManagedCategory) {
+    setEditingId(c.id);
+    setEditName(c.name);
+    setEditIsSub(!!c.parentCategoryId);
+    setEditParentId(c.parentCategoryId ?? '');
+  }
+
+  function saveEdit(c: ManagedCategory) {
+    if (editIsSub && !editParentId) {
+      setError('Pick the parent account for this subaccount.');
+      return;
+    }
+    const wantParent = editIsSub ? editParentId : '';
+    const parentChanged = wantParent !== (c.parentCategoryId ?? '');
+    const nameChanged = editName.trim() !== c.name;
+    run(
+      async () => {
+        if (nameChanged) {
+          const r = await renameCategoryAction({ id: c.id, name: editName });
+          if (!r.ok) return r;
+        }
+        if (parentChanged) {
+          const r = await setCategoryParentAction({
+            id: c.id,
+            parentCategoryId: wantParent,
+          });
+          if (!r.ok) return r;
+        }
+        return { ok: true as const };
+      },
+      () => setEditingId(null),
     );
   }
 
@@ -96,7 +181,10 @@ export function AccountingCategoriesManager({
             </label>
             <Select
               value={newGroup}
-              onChange={(e) => setNewGroup(e.target.value as CategoryGroup)}
+              onChange={(e) => {
+                setNewGroup(e.target.value as CategoryGroup);
+                setNewParentId('');
+              }}
             >
               {CATEGORY_GROUPS.map((g) => (
                 <option key={g} value={g}>
@@ -109,22 +197,45 @@ export function AccountingCategoriesManager({
             {pending ? 'Saving…' : 'Add category'}
           </Button>
         </div>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={newIsSub}
+              onChange={(e) => setNewIsSub(e.target.checked)}
+            />
+            This is a subaccount
+          </label>
+          {newIsSub && (
+            <div className="sm:w-72">
+              <Select
+                value={newParentId}
+                onChange={(e) => setNewParentId(e.target.value)}
+              >
+                <option value="">Parent account…</option>
+                {parentOptions(newGroup).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </div>
         <p className="mt-2 text-xs text-slate-500">
           Income shows on the P&amp;L as revenue, Cost of Goods Sold as
           job costs, Operating Expense as overhead. Assets, Liabilities, and
           Equity are balance-sheet categories &mdash; use them for things like
-          loan payments, equipment purchases, and owner draws.
+          loan payments, equipment purchases, and owner draws. Subaccounts
+          nest under a parent in the same group (e.g. Insurance &rarr; Vehicle
+          Insurance).
         </p>
       </div>
 
       {/* Lists by group */}
       {CATEGORY_GROUPS.map((group) => {
-        const rows = categories
-          .filter((c) => c.group === group)
-          .sort((a, b) => {
-            if (a.archived !== b.archived) return a.archived ? 1 : -1;
-            return a.name.localeCompare(b.name);
-          });
+        const rows = treeRows(categories, group);
         return (
           <div key={group}>
             <h3 className="mb-2 text-sm font-semibold text-slate-900">
@@ -137,44 +248,51 @@ export function AccountingCategoriesManager({
                 {rows.map((c) => (
                   <li
                     key={c.id}
-                    className="flex items-center gap-2 px-3 py-2 text-sm"
+                    className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
                   >
                     {editingId === c.id ? (
                       <>
                         <Input
                           value={editName}
                           autoFocus
-                          className="h-8 flex-1"
+                          className="h-8 min-w-40 flex-1"
                           onChange={(e) => setEditName(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              run(
-                                () =>
-                                  renameCategoryAction({
-                                    id: c.id,
-                                    name: editName,
-                                  }),
-                                () => setEditingId(null),
-                              );
+                              saveEdit(c);
                             }
                             if (e.key === 'Escape') setEditingId(null);
                           }}
                         />
+                        <label className="inline-flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 rounded border-slate-300"
+                            checked={editIsSub}
+                            onChange={(e) => setEditIsSub(e.target.checked)}
+                          />
+                          Subaccount
+                        </label>
+                        {editIsSub && (
+                          <Select
+                            value={editParentId}
+                            onChange={(e) => setEditParentId(e.target.value)}
+                            className="h-8 w-52 text-xs"
+                          >
+                            <option value="">Parent account…</option>
+                            {parentOptions(c.group, c.id).map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
                         <Button
                           type="button"
                           size="sm"
                           disabled={pending}
-                          onClick={() =>
-                            run(
-                              () =>
-                                renameCategoryAction({
-                                  id: c.id,
-                                  name: editName,
-                                }),
-                              () => setEditingId(null),
-                            )
-                          }
+                          onClick={() => saveEdit(c)}
                         >
                           Save
                         </Button>
@@ -192,8 +310,11 @@ export function AccountingCategoriesManager({
                         <span
                           className={`flex-1 ${
                             c.archived ? 'text-slate-400 line-through' : 'text-slate-800'
-                          }`}
+                          } ${c.parentCategoryId ? 'pl-6' : ''}`}
                         >
+                          {c.parentCategoryId && (
+                            <span className="mr-1.5 text-slate-400">&#8627;</span>
+                          )}
                           {c.name}
                           {c.archived && (
                             <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600 no-underline">
@@ -207,12 +328,9 @@ export function AccountingCategoriesManager({
                             size="sm"
                             variant="ghost"
                             disabled={pending}
-                            onClick={() => {
-                              setEditingId(c.id);
-                              setEditName(c.name);
-                            }}
+                            onClick={() => startEdit(c)}
                           >
-                            Rename
+                            Edit
                           </Button>
                         )}
                         <Button

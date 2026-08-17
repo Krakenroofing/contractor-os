@@ -108,8 +108,10 @@ export function AccountingAccountPicker({
                   ── {a.name} ──
                 </option>
               ) : (
+                // Sub-accounts indent with NBSPs — plain spaces collapse
+                // inside <option> text.
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {a.isSub ? `   ↳ ${a.name}` : a.name}
                 </option>
               ),
             )}

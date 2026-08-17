@@ -42,14 +42,23 @@ export default async function AccountingCategoriesPage() {
   const accounts = await listAccountingAccounts(company.id);
 
   // Leaf categories only (section headers have parent_id NULL); skip system
-  // bank / VAT / equity accounts.
+  // bank / VAT / equity accounts. A row whose parent is itself a category
+  // (not a section header) is a subaccount.
+  const parentIdOf = new Map(accounts.map((a) => [a.id, a.parentId]));
   const categories: ManagedCategory[] = accounts
     .filter((a) => a.parentId !== null && MANAGED_TYPES.has(a.type))
     .map((a) => {
       const group = ROLLUP_TO_GROUP[a.rollupGroup];
-      return group
-        ? { id: a.id, name: a.name, group, archived: a.isArchived }
-        : null;
+      if (!group) return null;
+      const parentIsCategory =
+        a.parentId !== null && (parentIdOf.get(a.parentId) ?? null) !== null;
+      return {
+        id: a.id,
+        name: a.name,
+        group,
+        archived: a.isArchived,
+        parentCategoryId: parentIsCategory ? a.parentId : null,
+      };
     })
     .filter((c): c is ManagedCategory => c !== null);
 
