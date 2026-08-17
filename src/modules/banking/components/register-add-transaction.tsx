@@ -39,20 +39,33 @@ export function RegisterAddTransaction({
 }) {
   const [open, setOpen] = useState(false);
   const [entryType, setEntryType] = useState<'out' | 'in' | 'transfer'>('out');
+  // Sticky fields are CONTROLLED: React 19 auto-resets uncontrolled inputs
+  // after a form action completes, which would wipe the date/category/payee
+  // between one-by-one entries (the exact trap the day-view pickers hit).
+  const [dateVal, setDateVal] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [vendorId, setVendorId] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [transferAcctId, setTransferAcctId] = useState('');
+  const [transferDir, setTransferDir] = useState<'out' | 'in'>('out');
+  const [addedCount, setAddedCount] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
+  const descRef = useRef<HTMLInputElement>(null);
   const [state, formAction, pending] = useActionState<
     ReconcileActionState,
     FormData
   >(addRegisterTransactionAction, {});
 
+  // One-by-one entry mode: after each successful add the form STAYS OPEN
+  // with date / type / category / payee / job intact; description and amount
+  // (uncontrolled) are cleared by React's post-action reset. Focus jumps
+  // back to description so a statement's worth of charges keys in fast.
   useEffect(() => {
     if (state.ok) {
-      formRef.current?.reset();
-      setCategoryId('');
-      setOpen(false);
+      descRef.current?.focus();
+      setAddedCount((n) => n + 1);
     }
-  }, [state.ok]);
+  }, [state]);
 
   if (!open) {
     return (
@@ -104,6 +117,8 @@ export function RegisterAddTransaction({
               id="reg-date"
               name="transactionDate"
               type="date"
+              value={dateVal}
+              onChange={(e) => setDateVal(e.target.value)}
               required
               className="w-40"
             />
@@ -111,6 +126,7 @@ export function RegisterAddTransaction({
           <div className="space-y-1.5">
             <Label htmlFor="reg-desc">Description</Label>
             <Input
+              ref={descRef}
               id="reg-desc"
               name="description"
               placeholder={
@@ -141,7 +157,8 @@ export function RegisterAddTransaction({
                 <select
                   id="reg-transfer-dir"
                   name="transferDirection"
-                  defaultValue="out"
+                  value={transferDir}
+                  onChange={(e) => setTransferDir(e.target.value as 'out' | 'in')}
                   className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
                 >
                   <option value="out">Out of this account</option>
@@ -150,7 +167,12 @@ export function RegisterAddTransaction({
               </div>
               <div className="space-y-1.5 w-56">
                 <Label htmlFor="reg-transfer-acct">Other account</Label>
-                <Select id="reg-transfer-acct" name="transferAccountId" defaultValue="">
+                <Select
+                  id="reg-transfer-acct"
+                  name="transferAccountId"
+                  value={transferAcctId}
+                  onChange={(e) => setTransferAcctId(e.target.value)}
+                >
                   <option value="">— pick account —</option>
                   {otherAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -175,7 +197,12 @@ export function RegisterAddTransaction({
               </div>
               <div className="space-y-1.5 w-52">
                 <Label htmlFor="reg-vendor">Payee / vendor (optional)</Label>
-                <Select id="reg-vendor" name="vendorId" defaultValue="">
+                <Select
+                  id="reg-vendor"
+                  name="vendorId"
+                  value={vendorId}
+                  onChange={(e) => setVendorId(e.target.value)}
+                >
                   <option value="">— none —</option>
                   {vendorOptions.map((v) => (
                     <option key={v.id} value={v.id}>
@@ -186,7 +213,12 @@ export function RegisterAddTransaction({
               </div>
               <div className="space-y-1.5 w-52">
                 <Label htmlFor="reg-project">Job / project (optional)</Label>
-                <Select id="reg-project" name="projectId" defaultValue="">
+                <Select
+                  id="reg-project"
+                  name="projectId"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                >
                   <option value="">— none —</option>
                   {projectOptions.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -202,8 +234,13 @@ export function RegisterAddTransaction({
             {pending ? 'Adding…' : 'Add'}
           </Button>
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-            Close
+            Done
           </Button>
+          {addedCount > 0 && !state.formError && (
+            <span className="text-xs text-emerald-700">
+              ✓ {addedCount} added — keep going or press Done
+            </span>
+          )}
           {state.formError && (
             <p className="text-sm text-red-600 w-full">{state.formError}</p>
           )}
