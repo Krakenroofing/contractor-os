@@ -265,14 +265,10 @@ export function applyMapping(
       ? parseDateString(r[cm.postedDate], mapping.dateFormat)
       : null;
 
-    const description = (r[cm.description] ?? '').trim();
-    if (description === '') {
-      errors.push({
-        rowIndex: i,
-        reason: `Blank description in row ${i + 2}.`,
-      });
-      continue;
-    }
+    // Banks routinely leave the description blank (card-machine fees, small
+    // fuel charges). The row still has a date and an amount — real money —
+    // so import it with a placeholder rather than rejecting it.
+    const description = (r[cm.description] ?? '').trim() || '(no description)';
 
     let debit: number | null = null;
     let credit: number | null = null;
