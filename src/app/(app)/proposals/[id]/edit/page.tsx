@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
   ProposalForm,
   type EstimateOption,
+  type ProjectOption,
   type ProposalFormInitial,
 } from '@/modules/proposals/components/proposal-form';
 import { getActiveCompanyId } from '@/lib/active-company';
@@ -12,7 +13,7 @@ import { canCreate } from '@/lib/permissions';
 import { listEstimates } from '@/lib/data/estimates';
 import { getProposal } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
-import { getProject } from '@/lib/data/projects';
+import { getProject, listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,10 +48,23 @@ export default async function EditProposalPage({
     }),
   );
 
+  const projects: ProjectOption[] = await Promise.all(
+    (await listProjects(companyId)).map(async (p) => {
+      const customer = await getCustomer(companyId, p.customerId);
+      return {
+        id: p.id,
+        name: p.name,
+        customerName: customer?.name ?? '—',
+      };
+    }),
+  );
+
   const initial: ProposalFormInitial = {
     id: proposal.id,
     number: proposal.number,
-    estimateId: proposal.estimateId,
+    estimateId: proposal.estimateId ?? '',
+    projectId: proposal.projectId,
+    total: proposal.total,
     status: proposal.status,
     proposalDate: proposal.proposalDate,
     expiryDate: proposal.expiryDate,
@@ -82,6 +96,7 @@ export default async function EditProposalPage({
 
       <ProposalForm
         estimates={estimates}
+        projects={projects}
         defaultNumber={proposal.number}
         initial={initial}
       />

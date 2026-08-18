@@ -590,6 +590,7 @@ function buildProposal(input: SeedProposal): Proposal {
     warrantyNotes: input.warrantyNotes,
     termsAndConditions: input.termsAndConditions,
     pdfUrl: null,
+    sourceDocumentId: null,
     publicToken: null,
     submittedAt: input.status !== 'draft' ? now : null,
     sentAt: input.status !== 'draft' ? now : null,
@@ -3139,7 +3140,8 @@ export function createMockEstimate(
 export type CreateProposalInput = {
   number: string;
   projectId: string;
-  estimateId: string;
+  estimateId: string | null;
+  sourceDocumentId?: string | null;
   total: string;
   status: Proposal['status'];
   proposalDate: string | null;
@@ -3180,6 +3182,7 @@ export function createMockProposal(
     warrantyNotes: input.warrantyNotes,
     termsAndConditions: input.termsAndConditions,
     pdfUrl: null,
+    sourceDocumentId: null,
     publicToken: null,
     submittedAt:
       input.status !== 'draft' && input.status !== 'expired' ? now : null,

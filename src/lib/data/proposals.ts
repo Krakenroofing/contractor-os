@@ -4,6 +4,7 @@ import 'server-only';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { proposals, type Proposal } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { nextNumberInSequence } from '@/lib/next-number';
 import {
   listMockProposals as mockList,
   getMockProposal as mockGet,
@@ -17,7 +18,10 @@ export { DuplicateProposalNumberError };
 export type CreateProposalInput = {
   number: string;
   projectId: string;
-  estimateId: string;
+  /** null for standalone proposals (uploaded PDFs with no in-app estimate). */
+  estimateId: string | null;
+  /** Archived source-PDF project_documents row, for uploaded proposals. */
+  sourceDocumentId?: string | null;
   total: string;
   status: Proposal['status'];
   proposalDate: string | null;
@@ -137,6 +141,7 @@ export async function createProposal(
         paymentSchedule: input.paymentSchedule,
         warrantyNotes: input.warrantyNotes,
         termsAndConditions: input.termsAndConditions,
+        sourceDocumentId: input.sourceDocumentId ?? null,
         pdfUrl: null,
         publicToken: null,
         ...ts,
@@ -152,6 +157,31 @@ export async function createProposal(
 }
 
 export type UpdateProposalInput = CreateProposalInput;
+
+/** Next proposal number following whatever scheme the company already uses.
+ *  Shared by the new-proposal page and the upload-PDF review form. */
+export async function nextProposalNumber(companyId: string): Promise<string> {
+  const existing = await listProposals(companyId);
+  return nextNumberInSequence(
+    existing,
+    `PROP-${new Date().getFullYear()}-001`,
+  );
+}
+
+/** Link the archived source PDF (project_documents row) after upload —
+ *  runs after createProposal so a failed create never orphans the link. */
+export async function setProposalSourceDocument(
+  companyId: string,
+  id: string,
+  sourceDocumentId: string,
+): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  await db
+    .update(proposals)
+    .set({ sourceDocumentId, updatedAt: new Date() })
+    .where(and(eq(proposals.id, id), eq(proposals.companyId, companyId)));
+}
 
 // Updates a proposal in place. The status timestamps (sentAt/approvedAt/etc.)
 // are RE-stamped if the status moved to a state we hadn't recorded a

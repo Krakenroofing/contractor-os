@@ -24,10 +24,18 @@ export type EstimateOption = {
   total: string;
 };
 
+export type ProjectOption = {
+  id: string;
+  name: string;
+  customerName: string;
+};
+
 export type ProposalFormInitial = {
   id: string;
   number: string;
-  estimateId: string;
+  estimateId: string; // '' for standalone proposals
+  projectId: string;
+  total: string;
   status: string;
   proposalDate: string | null;
   expiryDate: string | null;
@@ -39,15 +47,43 @@ export type ProposalFormInitial = {
   termsAndConditions: string | null;
 };
 
+/** Extracted-from-PDF defaults for create mode. Everything stays editable. */
+export type ProposalFormPrefill = {
+  number?: string | null;
+  proposalDate?: string | null;
+  total?: string | null;
+  scopeOfWork?: string | null;
+  inclusions?: string | null;
+  exclusions?: string | null;
+  paymentSchedule?: string | null;
+  warrantyNotes?: string | null;
+  termsAndConditions?: string | null;
+};
+
+/** Uploaded source PDF parked in temp storage; the create action archives
+ *  it into the chosen project's documents and links it to the proposal. */
+export type ProposalFormSource = {
+  storagePath: string;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+};
+
 export function ProposalForm({
   estimates,
+  projects,
   defaultNumber,
   initial,
+  prefill,
+  source,
 }: {
   estimates: EstimateOption[];
+  projects: ProjectOption[];
   defaultNumber: string;
   /** When provided, the form runs in edit mode against this proposal id. */
   initial?: ProposalFormInitial;
+  prefill?: ProposalFormPrefill;
+  source?: ProposalFormSource;
 }) {
   const action = initial
     ? updateProposalAction.bind(null, initial.id)
@@ -55,6 +91,7 @@ export function ProposalForm({
   const [state, formAction, pending] = useActionState(action, initialState);
   const [estimateId, setEstimateId] = useState<string>(initial?.estimateId ?? '');
   const selected = estimates.find((e) => e.id === estimateId);
+  const standalone = estimateId === '';
 
   const err = (key: string) => state.errors?.[key]?.[0];
 
@@ -73,11 +110,26 @@ export function ProposalForm({
         </div>
       )}
 
+      {source && (
+        <>
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-900">
+            Reviewing <span className="font-medium">{source.fileName}</span> —
+            the fields below were read from the PDF. Check them, pick the
+            project, and create. The PDF is filed under the project&apos;s
+            documents.
+          </div>
+          <input type="hidden" name="sourceStoragePath" value={source.storagePath} />
+          <input type="hidden" name="sourceFileName" value={source.fileName} />
+          <input type="hidden" name="sourceMimeType" value={source.mimeType} />
+          <input type="hidden" name="sourceByteSize" value={String(source.byteSize)} />
+        </>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Proposal number" error={err('number')} required>
           <Input
             name="number"
-            defaultValue={initial?.number ?? defaultNumber}
+            defaultValue={initial?.number ?? prefill?.number ?? defaultNumber}
             required
           />
         </Field>
@@ -96,19 +148,13 @@ export function ProposalForm({
           label="Linked estimate"
           error={err('estimateId')}
           className="md:col-span-2"
-          required
         >
           <Select
             name="estimateId"
             value={estimateId}
             onChange={(e) => setEstimateId(e.target.value)}
-            required
           >
-            <option value="" disabled>
-              {estimates.length === 0
-                ? 'No estimates — create one first'
-                : 'Select an estimate'}
-            </option>
+            <option value="">— None (standalone proposal) —</option>
             {estimates.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.number} — {e.projectName} ({e.customerName}) · {formatMoney(e.total)}
@@ -117,11 +163,44 @@ export function ProposalForm({
           </Select>
         </Field>
 
+        {standalone && (
+          <>
+            <Field label="Project" error={err('projectId')} required>
+              <Select
+                name="projectId"
+                defaultValue={initial?.projectId ?? ''}
+                required
+              >
+                <option value="" disabled>
+                  {projects.length === 0
+                    ? 'No active projects'
+                    : 'Select a project'}
+                </option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.customerName})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Proposal total" error={err('total')} required>
+              <Input
+                name="total"
+                inputMode="decimal"
+                placeholder="0.00"
+                defaultValue={initial?.total ?? prefill?.total ?? ''}
+                required
+              />
+            </Field>
+          </>
+        )}
+
         <Field label="Proposal date" error={err('proposalDate')}>
           <Input
             name="proposalDate"
             type="date"
-            defaultValue={initial?.proposalDate ?? today}
+            defaultValue={initial?.proposalDate ?? prefill?.proposalDate ?? today}
           />
         </Field>
 
@@ -160,7 +239,7 @@ export function ProposalForm({
         label="Scope of work"
         rows={5}
         error={err('scopeOfWork')}
-        defaultValue={initial?.scopeOfWork ?? ''}
+        defaultValue={initial?.scopeOfWork ?? prefill?.scopeOfWork ?? ''}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <TextareaField
@@ -168,28 +247,28 @@ export function ProposalForm({
           label="Inclusions"
           rows={4}
           error={err('inclusions')}
-          defaultValue={initial?.inclusions ?? ''}
+          defaultValue={initial?.inclusions ?? prefill?.inclusions ?? ''}
         />
         <TextareaField
           name="exclusions"
           label="Exclusions"
           rows={4}
           error={err('exclusions')}
-          defaultValue={initial?.exclusions ?? ''}
+          defaultValue={initial?.exclusions ?? prefill?.exclusions ?? ''}
         />
         <TextareaField
           name="paymentSchedule"
           label="Payment schedule"
           rows={4}
           error={err('paymentSchedule')}
-          defaultValue={initial?.paymentSchedule ?? ''}
+          defaultValue={initial?.paymentSchedule ?? prefill?.paymentSchedule ?? ''}
         />
         <TextareaField
           name="warrantyNotes"
           label="Warranty notes"
           rows={4}
           error={err('warrantyNotes')}
-          defaultValue={initial?.warrantyNotes ?? ''}
+          defaultValue={initial?.warrantyNotes ?? prefill?.warrantyNotes ?? ''}
         />
       </div>
       <TextareaField
@@ -197,7 +276,7 @@ export function ProposalForm({
         label="Terms and conditions"
         rows={6}
         error={err('termsAndConditions')}
-        defaultValue={initial?.termsAndConditions ?? ''}
+        defaultValue={initial?.termsAndConditions ?? prefill?.termsAndConditions ?? ''}
       />
 
       <div className="flex items-center gap-3">

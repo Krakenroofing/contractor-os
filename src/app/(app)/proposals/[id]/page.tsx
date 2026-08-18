@@ -46,7 +46,9 @@ export default async function ProposalDetailPage({
 
   const project = await getProject(companyId, proposal.projectId);
   const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
-  const estimate = await getEstimate(companyId, proposal.estimateId);
+  const estimate = proposal.estimateId
+    ? await getEstimate(companyId, proposal.estimateId)
+    : undefined;
 
   const signed =
     (proposal.status === 'accepted' || proposal.status === 'approved') &&
@@ -114,6 +116,17 @@ export default async function ProposalDetailPage({
                 </Link>
               </>
             )}
+            {proposal.sourceDocumentId && project && (
+              <>
+                <span className="text-slate-400">·</span>
+                <a
+                  href={`/projects/${project.id}/documents/${proposal.sourceDocumentId}/download`}
+                  className="hover:underline"
+                >
+                  Source PDF ↓
+                </a>
+              </>
+            )}
           </div>
         </div>
         <StatusBadge entityType="proposal" status={proposal.status} />
@@ -144,7 +157,9 @@ export default async function ProposalDetailPage({
             <p className="mt-1 text-xl font-semibold tabular-nums">
               {formatMoney(proposal.total)}
             </p>
-            <p className="mt-0.5 text-xs text-slate-500">from linked estimate</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {estimate ? 'from linked estimate' : 'standalone proposal'}
+            </p>
           </CardContent>
         </Card>
         <Card>

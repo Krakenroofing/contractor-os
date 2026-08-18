@@ -32,6 +32,10 @@ export type OcrExtractResult = {
   vatRate?: number; // percent (e.g., 13 for 13%)
   currency?: string;
   lineItems?: OcrLineItem[];
+  /** Full plain text of the document as OCR'd — used by extractors that
+   *  parse prose sections (proposal scope/inclusions/etc.) rather than
+   *  receipt-style entities. */
+  rawText?: string;
 };
 
 export class OcrNotConfiguredError extends Error {
@@ -207,6 +211,9 @@ export async function extractReceipt(input: {
   if (!doc) return {};
 
   const result: OcrExtractResult = {};
+  if (typeof doc.text === 'string' && doc.text.trim() !== '') {
+    result.rawText = doc.text;
+  }
   const lineItems: OcrLineItem[] = [];
 
   for (const entity of doc.entities ?? []) {
@@ -279,6 +286,7 @@ export async function extractReceipt(input: {
 // Minimal shape of the Document AI v1 REST processDocument response — only
 // the fields we actually read. Real response carries far more.
 type RestDocument = {
+  text?: string | null;
   entities?: Array<{
     type?: string;
     mentionText?: string | null;

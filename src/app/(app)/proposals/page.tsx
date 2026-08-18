@@ -20,7 +20,9 @@ export default async function ProposalsPage() {
     (await listProposals(companyId)).map(async (p) => {
       const project = await getProject(companyId, p.projectId);
       const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
-      const estimate = await getEstimate(companyId, p.estimateId);
+      const estimate = p.estimateId
+        ? await getEstimate(companyId, p.estimateId)
+        : undefined;
       return {
         id: p.id,
         number: p.number,
@@ -51,9 +53,14 @@ export default async function ProposalsPage() {
           </p>
         </div>
         {allowCreate && (
-          <Link href="/proposals/new">
-            <Button>New Proposal</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/proposals/upload">
+              <Button variant="outline">Create from PDF</Button>
+            </Link>
+            <Link href="/proposals/new">
+              <Button>New Proposal</Button>
+            </Link>
+          </div>
         )}
       </header>
 

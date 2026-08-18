@@ -1,11 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import {
-  ProposalForm,
-  type EstimateOption,
-  type ProjectOption,
-} from '@/modules/proposals/components/proposal-form';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
@@ -13,14 +8,19 @@ import { listEstimates } from '@/lib/data/estimates';
 import { nextProposalNumber } from '@/lib/data/proposals';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject, listProjects } from '@/lib/data/projects';
+import { ProposalPdfUpload } from '@/modules/proposals/components/proposal-pdf-upload';
+import type {
+  EstimateOption,
+  ProjectOption,
+} from '@/modules/proposals/components/proposal-form';
 
 export const dynamic = 'force-dynamic';
 
-
-export default async function NewProposalPage() {
+export default async function ProposalUploadPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'proposals')) redirect('/proposals');
   const companyId = await getActiveCompanyId();
+
   const estimates: EstimateOption[] = await Promise.all(
     (await listEstimates(companyId)).map(async (e) => {
       const project = await getProject(companyId, e.projectId);
@@ -57,19 +57,18 @@ export default async function NewProposalPage() {
       </Link>
 
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">New proposal</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">
+          Create proposal from PDF
+        </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Link an estimate to anchor the project, customer, and total — or go
-          standalone and pick the project directly. Have a finished proposal
-          PDF already?{' '}
-          <Link href="/proposals/upload" className="underline">
-            Create it from the PDF
-          </Link>
-          .
+          Upload a finished proposal (e.g. one drafted in Claude). The scope,
+          inclusions, exclusions, payment schedule, warranty, terms, date, and
+          total are read into an editable form; the PDF itself is archived in
+          the project&apos;s documents.
         </p>
       </header>
 
-      <ProposalForm
+      <ProposalPdfUpload
         estimates={estimates}
         projects={projects}
         defaultNumber={await nextProposalNumber(companyId)}

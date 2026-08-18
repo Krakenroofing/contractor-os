@@ -40,9 +40,11 @@ export const proposals = pgTable(
     projectId: uuid('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
-    estimateId: uuid('estimate_id')
-      .notNull()
-      .references(() => estimates.id, { onDelete: 'restrict' }),
+    // Nullable: proposals created from an uploaded PDF (authored outside
+    // the app) have no in-app estimate behind them.
+    estimateId: uuid('estimate_id').references(() => estimates.id, {
+      onDelete: 'restrict',
+    }),
     templateId: uuid('template_id').references(() => proposalTemplates.id, {
       onDelete: 'set null',
     }),
@@ -59,6 +61,10 @@ export const proposals = pgTable(
     warrantyNotes: text('warranty_notes'),
     termsAndConditions: text('terms_and_conditions'),
     pdfUrl: text('pdf_url'),
+    // Archived source PDF for uploaded proposals (project_documents row).
+    // FK lives in SQL only — a drizzle-level reference to project-documents
+    // would create an import cycle via change-orders.
+    sourceDocumentId: uuid('source_document_id'),
     publicToken: text('public_token').unique(),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     sentAt: timestamp('sent_at', { withTimezone: true }),

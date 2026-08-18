@@ -41,7 +41,16 @@ const optionalString = z.string().optional().or(z.literal(''));
 
 export const proposalFormSchema = z.object({
   number: z.string().min(1, 'Proposal number is required').max(50),
-  estimateId: z.string().uuid('Pick an estimate'),
+  // Either an estimate (project + total derive from it) or a standalone
+  // proposal: project picked directly, total typed/extracted. The action
+  // enforces the either/or.
+  estimateId: z.string().uuid().optional().or(z.literal('')),
+  projectId: z.string().uuid().optional().or(z.literal('')),
+  total: z
+    .string()
+    .regex(/^\d{1,12}(\.\d{1,2})?$/, 'Enter a valid amount')
+    .optional()
+    .or(z.literal('')),
   status: z.enum(proposalStatusValues).default('draft'),
   proposalDate: optionalString,
   expiryDate: optionalString,
