@@ -29,11 +29,18 @@ const ACCEPT =
  * routes the path refs to the matching server action; results render per
  * mode from locally-managed state.
  */
+const ACCEPT_EXT = /\.(pdf|jpe?g|png|webp|heic|heif|gif)$/i;
+
+function isAcceptedFile(f: File): boolean {
+  return ACCEPT.split(',').includes(f.type.toLowerCase()) || ACCEPT_EXT.test(f.name);
+}
+
 export function ReceiptBulkUploader() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<File[]>([]);
   const [splitMode, setSplitMode] = useState(false);
   const [ocrEnabled, setOcrEnabled] = useState<boolean | null>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   // Files upload DIRECTLY to storage (signed URLs — no ~4.5MB transport
   // cap), then the bulk action gets path refs to verify + record. Action
@@ -60,9 +67,23 @@ export function ReceiptBulkUploader() {
   // it's no longer eligible, fall back to files mode.
   const effectiveSplitMode = splitMode && splitAvailable;
 
+  // Both the browse dialog and drag-drop APPEND to the current selection so
+  // a batch can be gathered from several folders. Duplicates (same name +
+  // size) are skipped.
+  function addFiles(files: File[]) {
+    const accepted = files.filter(isAcceptedFile);
+    if (accepted.length === 0) return;
+    setSelected((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}|${f.size}`));
+      return [...prev, ...accepted.filter((f) => !seen.has(`${f.name}|${f.size}`))];
+    });
+  }
+
   function onFilesChosen(list: FileList | null) {
     if (!list) return;
-    setSelected(Array.from(list));
+    addFiles(Array.from(list));
+    // Reset so re-picking the same file fires onChange again.
+    if (inputRef.current) inputRef.current.value = '';
   }
 
   function clearSelection() {
@@ -125,7 +146,35 @@ export function ReceiptBulkUploader() {
     <div className="space-y-4">
       <form onSubmit={onSubmit} className="space-y-4">
 
-        <div className="rounded-md border-2 border-dashed border-slate-300 p-6 text-center space-y-2">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            addFiles(Array.from(e.dataTransfer.files ?? []));
+          }}
+          className={`rounded-md border-2 border-dashed p-6 text-center space-y-2 cursor-pointer transition-colors ${
+            dragActive
+              ? 'border-blue-400 bg-blue-50'
+              : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50'
+          }`}
+        >
           <input
             ref={inputRef}
             type="file"
@@ -133,11 +182,18 @@ export function ReceiptBulkUploader() {
             multiple={!effectiveSplitMode}
             accept={ACCEPT}
             onChange={(e) => onFilesChosen(e.target.files)}
-            className="block mx-auto text-sm"
+            className="sr-only"
+            tabIndex={-1}
           />
+          <p className="text-sm font-medium text-slate-700">
+            {dragActive
+              ? 'Drop the files…'
+              : 'Drag & drop receipt photos / PDFs here — or click to browse'}
+          </p>
           <p className="text-xs text-slate-500">
             PDF, JPG, PNG, HEIC, WebP. Up to 25 MB per file. Each file becomes a
             draft receipt — fill in vendor / project / cost code afterwards.
+            Pick more than once to add to the batch.
           </p>
         </div>
 
