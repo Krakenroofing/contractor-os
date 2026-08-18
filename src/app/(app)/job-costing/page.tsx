@@ -64,6 +64,7 @@ export default async function JobCostingPage() {
   const totalGP = rows.reduce((a, r) => a + r.projectedGrossProfit, 0);
   const portfolioMargin =
     totalRevised > 0 ? (totalGP / totalRevised) * 100 : 0;
+  const pct = (n: number) => (Number.isFinite(n) ? n.toFixed(1) : '0.0');
 
   return (
     <div className="p-8 space-y-6 max-w-[110rem]">
@@ -96,7 +97,7 @@ export default async function JobCostingPage() {
         <KPI
           label="Projected GP"
           value={formatMoney(totalGP)}
-          sub={`${portfolioMargin.toFixed(1)}% margin · final ${formatMoney(totalProjectedFinal)}`}
+          sub={`${pct(portfolioMargin)}% margin · final ${formatMoney(totalProjectedFinal)}`}
           valueClassName={
             totalGP < 0 ? 'text-red-600' : totalGP > 0 ? 'text-emerald-700' : 'text-slate-900'
           }
@@ -178,7 +179,9 @@ export default async function JobCostingPage() {
                   </TableCell>
                   <TableCell className="text-slate-600">{r.customerName}</TableCell>
                   <TableCell>
-                    <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+                    <Badge tone={STATUS_TONE[r.status] ?? 'slate'}>
+                      {STATUS_LABEL[r.status] ?? r.status}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatMoney(r.contractValue)}
@@ -220,7 +223,7 @@ export default async function JobCostingPage() {
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-slate-600">
                     {r.revisedContractValue > 0
-                      ? `${r.projectedGrossMarginPct.toFixed(1)}%`
+                      ? `${pct(r.projectedGrossMarginPct)}%`
                       : '—'}
                   </TableCell>
                   <TableCell className="text-right">

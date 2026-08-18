@@ -35,6 +35,41 @@ export type ParseStatementResult = RawSheet & {
   truncated: boolean;
 };
 
+/** True when the bytes start with the zip local-file-header magic
+ *  ("PK\x03\x04") every real .xlsx begins with. */
+function hasZipMagic(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  );
+}
+
+/** Decode as UTF-8 text if the content is plausibly text (no NUL bytes in
+ *  the sampled head). Returns null for binary junk. */
+function tryDecodeText(bytes: Uint8Array): string | null {
+  const sample = bytes.subarray(0, Math.min(bytes.length, 4096));
+  for (const b of sample) {
+    if (b === 0) return null;
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/** Cheap CSV sniff: at least one line break and a common delimiter in the
+ *  first line — enough to route a renamed CSV into the CSV parser. */
+function looksLikeDelimitedText(text: string): boolean {
+  const head = text.slice(0, 2000);
+  if (!/[\r\n]/.test(head)) return false;
+  const firstLine = head.split(/\r?\n/, 1)[0] ?? '';
+  return /[,;\t|]/.test(firstLine);
+}
+
 function isCsvLike(mime: string, filename: string): boolean {
   const m = mime.toLowerCase();
   if (m === 'text/csv' || m === 'application/csv' || m === 'text/plain') return true;
@@ -73,9 +108,41 @@ export async function parseStatementBytes(
   }
 
   if (isXlsxLike(input.mimeType, input.filename)) {
+    // Real .xlsx files are zip archives and start with the PK magic bytes
+    // (50 4B 03 04). Renamed CSVs and corrupted downloads don't — and
+    // feeding them to exceljs surfaces a raw jszip "Can't find end of
+    // central directory" crash. Sniff first: if the bytes are actually
+    // delimited text, parse as CSV; otherwise reject with a clear message.
+    if (!hasZipMagic(input.bytes)) {
+      const asText = tryDecodeText(input.bytes);
+      if (asText !== null && looksLikeDelimitedText(asText)) {
+        const delimiter = sniffDelimiter(asText);
+        const sheet = parseCsv(asText, delimiter);
+        const truncated = sheet.rows.length > MAX_ROWS_PER_FILE;
+        return {
+          headers: sheet.headers,
+          rows: truncated ? sheet.rows.slice(0, MAX_ROWS_PER_FILE) : sheet.rows,
+          delimiter,
+          truncated,
+        };
+      }
+      throw new StatementParseError(
+        `${input.filename} isn't a valid Excel file. Upload the .xlsx exported from your bank, or a .csv. (Renaming a file to .xlsx doesn't convert it.)`,
+      );
+    }
+
     const workbook = new ExcelJS.Workbook();
-    // exceljs accepts a Uint8Array.buffer for xlsx loading.
-    await workbook.xlsx.load(input.bytes.buffer as ArrayBuffer);
+    try {
+      // exceljs accepts a Uint8Array.buffer for xlsx loading.
+      await workbook.xlsx.load(input.bytes.buffer as ArrayBuffer);
+    } catch {
+      // Second layer: zip magic present but the archive is unreadable
+      // (truncated download, partial upload). Never let jszip's error
+      // propagate to the user.
+      throw new StatementParseError(
+        `${input.filename} looks like an Excel file but could not be read — it may be a corrupted or incomplete download. Re-export it from your bank and upload again, or upload a .csv.`,
+      );
+    }
     const worksheet = workbook.worksheets[0];
     if (!worksheet) {
       throw new StatementParseError('XLSX file contains no worksheets.');

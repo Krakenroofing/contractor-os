@@ -10,7 +10,10 @@ import {
 } from '@/lib/data/statement-imports';
 import { getBankAccount } from '@/lib/data/bank-accounts';
 import { downloadStatementBytes } from '@/lib/storage/statement-files';
-import { parseStatementBytes } from '@/modules/banking/lib/parse';
+import {
+  parseStatementBytes,
+  StatementParseError,
+} from '@/modules/banking/lib/parse';
 import { MappingWizard } from '@/modules/banking/components/mapping-wizard';
 import { DeleteImportBatchButton } from '@/modules/banking/components/delete-import-batch-button';
 import type {
@@ -59,11 +62,44 @@ export default async function MappingPage({
       </div>
     );
   }
-  const parsed = await parseStatementBytes({
-    bytes,
-    mimeType: batch.mimeType,
-    filename: batch.sourceFilename,
-  });
+  // Parse failures (renamed CSVs, corrupted downloads, unsupported types)
+  // render as a contained message with a way to remove the bad batch —
+  // never as a crashed page.
+  let parsed;
+  try {
+    parsed = await parseStatementBytes({
+      bytes,
+      mimeType: batch.mimeType,
+      filename: batch.sourceFilename,
+    });
+  } catch (err) {
+    const message =
+      err instanceof StatementParseError
+        ? err.message
+        : `This file isn't a valid Excel file. Please upload .xlsx exported from your bank, or a .csv.`;
+    return (
+      <div className="p-6 space-y-4">
+        <Link
+          href={{ pathname: '/banking' }}
+          className="text-xs text-slate-500 hover:text-slate-900"
+        >
+          ← Back to Banking
+        </Link>
+        <h1 className="text-xl font-semibold text-slate-900">
+          Can&apos;t read {batch.sourceFilename}
+        </h1>
+        <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 max-w-xl">
+          {message}
+        </div>
+        <DeleteImportBatchButton
+          batchId={batch.id}
+          filename={batch.sourceFilename}
+          rowCount={null}
+          redirectOnSuccess={`/banking/accounts/${account.id}`}
+        />
+      </div>
+    );
+  }
 
   // Look up any saved mapping for this account so the wizard preselects it.
   const mappings = await listMappingsForAccount(company.id, account.id);

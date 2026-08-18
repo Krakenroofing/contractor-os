@@ -205,7 +205,9 @@ export default async function JobCostingProjectPage({
           <h1 className="text-2xl font-semibold text-slate-900">{fin.projectName}</h1>
           <p className="text-sm text-slate-600 mt-1">{fin.customerName}</p>
         </div>
-        <Badge tone={STATUS_TONE[fin.status]}>{STATUS_LABEL[fin.status]}</Badge>
+        <Badge tone={STATUS_TONE[fin.status] ?? 'slate'}>
+          {STATUS_LABEL[fin.status] ?? fin.status}
+        </Badge>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -227,7 +229,11 @@ export default async function JobCostingProjectPage({
           value={formatMoney(fin.projectedGrossProfit)}
           sub={
             fin.revisedContractValue > 0
-              ? `${fin.projectedGrossMarginPct.toFixed(1)}% margin · final ${formatMoney(fin.projectedFinalCost)}`
+              ? `${
+                  Number.isFinite(fin.projectedGrossMarginPct)
+                    ? fin.projectedGrossMarginPct.toFixed(1)
+                    : '0.0'
+                }% margin · final ${formatMoney(fin.projectedFinalCost)}`
               : '—'
           }
           valueClassName={
@@ -588,7 +594,7 @@ export default async function JobCostingProjectPage({
                               : 'text-slate-500'
                         }`}
                       >
-                        {row.budgeted > 0
+                        {row.budgeted > 0 && Number.isFinite(row.variancePct)
                           ? `${row.variancePct > 0 ? '+' : ''}${row.variancePct.toFixed(1)}%`
                           : '—'}
                       </TableCell>
@@ -633,8 +639,8 @@ export default async function JobCostingProjectPage({
                         {vendor?.name ?? '—'}
                       </TableCell>
                       <TableCell>
-                        <Badge tone={PO_STATUS_TONE[po.status]}>
-                          {PO_STATUS_LABEL[po.status]}
+                        <Badge tone={PO_STATUS_TONE[po.status] ?? 'slate'}>
+                          {PO_STATUS_LABEL[po.status] ?? po.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-slate-600">
