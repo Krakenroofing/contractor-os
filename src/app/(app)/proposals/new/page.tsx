@@ -10,21 +10,19 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listEstimates } from '@/lib/data/estimates';
 import { listProposals } from '@/lib/data/proposals';
+import { nextNumberInSequence } from '@/lib/next-number';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
 async function nextProposalNumber(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
+  // Follow whatever numbering scheme the operator actually uses.
   const existing = await listProposals(companyId);
-  const matching = existing
-    .map((p) => p.number)
-    .filter((n) => n.startsWith(`PROP-${year}-`))
-    .map((n) => Number(n.slice(`PROP-${year}-`.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `PROP-${year}-${String(next).padStart(3, '0')}`;
+  return nextNumberInSequence(
+    existing,
+    `PROP-${new Date().getFullYear()}-001`,
+  );
 }
 
 export default async function NewProposalPage() {

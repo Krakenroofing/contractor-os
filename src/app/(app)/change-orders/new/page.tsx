@@ -5,7 +5,7 @@ import { ChangeOrderForm } from '@/modules/change-orders/components/change-order
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { listChangeOrders } from '@/lib/data/change-orders';
+import { nextChangeOrderNumber } from '@/lib/data/change-orders';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listProposals } from '@/lib/data/proposals';
 import { getCustomer, listCustomers } from '@/lib/data/customers';
@@ -13,17 +13,6 @@ import { listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
 
-async function nextChangeOrderNumber(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const existing = await listChangeOrders(companyId);
-  const matching = existing
-    .map((c) => c.number)
-    .filter((n) => n.startsWith(`CO-${year}-`))
-    .map((n) => Number(n.slice(`CO-${year}-`.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `CO-${year}-${String(next).padStart(3, '0')}`;
-}
 
 export default async function NewChangeOrderPage() {
   const role = await getActiveRole();

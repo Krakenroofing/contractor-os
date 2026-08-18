@@ -15,7 +15,7 @@ import { listLandedCosts } from '@/lib/data/landed-costs';
 import {
   getPurchaseOrder,
   getPurchaseOrderLines,
-  listPurchaseOrders,
+  nextPurchaseOrderNumber,
 } from '@/lib/data/purchase-orders';
 import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
@@ -23,17 +23,6 @@ import { listVendors } from '@/lib/data/vendors';
 
 export const dynamic = 'force-dynamic';
 
-async function nextPONumber(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const existing = await listPurchaseOrders(companyId);
-  const matching = existing
-    .map((p) => p.number)
-    .filter((n) => n.startsWith(`PO-${year}-`))
-    .map((n) => Number(n.slice(`PO-${year}-`.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `PO-${year}-${String(next).padStart(3, '0')}`;
-}
 
 export default async function NewPurchaseOrderPage({
   searchParams,
@@ -145,7 +134,7 @@ export default async function NewPurchaseOrderPage({
         costCodes={costCodes}
         landedCosts={landedCosts}
         products={products}
-        defaultNumber={await nextPONumber(companyId)}
+        defaultNumber={await nextPurchaseOrderNumber(companyId)}
         defaults={defaults}
       />
     </div>

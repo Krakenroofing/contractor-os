@@ -16,6 +16,7 @@ import {
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { sumProjectCreditForProject } from '@/lib/data/invoices';
+import { nextNumberInSequence } from '@/lib/next-number';
 import {
   listMockChangeOrders as mockList,
   getMockChangeOrder as mockGet,
@@ -405,20 +406,17 @@ export async function createChangeOrder(
 }
 
 /**
- * Next "CO-YYYY-NNN" number for this company. Mirrors the helper on the
- * new-CO page so auto-created deduct COs share the operator's sequence.
+ * Next CO number following whatever scheme the operator actually uses
+ * (most recent CO's number + 1). Shared by the new-CO page prefill and
+ * auto-created deduct COs so both stay on one sequence. Voided COs still
+ * hold their numbers, so they count for collision checks.
  */
 export async function nextChangeOrderNumber(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
   const existing = await listChangeOrders(companyId, { includeVoided: true });
-  const prefix = `CO-${year}-`;
-  const matching = existing
-    .map((c) => c.number)
-    .filter((n) => n.startsWith(prefix))
-    .map((n) => Number(n.slice(prefix.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `${prefix}${String(next).padStart(3, '0')}`;
+  return nextNumberInSequence(
+    existing,
+    `CO-${new Date().getFullYear()}-001`,
+  );
 }
 
 /**

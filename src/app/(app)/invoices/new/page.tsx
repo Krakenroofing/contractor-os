@@ -15,20 +15,19 @@ import { listProjects } from '@/lib/data/projects';
 import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
+import { nextNumberInSequence } from '@/lib/next-number';
 import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
 
 export const dynamic = 'force-dynamic';
 
 async function nextInvoiceNumber(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
+  // Follow whatever numbering scheme the operator actually uses (e.g. plain
+  // "1040" / "6071") instead of assuming an INV-YYYY-NNN format.
   const existing = await listInvoices(companyId);
-  const matching = existing
-    .map((i) => i.number)
-    .filter((n) => n.startsWith(`INV-${year}-`))
-    .map((n) => Number(n.slice(`INV-${year}-`.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `INV-${year}-${String(next).padStart(3, '0')}`;
+  return nextNumberInSequence(
+    existing,
+    `INV-${new Date().getFullYear()}-001`,
+  );
 }
 
 export default async function NewInvoicePage() {

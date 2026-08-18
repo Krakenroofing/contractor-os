@@ -9,6 +9,7 @@ import {
   type PurchaseOrderLine,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { nextNumberInSequence } from '@/lib/next-number';
 import {
   listMockPurchaseOrders as mockList,
   getMockPurchaseOrder as mockGet,
@@ -22,6 +23,19 @@ import {
 } from '@/lib/mock-store';
 
 export { DuplicatePONumberError };
+
+/**
+ * Next PO number following whatever scheme the company already uses
+ * ("PO019" -> "PO020"). Shared by the new-PO page prefill and the
+ * PDF-extraction create path so both stay on one sequence.
+ */
+export async function nextPurchaseOrderNumber(companyId: string): Promise<string> {
+  const existing = await listPurchaseOrders(companyId);
+  return nextNumberInSequence(
+    existing,
+    `PO-${new Date().getFullYear()}-001`,
+  );
+}
 
 export type CreatePurchaseOrderInput = {
   number: string;

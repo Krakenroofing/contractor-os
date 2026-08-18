@@ -26,6 +26,7 @@ import {
   type CreditMemoApplication,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { nextNumberInSequence } from '@/lib/next-number';
 
 // Method marker on the contra invoice_payment a credit application writes.
 const CREDIT_MEMO_PAYMENT_METHOD = 'credit_memo';
@@ -98,25 +99,20 @@ export type CreateCreditMemoInput = {
 };
 
 /**
- * Generate the next "CM-YYYY-NNN" number for this company. Pre-pads to
- * 3 digits. Mirrors the PO numbering scheme operator already uses.
+ * Generate the next credit-memo number for this company, following the
+ * sequence already in use ("CM-YYYY-NNN" for fresh companies).
  */
 async function nextCreditMemoNumber(companyId: string): Promise<string> {
   if (!isDatabaseConfigured()) return 'CM-DEMO-001';
   const db = getDb()!;
-  const year = new Date().getFullYear();
-  const prefix = `CM-${year}-`;
   const rows = await db
-    .select({ number: creditMemos.number })
+    .select({ number: creditMemos.number, createdAt: creditMemos.createdAt })
     .from(creditMemos)
     .where(eq(creditMemos.companyId, companyId));
-  const matching = rows
-    .map((r) => r.number)
-    .filter((n) => n.startsWith(prefix))
-    .map((n) => Number(n.slice(prefix.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `${prefix}${String(next).padStart(3, '0')}`;
+  return nextNumberInSequence(
+    rows,
+    `CM-${new Date().getFullYear()}-001`,
+  );
 }
 
 export async function createCreditMemo(

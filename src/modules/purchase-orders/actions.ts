@@ -38,7 +38,7 @@ import {
 import { getDefaultLocation } from '@/lib/data/inventory-locations';
 import { createProjectDocument } from '@/lib/data/project-documents';
 import { getProject } from '@/lib/data/projects';
-import { listPurchaseOrders } from '@/lib/data/purchase-orders';
+import { nextPurchaseOrderNumber } from '@/lib/data/purchase-orders';
 import {
   extractPurchaseOrderFromPdf,
   isOcrConfigured,
@@ -827,17 +827,6 @@ export type CreatePoFromExtractedState = {
   formError?: string;
 };
 
-async function nextPoNumberForCompany(companyId: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const existing = await listPurchaseOrders(companyId);
-  const matching = existing
-    .map((p) => p.number)
-    .filter((n) => n.startsWith(`PO-${year}-`))
-    .map((n) => Number(n.slice(`PO-${year}-`.length)))
-    .filter((n) => Number.isFinite(n));
-  const next = (matching.length === 0 ? 0 : Math.max(...matching)) + 1;
-  return `PO-${year}-${String(next).padStart(3, '0')}`;
-}
 
 export async function createPoFromExtractedAction(
   _prev: CreatePoFromExtractedState,
@@ -907,7 +896,7 @@ export async function createPoFromExtractedAction(
   // server-generated next-in-sequence to avoid collisions.
   const requestedNumber = data.number.trim();
   const finalNumber =
-    requestedNumber !== '' ? requestedNumber : await nextPoNumberForCompany(companyId);
+    requestedNumber !== '' ? requestedNumber : await nextPurchaseOrderNumber(companyId);
 
   let createdId: string;
   try {
