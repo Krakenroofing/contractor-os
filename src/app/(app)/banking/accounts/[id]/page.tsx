@@ -959,6 +959,7 @@ export default async function BankAccountDetailPage({
                                 : null
                             }
                             canEdit={canEdit}
+                            isManualEntry={t.sourceFilename === 'Manual entry'}
                           />
                         </TableCell>
                       </TableRow>

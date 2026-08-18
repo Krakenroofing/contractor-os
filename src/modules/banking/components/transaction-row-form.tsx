@@ -1,12 +1,14 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   updateImportedTransactionAction,
   type BankingActionState,
 } from '../actions';
+import { deleteManualTransactionAction } from '../reconcile-actions';
 import {
   AccountingAccountPicker,
   type AccountingAccountOption,
@@ -72,6 +74,10 @@ export type TransactionRowFormProps = {
    *  can be split at the company rate and categorized later. */
   companyVatRatePercent: number | null;
   canEdit: boolean;
+  /** True for register/reconcile entries typed by the operator (source
+   *  "Manual entry"). Only these get a Delete button — imported statement
+   *  rows mirror the bank and must stay. */
+  isManualEntry?: boolean;
 };
 
 function money(n: number, currency: string): string {
@@ -108,6 +114,28 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
     updateImportedTransactionAction,
     {},
   );
+  const router = useRouter();
+  const [deleting, startDelete] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  function deleteEntry() {
+    if (
+      !window.confirm(
+        'Delete this manually added transaction? This cannot be undone.',
+      )
+    ) {
+      return;
+    }
+    setDeleteError(null);
+    startDelete(async () => {
+      const res = await deleteManualTransactionAction(props.id);
+      if (res.formError) {
+        setDeleteError(res.formError);
+        return;
+      }
+      router.refresh();
+    });
+  }
   const [accountingAccountId, setAccountingAccountId] = useState(
     props.initial.accountingAccountId ?? '',
   );
@@ -424,7 +452,20 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
             Ignore
           </label>
         </div>
-        <div className="md:col-span-3 flex items-center md:justify-end">
+        <div className="md:col-span-3 flex items-center gap-2 md:justify-end">
+          {props.isManualEntry && props.canEdit && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="border-red-300 text-red-700 hover:bg-red-50"
+              disabled={pending || deleting}
+              onClick={deleteEntry}
+              title="Delete this manually added transaction"
+            >
+              {deleting ? '…' : 'Delete entry'}
+            </Button>
+          )}
           <Button type="submit" size="sm" disabled={pending || (split && !balanced)}>
             {pending ? '…' : 'Save'}
           </Button>
@@ -443,6 +484,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
       {state.formError && (
         <p className="text-xs text-red-600">{state.formError}</p>
       )}
+      {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
     </form>
   );
 }
