@@ -554,9 +554,17 @@ export default async function PayrollPage({
                 />
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-medium text-slate-700">
-                  Generate payroll bills
-                </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium text-slate-700">
+                    Generate payroll bills
+                  </h3>
+                  <Link
+                    href={{ pathname: '/payroll/bills' }}
+                    className="text-xs text-blue-700 hover:underline whitespace-nowrap"
+                  >
+                    View all bills →
+                  </Link>
+                </div>
                 <p className="mt-0.5 mb-2 text-xs text-slate-500">
                   One QuickBooks-style bill per employee: gross wages expensed,
                   employee NIB withheld to NIB Payable, employer NIB expensed

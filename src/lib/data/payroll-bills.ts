@@ -1,7 +1,84 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
-import { payrollBills, type PayrollBill } from '@/db/schema';
+import { and, desc, eq, isNull } from 'drizzle-orm';
+import {
+  employees,
+  importedTransactions,
+  bankAccounts,
+  payPeriods,
+  payrollBills,
+  transactionMatches,
+  type PayrollBill,
+} from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+
+export type PayrollBillListRow = PayrollBill & {
+  employeeName: string;
+  periodStart: string;
+  periodEnd: string;
+  /** The bank withdrawal that settled this bill (active match), if any. */
+  paidFrom: {
+    transactionDate: string;
+    description: string;
+    accountName: string;
+    bankAccountId: string;
+  } | null;
+};
+
+/** All payroll bills company-wide with employee / period / settling-payment
+ *  context — the bills list page. Newest bill date first. */
+export async function listPayrollBillsWithDetails(
+  companyId: string,
+): Promise<PayrollBillListRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      bill: payrollBills,
+      firstName: employees.firstName,
+      lastName: employees.lastName,
+      periodStart: payPeriods.startDate,
+      periodEnd: payPeriods.endDate,
+      txnDate: importedTransactions.transactionDate,
+      txnDescription: importedTransactions.description,
+      txnBankAccountId: importedTransactions.bankAccountId,
+      txnAccountName: bankAccounts.name,
+    })
+    .from(payrollBills)
+    .innerJoin(employees, eq(employees.id, payrollBills.employeeId))
+    .innerJoin(payPeriods, eq(payPeriods.id, payrollBills.payPeriodId))
+    .leftJoin(
+      transactionMatches,
+      and(
+        eq(transactionMatches.payrollBillId, payrollBills.id),
+        isNull(transactionMatches.reversedAt),
+      ),
+    )
+    .leftJoin(
+      importedTransactions,
+      eq(importedTransactions.id, transactionMatches.importedTransactionId),
+    )
+    .leftJoin(
+      bankAccounts,
+      eq(bankAccounts.id, importedTransactions.bankAccountId),
+    )
+    .where(eq(payrollBills.companyId, companyId))
+    .orderBy(desc(payrollBills.billDate), employees.firstName);
+  return rows.map((r) => ({
+    ...r.bill,
+    employeeName: `${r.firstName} ${r.lastName}`.trim(),
+    periodStart: r.periodStart,
+    periodEnd: r.periodEnd,
+    paidFrom:
+      r.txnDate && r.txnBankAccountId
+        ? {
+            transactionDate: r.txnDate,
+            description: r.txnDescription ?? '',
+            accountName: r.txnAccountName ?? 'Bank',
+            bankAccountId: r.txnBankAccountId,
+          }
+        : null,
+  }));
+}
 
 export async function listPayrollBills(
   companyId: string,
