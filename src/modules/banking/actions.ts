@@ -21,6 +21,7 @@ import {
   getBankAccount,
   updateBankAccount,
 } from '@/lib/data/bank-accounts';
+import { getUserNamesByIds } from '@/lib/data/users';
 import {
   createImportBatch,
   deleteImportBatch,
@@ -1402,6 +1403,14 @@ type CommonMatchInput = {
   transactionId: string;
 };
 
+// Dev-demo auth uses a synthetic user id that isn't in the users table —
+// stamp matched-by only when the id really exists so the FK can't fail
+// (same guard as receipts/reconciliation actions).
+async function safeMatchUserId(userId: string): Promise<string | null> {
+  const known = await getUserNamesByIds([userId]);
+  return known.has(userId) ? userId : null;
+}
+
 async function loadTxnAndUser(input: CommonMatchInput) {
   const user = await requireAuth();
   const role = await getActiveRole();
@@ -1494,7 +1503,7 @@ export async function matchInvoicePaymentsAction(input: {
       importedTransactionId: txn.id,
       invoicePaymentIds: ids,
       confidence: input.confidence ?? 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
       reconcile,
     });
   } catch (err) {
@@ -1966,7 +1975,7 @@ export async function matchInvoiceBalancesAction(input: {
       paidDate: txn.transactionDate,
       bankAccountLabel: bank?.name ?? null,
       confidence: 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
       reconcile,
     });
   } catch (err) {
@@ -2166,7 +2175,7 @@ export async function matchBillsAction(input: {
       payrollBillIds,
       fee,
       confidence: input.confidence ?? 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
       reconcile,
     });
   } catch (err) {
@@ -2215,7 +2224,7 @@ export async function matchReceiptAction(input: {
       matchType: 'receipt',
       receiptId: input.receiptId,
       confidence: input.confidence ?? 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
     });
   } catch (err) {
     return {
@@ -2291,7 +2300,7 @@ export async function addReceiptToTransactionAction(input: {
       matchType: 'receipt',
       receiptId: receipt.id,
       confidence: 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
       notes: 'Receipt added from bank transaction',
     });
   } catch (err) {
@@ -2317,7 +2326,7 @@ export async function matchJobCostEntryAction(input: {
       matchType: 'job_cost_entry',
       jobCostEntryId: input.jobCostEntryId,
       confidence: input.confidence ?? 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
     });
   } catch (err) {
     return {
@@ -2371,7 +2380,7 @@ export async function matchTransferAction(input: {
       companyId,
       txnAId: txn.id,
       txnBId: paired.id,
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
     });
   } catch (err) {
     return {
@@ -2416,7 +2425,7 @@ export async function markInterAccountTransferAction(input: {
       importedTransactionId: txn.id,
       matchType: 'transfer',
       confidence: 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
     });
   } catch (err) {
     return {
@@ -2467,7 +2476,7 @@ export async function matchOwnerEquityAction(input: {
       importedTransactionId: txn.id,
       matchType: input.kind,
       confidence: 'manual',
-      matchedByUserId: user.id,
+      matchedByUserId: await safeMatchUserId(user.id),
     });
   } catch (err) {
     return {
@@ -2593,7 +2602,7 @@ export async function bulkAutoMatchExactAction(input: {
             matchType: 'invoice_payment',
             invoicePaymentId: cand.id,
             confidence: 'exact',
-            matchedByUserId: user.id,
+            matchedByUserId: await safeMatchUserId(user.id),
           });
           takenInvoicePayment.add(cand.id);
           matched += 1;
@@ -2617,7 +2626,7 @@ export async function bulkAutoMatchExactAction(input: {
             matchType: 'receipt',
             receiptId: cand.id,
             confidence: 'exact',
-            matchedByUserId: user.id,
+            matchedByUserId: await safeMatchUserId(user.id),
           });
           takenReceipt.add(cand.id);
           matched += 1;
