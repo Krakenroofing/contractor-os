@@ -448,7 +448,13 @@ export async function resolveTeamTaskAction(
   const companyId = await getActiveCompanyId();
   try {
     const name = await resolveDisplayName(user.id, user.email);
-    const out = await resolveTeamTask(companyId, taskId, { id: user.id, name });
+    // Dev-demo auth's synthetic user isn't in the users table — stamp the
+    // resolver id only when it really exists so the FK can't fail.
+    const known = await getUserNamesByIds([user.id]);
+    const out = await resolveTeamTask(companyId, taskId, {
+      id: known.has(user.id) ? user.id : null,
+      name,
+    });
     if (!out) return { formError: 'Task not found.' };
   } catch (err) {
     if (err instanceof TeamTasksNotAvailableInDemoError) {

@@ -87,7 +87,7 @@ export function TaskItem({
             <span className="font-medium text-slate-700">{task.createdByName}</span>
             <span>·</span>
             <span>{relativeTime(task.createdAtISO)}</span>
-            {done && <Badge tone="green">Done</Badge>}
+            {done && <Badge tone="green">Resolved</Badge>}
           </div>
           <EditableBody
             body={task.body}
@@ -157,8 +157,14 @@ export function TaskItem({
         <div className="flex shrink-0 items-center gap-1">
           {canResolve && !done && (
             <form action={resolveAction}>
-              <Button type="submit" size="sm" variant="outline" disabled={resolvePending}>
-                {resolvePending ? '…' : '✓ Done'}
+              <Button
+                type="submit"
+                size="sm"
+                variant="outline"
+                disabled={resolvePending}
+                title="Mark resolved — moves to the archive (nothing is deleted)"
+              >
+                {resolvePending ? '…' : '✓ Resolve'}
               </Button>
             </form>
           )}

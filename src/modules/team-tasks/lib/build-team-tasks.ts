@@ -1,5 +1,7 @@
 import 'server-only';
 import {
+  countResolvedTeamTasks,
+  listResolvedTeamTasks,
   listTeamTasks,
   listAttachmentsForTasks,
   listRepliesForTasks,
@@ -36,15 +38,25 @@ export type TeamTaskView = {
 };
 
 /**
- * Build the dashboard inbox view: all open tasks (newest first) plus a capped
- * tail of recently-resolved ones, each with its attachments attached. One
- * batched attachment query for the whole set.
+ * Build a Team Notes & Tasks view, attachments + replies batched.
+ *  - 'inbox'   — the dashboard: OPEN notes only. Resolved notes move to the
+ *                archive so they stop taking dashboard space (Olga's ask).
+ *  - 'archive' — resolved notes, most recently resolved first (capped 200).
  */
-export async function buildTeamTasks(companyId: string): Promise<{
+export async function buildTeamTasks(
+  companyId: string,
+  mode: 'inbox' | 'archive' = 'inbox',
+): Promise<{
   tasks: TeamTaskView[];
   openCount: number;
+  resolvedCount: number;
 }> {
-  const tasks = await listTeamTasks(companyId, { includeDone: true, doneLimit: 8 });
+  const [tasks, resolvedCount] = await Promise.all([
+    mode === 'archive'
+      ? listResolvedTeamTasks(companyId)
+      : listTeamTasks(companyId),
+    countResolvedTeamTasks(companyId),
+  ]);
   const ids = tasks.map((t) => t.id);
   const [attachments, replies] = await Promise.all([
     listAttachmentsForTasks(companyId, ids),
@@ -92,5 +104,6 @@ export async function buildTeamTasks(companyId: string): Promise<{
       replies: repliesByTask.get(t.id) ?? [],
     })),
     openCount: tasks.filter((t) => t.status === 'open').length,
+    resolvedCount,
   };
 }

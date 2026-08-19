@@ -74,6 +74,47 @@ export async function listTeamTasks(
   return [...open, ...done];
 }
 
+/** Resolved (done) tasks, most recently resolved first — the archive page.
+ *  Capped: the archive is a reference, not an unbounded feed. */
+export async function listResolvedTeamTasks(
+  companyId: string,
+  limit = 200,
+): Promise<TeamTask[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(teamTasks)
+    .where(
+      and(
+        eq(teamTasks.companyId, companyId),
+        eq(teamTasks.status, 'done'),
+        isNull(teamTasks.deletedAt),
+      ),
+    )
+    .orderBy(desc(teamTasks.resolvedAt), desc(teamTasks.createdAt))
+    .limit(limit);
+  return rows;
+}
+
+export async function countResolvedTeamTasks(
+  companyId: string,
+): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(teamTasks)
+    .where(
+      and(
+        eq(teamTasks.companyId, companyId),
+        eq(teamTasks.status, 'done'),
+        isNull(teamTasks.deletedAt),
+      ),
+    );
+  return rows[0]?.n ?? 0;
+}
+
 export async function countOpenTeamTasks(companyId: string): Promise<number> {
   if (!isDatabaseConfigured()) return 0;
   const db = getDb()!;
