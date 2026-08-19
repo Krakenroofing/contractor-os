@@ -22,6 +22,7 @@ import {
   updateBankAccount,
 } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
+import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import {
   createImportBatch,
   deleteImportBatch,
@@ -2043,6 +2044,13 @@ export async function searchBillsForMatchAction(input: {
   const employeeById = new Map(employees.map((e) => [e.id, e]));
   const q = (input.query ?? '').trim().toLowerCase();
 
+  // Applied vendor credits reduce what the bank payment covers — offer bills
+  // at their NET due (bill − credits), same as the single-receipt matcher.
+  const appliedCredits = await sumAppliedCreditsByReceipt(
+    companyId,
+    receipts.map((r) => r.id),
+  );
+
   const results: BillSearchResult[] = [];
   for (const r of receipts) {
     if (takenReceipts.has(r.id)) continue;
@@ -2053,11 +2061,12 @@ export async function searchBillsForMatchAction(input: {
       ? (vendorById.get(r.vendorId)?.name ?? '—')
       : '—';
     if (q && !vendorName.toLowerCase().includes(q)) continue;
-    const total = Number(r.total);
+    const credit = appliedCredits.get(r.id) ?? 0;
+    const total = Math.round((Number(r.total) - credit) * 100) / 100;
     results.push({
       kind: 'receipt',
       id: r.id,
-      label: vendorName,
+      label: credit > 0 ? `${vendorName} (net of credit)` : vendorName,
       total,
       date: r.receiptDate,
       sameAmount: Math.round(total * 100) === absCents,
@@ -2123,6 +2132,12 @@ export async function matchBillsAction(input: {
     return { ok: false, error: 'Select at least one bill to match.' };
   }
 
+  // Bills count at their NET due (total − applied vendor credits) — a payment
+  // of (bill − credit) must reconcile without a phantom shortfall.
+  const creditByReceipt = await sumAppliedCreditsByReceipt(companyId, [
+    ...receiptIds,
+  ]);
+
   let newSum = 0;
   for (const id of receiptIds) {
     const r = await getReceipt(companyId, id);
@@ -2130,7 +2145,7 @@ export async function matchBillsAction(input: {
     if (r.status !== 'posted') {
       return { ok: false, error: 'Only posted bills can be matched.' };
     }
-    newSum += Number(r.total);
+    newSum += Number(r.total) - (creditByReceipt.get(id) ?? 0);
   }
   for (const id of payrollBillIds) {
     const b = await getPayrollBill(companyId, id);
@@ -2141,13 +2156,21 @@ export async function matchBillsAction(input: {
     newSum += Number(b.net);
   }
 
-  // Add anything already matched to this withdrawal (incremental top-ups).
+  // Add anything already matched to this withdrawal (incremental top-ups) —
+  // also at net-of-credit value.
   const existing = await listActiveMatchesForTxn(companyId, txn.id);
+  const priorReceiptIds = existing
+    .filter((m) => m.matchType === 'receipt' && m.receiptId)
+    .map((m) => m.receiptId!);
+  const priorCredits = await sumAppliedCreditsByReceipt(
+    companyId,
+    priorReceiptIds,
+  );
   let priorSum = 0;
   for (const m of existing) {
     if (m.matchType === 'receipt' && m.receiptId) {
       const r = await getReceipt(companyId, m.receiptId);
-      if (r) priorSum += Number(r.total);
+      if (r) priorSum += Number(r.total) - (priorCredits.get(r.id) ?? 0);
     } else if (m.matchType === 'payroll_bill' && m.payrollBillId) {
       const b = await getPayrollBill(companyId, m.payrollBillId);
       if (b) priorSum += Number(b.net);
@@ -2578,6 +2601,11 @@ export async function bulkAutoMatchExactAction(input: {
   const takenReceipt = new Set(
     activeMatches.filter((m) => m.receiptId !== null).map((m) => m.receiptId!),
   );
+  // Exact-match receipts at NET due (total − applied vendor credits).
+  const bulkCredits = await sumAppliedCreditsByReceipt(
+    companyId,
+    postedReceipts.map((r) => r.id),
+  );
 
   let matched = 0;
   for (const txn of txns) {
@@ -2616,7 +2644,9 @@ export async function bulkAutoMatchExactAction(input: {
         (r) =>
           !takenReceipt.has(r.id) &&
           r.receiptDate === txn.transactionDate &&
-          Math.round(Math.abs(Number(r.total)) * 100) === absAmt,
+          Math.round(
+            Math.abs(Number(r.total) - (bulkCredits.get(r.id) ?? 0)) * 100,
+          ) === absAmt,
       );
       if (cand) {
         try {
