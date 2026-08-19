@@ -14,6 +14,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import {
   buildProfitLossReport,
   getProfitLossActivityRange,
@@ -49,10 +50,25 @@ export default async function ProfitLossReportPage({
     };
   }
 
-  const [report, projects] = await Promise.all([
+  const [report, projects, allAccounts] = await Promise.all([
     buildProfitLossReport(company.id, filters),
     listProjects(company.id),
+    listAccountingAccounts(company.id),
   ]);
+
+  // Subaccount rollup: child accountId → parent CATEGORY id (only when the
+  // parent is itself a leaf category, not a section header). Lets COGS/OpEx
+  // render QB-style: parent, indented subaccounts, bold "Total parent" row.
+  const acctById = new Map(allAccounts.map((a) => [a.id, a]));
+  const parentCategoryOf = new Map<string, string>();
+  for (const a of allAccounts) {
+    if (!a.parentId) continue;
+    const parent = acctById.get(a.parentId);
+    if (parent && parent.parentId !== null) {
+      parentCategoryOf.set(a.id, parent.id);
+    }
+  }
+  const accountNameOf = (id: string) => acctById.get(id)?.name ?? '—';
 
   const netSign = report.netIncome >= 0;
   const grossSign = report.grossProfit >= 0;
@@ -238,14 +254,14 @@ export default async function ProfitLossReportPage({
 
       <AccountSection
         title={`Cost of Goods Sold — ${formatMoney(report.cogs.total)}`}
-        accounts={report.cogs.accounts}
+        rows={rollUpSubaccounts(report.cogs.accounts, parentCategoryOf, accountNameOf)}
         filters={filters}
         emptyMessage="No COGS entries categorized in this range."
       />
 
       <AccountSection
         title={`Operating Expense — ${formatMoney(report.opex.total)}`}
-        accounts={report.opex.accounts}
+        rows={rollUpSubaccounts(report.opex.accounts, parentCategoryOf, accountNameOf)}
         filters={filters}
         emptyMessage="No operating expense entries categorized in this range."
       />
@@ -352,19 +368,121 @@ export default async function ProfitLossReportPage({
   );
 }
 
+type SectionAccount = {
+  accountId: string;
+  accountName: string;
+  amount: number;
+  entryCount: number;
+};
+
+type SectionRow = {
+  key: string;
+  /** Drill-down target — absent on group-header / subtotal rows. */
+  accountId?: string;
+  name: string;
+  amount: number | null;
+  entryCount: number | null;
+  indent: boolean;
+  subtotal: boolean;
+};
+
+/**
+ * QB-style rollup: top-level categories A→Z; a parent with active
+ * subaccounts renders its own line (when it has direct activity), then the
+ * subaccounts indented, then a bold "Total parent" row. A parent with no
+ * direct activity but active subs gets a non-linking header line.
+ */
+function rollUpSubaccounts(
+  accounts: SectionAccount[],
+  parentCategoryOf: Map<string, string>,
+  accountNameOf: (id: string) => string,
+): SectionRow[] {
+  const byId = new Map(accounts.map((a) => [a.accountId, a]));
+  const childrenOf = new Map<string, SectionAccount[]>();
+  const tops: Array<{ id: string; name: string }> = [];
+  const seenTop = new Set<string>();
+
+  for (const a of accounts) {
+    const parentId = parentCategoryOf.get(a.accountId);
+    if (parentId) {
+      const arr = childrenOf.get(parentId) ?? [];
+      arr.push(a);
+      childrenOf.set(parentId, arr);
+      // The parent anchors the group even without direct activity.
+      if (!seenTop.has(parentId)) {
+        seenTop.add(parentId);
+        tops.push({ id: parentId, name: byId.get(parentId)?.accountName ?? accountNameOf(parentId) });
+      }
+    } else if (!seenTop.has(a.accountId)) {
+      seenTop.add(a.accountId);
+      tops.push({ id: a.accountId, name: a.accountName });
+    }
+  }
+  tops.sort((x, y) => x.name.localeCompare(y.name));
+
+  const rows: SectionRow[] = [];
+  for (const t of tops) {
+    const own = byId.get(t.id);
+    const kids = (childrenOf.get(t.id) ?? []).sort((x, y) =>
+      x.accountName.localeCompare(y.accountName),
+    );
+    if (kids.length === 0) {
+      if (own) {
+        rows.push({
+          key: t.id,
+          accountId: t.id,
+          name: own.accountName,
+          amount: own.amount,
+          entryCount: own.entryCount,
+          indent: false,
+          subtotal: false,
+        });
+      }
+      continue;
+    }
+    // Group: parent line (linked when it has direct activity), indented subs,
+    // bold total.
+    rows.push({
+      key: t.id,
+      accountId: own ? t.id : undefined,
+      name: t.name,
+      amount: own ? own.amount : null,
+      entryCount: own ? own.entryCount : null,
+      indent: false,
+      subtotal: false,
+    });
+    for (const k of kids) {
+      rows.push({
+        key: k.accountId,
+        accountId: k.accountId,
+        name: k.accountName,
+        amount: k.amount,
+        entryCount: k.entryCount,
+        indent: true,
+        subtotal: false,
+      });
+    }
+    rows.push({
+      key: `${t.id}:total`,
+      name: `Total ${t.name}`,
+      amount: (own?.amount ?? 0) + kids.reduce((s, k) => s + k.amount, 0),
+      entryCount:
+        (own?.entryCount ?? 0) + kids.reduce((s, k) => s + k.entryCount, 0),
+      indent: false,
+      subtotal: true,
+    });
+  }
+  return rows;
+}
+
 function AccountSection({
   title,
-  accounts,
+  rows,
   filters,
   emptyMessage,
 }: {
   title: string;
-  accounts: Array<{
-    accountId: string;
-    accountName: string;
-    amount: number;
-    entryCount: number;
-  }>;
+  rows: SectionRow[];
   filters: { from: string; to: string };
   emptyMessage: string;
 }) {
@@ -378,7 +496,7 @@ function AccountSection({
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="p-0 overflow-x-auto">
-        {accounts.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="p-6 text-sm text-slate-500">{emptyMessage}</p>
         ) : (
           <Table>
@@ -390,23 +508,38 @@ function AccountSection({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {accounts.map((a) => (
-                <TableRow key={a.accountId}>
-                  <TableCell>
-                    <Link
-                      href={
-                        `/reports/profit-loss/${a.accountId}${suffix}` as never
-                      }
-                      className="text-slate-900 underline-offset-2 hover:underline"
-                    >
-                      {a.accountName}
-                    </Link>
+              {rows.map((r) => (
+                <TableRow key={r.key}>
+                  <TableCell
+                    className={
+                      r.subtotal ? 'font-semibold text-slate-900' : undefined
+                    }
+                  >
+                    {r.indent && (
+                      <span className="mr-1.5 pl-4 text-slate-400">↳</span>
+                    )}
+                    {r.accountId ? (
+                      <Link
+                        href={
+                          `/reports/profit-loss/${r.accountId}${suffix}` as never
+                        }
+                        className="text-slate-900 underline-offset-2 hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    ) : (
+                      r.name
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-slate-600">
-                    {a.entryCount}
+                    {r.entryCount ?? ''}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium">
-                    {formatMoney(a.amount)}
+                  <TableCell
+                    className={`text-right tabular-nums ${
+                      r.subtotal ? 'font-semibold' : 'font-medium'
+                    }`}
+                  >
+                    {r.amount === null ? '' : formatMoney(r.amount)}
                   </TableCell>
                 </TableRow>
               ))}
