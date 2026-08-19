@@ -37,6 +37,7 @@ import {
 } from '@/lib/data/bank-reconciliations';
 import { getImportedTransaction } from '@/lib/data/statement-imports';
 import { deleteJournalEntriesForSource } from '@/lib/data/general-ledger';
+import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
 import { createTransferPairAtomic } from '@/lib/data/transaction-matches';
 import { getUserNamesByIds } from '@/lib/data/users';
 
@@ -331,6 +332,7 @@ export async function addRegisterTransactionAction(
   const account = await getBankAccount(auth.companyId, input.bankAccountId);
   if (!account) return { formError: 'Bank account not found.' };
 
+  const newIds: string[] = [];
   try {
     const batch = await getOrCreateManualBatch(
       auth.companyId,
@@ -385,26 +387,37 @@ export async function addRegisterTransactionAction(
         matchedByUserId: auth.userId,
         notes: 'Manual transfer entered on the register',
       });
+      newIds.push(hereId, otherId);
     } else {
       const signed =
         input.entryType === 'out' ? -input.amount : input.amount;
-      await insertManualBankTransaction({
-        companyId: auth.companyId,
-        batchId: batch.id,
-        bankAccountId: input.bankAccountId,
-        transactionDate: input.transactionDate,
-        description: input.description,
-        amount: signed,
-        dedupeHash: `manual:${randomUUID()}`,
-        bankReconciliationId: null,
-        accountingAccountId: input.accountingAccountId,
-        vendorId: input.vendorId,
-        projectId: input.projectId,
-      });
+      newIds.push(
+        await insertManualBankTransaction({
+          companyId: auth.companyId,
+          batchId: batch.id,
+          bankAccountId: input.bankAccountId,
+          transactionDate: input.transactionDate,
+          description: input.description,
+          amount: signed,
+          dedupeHash: `manual:${randomUUID()}`,
+          bankReconciliationId: null,
+          accountingAccountId: input.accountingAccountId,
+          vendorId: input.vendorId,
+          projectId: input.projectId,
+        }),
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to add transaction: ${message}` };
+  }
+
+  for (const id of newIds) {
+    try {
+      await syncBankTxnGl(auth.companyId, id);
+    } catch {
+      // Best-effort; the rebuild reconverges.
+    }
   }
 
   revalidatePath(`/banking/accounts/${input.bankAccountId}`);
@@ -519,6 +532,12 @@ export async function updateManualTransactionAction(
     },
   );
   if (!ok) return { formError: 'Could not update the entry.' };
+
+  try {
+    await syncBankTxnGl(auth.companyId, txn.id);
+  } catch {
+    // GL sync is best-effort; the rebuild reconverges.
+  }
 
   if (txn.bankReconciliationId) {
     revalidatePath(`/banking/reconcile/${txn.bankReconciliationId}`);
@@ -737,7 +756,7 @@ export async function addManualTransactionAction(
     );
     const signed =
       input.direction === 'out' ? -input.amount : input.amount;
-    await insertManualBankTransaction({
+    const newId = await insertManualBankTransaction({
       companyId: auth.companyId,
       batchId: manualBatch.id,
       bankAccountId: rec.bankAccountId,
@@ -750,6 +769,11 @@ export async function addManualTransactionAction(
       vendorId: input.vendorId,
       projectId: input.projectId,
     });
+    try {
+      await syncBankTxnGl(auth.companyId, newId);
+    } catch {
+      // Best-effort; the rebuild reconverges.
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to add transaction: ${message}` };

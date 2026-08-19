@@ -20,12 +20,16 @@ import {
 } from '@/lib/data/accounting-accounts';
 import { getInvoice, listInvoices } from '@/lib/data/invoices';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
-import { listBankAccounts } from '@/lib/data/bank-accounts';
+import { getBankAccount, listBankAccounts } from '@/lib/data/bank-accounts';
 import {
+  getImportedTransaction,
   listImportedTransactions,
   listLinesForTransactionIds,
 } from '@/lib/data/statement-imports';
-import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import {
+  listActiveMatchesForCompany,
+  listActiveMatchesForTxn,
+} from '@/lib/data/transaction-matches';
 import {
   deleteJournalEntriesForSource,
   postJournalEntry,
@@ -713,6 +717,36 @@ export async function syncPaymentGl(
   }
   const accounts = await resolveGlSystemAccounts(companyId);
   await postPaymentToGl(companyId, payment, accounts);
+}
+
+/** Live-sync one bank transaction's GL entry after any mutation
+ *  (categorize / split / ignore / match / unmatch / manual edit).
+ *  Idempotent — postBankTxnToGl clears the prior entry first; a deleted
+ *  transaction clears its entry. Callers wrap in try/catch: GL sync must
+ *  never block the banking action. */
+export async function syncBankTxnGl(
+  companyId: string,
+  transactionId: string,
+): Promise<void> {
+  const txn = await getImportedTransaction(companyId, transactionId);
+  if (!txn) {
+    await deleteJournalEntriesForSource(companyId, 'bank', transactionId);
+    return;
+  }
+  const [lines, matches, bank] = await Promise.all([
+    listLinesForTransactionIds(companyId, [transactionId]),
+    listActiveMatchesForTxn(companyId, transactionId),
+    getBankAccount(companyId, txn.bankAccountId),
+  ]);
+  const accounts = await resolveGlSystemAccounts(companyId);
+  await postBankTxnToGl(
+    companyId,
+    txn,
+    lines,
+    matches[0]?.matchType,
+    bank?.accountingAccountId,
+    accounts,
+  );
 }
 
 export async function syncReceiptGl(

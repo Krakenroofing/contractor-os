@@ -23,6 +23,7 @@ import {
 } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
+import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
 import {
   createImportBatch,
   deleteImportBatch,
@@ -673,6 +674,7 @@ export async function updateImportedTransactionAction(
     });
   }
 
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -703,6 +705,8 @@ export async function toggleImportedTransactionFlag(input: {
       : { isIgnored: input.value };
   const updated = await updateImportedTransaction(companyId, input.id, patch);
   if (!updated) return { ok: false, error: 'Transaction not found.' };
+  // Ignoring / un-ignoring changes whether the txn posts to the GL at all.
+  if (input.flag === 'ignored') await syncTxnGlSafe(companyId, updated.id);
   revalidatePath(`/banking/accounts/${updated.bankAccountId}`);
   return { ok: true };
 }
@@ -1058,6 +1062,7 @@ export async function applyRuleAction(input: {
   );
   await bumpMatchCount(companyId, rule.id);
 
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -1374,6 +1379,10 @@ export async function bulkCategorizeTransactionsAction(input: {
     markReviewed,
   );
 
+  if (patch.accountingAccountId || patch.projectId) {
+    await syncTxnGlSafe(companyId, ...ids);
+  }
+
   revalidatePath(`/banking/accounts/${input.bankAccountId}`);
   revalidatePath(`/banking/accounts/${input.bankAccountId}/categorize`);
   return { ok: true, applied };
@@ -1410,6 +1419,23 @@ type CommonMatchInput = {
 async function safeMatchUserId(userId: string): Promise<string | null> {
   const known = await getUserNamesByIds([userId]);
   return known.has(userId) ? userId : null;
+}
+
+// Live GL sync after a bank-txn mutation. Fire-and-forget: the banking action
+// must never fail because a ledger write hiccuped — the GL rebuild
+// reconverges anyway.
+async function syncTxnGlSafe(
+  companyId: string,
+  ...txnIds: (string | null | undefined)[]
+): Promise<void> {
+  for (const id of txnIds) {
+    if (!id) continue;
+    try {
+      await syncBankTxnGl(companyId, id);
+    } catch {
+      // Swallowed by design — see above.
+    }
+  }
 }
 
 async function loadTxnAndUser(input: CommonMatchInput) {
@@ -1518,6 +1544,7 @@ export async function matchInvoicePaymentsAction(input: {
             : 'Match failed.',
     };
   }
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return {
     ok: true,
@@ -1986,6 +2013,7 @@ export async function matchInvoiceBalancesAction(input: {
     };
   }
 
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return {
     ok: true,
@@ -2212,6 +2240,7 @@ export async function matchBillsAction(input: {
             : 'Match failed.',
     };
   }
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return {
     ok: true,
@@ -2260,6 +2289,7 @@ export async function matchReceiptAction(input: {
             : 'Match failed.',
     };
   }
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -2330,6 +2360,7 @@ export async function addReceiptToTransactionAction(input: {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { ok: false, error: `Could not add receipt: ${message}` };
   }
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true, receiptId };
 }
@@ -2362,6 +2393,7 @@ export async function matchJobCostEntryAction(input: {
             : 'Match failed.',
     };
   }
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -2411,6 +2443,7 @@ export async function matchTransferAction(input: {
       error: err instanceof Error ? err.message : 'Transfer match failed.',
     };
   }
+  await syncTxnGlSafe(companyId, txn.id, paired.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   revalidatePath(`/banking/accounts/${paired.bankAccountId}`);
   return { ok: true };
@@ -2465,6 +2498,7 @@ export async function markInterAccountTransferAction(input: {
     });
   }
 
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -2516,6 +2550,7 @@ export async function matchOwnerEquityAction(input: {
     });
   }
 
+  await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
   return { ok: true };
 }
@@ -2542,6 +2577,12 @@ export async function unmatchTransactionAction(input: {
       reversedByUserId: user.id,
     });
   }
+  await syncTxnGlSafe(
+    companyId,
+    input.transactionId,
+    // A reversed transfer frees the paired transaction too.
+    ...matches.map((m) => m.transferPairedTxnId),
+  );
   revalidatePath(`/banking/accounts/`);
   return { ok: true };
 }
@@ -2608,6 +2649,7 @@ export async function bulkAutoMatchExactAction(input: {
   );
 
   let matched = 0;
+  const matchedTxnIds: string[] = [];
   for (const txn of txns) {
     if (txn.reconciledAt) continue;
     if (txn.isIgnored) continue;
@@ -2634,6 +2676,7 @@ export async function bulkAutoMatchExactAction(input: {
           });
           takenInvoicePayment.add(cand.id);
           matched += 1;
+          matchedTxnIds.push(txn.id);
         } catch {
           // Race: another match landed first. Skip silently.
         }
@@ -2660,6 +2703,7 @@ export async function bulkAutoMatchExactAction(input: {
           });
           takenReceipt.add(cand.id);
           matched += 1;
+          matchedTxnIds.push(txn.id);
         } catch {
           /* skip */
         }
@@ -2668,6 +2712,7 @@ export async function bulkAutoMatchExactAction(input: {
     }
   }
 
+  await syncTxnGlSafe(companyId, ...matchedTxnIds);
   revalidatePath(`/banking/accounts/${input.bankAccountId}`);
   return { ok: true, matched, scanned: txns.length };
 }
