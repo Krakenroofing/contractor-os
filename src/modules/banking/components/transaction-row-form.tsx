@@ -8,7 +8,11 @@ import {
   updateImportedTransactionAction,
   type BankingActionState,
 } from '../actions';
-import { deleteManualTransactionAction } from '../reconcile-actions';
+import {
+  deleteManualTransactionAction,
+  updateManualTransactionAction,
+  type ReconcileActionState,
+} from '../reconcile-actions';
 import {
   AccountingAccountPicker,
   type AccountingAccountOption,
@@ -75,9 +79,17 @@ export type TransactionRowFormProps = {
   companyVatRatePercent: number | null;
   canEdit: boolean;
   /** True for register/reconcile entries typed by the operator (source
-   *  "Manual entry"). Only these get a Delete button — imported statement
-   *  rows mirror the bank and must stay. */
+   *  "Manual entry"). Only these get Edit/Delete buttons — imported
+   *  statement rows mirror the bank and must stay. */
   isManualEntry?: boolean;
+  /** The manual entry's own fields, for the inline editor (typo fixes:
+   *  wrong amount / date / description / direction). */
+  manualInitial?: {
+    transactionDate: string;
+    description: string;
+    /** Signed: negative = money out. */
+    amount: number;
+  };
 };
 
 function money(n: number, currency: string): string {
@@ -117,6 +129,47 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   const router = useRouter();
   const [deleting, startDelete] = useTransition();
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Inline editor for manual entries (typo fixes). Not a nested <form> —
+  // this whole row already lives inside one — so it builds the FormData by
+  // hand and calls the server action directly.
+  const [editingEntry, setEditingEntry] = useState(false);
+  const [entryDate, setEntryDate] = useState(
+    props.manualInitial?.transactionDate ?? '',
+  );
+  const [entryDesc, setEntryDesc] = useState(
+    props.manualInitial?.description ?? '',
+  );
+  const [entryDirection, setEntryDirection] = useState<'out' | 'in'>(
+    (props.manualInitial?.amount ?? -1) < 0 ? 'out' : 'in',
+  );
+  const [entryAmount, setEntryAmount] = useState(
+    props.manualInitial ? Math.abs(props.manualInitial.amount).toFixed(2) : '',
+  );
+  const [savingEntry, startSaveEntry] = useTransition();
+  const [entryError, setEntryError] = useState<string | null>(null);
+
+  function saveEntry() {
+    setEntryError(null);
+    const fd = new FormData();
+    fd.set('transactionId', props.id);
+    fd.set('transactionDate', entryDate);
+    fd.set('description', entryDesc);
+    fd.set('direction', entryDirection);
+    fd.set('amount', entryAmount);
+    startSaveEntry(async () => {
+      const res: ReconcileActionState = await updateManualTransactionAction(
+        {},
+        fd,
+      );
+      if (res.formError) {
+        setEntryError(res.formError);
+        return;
+      }
+      setEditingEntry(false);
+      router.refresh();
+    });
+  }
 
   function deleteEntry() {
     if (
@@ -428,6 +481,79 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
         </div>
       )}
 
+      {/* Inline manual-entry editor — date / description / direction / amount */}
+      {editingEntry && props.manualInitial && (
+        <div className="rounded-md border border-slate-300 bg-slate-50 p-3 space-y-2">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Edit manual entry
+          </p>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-12">
+            <div className="md:col-span-2">
+              <FieldLabel>Date</FieldLabel>
+              <Input
+                type="date"
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="col-span-2 md:col-span-5">
+              <FieldLabel>Description</FieldLabel>
+              <Input
+                value={entryDesc}
+                onChange={(e) => setEntryDesc(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <FieldLabel>Direction</FieldLabel>
+              <select
+                value={entryDirection}
+                onChange={(e) =>
+                  setEntryDirection(e.target.value === 'in' ? 'in' : 'out')
+                }
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"
+              >
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+              </select>
+            </div>
+            <div className="md:col-span-3">
+              <FieldLabel>Amount</FieldLabel>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={entryAmount}
+                onChange={(e) => setEntryAmount(e.target.value)}
+                className="h-9 text-xs text-right tabular-nums"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={savingEntry}
+              onClick={saveEntry}
+            >
+              {savingEntry ? '…' : 'Save entry'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditingEntry(false)}
+            >
+              Cancel
+            </Button>
+            {entryError && (
+              <p className="text-xs text-red-600">{entryError}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Flags + Save + Notes */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
         <div className="md:col-span-9 flex items-center gap-2 text-xs">
@@ -453,6 +579,18 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
           </label>
         </div>
         <div className="md:col-span-3 flex items-center gap-2 md:justify-end">
+          {props.isManualEntry && props.canEdit && props.manualInitial && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending || deleting || savingEntry}
+              onClick={() => setEditingEntry((v) => !v)}
+              title="Fix this manually added entry's date / description / amount"
+            >
+              {editingEntry ? 'Close editor' : 'Edit entry'}
+            </Button>
+          )}
           {props.isManualEntry && props.canEdit && (
             <Button
               type="button"

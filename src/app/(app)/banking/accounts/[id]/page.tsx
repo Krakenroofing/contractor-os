@@ -960,6 +960,15 @@ export default async function BankAccountDetailPage({
                             }
                             canEdit={canEdit}
                             isManualEntry={t.sourceFilename === 'Manual entry'}
+                            manualInitial={
+                              t.sourceFilename === 'Manual entry'
+                                ? {
+                                    transactionDate: t.transactionDate,
+                                    description: t.description,
+                                    amount: Number(t.amount),
+                                  }
+                                : undefined
+                            }
                           />
                         </TableCell>
                       </TableRow>
