@@ -60,6 +60,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
       description:
         'Account-by-account detail of every posted journal entry behind the statements.',
     },
+    {
+      href: '/reports/expenses',
+      label: 'Expense Report',
+      description:
+        'Every expense line in one list — filter by bank/card account, categories, job, vendor, and payment method.',
+    },
   ];
 
 export default async function ReportsIndexPage() {

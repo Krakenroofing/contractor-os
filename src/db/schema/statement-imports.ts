@@ -171,6 +171,12 @@ export const importedTransactions = pgTable(
       onDelete: 'set null',
     }),
 
+    // How this expense was paid (Wire / Zelle / company card / …) — a
+    // user-managed per-company list, filterable on the Expense report.
+    // Declared without the FK reference to avoid a circular import; the
+    // constraint lives in the SQL migration (ON DELETE SET NULL).
+    paymentMethodId: uuid('payment_method_id'),
+
     notes: text('notes'),
     rawRow: jsonb('raw_row').notNull(),
 

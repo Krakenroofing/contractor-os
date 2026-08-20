@@ -5,6 +5,7 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listVendors } from '@/lib/data/vendors';
+import { listPaymentMethods } from '@/lib/data/payment-methods';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
 import { listCostCodes } from '@/lib/data/cost-codes';
@@ -43,6 +44,9 @@ export default async function NewReceiptPage() {
     listBankAccounts(company.id),
     listMembersForCompany(company.id),
   ]);
+  const paymentMethodOptions = (await listPaymentMethods(company.id)).map(
+    (m) => ({ id: m.id, name: m.name }),
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -107,6 +111,7 @@ export default async function NewReceiptPage() {
               label: `${b.name} (${b.type === 'credit_card' ? 'CC' : 'Bank'})`,
             }))}
             members={members.map((m) => ({ id: m.userId, label: m.name }))}
+            paymentMethods={paymentMethodOptions}
             currentUserId={currentUser.id}
           />
         </CardContent>

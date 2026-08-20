@@ -35,6 +35,7 @@ import {
   countAttachmentsByReceiptIds,
 } from '@/lib/data/receipts';
 import { listVendors } from '@/lib/data/vendors';
+import { listPaymentMethods } from '@/lib/data/payment-methods';
 import { listCustomers } from '@/lib/data/customers';
 import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
@@ -430,6 +431,9 @@ export default async function BankAccountDetailPage({
     vatRatePercent: v.vatRatePercent ? Number(v.vatRatePercent) : null,
   }));
   const customerOptions = customers.map((c) => ({ id: c.id, name: c.name }));
+  const paymentMethodOptions = (await listPaymentMethods(company.id)).map(
+    (m) => ({ id: m.id, name: m.name }),
+  );
 
   const canEdit = canCreate(role, 'statement_imports');
 
@@ -934,6 +938,7 @@ export default async function BankAccountDetailPage({
                               projectId: t.projectId,
                               costCodeId: t.costCodeId,
                               vendorId: t.vendorId,
+                              paymentMethodId: t.paymentMethodId,
                               isReviewed: t.isReviewed,
                               isIgnored: t.isIgnored,
                               notes: t.notes,
@@ -959,6 +964,7 @@ export default async function BankAccountDetailPage({
                                 : null
                             }
                             canEdit={canEdit}
+                            paymentMethods={paymentMethodOptions}
                             isManualEntry={t.sourceFilename === 'Manual entry'}
                             manualInitial={
                               t.sourceFilename === 'Manual entry'

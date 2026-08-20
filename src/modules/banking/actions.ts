@@ -23,6 +23,7 @@ import {
 } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
+import { findOrCreatePaymentMethod } from '@/lib/data/payment-methods';
 import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
 import {
   createImportBatch,
@@ -560,6 +561,7 @@ export async function updateImportedTransactionAction(
     projectId: formData.get('projectId') ?? '',
     costCodeId: formData.get('costCodeId') ?? '',
     vendorId: formData.get('vendorId') ?? '',
+    paymentMethodId: formData.get('paymentMethodId') ?? '',
     isReviewed:
       formData.get('isReviewed') === 'on' ||
       formData.get('isReviewed') === 'true',
@@ -578,6 +580,7 @@ export async function updateImportedTransactionAction(
   // Common (non-category) fields, shared by split and single paths.
   const commonPatch = {
     vendorId: parsed.data.vendorId,
+    paymentMethodId: parsed.data.paymentMethodId,
     isReviewed: parsed.data.isReviewed ?? false,
     isIgnored: parsed.data.isIgnored ?? false,
     notes: parsed.data.notes,
@@ -1419,6 +1422,34 @@ type CommonMatchInput = {
 async function safeMatchUserId(userId: string): Promise<string | null> {
   const known = await getUserNamesByIds([userId]);
   return known.has(userId) ? userId : null;
+}
+
+// ===== Payment methods — user-managed list, created on the fly =====
+
+export async function createPaymentMethodAction(input: {
+  name: string;
+}): Promise<{ ok: true; id: string; name: string } | { ok: false; error: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  // Anyone who can edit expense details (banking rows / receipts) can add a
+  // payment method — it's reference data, not a financial posting.
+  if (!can(role, 'statement_imports', 'create') && !canCreate(role, 'receipts')) {
+    return { ok: false, error: 'No permission to add payment methods.' };
+  }
+  const name = (input.name ?? '').trim();
+  if (name.length === 0 || name.length > 60) {
+    return { ok: false, error: 'Payment method name must be 1–60 characters.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const method = await findOrCreatePaymentMethod(companyId, name);
+    return { ok: true, id: method.id, name: method.name };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Could not add the payment method.',
+    };
+  }
 }
 
 // Live GL sync after a bank-txn mutation. Fire-and-forget: the banking action

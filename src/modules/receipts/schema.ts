@@ -150,6 +150,7 @@ export const upsertReceiptSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
   vendorId: nullableUuid,
   bankAccountId: nullableUuid,
+  paymentMethodId: nullableUuid,
   paymentSourceType: z.enum(paymentSourceValues).default('cash'),
   currency: z.string().trim().min(3).max(3).toUpperCase(),
   // Header VAT settings — apply as defaults to lines and drive VAT-included

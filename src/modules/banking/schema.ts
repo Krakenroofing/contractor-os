@@ -91,6 +91,12 @@ export const updateImportedTransactionSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => (v === '' || v === undefined ? null : v)),
+  paymentMethodId: z
+    .string()
+    .uuid()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v === '' || v === undefined ? null : v)),
   isReviewed: z.coerce.boolean().optional(),
   isIgnored: z.coerce.boolean().optional(),
   notes: z

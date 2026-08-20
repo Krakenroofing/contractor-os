@@ -13,6 +13,7 @@ import {
   listReceiptLines,
 } from '@/lib/data/receipts';
 import { listVendors } from '@/lib/data/vendors';
+import { listPaymentMethods } from '@/lib/data/payment-methods';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
 import { listCostCodes } from '@/lib/data/cost-codes';
@@ -133,6 +134,9 @@ export default async function ReceiptDetailPage({
       receiptDate: receipt.receiptDate,
     }),
   ]);
+  const paymentMethodOptions = (await listPaymentMethods(company.id)).map(
+    (m) => ({ id: m.id, name: m.name }),
+  );
 
   // Sign URLs for thumbnails.
   const attachmentRows: AttachmentRow[] = await Promise.all(
@@ -251,6 +255,7 @@ export default async function ReceiptDetailPage({
                   receiptDate: receipt.receiptDate,
                   vendorId: receipt.vendorId,
                   bankAccountId: receipt.bankAccountId,
+                  paymentMethodId: receipt.paymentMethodId,
                   paymentSourceType: receipt.paymentSourceType,
                   currency: receipt.currency,
                   vatRatePercent:
@@ -291,6 +296,7 @@ export default async function ReceiptDetailPage({
                   id: b.id,
                   label: `${b.name} (${b.type === 'credit_card' ? 'CC' : 'Bank'})`,
                 }))}
+                paymentMethods={paymentMethodOptions}
                 members={members.map((m) => ({ id: m.userId, label: m.name }))}
                 currentUserId={currentUser.id}
               />

@@ -554,6 +554,7 @@ export type UpdateImportedTransactionPatch = Partial<
     | 'projectId'
     | 'costCodeId'
     | 'vendorId'
+    | 'paymentMethodId'
     | 'isReviewed'
     | 'isIgnored'
     | 'notes'

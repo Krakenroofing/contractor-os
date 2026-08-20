@@ -23,6 +23,10 @@ import {
   type VendorPickerOption,
 } from '@/modules/vendors/components/vendor-picker';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import {
+  PaymentMethodPicker,
+  type PaymentMethodOption,
+} from './payment-method-picker';
 import { ProjectPicker } from '@/modules/projects/components/project-picker';
 import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 
@@ -60,6 +64,7 @@ export type TransactionRowFormProps = {
     projectId: string | null;
     costCodeId: string | null;
     vendorId: string | null;
+    paymentMethodId: string | null;
     isReviewed: boolean;
     isIgnored: boolean;
     notes: string | null;
@@ -77,6 +82,7 @@ export type TransactionRowFormProps = {
    *  for Auto-VAT split when no VAT-registered vendor is selected, so a txn
    *  can be split at the company rate and categorized later. */
   companyVatRatePercent: number | null;
+  paymentMethods?: PaymentMethodOption[];
   canEdit: boolean;
   /** True for register/reconcile entries typed by the operator (source
    *  "Manual entry"). Only these get Edit/Delete buttons — imported
@@ -195,6 +201,9 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   const [projectId, setProjectId] = useState(props.initial.projectId ?? '');
   const [costCodeId, setCostCodeId] = useState(props.initial.costCodeId ?? '');
   const [vendorId, setVendorId] = useState(props.initial.vendorId ?? '');
+  const [paymentMethodId, setPaymentMethodId] = useState(
+    props.initial.paymentMethodId ?? '',
+  );
   const [isReviewed, setIsReviewed] = useState(props.initial.isReviewed);
   const [isIgnored, setIsIgnored] = useState(props.initial.isIgnored);
   const [notes, setNotes] = useState(props.initial.notes ?? '');
@@ -363,6 +372,19 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
             — category &amp; project are set per line.
           </div>
         )}
+
+        <div className="md:col-span-3">
+          <FieldLabel>
+            Payment method{' '}
+            <span className="normal-case text-slate-400">(optional)</span>
+          </FieldLabel>
+          <PaymentMethodPicker
+            name="paymentMethodId"
+            value={paymentMethodId}
+            onChange={setPaymentMethodId}
+            methods={props.paymentMethods ?? []}
+          />
+        </div>
       </div>
 
       {/* Split toggle + Auto-VAT */}

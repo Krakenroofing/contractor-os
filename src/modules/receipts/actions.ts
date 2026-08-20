@@ -116,6 +116,7 @@ export async function upsertReceiptAction(
     receiptDate: formData.get('receiptDate') ?? '',
     vendorId: formData.get('vendorId') ?? '',
     bankAccountId: formData.get('bankAccountId') ?? '',
+    paymentMethodId: formData.get('paymentMethodId') ?? '',
     paymentSourceType: formData.get('paymentSourceType') ?? 'cash',
     currency: formData.get('currency') ?? company.defaultCurrency,
     vatRatePercent: formData.get('vatRatePercent') ?? '',
@@ -164,6 +165,7 @@ export async function upsertReceiptAction(
     companyId: company.id,
     vendorId: d.vendorId,
     paymentSourceType: d.paymentSourceType,
+    paymentMethodId: d.paymentMethodId,
     bankAccountId:
       d.paymentSourceType === 'bank' || d.paymentSourceType === 'credit_card'
         ? d.bankAccountId

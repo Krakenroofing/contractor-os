@@ -13,6 +13,7 @@ import {
 import { ProjectPicker } from '@/modules/projects/components/project-picker';
 import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { BankAccountPicker } from '@/modules/banking/components/bank-account-picker';
+import { PaymentMethodPicker } from '@/modules/banking/components/payment-method-picker';
 import {
   upsertReceiptAction,
   type ReceiptActionState,
@@ -66,6 +67,7 @@ export type ReceiptFormProps = {
     vendorId: string | null;
     bankAccountId: string | null;
     paymentSourceType: 'bank' | 'credit_card' | 'cash' | 'other';
+    paymentMethodId?: string | null;
     currency: string;
     vatRatePercent: number | null;
     vatIncluded: boolean;
@@ -85,6 +87,7 @@ export type ReceiptFormProps = {
   costCodes: Option[];
   accountingAccounts: AccountingAccountOption[];
   bankAccounts: Option[];
+  paymentMethods?: Array<{ id: string; name: string }>;
   /** Members of the active company, for the "Paid by" dropdown. */
   members: Array<{ id: string; label: string }>;
 };
@@ -164,6 +167,9 @@ export function ReceiptForm(props: ReceiptFormProps) {
   );
   const [vendorId, setVendorId] = useState(i?.vendorId ?? '');
   const [bankAccountId, setBankAccountId] = useState(i?.bankAccountId ?? '');
+  const [paymentMethodId, setPaymentMethodId] = useState(
+    i?.paymentMethodId ?? '',
+  );
   const [paymentSourceType, setPaymentSourceType] = useState(
     i?.paymentSourceType ?? 'cash',
   );
@@ -432,6 +438,18 @@ export function ReceiptForm(props: ReceiptFormProps) {
               />
             </div>
           )}
+          <div>
+            <Label htmlFor="paymentMethodId">
+              Payment method{' '}
+              <span className="normal-case text-slate-400">(optional)</span>
+            </Label>
+            <PaymentMethodPicker
+              name="paymentMethodId"
+              value={paymentMethodId}
+              onChange={setPaymentMethodId}
+              methods={props.paymentMethods ?? []}
+            />
+          </div>
         </div>
       </div>
 

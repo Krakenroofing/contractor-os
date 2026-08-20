@@ -65,6 +65,9 @@ export const receipts = pgTable(
     bankAccountId: uuid('bank_account_id').references(() => bankAccounts.id, {
       onDelete: 'set null',
     }),
+    // How this expense was paid (Wire / Zelle / company card / …) — a
+    // user-managed list; FK constraint lives in the SQL migration.
+    paymentMethodId: uuid('payment_method_id'),
 
     receiptDate: date('receipt_date').notNull(),
     currency: text('currency').notNull().default('USD'),
