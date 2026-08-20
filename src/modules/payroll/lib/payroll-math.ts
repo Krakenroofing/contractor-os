@@ -44,7 +44,7 @@ import type { AdjustmentType } from '@/db/schema';
 import type { EmploymentType } from '@/modules/employees/schema';
 import { calculateWeeklyNib, type NibBreakdown } from './nib';
 import { effectiveLunchMinutes } from './lunch';
-import { computeHourlyOvertime } from './overtime';
+import { computeHourlyOvertime, type OvertimeDay } from './overtime';
 import { bahamasHolidaySet } from './holidays';
 
 /** Where the paystub's gross came from. Drives UI hints (e.g. "Override"
@@ -59,6 +59,25 @@ export type PaystubLineItem = {
   type: AdjustmentType;
   amount: number;
   description: string | null;
+};
+
+/** One worked day on the stub — PAID hours (net of lunch) split across the
+ *  pay tiers, plus any notes from that day's time entries. For hourly
+ *  employees the tiers come from the overtime engine; for everyone else (or
+ *  a manual override, where hours aren't the pay basis) the day's hours sit
+ *  entirely in `regular`. */
+export type PaystubDayLine = {
+  date: string;
+  /** Total paid hours that day. */
+  hours: number;
+  /** Hours at straight time (1×). */
+  regular: number;
+  /** Hours at 1.5× (over 40/week). */
+  overtime: number;
+  /** Hours at 2× (holiday / qualifying Sunday). */
+  doubleTime: number;
+  /** Notes from the day's time entries, joined; null when none. */
+  notes: string | null;
 };
 
 /** One piece-work (amount-type) entry making up `pieceWork`, carried so the
@@ -83,6 +102,9 @@ export type EmployeePaystub = {
   overtimeHours: number;
   /** Hours paid at 2× (holiday / qualifying Sunday). Hourly only. */
   doubleTimeHours: number;
+  /** Per-day paid hours with their tier split + entry notes, chronological.
+   *  Empty when the employee logged no hours entries this period. */
+  dayLines: PaystubDayLine[];
   payRate: number;
   /** Pre-deduction gross (rate × hours, weekly salary, or override). */
   gross: number;
@@ -197,6 +219,55 @@ function sumAdjustments(
   );
 }
 
+/** Collect trimmed, de-duplicated notes from 'hours' entries, keyed by day. */
+function entryNotesByDate(entries: TimeEntry[]): Map<string, string[]> {
+  const notesByDate = new Map<string, string[]>();
+  for (const e of entries) {
+    if (e.entryType === 'amount') continue;
+    const note = e.notes?.trim();
+    if (!note) continue;
+    const dayNotes = notesByDate.get(e.workDate) ?? [];
+    if (!dayNotes.includes(note)) dayNotes.push(note);
+    notesByDate.set(e.workDate, dayNotes);
+  }
+  return notesByDate;
+}
+
+/**
+ * Assemble the stub's per-day lines from net paid hours + entry notes.
+ * When the overtime engine ran (hourly, no override) its per-day tier split
+ * is used; otherwise each day's hours sit entirely in `regular` — for a
+ * salaried/contract employee or a manual override, hours aren't the pay
+ * basis so tier claims would be noise.
+ */
+function buildDayLines(
+  netHoursByDate: Map<string, number>,
+  notesByDate: Map<string, string[]>,
+  otDays: OvertimeDay[] | null,
+): PaystubDayLine[] {
+  if (otDays) {
+    return otDays.map((d) => ({
+      date: d.date,
+      hours: d.hours,
+      regular: d.regular,
+      overtime: d.overtime,
+      doubleTime: d.doubleTime,
+      notes: notesByDate.get(d.date)?.join('; ') ?? null,
+    }));
+  }
+  return [...netHoursByDate.entries()]
+    .filter(([, hours]) => hours > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, hours]) => ({
+      date,
+      hours: round2(hours),
+      regular: round2(hours),
+      overtime: 0,
+      doubleTime: 0,
+      notes: notesByDate.get(date)?.join('; ') ?? null,
+    }));
+}
+
 function adjustmentToLineItem(a: PaystubAdjustment): PaystubLineItem {
   return {
     id: a.id,
@@ -289,6 +360,7 @@ export function computeEmployeePaystub(
       lunchHours,
       overtimeHours: 0,
       doubleTimeHours: 0,
+      dayLines: [],
       payRate,
       gross: 0,
       grossSource: 'none',
@@ -316,6 +388,7 @@ export function computeEmployeePaystub(
   let grossSource: GrossSource;
   let overtimeHours = 0;
   let doubleTimeHours = 0;
+  let otDays: OvertimeDay[] | null = null;
   if (myOverride) {
     gross = parseMoney(myOverride.grossAmount);
     grossSource = 'override';
@@ -334,6 +407,7 @@ export function computeEmployeePaystub(
     );
     overtimeHours = ot.overtimeHours;
     doubleTimeHours = ot.doubleTimeHours;
+    otDays = ot.days;
     // Piece-work (amount entries) adds on top of the hourly/OT pay — anyone
     // can log contract work on a day regardless of their employment type.
     gross = round2(ot.gross + amountTotal);
@@ -397,6 +471,11 @@ export function computeEmployeePaystub(
     lunchHours,
     overtimeHours,
     doubleTimeHours,
+    dayLines: buildDayLines(
+      netHoursByDate,
+      entryNotesByDate(myEntries),
+      otDays,
+    ),
     payRate,
     gross,
     grossSource,
@@ -430,6 +509,8 @@ function paystubFromSnapshot(
   overrides: PeriodPayOverride[],
   adjustments: PaystubAdjustment[],
   entries: TimeEntry[],
+  period: PayPeriod,
+  lunchOverrides: TimesheetLunchOverride[],
 ): EmployeePaystub {
   const gross = parseMoney(snap.gross);
   // adjustedGross / deductionsTotal / additionsTotal default to '0' from
@@ -485,6 +566,58 @@ function paystubFromSnapshot(
   }));
   const baseWage = Math.max(0, round2(subtract(gross, pieceWork)));
 
+  // The day-by-day hours aren't snapshotted either, but the hours entries and
+  // lunch overrides persist (a locked period can't be edited), so rebuild the
+  // same per-day paid-hours split the live compute produces. For an hourly
+  // non-override stub this also recovers the OT / double-time hour counts,
+  // which the snapshot doesn't store. The classification depends only on the
+  // hours + dates, so it's stable even if the live pay rate changed.
+  const myHourEntries = entries.filter(
+    (e) => e.employeeId === snap.employeeId && e.entryType !== 'amount',
+  );
+  const hoursByDate = new Map<string, number>();
+  for (const e of myHourEntries) {
+    hoursByDate.set(
+      e.workDate,
+      (hoursByDate.get(e.workDate) ?? 0) + parseMoney(e.hours),
+    );
+  }
+  const lunchByDate = new Map(
+    lunchOverrides
+      .filter((l) => l.employeeId === snap.employeeId)
+      .map((l) => [l.workDate, l.minutes]),
+  );
+  const netHoursByDate = new Map<string, number>();
+  for (const [workDate, dayHours] of hoursByDate) {
+    const lunchMin = effectiveLunchMinutes(dayHours, lunchByDate.get(workDate));
+    netHoursByDate.set(workDate, Math.max(0, dayHours - lunchMin / 60));
+  }
+  let overtimeHours = 0;
+  let doubleTimeHours = 0;
+  let otDays: OvertimeDay[] | null = null;
+  if ((snap.employmentType as EmploymentType) === 'hourly' && !isOverride) {
+    const years = Array.from(
+      new Set([
+        Number(period.startDate.slice(0, 4)),
+        Number(period.endDate.slice(0, 4)),
+      ]),
+    );
+    const ot = computeHourlyOvertime(
+      netHoursByDate,
+      period.startDate,
+      bahamasHolidaySet(years),
+      parseMoney(snap.payRate),
+    );
+    overtimeHours = ot.overtimeHours;
+    doubleTimeHours = ot.doubleTimeHours;
+    otDays = ot.days;
+  }
+  const dayLines = buildDayLines(
+    netHoursByDate,
+    entryNotesByDate(myHourEntries),
+    otDays,
+  );
+
   return {
     employeeId: snap.employeeId,
     employeeName: snap.employeeName,
@@ -493,8 +626,9 @@ function paystubFromSnapshot(
     // the period was locked); no separate lunch line to reconstruct.
     hoursWorked: parseMoney(snap.hoursWorked),
     lunchHours: 0,
-    overtimeHours: 0,
-    doubleTimeHours: 0,
+    overtimeHours,
+    doubleTimeHours,
+    dayLines,
     payRate: parseMoney(snap.payRate),
     gross,
     grossSource: (snap.grossSource as GrossSource) ?? 'none',
@@ -540,7 +674,16 @@ export function computePeriodPaystubs(
 ): EmployeePaystub[] {
   if (period.status === 'locked' && snapshots.length > 0) {
     return snapshots
-      .map((s) => paystubFromSnapshot(s, overrides, adjustments, entries))
+      .map((s) =>
+        paystubFromSnapshot(
+          s,
+          overrides,
+          adjustments,
+          entries,
+          period,
+          lunchOverrides,
+        ),
+      )
       .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
   }
   return employees

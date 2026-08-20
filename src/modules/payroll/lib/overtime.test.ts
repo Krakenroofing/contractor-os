@@ -40,6 +40,24 @@ test('over 40h: excess is 1.5x', () => {
   assert.equal(r.overtimeHours, 5);
   // 40*20 + 5*20*1.5 = 800 + 150 = 950.
   assert.equal(r.gross, 950);
+
+  // Per-day attribution is chronological: Mon–Thu are all straight time
+  // (36h pool), Friday splits 4h straight + 5h OT once the pool crosses 40.
+  assert.equal(r.days.length, 5);
+  assert.deepEqual(r.days[3], {
+    date: '2026-06-04',
+    hours: 9,
+    regular: 9,
+    overtime: 0,
+    doubleTime: 0,
+  });
+  assert.deepEqual(r.days[4], {
+    date: '2026-06-05',
+    hours: 9,
+    regular: 4,
+    overtime: 5,
+    doubleTime: 0,
+  });
 });
 
 test('Sunday is 2x only when Mon–Sat were all worked', () => {
@@ -58,6 +76,22 @@ test('Sunday is 2x only when Mon–Sat were all worked', () => {
   assert.equal(full.regularHours, 40);
   assert.equal(full.overtimeHours, 8);
   assert.equal(full.gross, 800 + 8 * 30 + 5 * 40); // 800+240+200 = 1240
+  // The Sunday day-line is pure double time; Saturday carries the 8h OT
+  // (pool hits 40 at end of Friday).
+  assert.deepEqual(full.days[6], {
+    date: '2026-06-07',
+    hours: 5,
+    regular: 0,
+    overtime: 0,
+    doubleTime: 5,
+  });
+  assert.deepEqual(full.days[5], {
+    date: '2026-06-06',
+    hours: 8,
+    regular: 0,
+    overtime: 8,
+    doubleTime: 0,
+  });
 
   // Skip Saturday → Sunday no longer qualifies, counts as regular.
   const noSat = { ...base };
