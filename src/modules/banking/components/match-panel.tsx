@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select';
 import {
   addReceiptToTransactionAction,
   markInterAccountTransferAction,
+  transferToAccountAction,
   matchInvoicePaymentsAction,
   matchInvoiceBalancesAction,
   matchJobCostEntryAction,
@@ -78,6 +79,8 @@ export type MatchPanelProps = {
   candidates: MatchCandidates;
   transferCandidates: TransferCandidate[];
   active: ActiveMatchInfo | null;
+  /** Every OTHER bank/card account — the pick-an-account transfer flow. */
+  transferAccounts?: { id: string; name: string }[];
   /** Invoice payments already linked to this deposit (possibly several). */
   invoiceMatches: ActiveInvoiceMatch[];
   /** Whether the txn is fully reconciled (reconciled_at set). */
@@ -112,6 +115,7 @@ export function MatchPanel(props: MatchPanelProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [transferMode, setTransferMode] = useState(false);
+  const [transferAcctId, setTransferAcctId] = useState('');
   const [pickedPairId, setPickedPairId] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [invoiceMode, setInvoiceMode] = useState(false);
@@ -504,6 +508,45 @@ export function MatchPanel(props: MatchPanelProps) {
             Cancel
           </Button>
         </div>
+        {(props.transferAccounts?.length ?? 0) > 0 && (
+          <div className="border-t border-blue-200 pt-2">
+            <p className="mb-1 text-blue-800">
+              Or just pick the other account — pairs with the matching amount
+              there, or creates the entry in that register if the statement
+              line isn&apos;t imported yet:
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="w-64">
+                <Select
+                  value={transferAcctId}
+                  onChange={(e) => setTransferAcctId(e.target.value)}
+                >
+                  <option value="">— pick account —</option>
+                  {props.transferAccounts!.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      ⇄ {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending || !transferAcctId}
+                onClick={() =>
+                  runAndRefresh(() =>
+                    transferToAccountAction({
+                      transactionId: props.transactionId,
+                      otherBankAccountId: transferAcctId,
+                    }),
+                  )
+                }
+              >
+                {pending ? '…' : 'Record transfer'}
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="border-t border-blue-200 pt-2">
           <p className="mb-1 text-blue-800">
             Other account not loaded in KrakenOps? Book it as an inter-account

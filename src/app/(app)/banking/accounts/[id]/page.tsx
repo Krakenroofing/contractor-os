@@ -874,6 +874,9 @@ export default async function BankAccountDetailPage({
                               amount={Number(t.amount)}
                               candidates={candidates}
                               transferCandidates={transferCandidates}
+                              transferAccounts={bankAccountList
+                                .filter((b) => b.id !== account.id)
+                                .map((b) => ({ id: b.id, name: b.name }))}
                               active={
                                 activeMatch
                                   ? {

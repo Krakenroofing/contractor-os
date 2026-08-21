@@ -24,11 +24,14 @@ import {
 import { getUserNamesByIds } from '@/lib/data/users';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import { findOrCreatePaymentMethod } from '@/lib/data/payment-methods';
+import { randomUUID } from 'crypto';
+import { insertManualBankTransaction } from '@/lib/data/bank-reconciliations';
 import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
 import {
   createImportBatch,
   deleteImportBatch,
   getImportBatch,
+  listImportBatches,
   updateImportBatch,
   upsertMapping,
 } from '@/lib/data/statement-imports';
@@ -1450,6 +1453,136 @@ export async function createPaymentMethodAction(input: {
       error: err instanceof Error ? err.message : 'Could not add the payment method.',
     };
   }
+}
+
+// ===== Transfer to a picked account =====
+//
+// Chris's flow: while categorizing, pick the OTHER account directly ("this
+// money went to Cash on hand / 9772") instead of hunting for the counterpart.
+// If the other account already has the opposite transaction (imported
+// statement line, unmatched, same amount, ±7 days) we pair with it; if not,
+// we CREATE the mirrored entry in that account's register so the transfer
+// shows on both sides. Both legs get the Inter-account Transfers clearing
+// category so the GL nets to a pure account-to-account move.
+
+export async function transferToAccountAction(input: {
+  transactionId: string;
+  otherBankAccountId: string;
+}): Promise<{ ok: boolean; error?: string; created?: boolean }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+
+  if (txn.reconciledAt) {
+    return { ok: false, error: 'Already matched — unmatch first.' };
+  }
+  if (
+    typeof input.otherBankAccountId !== 'string' ||
+    !z.string().uuid().safeParse(input.otherBankAccountId).success
+  ) {
+    return { ok: false, error: 'Pick the other account.' };
+  }
+  if (input.otherBankAccountId === txn.bankAccountId) {
+    return { ok: false, error: 'A transfer needs two different accounts.' };
+  }
+  const other = await getBankAccount(companyId, input.otherBankAccountId);
+  if (!other) return { ok: false, error: 'The other account was not found.' };
+  const here = await getBankAccount(companyId, txn.bankAccountId);
+
+  const clearing = (await listAccountingAccounts(companyId)).find(
+    (a) => a.name === 'Inter-account Transfers' && !a.isArchived,
+  );
+
+  // Prefer pairing with an existing opposite line in the target account.
+  const amt = Number(txn.amount);
+  const amtCents = Math.round(-amt * 100);
+  const hereDate = new Date(txn.transactionDate).getTime();
+  const dayMs = 86400000;
+  const targetTxns = await (
+    await import('@/lib/data/statement-imports')
+  ).listImportedTransactions(companyId, {
+    bankAccountId: other.id,
+    includeIgnored: false,
+    limit: 3000,
+  });
+  const candidate = targetTxns
+    .filter(
+      (t) =>
+        !t.reconciledAt &&
+        Math.round(Number(t.amount) * 100) === amtCents &&
+        Math.abs(new Date(t.transactionDate).getTime() - hereDate) <= 7 * dayMs,
+    )
+    .sort(
+      (a, b) =>
+        Math.abs(new Date(a.transactionDate).getTime() - hereDate) -
+        Math.abs(new Date(b.transactionDate).getTime() - hereDate),
+    )[0];
+
+  let otherTxnId: string;
+  let created = false;
+  if (candidate) {
+    otherTxnId = candidate.id;
+  } else {
+    // No counterpart imported (yet) — create the mirrored register entry.
+    const batches = await listImportBatches(companyId, {
+      bankAccountId: other.id,
+      limit: 200,
+    });
+    const batch =
+      batches.find((b) => b.sourceFilename === 'Manual entries') ??
+      (await createImportBatch({
+        companyId,
+        bankAccountId: other.id,
+        status: 'imported',
+        sourceFilename: 'Manual entries',
+        storagePath: 'manual',
+        mimeType: 'manual/entry',
+        uploadedByUserId: await safeMatchUserId(user.id),
+      }));
+    otherTxnId = await insertManualBankTransaction({
+      companyId,
+      batchId: batch.id,
+      bankAccountId: other.id,
+      transactionDate: txn.transactionDate,
+      description: `Transfer ${amt < 0 ? 'from' : 'to'} ${here?.name ?? 'account'} — ${txn.description}`.slice(0, 200),
+      amount: -amt,
+      dedupeHash: `manual:${randomUUID()}`,
+      bankReconciliationId: null,
+    });
+    created = true;
+  }
+
+  try {
+    await createTransferPairAtomic({
+      companyId,
+      txnAId: txn.id,
+      txnBId: otherTxnId,
+      matchedByUserId: await safeMatchUserId(user.id),
+      notes: created
+        ? `Transfer to ${other.name} — counterpart entry created automatically`
+        : `Transfer to ${other.name} — matched the existing transaction`,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Transfer failed.',
+    };
+  }
+
+  // Clearing category on both legs so the GL nets account-to-account.
+  if (clearing) {
+    await updateImportedTransaction(companyId, txn.id, {
+      accountingAccountId: clearing.id,
+    });
+    await updateImportedTransaction(companyId, otherTxnId, {
+      accountingAccountId: clearing.id,
+    });
+  }
+  await syncTxnGlSafe(companyId, txn.id, otherTxnId);
+
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  revalidatePath(`/banking/accounts/${other.id}`);
+  return { ok: true, created };
 }
 
 // Live GL sync after a bank-txn mutation. Fire-and-forget: the banking action
