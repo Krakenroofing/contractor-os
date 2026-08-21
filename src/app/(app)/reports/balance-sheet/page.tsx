@@ -90,17 +90,27 @@ export default async function BalanceSheetPage({
             lines={bs.assets}
             total={bs.totalAssets}
             asOf={asOf}
+            drillHref={drillHref('assets', asOf)}
           />
           <Section
             title="Liabilities"
             lines={bs.liabilities}
             total={bs.totalLiabilities}
             asOf={asOf}
+            drillHref={drillHref('liabilities', asOf)}
           />
 
           <Card>
             <CardHeader>
-              <CardTitle>Equity — {formatMoney(bs.totalEquity)}</CardTitle>
+              <CardTitle>
+                Equity —{' '}
+                <Link
+                  href={drillHref('equity', asOf) as never}
+                  className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                >
+                  {formatMoney(bs.totalEquity)}
+                </Link>
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-6 space-y-1.5">
               {bs.equity.map((l) => (
@@ -111,9 +121,18 @@ export default async function BalanceSheetPage({
                   href={glHref(l.accountId, asOf)}
                 />
               ))}
-              <Row label="Net income (current)" value={bs.netIncome} />
+              <Row
+                label="Net income (current)"
+                value={bs.netIncome}
+                href={drillHref('net-income', asOf)}
+              />
               <div className="mt-2 border-t border-slate-200 pt-2">
-                <Row label="Total equity" value={bs.totalEquity} bold />
+                <Row
+                  label="Total equity"
+                  value={bs.totalEquity}
+                  bold
+                  href={drillHref('equity', asOf)}
+                />
               </div>
             </CardContent>
           </Card>
@@ -127,22 +146,34 @@ function glHref(accountId: string, asOf: string | null): string {
   return `/reports/general-ledger?accountId=${accountId}${asOf ? `&to=${asOf}` : ''}`;
 }
 
+function drillHref(section: string, asOf: string | null): string {
+  return `/reports/balance-sheet/${section}${asOf ? `?asOf=${asOf}` : ''}`;
+}
+
 function Section({
   title,
   lines,
   total,
   asOf,
+  drillHref,
 }: {
   title: string;
   lines: BalanceSheetLine[];
   total: number;
   asOf: string | null;
+  drillHref: string;
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>
-          {title} — {formatMoney(total)}
+          {title} —{' '}
+          <Link
+            href={drillHref as never}
+            className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+          >
+            {formatMoney(total)}
+          </Link>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6 space-y-1.5">
@@ -159,7 +190,12 @@ function Section({
           ))
         )}
         <div className="mt-2 border-t border-slate-200 pt-2">
-          <Row label={`Total ${title.toLowerCase()}`} value={total} bold />
+          <Row
+            label={`Total ${title.toLowerCase()}`}
+            value={total}
+            bold
+            href={drillHref}
+          />
         </div>
       </CardContent>
     </Card>
@@ -187,7 +223,7 @@ function Row({
       {href ? (
         <Link
           href={href as never}
-          className="tabular-nums font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900"
+          className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} text-blue-700 underline underline-offset-2 hover:text-blue-900`}
         >
           {formatMoney(value)}
         </Link>

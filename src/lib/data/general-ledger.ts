@@ -293,6 +293,10 @@ export type BalanceSheet = {
   equity: BalanceSheetLine[];
   /** Current net income (income − cogs − opex) — folds into equity. */
   netIncome: number;
+  /** The components behind netIncome — for the balance-sheet drill.
+   *  incomeLines are credit-normal, expenseLines debit-normal. */
+  incomeLines: BalanceSheetLine[];
+  expenseLines: BalanceSheetLine[];
   totalAssets: number;
   totalLiabilities: number;
   /** Equity accounts + current net income. */
@@ -317,6 +321,8 @@ export async function buildBalanceSheet(
   const assets: BalanceSheetLine[] = [];
   const liabilities: BalanceSheetLine[] = [];
   const equity: BalanceSheetLine[] = [];
+  const incomeLines: BalanceSheetLine[] = [];
+  const expenseLines: BalanceSheetLine[] = [];
   let income = 0;
   let expense = 0;
 
@@ -343,8 +349,10 @@ export async function buildBalanceSheet(
       if (Math.abs(creditNormal) > 0.005) equity.push(line(creditNormal));
     } else if (r.rollupGroup === 'income') {
       income = round2(income + creditNormal);
+      if (Math.abs(creditNormal) > 0.005) incomeLines.push(line(creditNormal));
     } else if (r.rollupGroup === 'cogs' || r.rollupGroup === 'opex') {
       expense = round2(expense + debitNormal);
+      if (Math.abs(debitNormal) > 0.005) expenseLines.push(line(debitNormal));
     }
   }
 
@@ -361,6 +369,8 @@ export async function buildBalanceSheet(
     liabilities,
     equity,
     netIncome,
+    incomeLines,
+    expenseLines,
     totalAssets,
     totalLiabilities,
     totalEquity,
