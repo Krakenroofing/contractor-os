@@ -24,6 +24,7 @@ export type BankingSearchTxn = {
   payee: string | null;
   reference: string | null;
   amount: number;
+  bankAccountId: string;
   accountName: string;
   isIgnored: boolean;
 };
@@ -118,6 +119,7 @@ export async function searchBanking(
       payee: importedTransactions.payee,
       reference: importedTransactions.reference,
       amount: importedTransactions.amount,
+      bankAccountId: importedTransactions.bankAccountId,
       accountName: bankAccounts.name,
       isIgnored: importedTransactions.isIgnored,
     })
@@ -180,6 +182,7 @@ export async function searchBanking(
       payee: r.payee,
       reference: r.reference,
       amount: Number(r.amount),
+      bankAccountId: r.bankAccountId,
       accountName: r.accountName,
       isIgnored: r.isIgnored,
     })),

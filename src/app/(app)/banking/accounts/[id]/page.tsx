@@ -20,6 +20,7 @@ import { formatMoney } from '@/lib/money';
 import { getBankAccount } from '@/lib/data/bank-accounts';
 import {
   countImportedTransactions,
+  getImportedTransaction,
   getRunningBalancesForAccount,
   listImportedTransactions,
   listLinesForTransactionIds,
@@ -100,9 +101,22 @@ export default async function BankAccountDetailPage({
   // reviewed" which adds them to the unreviewed worklist.
   const reviewedOnly = parseStr(sp.reviewedOnly) === '1';
   const onlyUncategorized = parseStr(sp.uncategorized) === '1';
+  // Deep link from search (and anywhere else): ?txn=<id> shows just that one
+  // transaction with its full edit panel, regardless of the reviewed/ignored
+  // filters that would normally hide it. A txn living in another account
+  // redirects to its own register so the link always lands somewhere useful.
+  const focusTxnId = parseStr(sp.txn);
+  const focusTxn = focusTxnId
+    ? await getImportedTransaction(company.id, focusTxnId)
+    : undefined;
+  if (focusTxn && focusTxn.bankAccountId !== account.id) {
+    redirect(
+      `/banking/accounts/${focusTxn.bankAccountId}?txn=${focusTxn.id}` as never,
+    );
+  }
 
   const [
-    transactions,
+    listedTransactions,
     total,
     reviewedCount,
     accounts,
@@ -165,6 +179,8 @@ export default async function BankAccountDetailPage({
       );
     })(),
   ]);
+
+  const transactions = focusTxn ? [focusTxn] : listedTransactions;
 
   // Statement reconciliation status — the QB-style "R". A transaction cleared
   // inside a COMPLETED bank reconciliation is proven against the statement.
@@ -506,6 +522,27 @@ export default async function BankAccountDetailPage({
             .filter((b) => b.id !== account.id && !b.archivedAt)
             .map((b) => ({ id: b.id, label: b.name }))}
         />
+      )}
+
+      {focusTxn && (
+        <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900">
+          <span>
+            Showing one transaction ({focusTxn.transactionDate} ·{' '}
+            {focusTxn.description || '(no description)'}) — edit it below.
+          </span>
+          <Link
+            href={{ pathname: `/banking/accounts/${account.id}` }}
+            className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900"
+          >
+            Show full register
+          </Link>
+        </div>
+      )}
+      {focusTxnId && !focusTxn && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          That transaction no longer exists — it may have been removed. Showing
+          the full register instead.
+        </div>
       )}
 
       <Card>

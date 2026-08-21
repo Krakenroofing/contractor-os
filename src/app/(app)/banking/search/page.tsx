@@ -104,10 +104,17 @@ export default async function BankingSearchPage({
                         <TableCell className="text-xs text-slate-500">
                           {t.reference ?? '—'}
                         </TableCell>
-                        <TableCell
-                          className={`text-right tabular-nums font-medium ${t.amount > 0 ? 'text-emerald-700' : ''}`}
-                        >
-                          {formatMoney(t.amount)}
+                        <TableCell className="text-right tabular-nums font-medium">
+                          <Link
+                            href={{
+                              pathname: `/banking/accounts/${t.bankAccountId}`,
+                              query: { txn: t.id },
+                            }}
+                            title="Open in the register to edit"
+                            className={`underline underline-offset-2 ${t.amount > 0 ? 'text-emerald-700 hover:text-emerald-900' : 'text-blue-700 hover:text-blue-900'}`}
+                          >
+                            {formatMoney(t.amount)}
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -154,7 +161,12 @@ export default async function BankingSearchPage({
                           {r.notes ?? '—'}
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium">
-                          {formatMoney(r.total)}
+                          <Link
+                            href={{ pathname: `/banking/receipts/${r.id}` }}
+                            className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          >
+                            {formatMoney(r.total)}
+                          </Link>
                         </TableCell>
                       </TableRow>
                     ))}
