@@ -185,7 +185,12 @@ export default async function ProfitLossReportPage({
                       {a.entryCount}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
-                      {formatMoney(a.amount)}
+                      <Link
+                        href={revenueHref(a.accountId) as never}
+                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                      >
+                        {formatMoney(a.amount)}
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -202,8 +207,13 @@ export default async function ProfitLossReportPage({
                     <TableCell className="text-right tabular-nums text-slate-600">
                       {report.income.uncategorized.invoiceCount}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium text-amber-800">
-                      {formatMoney(report.income.uncategorized.total)}
+                    <TableCell className="text-right tabular-nums font-medium">
+                      <Link
+                        href={revenueHref('uncategorized') as never}
+                        className="text-amber-800 underline underline-offset-2 hover:text-amber-900"
+                      >
+                        {formatMoney(report.income.uncategorized.total)}
+                      </Link>
                     </TableCell>
                   </TableRow>
                 )}
@@ -223,8 +233,13 @@ export default async function ProfitLossReportPage({
                     <TableCell className="text-right tabular-nums text-slate-600">
                       {report.income.creditMemos.count}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium text-red-700">
-                      ({formatMoney(report.income.creditMemos.total)})
+                    <TableCell className="text-right tabular-nums font-medium">
+                      <Link
+                        href={revenueHref() as never}
+                        className="text-red-700 underline underline-offset-2 hover:text-red-900"
+                      >
+                        ({formatMoney(report.income.creditMemos.total)})
+                      </Link>
                     </TableCell>
                   </TableRow>
                 )}
@@ -539,7 +554,20 @@ function AccountSection({
                       r.subtotal ? 'font-semibold' : 'font-medium'
                     }`}
                   >
-                    {r.amount === null ? '' : formatMoney(r.amount)}
+                    {r.amount === null ? (
+                      ''
+                    ) : r.accountId ? (
+                      <Link
+                        href={
+                          `/reports/profit-loss/${r.accountId}${suffix}` as never
+                        }
+                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                      >
+                        {formatMoney(r.amount)}
+                      </Link>
+                    ) : (
+                      formatMoney(r.amount)
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

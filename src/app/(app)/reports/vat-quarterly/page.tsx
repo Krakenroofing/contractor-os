@@ -322,7 +322,7 @@ export default async function VatQuarterlyReportPage({
                         <TableCell className="font-mono text-xs text-slate-700">
                           <Link
                             href={{ pathname: `/invoices/${r.invoiceId}` }}
-                            className="hover:underline"
+                            className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
                           >
                             {r.invoiceNumber}
                           </Link>
@@ -442,7 +442,7 @@ export default async function VatQuarterlyReportPage({
                                   ? `/banking/transactions/${r.receiptId}`
                                   : `/banking/receipts/${r.receiptId}`,
                             }}
-                            className="hover:underline"
+                            className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
                           >
                             {r.receiptDate}
                           </Link>

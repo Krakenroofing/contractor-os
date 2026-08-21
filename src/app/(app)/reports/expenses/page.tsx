@@ -184,14 +184,19 @@ export default async function ExpenseReportPage({
                         <TableCell className="text-xs text-slate-600">
                           {r.paymentMethodName ?? '—'}
                         </TableCell>
-                        <TableCell
-                          className={`text-right tabular-nums font-medium ${
-                            r.amount < 0 ? 'text-emerald-700' : ''
-                          }`}
-                        >
-                          {r.amount < 0
-                            ? `(${formatMoney(-r.amount)})`
-                            : formatMoney(r.amount)}
+                        <TableCell className="text-right tabular-nums font-medium">
+                          <a
+                            href={r.href}
+                            className={`underline underline-offset-2 ${
+                              r.amount < 0
+                                ? 'text-emerald-700 hover:text-emerald-900'
+                                : 'text-blue-700 hover:text-blue-900'
+                            }`}
+                          >
+                            {r.amount < 0
+                              ? `(${formatMoney(-r.amount)})`
+                              : formatMoney(r.amount)}
+                          </a>
                         </TableCell>
                       </TableRow>
                     ))}

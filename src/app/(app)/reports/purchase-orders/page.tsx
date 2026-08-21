@@ -115,7 +115,7 @@ export default async function POSummaryReportPage({
                 {report.rows.map((r) => (
                   <TableRow key={r.poId}>
                     <TableCell className="font-mono text-xs">
-                      <Link href={{ pathname: `/purchase-orders/${r.poId}` }} className="hover:underline">
+                      <Link href={{ pathname: `/purchase-orders/${r.poId}` }} className="text-blue-700 underline underline-offset-2 hover:text-blue-900">
                         {r.poNumber}
                       </Link>
                     </TableCell>

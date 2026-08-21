@@ -177,22 +177,27 @@ function Row({
   bold?: boolean;
   href?: string;
 }) {
+  // Convention (Chris, 2026-08-21): the NUMBER is the clickable element, and
+  // every clickable number across reports is blue + underlined.
   return (
     <div className="flex items-baseline justify-between gap-4 text-sm">
+      <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
+        {label}
+      </span>
       {href ? (
-        <Link href={href as never} className="text-blue-700 hover:underline">
-          {label}
+        <Link
+          href={href as never}
+          className="tabular-nums font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900"
+        >
+          {formatMoney(value)}
         </Link>
       ) : (
-        <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
-          {label}
+        <span
+          className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} text-slate-900`}
+        >
+          {formatMoney(value)}
         </span>
       )}
-      <span
-        className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} text-slate-900`}
-      >
-        {formatMoney(value)}
-      </span>
     </div>
   );
 }

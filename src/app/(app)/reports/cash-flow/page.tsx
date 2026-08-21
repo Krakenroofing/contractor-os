@@ -162,24 +162,32 @@ function Row({
   bold?: boolean;
   href?: string;
 }) {
+  // Clickable NUMBERS, blue + underlined — the reports-wide convention.
   return (
     <div className="flex items-baseline justify-between gap-4 text-sm">
+      <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
+        {label}
+      </span>
       {href ? (
-        <Link href={href as never} className="text-blue-700 hover:underline">
-          {label}
+        <Link
+          href={href as never}
+          className={`tabular-nums font-medium underline underline-offset-2 ${
+            value < 0
+              ? 'text-red-600 hover:text-red-800'
+              : 'text-blue-700 hover:text-blue-900'
+          }`}
+        >
+          {formatMoney(value)}
         </Link>
       ) : (
-        <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-700'}>
-          {label}
+        <span
+          className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} ${
+            value < 0 ? 'text-red-600' : 'text-slate-900'
+          }`}
+        >
+          {formatMoney(value)}
         </span>
       )}
-      <span
-        className={`tabular-nums ${bold ? 'font-semibold' : 'font-medium'} ${
-          value < 0 ? 'text-red-600' : 'text-slate-900'
-        }`}
-      >
-        {formatMoney(value)}
-      </span>
     </div>
   );
 }

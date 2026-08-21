@@ -173,25 +173,43 @@ function GroupRows({
           {label}
         </TableCell>
       </TableRow>
-      {rows.map((r) => (
-        <TableRow key={r.accountId}>
-          <TableCell>
-            {r.code ? <span className="font-mono text-slate-500">{r.code} </span> : null}
-            <Link
-              href={`/reports/general-ledger?accountId=${r.accountId}${asOf ? `&to=${asOf}` : ''}`}
-              className="text-blue-700 hover:underline"
-            >
-              {r.name}
-            </Link>
-          </TableCell>
-          <TableCell className="text-right tabular-nums">
-            {r.debit !== 0 ? formatMoney(r.debit) : ''}
-          </TableCell>
-          <TableCell className="text-right tabular-nums">
-            {r.credit !== 0 ? formatMoney(r.credit) : ''}
-          </TableCell>
-        </TableRow>
-      ))}
+      {rows.map((r) => {
+        const glHref = `/reports/general-ledger?accountId=${r.accountId}${asOf ? `&to=${asOf}` : ''}`;
+        // Clickable NUMBERS, blue + underlined — the reports-wide convention.
+        const numClass =
+          'text-blue-700 underline underline-offset-2 hover:text-blue-900';
+        return (
+          <TableRow key={r.accountId}>
+            <TableCell>
+              {r.code ? <span className="font-mono text-slate-500">{r.code} </span> : null}
+              <Link
+                href={glHref as never}
+                className="text-slate-900 underline-offset-2 hover:underline"
+              >
+                {r.name}
+              </Link>
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {r.debit !== 0 ? (
+                <Link href={glHref as never} className={numClass}>
+                  {formatMoney(r.debit)}
+                </Link>
+              ) : (
+                ''
+              )}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {r.credit !== 0 ? (
+                <Link href={glHref as never} className={numClass}>
+                  {formatMoney(r.credit)}
+                </Link>
+              ) : (
+                ''
+              )}
+            </TableCell>
+          </TableRow>
+        );
+      })}
     </>
   );
 }

@@ -87,7 +87,7 @@ export default async function InvoiceSummaryReportPage({
                 {report.rows.map((r) => (
                   <TableRow key={r.invoiceId}>
                     <TableCell className="font-mono text-xs text-slate-700">
-                      <Link href={{ pathname: `/invoices/${r.invoiceId}` }} className="hover:underline">
+                      <Link href={{ pathname: `/invoices/${r.invoiceId}` }} className="text-blue-700 underline underline-offset-2 hover:text-blue-900">
                         {r.invoiceNumber}
                       </Link>
                     </TableCell>

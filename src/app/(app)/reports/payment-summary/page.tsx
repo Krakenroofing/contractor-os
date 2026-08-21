@@ -123,7 +123,7 @@ export default async function PaymentSummaryReportPage({
                 {report.rows.map((r) => (
                   <TableRow key={r.paymentId}>
                     <TableCell className="font-mono text-xs">
-                      <Link href={{ pathname: `/payments/${r.paymentId}` }} className="hover:underline">
+                      <Link href={{ pathname: `/payments/${r.paymentId}` }} className="text-blue-700 underline underline-offset-2 hover:text-blue-900">
                         {r.paymentNumber || '—'}
                       </Link>
                     </TableCell>

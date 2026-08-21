@@ -89,7 +89,7 @@ export default async function LandedCostReportPage({
                 {report.rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium text-slate-900">
-                      <Link href={{ pathname: `/landed-cost/${r.id}` }} className="hover:underline">
+                      <Link href={{ pathname: `/landed-cost/${r.id}` }} className="text-blue-700 underline underline-offset-2 hover:text-blue-900">
                         {r.name}
                       </Link>
                     </TableCell>
