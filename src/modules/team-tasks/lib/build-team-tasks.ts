@@ -21,6 +21,7 @@ export type TeamTaskReplyView = {
   createdAtISO: string;
   body: string;
   edited: boolean;
+  attachments: TeamTaskAttachmentView[];
 };
 
 export type TeamTaskView = {
@@ -63,16 +64,25 @@ export async function buildTeamTasks(
     listRepliesForTasks(companyId, ids),
   ]);
 
+  // Split attachments: task-level (replyId null) vs pinned to a reply.
   const byTask = new Map<string, TeamTaskAttachmentView[]>();
+  const byReply = new Map<string, TeamTaskAttachmentView[]>();
   for (const a of attachments) {
-    const list = byTask.get(a.taskId) ?? [];
-    list.push({
+    const view: TeamTaskAttachmentView = {
       id: a.id,
       fileName: a.fileName,
       mimeType: a.mimeType,
       byteSize: a.byteSize,
-    });
-    byTask.set(a.taskId, list);
+    };
+    if (a.replyId) {
+      const list = byReply.get(a.replyId) ?? [];
+      list.push(view);
+      byReply.set(a.replyId, list);
+    } else {
+      const list = byTask.get(a.taskId) ?? [];
+      list.push(view);
+      byTask.set(a.taskId, list);
+    }
   }
 
   const repliesByTask = new Map<string, TeamTaskReplyView[]>();
@@ -85,6 +95,7 @@ export async function buildTeamTasks(
       createdAtISO: r.createdAt.toISOString(),
       body: r.body,
       edited: r.editedAt !== null,
+      attachments: byReply.get(r.id) ?? [],
     });
     repliesByTask.set(r.taskId, list);
   }

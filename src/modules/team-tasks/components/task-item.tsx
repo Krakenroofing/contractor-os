@@ -1,10 +1,13 @@
 'use client';
 
 import { useActionState, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
+import { directUploadFiles } from '@/lib/storage/direct-upload-client';
 import {
+  createTeamTaskUploadUrlsAction,
   resolveTeamTaskAction,
   reopenTeamTaskAction,
   deleteTeamTaskAction,
@@ -14,7 +17,11 @@ import {
   replyToTeamTaskAction,
   type TeamTaskActionState,
 } from '../actions';
-import type { TeamTaskReplyView, TeamTaskView } from '../lib/build-team-tasks';
+import type {
+  TeamTaskAttachmentView,
+  TeamTaskReplyView,
+  TeamTaskView,
+} from '../lib/build-team-tasks';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '';
@@ -45,6 +52,69 @@ function fileGlyph(mime: string): string {
   return '📎';
 }
 
+/** Image thumbnails + file chips for a note OR a reply. The download route
+ *  is task-scoped, so reply attachments reuse it (they carry taskId too). */
+function AttachmentGallery({
+  taskId,
+  attachments,
+  thumb = 'h-20 w-20',
+}: {
+  taskId: string;
+  attachments: TeamTaskAttachmentView[];
+  thumb?: string;
+}) {
+  if (attachments.length === 0) return null;
+  const images = attachments.filter((a) => a.mimeType.startsWith('image/'));
+  const files = attachments.filter((a) => !a.mimeType.startsWith('image/'));
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {images.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {images.map((a) => (
+            <li key={a.id}>
+              <a
+                href={`/dashboard/tasks/${taskId}/attachments/${a.id}/download?view=1`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={a.fileName}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/dashboard/tasks/${taskId}/attachments/${a.id}/download?view=1`}
+                  alt={a.fileName}
+                  loading="lazy"
+                  className={`${thumb} rounded border border-slate-200 object-cover hover:opacity-90`}
+                />
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {files.map((a) => (
+            <li key={a.id}>
+              <a
+                href={`/dashboard/tasks/${taskId}/attachments/${a.id}/download`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                title={a.fileName}
+              >
+                <span aria-hidden>{fileGlyph(a.mimeType)}</span>
+                <span className="max-w-[12rem] truncate">{a.fileName}</span>
+                {a.byteSize > 0 && (
+                  <span className="text-slate-400">{formatBytes(a.byteSize)}</span>
+                )}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function TaskItem({
   task,
   canResolve,
@@ -68,12 +138,6 @@ export function TaskItem({
   );
 
   const done = task.status === 'done';
-  const imageAttachments = task.attachments.filter((a) =>
-    a.mimeType.startsWith('image/'),
-  );
-  const fileAttachments = task.attachments.filter(
-    (a) => !a.mimeType.startsWith('image/'),
-  );
 
   return (
     <li
@@ -96,56 +160,7 @@ export function TaskItem({
             canEdit={canDelete}
             editAction={editTeamTaskAction.bind(null, task.id)}
           />
-          {task.attachments.length > 0 && (
-            <div className="mt-1.5 space-y-1.5">
-              {/* Image attachments render as thumbnails — click opens the
-                  full-size image inline (no forced download). */}
-              {imageAttachments.length > 0 && (
-                <ul className="flex flex-wrap gap-1.5">
-                  {imageAttachments.map((a) => (
-                    <li key={a.id}>
-                      <a
-                        href={`/dashboard/tasks/${task.id}/attachments/${a.id}/download?view=1`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={a.fileName}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/dashboard/tasks/${task.id}/attachments/${a.id}/download?view=1`}
-                          alt={a.fileName}
-                          loading="lazy"
-                          className="h-20 w-20 rounded border border-slate-200 object-cover hover:opacity-90"
-                        />
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {/* Non-image attachments keep the download chip. */}
-              {fileAttachments.length > 0 && (
-                <ul className="flex flex-wrap gap-1.5">
-                  {fileAttachments.map((a) => (
-                    <li key={a.id}>
-                      <a
-                        href={`/dashboard/tasks/${task.id}/attachments/${a.id}/download`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-                        title={a.fileName}
-                      >
-                        <span aria-hidden>{fileGlyph(a.mimeType)}</span>
-                        <span className="max-w-[12rem] truncate">{a.fileName}</span>
-                        {a.byteSize > 0 && (
-                          <span className="text-slate-400">{formatBytes(a.byteSize)}</span>
-                        )}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+          <AttachmentGallery taskId={task.id} attachments={task.attachments} />
           {done && task.resolvedByName && (
             <p className="mt-1 text-[11px] text-slate-400">
               Resolved by {task.resolvedByName}
@@ -203,57 +218,156 @@ function ReplyThread({
   taskId: string;
   replies: TeamTaskReplyView[];
 }) {
+  const router = useRouter();
   const [composing, setComposing] = useState(false);
-  const [state, formAction, pending] = useActionState<
-    TeamTaskActionState,
-    FormData
-  >(replyToTeamTaskAction.bind(null, taskId), {});
-  const formRef = useRef<HTMLFormElement>(null);
+  const [body, setBody] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Successful post → clear + close the composer (the new reply arrives via
-  // the server revalidation).
-  useEffect(() => {
-    if (state.ok) {
-      formRef.current?.reset();
-      setComposing(false);
+  // A picture is a first-class reply: files upload straight to storage
+  // (signed URLs), then the reply posts with the path refs attached.
+  async function submit() {
+    if (pending) return;
+    if (body.trim() === '' && files.length === 0) {
+      setError('Write a reply or attach a picture (or both).');
+      return;
     }
-  }, [state.ok]);
+    setError(null);
+    setPending(true);
+    try {
+      let refs: {
+        storagePath: string;
+        fileName: string;
+        mimeType: string;
+        byteSize: number;
+      }[] = [];
+      if (files.length > 0) {
+        const outcome = await directUploadFiles({
+          files,
+          requestUrls: (reqs) => createTeamTaskUploadUrlsAction(reqs),
+        });
+        if (outcome.formError) {
+          setError(outcome.formError);
+          return;
+        }
+        refs = outcome.refs;
+        if (outcome.failures.length > 0 && refs.length === 0) {
+          setError(outcome.failures.join(' / '));
+          return;
+        }
+      }
+      const fd = new FormData();
+      fd.set('body', body);
+      if (refs.length > 0) fd.set('uploads', JSON.stringify(refs));
+      const res = await replyToTeamTaskAction(taskId, {}, fd);
+      if (res.formError && !res.ok) {
+        setError(res.formError);
+        return;
+      }
+      if (res.formError) setError(res.formError); // partial attach failure
+      setBody('');
+      setFiles([]);
+      setComposing(false);
+      router.refresh();
+    } catch {
+      setError('Could not post — check your connection and try again.');
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="mt-2">
       {replies.length > 0 && (
         <ul className="space-y-1.5 border-l-2 border-slate-200 pl-3">
           {replies.map((r) => (
-            <ReplyRow key={r.id} reply={r} />
+            <ReplyRow key={r.id} taskId={taskId} reply={r} />
           ))}
         </ul>
       )}
       {composing ? (
-        <form ref={formRef} action={formAction} className="mt-2 space-y-1.5">
+        <div className="mt-2 space-y-1.5">
           <textarea
-            name="body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
             rows={2}
             autoFocus
             placeholder="Write a reply…"
             className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           />
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={pending}>
+          {files.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5">
+              {files.map((f, idx) => (
+                <li
+                  key={`${f.name}-${idx}`}
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
+                >
+                  <span className="max-w-[10rem] truncate">{f.name}</span>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-slate-700"
+                    onClick={() =>
+                      setFiles((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending}
+              onClick={() => void submit()}
+            >
               {pending ? 'Posting…' : 'Post reply'}
             </Button>
+            <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50">
+              📷 Photo
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  setFiles((prev) => [...prev, ...picked]);
+                }}
+              />
+            </label>
+            <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50">
+              📎 File
+              <input
+                type="file"
+                multiple
+                className="sr-only"
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  setFiles((prev) => [...prev, ...picked]);
+                }}
+              />
+            </label>
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              onClick={() => setComposing(false)}
+              onClick={() => {
+                setComposing(false);
+                setError(null);
+              }}
             >
               Cancel
             </Button>
-            {state.formError && (
-              <span className="text-xs text-red-600">{state.formError}</span>
-            )}
+            {error && <span className="text-xs text-red-600">{error}</span>}
           </div>
-        </form>
+        </div>
       ) : (
         <button
           type="button"
@@ -267,7 +381,13 @@ function ReplyThread({
   );
 }
 
-function ReplyRow({ reply }: { reply: TeamTaskReplyView }) {
+function ReplyRow({
+  taskId,
+  reply,
+}: {
+  taskId: string;
+  reply: TeamTaskReplyView;
+}) {
   const [editing, setEditing] = useState(false);
   const [, deleteAction] = useActionState<TeamTaskActionState, FormData>(
     deleteTeamTaskReplyAction.bind(null, reply.id),
@@ -340,9 +460,18 @@ function ReplyRow({ reply }: { reply: TeamTaskReplyView }) {
           </div>
         </form>
       ) : (
-        <p className="whitespace-pre-wrap break-words text-slate-800">
-          {reply.body}
-        </p>
+        <>
+          {reply.body && (
+            <p className="whitespace-pre-wrap break-words text-slate-800">
+              {reply.body}
+            </p>
+          )}
+          <AttachmentGallery
+            taskId={taskId}
+            attachments={reply.attachments}
+            thumb="h-16 w-16"
+          />
+        </>
       )}
     </li>
   );

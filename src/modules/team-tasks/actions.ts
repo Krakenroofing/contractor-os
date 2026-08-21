@@ -164,6 +164,68 @@ function parseUploadRefs(formData: FormData): z.infer<typeof directUploadRefSche
   }
 }
 
+// Verify direct-upload refs against storage and record attachment rows —
+// shared by note creation and reply-with-picture. Returns per-file failure
+// messages (partial success is fine).
+async function attachVerifiedRefs(input: {
+  companyId: string;
+  taskId: string;
+  replyId: string | null;
+  userId: string;
+  refs: z.infer<typeof directUploadRefSchema>[];
+}): Promise<string[]> {
+  const { companyId, taskId, replyId, userId, refs } = input;
+  if (refs.length === 0) return [];
+  // Dev-demo guard: only stamp uploaded_by when the user id exists in users.
+  const known = await getUserNamesByIds([userId]);
+  const uploadedBy = known.has(userId) ? userId : null;
+  const failures: string[] = [];
+  for (const ref of refs) {
+    if (!ref.storagePath.startsWith(`${companyId}/`)) {
+      failures.push(`${ref.fileName}: invalid upload path.`);
+      continue;
+    }
+    const stat = await statStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
+    if (!stat) {
+      failures.push(`${ref.fileName}: upload not found — retry.`);
+      continue;
+    }
+    if (stat.byteSize > MAX_TEAM_TASK_BYTES) {
+      await removeStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
+      failures.push(`${ref.fileName}: too large (${bytesToMb(stat.byteSize)}MB).`);
+      continue;
+    }
+    const mime = (
+      stat.mimeType && stat.mimeType !== 'application/octet-stream'
+        ? stat.mimeType
+        : ref.mimeType
+    ).toLowerCase();
+    if (!ALLOWED_TEAM_TASK_MIME.has(mime)) {
+      await removeStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
+      failures.push(`${ref.fileName}: unsupported file type (${mime}).`);
+      continue;
+    }
+    try {
+      await createTeamTaskAttachment({
+        companyId,
+        taskId,
+        replyId,
+        uploadedBy,
+        fileName: ref.fileName,
+        originalFileName: ref.fileName,
+        storagePath: ref.storagePath,
+        mimeType: mime,
+        byteSize: stat.byteSize,
+      });
+    } catch (err) {
+      failures.push(
+        `${ref.fileName}: ${err instanceof Error ? err.message : 'failed to attach.'}`,
+      );
+    }
+  }
+  return failures;
+}
+
 // =============================================================================
 // Create a task (note text and/or attachments). Requires at least one of the
 // two. Attachments are already in storage (direct upload) — we verify each and
@@ -214,49 +276,13 @@ export async function createTeamTaskAction(
     };
   }
 
-  const failures: string[] = [];
-  for (const ref of refs) {
-    if (!ref.storagePath.startsWith(`${companyId}/`)) {
-      failures.push(`${ref.fileName}: invalid upload path.`);
-      continue;
-    }
-    const stat = await statStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
-    if (!stat) {
-      failures.push(`${ref.fileName}: upload not found — retry.`);
-      continue;
-    }
-    if (stat.byteSize > MAX_TEAM_TASK_BYTES) {
-      await removeStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
-      failures.push(`${ref.fileName}: too large (${bytesToMb(stat.byteSize)}MB).`);
-      continue;
-    }
-    const mime = (
-      stat.mimeType && stat.mimeType !== 'application/octet-stream'
-        ? stat.mimeType
-        : ref.mimeType
-    ).toLowerCase();
-    if (!ALLOWED_TEAM_TASK_MIME.has(mime)) {
-      await removeStorageObject(TEAM_TASK_ATTACHMENTS_BUCKET, ref.storagePath);
-      failures.push(`${ref.fileName}: unsupported file type (${mime}).`);
-      continue;
-    }
-    try {
-      await createTeamTaskAttachment({
-        companyId,
-        taskId: task.id,
-        uploadedBy: user.id,
-        fileName: ref.fileName,
-        originalFileName: ref.fileName,
-        storagePath: ref.storagePath,
-        mimeType: mime,
-        byteSize: stat.byteSize,
-      });
-    } catch (err) {
-      failures.push(
-        `${ref.fileName}: ${err instanceof Error ? err.message : 'failed to attach.'}`,
-      );
-    }
-  }
+  const failures = await attachVerifiedRefs({
+    companyId,
+    taskId: task.id,
+    replyId: null,
+    userId: user.id,
+    refs,
+  });
 
   revalidatePath('/dashboard');
 
@@ -289,7 +315,11 @@ export async function replyToTeamTaskAction(
     return { formError: 'Missing or invalid task id.' };
   }
   const body = String(formData.get('body') ?? '').trim();
-  if (body === '') return { formError: 'Write a reply first.' };
+  const refs = parseUploadRefs(formData);
+  // A picture IS a valid reply — text optional when something is attached.
+  if (body === '' && refs.length === 0) {
+    return { formError: 'Write a reply or attach a picture (or both).' };
+  }
   if (body.length > 4000) {
     return { formError: 'Your reply is too long. Trim it and try again.' };
   }
@@ -297,12 +327,13 @@ export async function replyToTeamTaskAction(
   const task = await getTeamTask(companyId, taskId);
   if (!task) return { formError: 'Note not found.' };
 
+  let reply;
   try {
     const displayName = await resolveDisplayName(user.id, user.email);
     // Same dev-demo guard as elsewhere: only stamp created_by when the user
     // id really exists (the synthetic demo id isn't in users).
     const known = await getUserNamesByIds([user.id]);
-    await createTeamTaskReply({
+    reply = await createTeamTaskReply({
       companyId,
       taskId,
       createdBy: known.has(user.id) ? user.id : null,
@@ -317,7 +348,22 @@ export async function replyToTeamTaskAction(
       formError: err instanceof Error ? err.message : 'Could not post the reply.',
     };
   }
+
+  const failures = await attachVerifiedRefs({
+    companyId,
+    taskId,
+    replyId: reply.id,
+    userId: user.id,
+    refs,
+  });
+
   revalidatePath('/dashboard');
+  if (failures.length > 0) {
+    return {
+      ok: true,
+      formError: `Posted, but ${failures.length} attachment(s) failed: ${failures.join(' · ')}`,
+    };
+  }
   return { ok: true };
 }
 

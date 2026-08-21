@@ -76,6 +76,10 @@ export const teamTaskAttachments = pgTable(
     taskId: uuid('task_id')
       .notNull()
       .references(() => teamTasks.id, { onDelete: 'cascade' }),
+    // Set when the attachment belongs to a REPLY under the note (reply with
+    // picture). NULL = attached to the note itself. FK constraint lives in
+    // the SQL migration (teamTaskReplies is declared later in this file).
+    replyId: uuid('reply_id'),
     uploadedBy: uuid('uploaded_by').references(() => users.id, {
       onDelete: 'set null',
     }),
