@@ -127,6 +127,7 @@ export async function upsertReceiptAction(
       formData.get('vatRecoverable') === 'on' ||
       formData.get('vatRecoverable') === 'true',
     vendorTin: formData.get('vendorTin') ?? '',
+    vendorInvoiceNumber: formData.get('vendorInvoiceNumber') ?? '',
     notes: formData.get('notes') ?? '',
     lines: parsedLines,
   });
@@ -180,6 +181,7 @@ export async function upsertReceiptAction(
       ? vatQuarterForDate(d.receiptDate)
       : null,
     vendorTin: d.vendorTin,
+    vendorInvoiceNumber: d.vendorInvoiceNumber,
     notes: d.notes,
     uploadedByUserId: user.id,
   } as const;

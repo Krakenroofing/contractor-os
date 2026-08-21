@@ -165,6 +165,13 @@ export const upsertReceiptSchema = z.object({
     .optional()
     .default('')
     .transform((v) => (v === '' ? null : v)),
+  vendorInvoiceNumber: z
+    .string()
+    .trim()
+    .max(80)
+    .optional()
+    .default('')
+    .transform((v) => (v === '' ? null : v)),
   notes: z
     .string()
     .trim()

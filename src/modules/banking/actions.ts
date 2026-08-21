@@ -2122,10 +2122,13 @@ export async function searchBillsForMatchAction(input: {
     if (q && !vendorName.toLowerCase().includes(q)) continue;
     const credit = appliedCredits.get(r.id) ?? 0;
     const total = Math.round((Number(r.total) - credit) * 100) / 100;
+    // The vendor's invoice number is how Chris/Olga recognize a bill when
+    // matching a payment — surface it in the picker label.
+    const invTag = r.vendorInvoiceNumber ? ` · #${r.vendorInvoiceNumber}` : '';
     results.push({
       kind: 'receipt',
       id: r.id,
-      label: credit > 0 ? `${vendorName} (net of credit)` : vendorName,
+      label: `${vendorName}${invTag}${credit > 0 ? ' (net of credit)' : ''}`,
       total,
       date: r.receiptDate,
       sameAmount: Math.round(total * 100) === absCents,

@@ -256,6 +256,7 @@ export default async function ReceiptDetailPage({
                   vendorId: receipt.vendorId,
                   bankAccountId: receipt.bankAccountId,
                   paymentMethodId: receipt.paymentMethodId,
+                  vendorInvoiceNumber: receipt.vendorInvoiceNumber,
                   paymentSourceType: receipt.paymentSourceType,
                   currency: receipt.currency,
                   vatRatePercent:

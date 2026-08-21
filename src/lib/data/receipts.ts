@@ -142,6 +142,8 @@ export type UpdateReceiptPatch = Partial<
     | 'accountingAccountId'
     | 'paymentSourceType'
     | 'bankAccountId'
+    | 'paymentMethodId'
+    | 'vendorInvoiceNumber'
     | 'receiptDate'
     | 'currency'
     | 'subtotal'

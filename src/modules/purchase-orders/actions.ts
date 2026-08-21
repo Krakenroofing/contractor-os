@@ -30,6 +30,8 @@ import {
   recalcReceiptHeaderTotals,
 } from '@/lib/data/receipts';
 import { getVendor } from '@/lib/data/vendors';
+import { getUserNamesByIds } from '@/lib/data/users';
+import { findBillByVendorInvoiceNumber } from '@/lib/data/po-bills';
 import { computeVat, vatQuarterForDate } from '@/modules/receipts/lib/vat';
 import {
   createPoReceipt,
@@ -505,17 +507,26 @@ export async function deletePoReceiptAction(
 
 // ===== Create bill (AP) from a PO =====
 //
-// Copies a purchase order onto a draft Bill (a receipt — bills and receipts
-// share the same AP table). Each PO line becomes a receipt line carrying its
-// project, cost code, description and net cost; VAT is layered on top using
-// the company rate (PO line totals are net of tax). The draft lands in
-// /banking/receipts where the operator reviews and Posts it — Post books the
-// expense to job costing AND the GL (Dr Expense / Cr Accounts Payable), so it
-// hits the income statement as a cost owed but not yet paid.
+// Copies SELECTED purchase-order lines onto a draft Bill (a receipt — bills
+// and receipts share the same AP table). Partial shipments are the norm: the
+// operator picks which lines shipped and how much of each. The bill carries
+// the VENDOR'S invoice number (typed to match their paperwork) and links back
+// to the PO (+ each line to its PO line, so the PO tracks billed-so-far).
+// VAT is layered on top of net PO prices using the company rate. The draft
+// lands in /banking/receipts where the operator reviews and Posts it — Post
+// books Dr Expense / Cr Accounts Payable, and the bill stays an OUTSTANDING
+// bill (bank paymentSourceType keeps it in the "Match to bills…" picker)
+// until the bank payment is matched.
 
 export type CreateBillFromPoState = {
   formError?: string;
 };
+
+const billLineSchema = z.object({
+  poLineId: z.string().uuid(),
+  amount: z.coerce.number().finite().positive(),
+  quantity: z.coerce.number().finite().nonnegative().optional(),
+});
 
 export async function createBillFromPoAction(
   _prev: CreateBillFromPoState,
@@ -534,6 +545,34 @@ export async function createBillFromPoAction(
     return { formError: 'Invalid purchase order reference.' };
   }
 
+  const vendorInvoiceNumber = String(formData.get('vendorInvoiceNumber') ?? '')
+    .trim();
+  if (vendorInvoiceNumber.length === 0 || vendorInvoiceNumber.length > 80) {
+    return {
+      formError:
+        "Enter the vendor's invoice number (it's how the bill ties to their paperwork).",
+    };
+  }
+  const billDateRaw = String(formData.get('billDate') ?? '').trim();
+  const billDate = /^\d{4}-\d{2}-\d{2}$/.test(billDateRaw)
+    ? billDateRaw
+    : new Date().toISOString().slice(0, 10);
+
+  let selected: z.infer<typeof billLineSchema>[];
+  try {
+    const parsed = z
+      .array(billLineSchema)
+      .min(1)
+      .max(200)
+      .safeParse(JSON.parse(String(formData.get('linesJson') ?? '[]')));
+    if (!parsed.success) {
+      return { formError: 'Select at least one line to bill (amounts > 0).' };
+    }
+    selected = parsed.data;
+  } catch {
+    return { formError: 'Could not read the selected lines. Please retry.' };
+  }
+
   const company = await getActiveCompany();
   const po = await getPurchaseOrder(company.id, poId);
   if (!po) {
@@ -544,8 +583,24 @@ export async function createBillFromPoAction(
   }
 
   const poLines = await getPurchaseOrderLines(po.id);
-  if (poLines.length === 0) {
-    return { formError: 'This purchase order has no line items to bill.' };
+  const poLineById = new Map(poLines.map((l) => [l.id, l]));
+  for (const s of selected) {
+    if (!poLineById.has(s.poLineId)) {
+      return { formError: 'One of the selected lines is not on this PO.' };
+    }
+  }
+
+  // One bill per vendor invoice — a repeated number is almost always a
+  // double entry.
+  const dupe = await findBillByVendorInvoiceNumber(
+    company.id,
+    po.vendorId,
+    vendorInvoiceNumber,
+  );
+  if (dupe) {
+    return {
+      formError: `A bill with invoice #${vendorInvoiceNumber} already exists for this vendor.`,
+    };
   }
 
   // Pull the vendor's default expense account so each line lands on the
@@ -554,12 +609,13 @@ export async function createBillFromPoAction(
   const vendor = await getVendor(company.id, po.vendorId);
   const defaultAccountId = vendor?.defaultAccountingAccountId ?? null;
 
-  const today = new Date().toISOString().slice(0, 10);
   const vatRate = company.isVatActive ? Number(company.vatRatePercent) || 0 : 0;
 
-  // PO line totals are net (qty × unit cost); add VAT on top (vatIncluded=false).
-  const computedLines = poLines.map((l) => {
-    const net = Number(l.lineTotal) || 0;
+  // Billed amounts are net (partial qty × unit cost); add VAT on top
+  // (vatIncluded=false).
+  const computedLines = selected.map((s) => {
+    const line = poLineById.get(s.poLineId)!;
+    const net = Math.round(s.amount * 100) / 100;
     const c = company.isVatActive
       ? computeVat({
           subtotal: net,
@@ -568,27 +624,40 @@ export async function createBillFromPoAction(
           driver: 'subtotal',
         })
       : { subtotal: net, vatAmount: 0, total: net, vatRatePercent: 0 };
-    return { line: l, computed: c };
+    const qtyNote =
+      s.quantity !== undefined && s.quantity > 0
+        ? ` (${s.quantity}${line.unit ? ` ${line.unit}` : ''} @ ${Number(line.unitCost)})`
+        : '';
+    return { line, computed: c, description: `${line.description}${qtyNote}` };
   });
+
+  // Dev-demo auth's synthetic user isn't in the users table — stamp only
+  // when the id really exists so the FK can't fail.
+  const knownUsers = await getUserNamesByIds([user.id]);
 
   const receipt = await createReceipt({
     companyId: company.id,
     vendorId: po.vendorId,
-    paymentSourceType: 'cash',
-    receiptDate: today,
+    // 'bank' (account picked later) — cash receipts are excluded from the
+    // outstanding-bills matcher, and this bill must stay matchable.
+    paymentSourceType: 'bank',
+    bankAccountId: null,
+    receiptDate: billDate,
     currency: company.defaultCurrency,
     vatRatePercent: company.isVatActive ? toPercentString(vatRate) : null,
     vatIncluded: false,
     vatRecoverable: true,
-    vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(today) : null,
+    vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(billDate) : null,
     notes: `Bill from ${po.number}`,
+    vendorInvoiceNumber,
+    purchaseOrderId: po.id,
     subtotal: '0',
     vatAmount: '0',
     total: '0',
-    uploadedByUserId: user.id,
+    uploadedByUserId: knownUsers.has(user.id) ? user.id : null,
   });
 
-  for (const [idx, { line, computed }] of computedLines.entries()) {
+  for (const [idx, { line, computed, description }] of computedLines.entries()) {
     await createReceiptLine({
       companyId: company.id,
       receiptId: receipt.id,
@@ -596,7 +665,8 @@ export async function createBillFromPoAction(
       projectId: po.projectId,
       costCodeId: line.costCodeId,
       accountingAccountId: defaultAccountId,
-      description: line.description,
+      purchaseOrderLineId: line.id,
+      description,
       subtotal: toMoneyString(computed.subtotal),
       vatAmount: toMoneyString(computed.vatAmount),
       total: toMoneyString(computed.total),
@@ -611,13 +681,14 @@ export async function createBillFromPoAction(
     entityType: 'purchase_order',
     entityId: po.id,
     kind: 'po_bill_created',
-    summary: `Draft bill created from ${po.number} (${poLines.length} line${
+    summary: `Draft bill (vendor inv #${vendorInvoiceNumber}) created from ${po.number} — ${selected.length} of ${poLines.length} line${
       poLines.length === 1 ? '' : 's'
-    }) — review and post in Banking → Receipts`,
+    }; review and post in Banking → Receipts`,
     actorRole: ROLE_LABELS[role],
   });
 
   revalidatePath('/banking/receipts');
+  revalidatePath(`/purchase-orders/${po.id}`);
   redirect(`/banking/receipts/${receipt.id}`);
 }
 

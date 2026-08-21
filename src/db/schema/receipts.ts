@@ -92,6 +92,15 @@ export const receipts = pgTable(
     // Phase 1 receipts data layer validates against the enum's values.
     costType: text('cost_type'),
 
+    // The SUPPLIER's invoice number — typed to match their paperwork so
+    // outstanding bills tie to vendor statements. Optional on ad-hoc
+    // receipts; the PO→bill flow requires it.
+    vendorInvoiceNumber: text('vendor_invoice_number'),
+    // Set when this bill was created from a purchase order (PO→bill flow).
+    // FK declared without reference to avoid a circular import; constraint
+    // lives in the SQL migration (ON DELETE SET NULL).
+    purchaseOrderId: uuid('purchase_order_id'),
+
     status: receiptStatusEnum('status').notNull().default('draft'),
     postedAt: timestamp('posted_at', { withTimezone: true }),
     postedJobCostEntryId: uuid('posted_job_cost_entry_id').references(
@@ -167,6 +176,11 @@ export const receiptLines = pgTable(
     // (validated by the receipts data layer).
     costType: text('cost_type'),
     description: text('description'),
+
+    // The PO line this bill line invoices (PO→bill flow) — lets the PO show
+    // how much of each line has been billed. FK constraint in the SQL
+    // migration (ON DELETE SET NULL).
+    purchaseOrderLineId: uuid('purchase_order_line_id'),
 
     subtotal: numeric('subtotal', { precision: 14, scale: 2 })
       .notNull()

@@ -68,6 +68,7 @@ export type ReceiptFormProps = {
     bankAccountId: string | null;
     paymentSourceType: 'bank' | 'credit_card' | 'cash' | 'other';
     paymentMethodId?: string | null;
+    vendorInvoiceNumber?: string | null;
     currency: string;
     vatRatePercent: number | null;
     vatIncluded: boolean;
@@ -169,6 +170,9 @@ export function ReceiptForm(props: ReceiptFormProps) {
   const [bankAccountId, setBankAccountId] = useState(i?.bankAccountId ?? '');
   const [paymentMethodId, setPaymentMethodId] = useState(
     i?.paymentMethodId ?? '',
+  );
+  const [vendorInvoiceNumber, setVendorInvoiceNumber] = useState(
+    i?.vendorInvoiceNumber ?? '',
   );
   const [paymentSourceType, setPaymentSourceType] = useState(
     i?.paymentSourceType ?? 'cash',
@@ -448,6 +452,21 @@ export function ReceiptForm(props: ReceiptFormProps) {
               value={paymentMethodId}
               onChange={setPaymentMethodId}
               methods={props.paymentMethods ?? []}
+            />
+          </div>
+          <div>
+            <Label htmlFor="vendorInvoiceNumber">
+              Vendor invoice #{' '}
+              <span className="normal-case text-slate-400">
+                (their number — bills tie to it)
+              </span>
+            </Label>
+            <Input
+              id="vendorInvoiceNumber"
+              name="vendorInvoiceNumber"
+              value={vendorInvoiceNumber}
+              onChange={(e) => setVendorInvoiceNumber(e.target.value)}
+              placeholder="e.g. INV-10442"
             />
           </div>
         </div>

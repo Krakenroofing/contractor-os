@@ -27,7 +27,6 @@ import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
-import { CreateBillFromPoButton } from '@/modules/purchase-orders/components/create-bill-from-po-button';
 import { RenamePoNumber } from '@/modules/purchase-orders/components/rename-po-number';
 import { VendorInvoiceNumberEditor } from '@/modules/purchase-orders/components/vendor-invoice-number-editor';
 import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
@@ -104,7 +103,11 @@ export default async function PurchaseOrderDetailPage({
         />
         <div className="flex items-center gap-2">
           {allowBill && po.status !== 'void' && (
-            <CreateBillFromPoButton poId={po.id} />
+            <Link href={{ pathname: `/purchase-orders/${po.id}/bill` }}>
+              <Button size="sm" variant="outline">
+                Create bill
+              </Button>
+            </Link>
           )}
           <DocumentDownloadButtons type="purchase_order" id={po.id} />
           {allowCreate && po.status === 'draft' && (
