@@ -70,6 +70,9 @@ export const receipts = pgTable(
     paymentMethodId: uuid('payment_method_id'),
 
     receiptDate: date('receipt_date').notNull(),
+    // When the vendor expects payment — set on bills entered ahead of the
+    // money moving (the "Add Bill" flow). Null on ordinary receipts.
+    dueDate: date('due_date'),
     currency: text('currency').notNull().default('USD'),
 
     subtotal: numeric('subtotal', { precision: 14, scale: 2 })

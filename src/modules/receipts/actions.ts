@@ -114,6 +114,7 @@ export async function upsertReceiptAction(
   const parsed = upsertReceiptSchema.safeParse({
     id: (formData.get('id') as string) || undefined,
     receiptDate: formData.get('receiptDate') ?? '',
+    dueDate: formData.get('dueDate') ?? '',
     vendorId: formData.get('vendorId') ?? '',
     bankAccountId: formData.get('bankAccountId') ?? '',
     paymentMethodId: formData.get('paymentMethodId') ?? '',
@@ -172,6 +173,7 @@ export async function upsertReceiptAction(
         ? d.bankAccountId
         : null,
     receiptDate: d.receiptDate,
+    dueDate: d.dueDate,
     currency: d.currency,
     vatRatePercent:
       d.vatRatePercent === null ? null : toPercentString(d.vatRatePercent),
@@ -183,7 +185,11 @@ export async function upsertReceiptAction(
     vendorTin: d.vendorTin,
     vendorInvoiceNumber: d.vendorInvoiceNumber,
     notes: d.notes,
-    uploadedByUserId: user.id,
+    // Dev-demo auth's synthetic user isn't in the users table — stamp only
+    // when the id really exists so the FK can't fail.
+    uploadedByUserId: (await getUserNamesByIds([user.id])).has(user.id)
+      ? user.id
+      : null,
   } as const;
 
   if (d.id) {

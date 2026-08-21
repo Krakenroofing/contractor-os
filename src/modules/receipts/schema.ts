@@ -148,6 +148,12 @@ export const upsertReceiptSchema = z.object({
   receiptDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+  dueDate: z
+    .string()
+    .trim()
+    .optional()
+    .default('')
+    .transform((v) => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)),
   vendorId: nullableUuid,
   bankAccountId: nullableUuid,
   paymentMethodId: nullableUuid,

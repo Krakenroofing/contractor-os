@@ -34,6 +34,7 @@ export default async function BankingHome() {
   ]);
   const canCreateBank = canCreate(role, 'bank_accounts');
   const canImport = canCreate(role, 'statement_imports');
+  const canBill = canCreate(role, 'receipts');
 
   return (
     <div className="p-6 space-y-6">
@@ -54,6 +55,11 @@ export default async function BankingHome() {
           <Link href={{ pathname: '/banking/receipts' }}>
             <Button variant="outline">Receipts</Button>
           </Link>
+          {canBill && (
+            <Link href={{ pathname: '/banking/bills/new' }}>
+              <Button variant="outline">Add bill</Button>
+            </Link>
+          )}
           <Link href={{ pathname: '/banking/rules' }}>
             <Button variant="outline">Rules</Button>
           </Link>

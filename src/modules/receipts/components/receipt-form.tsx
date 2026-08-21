@@ -69,6 +69,7 @@ export type ReceiptFormProps = {
     paymentSourceType: 'bank' | 'credit_card' | 'cash' | 'other';
     paymentMethodId?: string | null;
     vendorInvoiceNumber?: string | null;
+    dueDate?: string | null;
     currency: string;
     vatRatePercent: number | null;
     vatIncluded: boolean;
@@ -80,6 +81,9 @@ export type ReceiptFormProps = {
   vatActive: boolean;
   defaultCurrency: string;
   defaultVatRate: number;
+  /** 'bill' = QB-style Add Bill: unpaid AP entry — defaults Paid via to Bank
+   *  (stays an outstanding bill until bank-matched) and relabels dates. */
+  mode?: 'receipt' | 'bill';
   /** Logged-in user — default payer when a new line is marked reimbursable. */
   currentUserId?: string;
   vendors: VendorOption[];
@@ -163,6 +167,7 @@ function initialToState(line: LineInitial): LineState {
 
 export function ReceiptForm(props: ReceiptFormProps) {
   const i = props.initial;
+  const isBill = props.mode === 'bill';
   const [receiptDate, setReceiptDate] = useState(
     i?.receiptDate ?? new Date().toISOString().slice(0, 10),
   );
@@ -175,8 +180,9 @@ export function ReceiptForm(props: ReceiptFormProps) {
     i?.vendorInvoiceNumber ?? '',
   );
   const [paymentSourceType, setPaymentSourceType] = useState(
-    i?.paymentSourceType ?? 'cash',
+    i?.paymentSourceType ?? (isBill ? 'bank' : 'cash'),
   );
+  const [dueDate, setDueDate] = useState(i?.dueDate ?? '');
   const [currency, setCurrency] = useState(i?.currency ?? props.defaultCurrency);
   const [vatRatePercent, setVatRatePercent] = useState(
     (i?.vatRatePercent ?? props.defaultVatRate).toString(),
@@ -350,7 +356,9 @@ export function ReceiptForm(props: ReceiptFormProps) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <Label htmlFor="receiptDate">Receipt date</Label>
+          <Label htmlFor="receiptDate">
+            {isBill ? 'Bill date' : 'Receipt date'}
+          </Label>
           <Input
             id="receiptDate"
             name="receiptDate"
@@ -358,6 +366,19 @@ export function ReceiptForm(props: ReceiptFormProps) {
             value={receiptDate}
             onChange={(e) => setReceiptDate(e.target.value)}
             required
+          />
+        </div>
+        <div>
+          <Label htmlFor="dueDate">
+            Due date{' '}
+            <span className="normal-case text-slate-400">(optional)</span>
+          </Label>
+          <Input
+            id="dueDate"
+            name="dueDate"
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
           />
         </div>
         <div>
@@ -428,6 +449,13 @@ export function ReceiptForm(props: ReceiptFormProps) {
                 </option>
               ))}
             </Select>
+            {isBill && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Leave as Bank for an unpaid bill — after posting it sits in
+                outstanding bills (Accounts Payable) until the bank payment is
+                matched. Cash means it was paid on the spot.
+              </p>
+            )}
           </div>
           {(paymentSourceType === 'bank' || paymentSourceType === 'credit_card') && (
             <div>
@@ -600,7 +628,13 @@ export function ReceiptForm(props: ReceiptFormProps) {
 
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : i?.id ? 'Save draft' : 'Create receipt'}
+          {pending
+            ? 'Saving…'
+            : i?.id
+              ? 'Save draft'
+              : isBill
+                ? 'Create bill'
+                : 'Create receipt'}
         </Button>
         {state.formError && (
           <p className="text-xs text-red-600">{state.formError}</p>
