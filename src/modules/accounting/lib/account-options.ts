@@ -24,6 +24,12 @@ export type AccountingAccountOption = {
    *  header) — a QB-style subaccount. Picker indents these under their
    *  parent. */
   isSub?: boolean;
+  /** True for the LEDGER account paired with a real bank / credit-card
+   *  account. Categorizing a bank transaction (or split line) to one of
+   *  these records a transfer INTO that account's ledger — the picker
+   *  groups them separately so they read as accounts, not expense
+   *  categories. */
+  isAccountTransfer?: boolean;
 };
 
 /**
@@ -40,9 +46,29 @@ export function toAccountingAccountOptions(
     rollupGroup: AccountingAccountOption['rollupGroup'];
     parentId: string | null;
     isArchived?: boolean;
+    /** Pass the account `type` to surface bank/credit-card LEDGER accounts
+     *  as a separate "transfer" group; callers that filter them out first
+     *  can omit it. */
+    type?: string;
   }>,
 ): AccountingAccountOption[] {
-  const active = rows.filter((r) => !r.isArchived);
+  const activeAll = rows.filter((r) => !r.isArchived);
+  // Bank / credit-card paired ledger accounts render as their own
+  // "transfer" group, outside the category tree.
+  const transferAccounts = activeAll
+    .filter((r) => r.type === 'bank' || r.type === 'credit_card')
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(
+      (r): AccountingAccountOption => ({
+        id: r.id,
+        name: r.name,
+        rollupGroup: r.rollupGroup,
+        isAccountTransfer: true,
+      }),
+    );
+  const active = activeAll.filter(
+    (r) => r.type !== 'bank' && r.type !== 'credit_card',
+  );
   // A "header" is a non-postable GROUP total. An account is only that if it's
   // top-level (no parent) AND actually has children rolling up into it. A
   // parentless LEAF (e.g. "VAT Input", a standalone system account) is a real
@@ -100,5 +126,7 @@ export function toAccountingAccountOptions(
       out.push(toOption(r));
     }
   }
+  // Transfer group last — after every category group.
+  out.push(...transferAccounts);
   return out;
 }

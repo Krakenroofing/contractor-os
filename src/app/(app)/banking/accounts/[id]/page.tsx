@@ -402,9 +402,11 @@ export default async function BankAccountDetailPage({
     }
   }
 
-  const categories = toAccountingAccountOptions(
-    accounts.filter((a) => a.type !== 'bank' && a.type !== 'credit_card'),
-  );
+  // Includes bank / credit-card LEDGER accounts as a "transfer" group —
+  // categorizing a txn (or split line) to one posts the money into that
+  // account's ledger (e.g. a card payment inside a bulk withdrawal), so no
+  // parallel made-up balance-sheet category is needed.
+  const categories = toAccountingAccountOptions(accounts);
 
   // Expense accounts offered as the bank-fee line on a batch bill payment.
   const feeAccountOptions = categories

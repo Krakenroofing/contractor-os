@@ -70,10 +70,15 @@ export function AccountingAccountPicker({
   required?: boolean;
   id?: string;
 }) {
+  // Bank / credit-card ledger accounts render as their own group at the
+  // end — picking one records a transfer into that account.
+  const transferAccounts = accounts.filter((a) => a.isAccountTransfer);
+  const categoryAccounts = accounts.filter((a) => !a.isAccountTransfer);
+
   // Group accounts by rollup_group, preserving incoming sort within each
   // group (caller sorts alphabetically; we only group).
   const grouped = new Map<AccountingAccountOption['rollupGroup'], AccountingAccountOption[]>();
-  for (const a of accounts) {
+  for (const a of categoryAccounts) {
     const list = grouped.get(a.rollupGroup) ?? [];
     list.push(a);
     grouped.set(a.rollupGroup, list);
@@ -118,6 +123,15 @@ export function AccountingAccountPicker({
           </optgroup>
         );
       })}
+      {transferAccounts.length > 0 && (
+        <optgroup label="Bank & card accounts — transfer">
+          {transferAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              ⇄ {a.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
     </Select>
   );
 }
