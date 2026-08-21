@@ -432,11 +432,15 @@ export async function addRegisterTransactionAction(
 // Hand-typed lines can be wrong (money out that should have been money in,
 // a typo'd amount). Imported statement rows mirror the bank and stay
 // immutable; ONLY rows from the "Manual entries" batch are editable, and
-// only while unmatched and not locked inside a completed reconciliation.
+// never while locked inside a completed reconciliation. A matched entry can
+// still fix its date/description (typo repair) — only the AMOUNT is frozen
+// by a match, since the linked receipt/invoice was matched against it;
+// deleting a matched entry stays blocked.
 
 async function guardManualTxn(
   companyId: string,
   txnId: string,
+  opts: { allowMatched?: boolean } = {},
 ): Promise<
   | { error: string }
   | { txn: NonNullable<Awaited<ReturnType<typeof getImportedTransaction>>> }
@@ -449,7 +453,7 @@ async function guardManualTxn(
         'Only manually added entries can be edited — imported statement rows mirror the bank.',
     };
   }
-  if (txn.reconciledAt) {
+  if (txn.reconciledAt && !opts.allowMatched) {
     return {
       error:
         'This entry is matched to a receipt / invoice — unmatch it first.',
@@ -502,9 +506,25 @@ export async function updateManualTransactionAction(
   }
   const input = parsed.data;
 
-  const guarded = await guardManualTxn(auth.companyId, input.transactionId);
+  const guarded = await guardManualTxn(auth.companyId, input.transactionId, {
+    allowMatched: true,
+  });
   if ('error' in guarded) return { formError: guarded.error };
   const { txn } = guarded;
+
+  // A matched entry may fix its date/description, but its amount is what the
+  // receipt / invoice / transfer pair was matched against — changing it would
+  // silently desync the match, so that still requires unmatching first.
+  const signedNext = input.direction === 'out' ? -input.amount : input.amount;
+  if (
+    txn.reconciledAt &&
+    Math.round(signedNext * 100) !== Math.round(Number(txn.amount) * 100)
+  ) {
+    return {
+      formError:
+        'This entry is matched to a receipt / invoice — the amount can’t change while matched. Unmatch it first to change the amount.',
+    };
+  }
 
   // Keep a cleared row inside its reconciliation's window — a date past the
   // statement date would drop it from the visible list while still counting
@@ -521,14 +541,13 @@ export async function updateManualTransactionAction(
     }
   }
 
-  const signed = input.direction === 'out' ? -input.amount : input.amount;
   const ok = await updateManualBankTransaction(
     auth.companyId,
     txn.id,
     {
       transactionDate: input.transactionDate,
       description: input.description,
-      amount: signed,
+      amount: signedNext,
     },
   );
   if (!ok) return { formError: 'Could not update the entry.' };
