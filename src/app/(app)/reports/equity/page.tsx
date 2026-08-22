@@ -107,31 +107,50 @@ export default async function EquityStatementPage({
                 </tr>
               </thead>
               <tbody>
-                {eq.rows.map((r) => (
-                  <tr key={r.accountId} className="border-b border-slate-100">
-                    <td className="px-4 py-2 text-slate-800">
-                      <Link
-                        href={`/reports/general-ledger?accountId=${r.accountId}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`}
-                        className="text-blue-700 hover:underline"
-                      >
-                        {r.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                      {formatMoney(r.opening)}
-                    </td>
-                    <td
-                      className={`px-4 py-2 text-right tabular-nums ${
-                        r.movement < 0 ? 'text-red-600' : 'text-slate-800'
-                      }`}
-                    >
-                      {formatMoney(r.movement)}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums font-medium">
-                      {formatMoney(r.closing)}
-                    </td>
-                  </tr>
-                ))}
+                {eq.rows.map((r) => {
+                  const glHref =
+                    `/reports/general-ledger?accountId=${r.accountId}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}` as never;
+                  return (
+                    <tr key={r.accountId} className="border-b border-slate-100">
+                      <td className="px-4 py-2 text-slate-800">
+                        <Link
+                          href={glHref}
+                          className="text-slate-900 underline-offset-2 hover:underline"
+                        >
+                          {r.name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        <Link
+                          href={glHref}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        >
+                          {formatMoney(r.opening)}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        <Link
+                          href={glHref}
+                          className={`underline underline-offset-2 ${
+                            r.movement < 0
+                              ? 'text-red-600 hover:text-red-800'
+                              : 'text-blue-700 hover:text-blue-900'
+                          }`}
+                        >
+                          {formatMoney(r.movement)}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums font-medium">
+                        <Link
+                          href={glHref}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        >
+                          {formatMoney(r.closing)}
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {/* Retained earnings / accumulated net income */}
                 <tr className="border-b border-slate-100">
                   <td className="px-4 py-2 text-slate-800">
@@ -140,8 +159,15 @@ export default async function EquityStatementPage({
                   <td className="px-4 py-2 text-right tabular-nums text-slate-600">
                     {formatMoney(eq.openingRetained)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-slate-800">
-                    {formatMoney(eq.netIncome)}
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    <Link
+                      href={
+                        `/reports/profit-loss${from || to ? `?${[from ? `from=${from}` : '', to ? `to=${to}` : ''].filter(Boolean).join('&')}` : ''}` as never
+                      }
+                      className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                    >
+                      {formatMoney(eq.netIncome)}
+                    </Link>
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums font-medium">
                     {formatMoney(eq.closingRetained)}
@@ -156,7 +182,14 @@ export default async function EquityStatementPage({
                     {formatMoney(eq.netChange)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {formatMoney(eq.closingTotal)}
+                    <Link
+                      href={
+                        `/reports/balance-sheet/equity${to ? `?asOf=${to}` : ''}` as never
+                      }
+                      className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                    >
+                      {formatMoney(eq.closingTotal)}
+                    </Link>
                   </td>
                 </tr>
               </tbody>

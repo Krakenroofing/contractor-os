@@ -85,6 +85,9 @@ export default async function ProfitLossReportPage({
     const s = qs.toString();
     return `/reports/profit-loss/revenue${s ? `?${s}` : ''}`;
   };
+  // COGS / OpEx section totals drill into the expense report (every
+  // underlying line, same date window).
+  const expensesHref = `/reports/expenses${revQs.toString() ? `?${revQs.toString()}` : ''}`;
 
   return (
     <ReportShell
@@ -106,6 +109,7 @@ export default async function ProfitLossReportPage({
           value={formatMoney(report.cogs.total)}
           hint={`${report.cogs.accounts.length} categor${report.cogs.accounts.length === 1 ? 'y' : 'ies'}`}
           valueClassName="text-amber-700"
+          href="#cogs"
         />
         <KPI
           label="Gross profit"
@@ -114,12 +118,14 @@ export default async function ProfitLossReportPage({
           valueClassName={
             grossSign ? 'text-emerald-700' : 'text-red-600'
           }
+          href="#bottom-line"
         />
         <KPI
           label="Operating expense"
           value={formatMoney(report.opex.total)}
           hint={`${report.opex.accounts.length} categor${report.opex.accounts.length === 1 ? 'y' : 'ies'}`}
           valueClassName="text-amber-700"
+          href="#opex"
         />
         <KPI
           label="Net income"
@@ -128,6 +134,7 @@ export default async function ProfitLossReportPage({
             netSign ? 'text-emerald-700' : 'text-red-600'
           }
           highlight
+          href="#bottom-line"
         />
       </div>
 
@@ -147,7 +154,15 @@ export default async function ProfitLossReportPage({
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Income — {formatMoney(report.income.total)}</CardTitle>
+            <CardTitle>
+              Income —{' '}
+              <Link
+                href={revenueHref() as never}
+                className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+              >
+                {formatMoney(report.income.total)}
+              </Link>
+            </CardTitle>
             <Link
               href={'/invoices/categorize-revenue' as never}
               className="text-sm text-blue-700 underline underline-offset-2 hover:text-blue-900 print:hidden"
@@ -250,7 +265,12 @@ export default async function ProfitLossReportPage({
                     </TableCell>
                     <TableCell />
                     <TableCell className="text-right tabular-nums font-semibold">
-                      {formatMoney(report.income.total)}
+                      <Link
+                        href={revenueHref() as never}
+                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                      >
+                        {formatMoney(report.income.total)}
+                      </Link>
                     </TableCell>
                   </TableRow>
                 )}
@@ -268,29 +288,40 @@ export default async function ProfitLossReportPage({
       </Card>
 
       <AccountSection
-        title={`Cost of Goods Sold — ${formatMoney(report.cogs.total)}`}
+        id="cogs"
+        title="Cost of Goods Sold"
+        total={report.cogs.total}
+        totalHref={expensesHref}
         rows={rollUpSubaccounts(report.cogs.accounts, parentCategoryOf, accountNameOf)}
         filters={filters}
         emptyMessage="No COGS entries categorized in this range."
       />
 
       <AccountSection
-        title={`Operating Expense — ${formatMoney(report.opex.total)}`}
+        id="opex"
+        title="Operating Expense"
+        total={report.opex.total}
+        totalHref={expensesHref}
         rows={rollUpSubaccounts(report.opex.accounts, parentCategoryOf, accountNameOf)}
         filters={filters}
         emptyMessage="No operating expense entries categorized in this range."
       />
 
-      <Card>
+      <Card id="bottom-line">
         <CardHeader>
           <CardTitle>Bottom line</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 p-6">
-          <Row label="Revenue" value={formatMoney(report.income.total)} />
+          <Row
+            label="Revenue"
+            value={formatMoney(report.income.total)}
+            href={report.income.total > 0 ? revenueHref() : undefined}
+          />
           <Row
             label="− Cost of Goods Sold"
             value={formatMoney(report.cogs.total)}
             tone="amber"
+            href="#cogs"
           />
           <Row
             label="= Gross profit"
@@ -302,6 +333,7 @@ export default async function ProfitLossReportPage({
             label="− Operating expense"
             value={formatMoney(report.opex.total)}
             tone="amber"
+            href="#opex"
           />
           <Row
             label="= Net income"
@@ -491,12 +523,18 @@ function rollUpSubaccounts(
 }
 
 function AccountSection({
+  id,
   title,
+  total,
+  totalHref,
   rows,
   filters,
   emptyMessage,
 }: {
+  id?: string;
   title: string;
+  total: number;
+  totalHref?: string;
   rows: SectionRow[];
   filters: { from: string; to: string };
   emptyMessage: string;
@@ -506,9 +544,21 @@ function AccountSection({
   if (filters.to) qs.set('to', filters.to);
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return (
-    <Card>
+    <Card id={id}>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle>
+          {title} —{' '}
+          {totalHref ? (
+            <Link
+              href={totalHref as never}
+              className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+            >
+              {formatMoney(total)}
+            </Link>
+          ) : (
+            formatMoney(total)
+          )}
+        </CardTitle>
       </CardHeader>
       <CardContent className="p-0 overflow-x-auto">
         {rows.length === 0 ? (
@@ -585,12 +635,14 @@ function Row({
   tone,
   bold,
   border,
+  href,
 }: {
   label: string;
   value: string;
   tone?: 'emerald' | 'red' | 'amber';
   bold?: boolean;
   border?: boolean;
+  href?: string;
 }) {
   const toneClass =
     tone === 'emerald'
@@ -600,16 +652,33 @@ function Row({
         : tone === 'amber'
           ? 'text-amber-700'
           : 'text-slate-900';
+  const hoverClass =
+    tone === 'emerald'
+      ? 'hover:text-emerald-900'
+      : tone === 'red'
+        ? 'hover:text-red-800'
+        : tone === 'amber'
+          ? 'hover:text-amber-900'
+          : 'hover:text-blue-900';
   return (
     <div
       className={`flex items-baseline justify-between gap-4 text-sm ${border ? 'border-t border-slate-200 pt-2 mt-2' : ''}`}
     >
       <span className={`${bold ? 'font-semibold' : ''} text-slate-700`}>{label}</span>
-      <span
-        className={`tabular-nums ${bold ? 'text-base font-semibold' : 'font-medium'} ${toneClass}`}
-      >
-        {value}
-      </span>
+      {href ? (
+        <Link
+          href={href as never}
+          className={`tabular-nums ${bold ? 'text-base font-semibold' : 'font-medium'} ${tone ? toneClass : 'text-blue-700'} underline underline-offset-2 ${hoverClass}`}
+        >
+          {value}
+        </Link>
+      ) : (
+        <span
+          className={`tabular-nums ${bold ? 'text-base font-semibold' : 'font-medium'} ${toneClass}`}
+        >
+          {value}
+        </span>
+      )}
     </div>
   );
 }
