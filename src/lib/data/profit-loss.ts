@@ -79,6 +79,11 @@ export type ProfitLossReport = {
      *  credit / backcharge reduces what was earned, so it nets off income
      *  rather than appearing as a cost. */
     creditMemos: { total: number; count: number };
+    /** Contra-revenue: posted BILL / receipt lines categorized to a revenue
+     *  account (e.g. crediting a customer back through a vendor-style bill).
+     *  They post Dr revenue / Cr AP in the GL, so the statement nets them
+     *  off income too — one row per revenue category. */
+    contraBills: { total: number; accounts: ProfitLossAccountRow[] };
   };
   cogs: {
     total: number;
@@ -341,6 +346,7 @@ export async function buildProfitLossReport(
       accounts: [],
       uncategorized: { total: 0, invoiceCount: 0 },
       creditMemos: { total: 0, count: 0 },
+      contraBills: { total: 0, accounts: [] },
     },
     cogs: { total: 0, accounts: [] },
     opex: { total: 0, accounts: [] },
@@ -453,6 +459,54 @@ export async function buildProfitLossReport(
   const creditMemoTotal = Math.round(Number(cmRows[0]?.total ?? '0') * 100) / 100;
   const creditMemoCount = Number(cmRows[0]?.count ?? 0);
   incomeTotal = Math.round((incomeTotal - creditMemoTotal) * 100) / 100;
+
+  // ----- Income side (contra 2): bills posted against revenue accounts -----
+  // A posted bill / receipt line categorized to an income-rollup account is
+  // contra revenue (Dr revenue / Cr AP in the GL) — e.g. crediting a customer
+  // back via a bill. The expense sections drop income-rollup lines by design,
+  // so without this the amount would vanish from the statement entirely.
+  // Same net/gross basis as the receipt expense source.
+  const contraBillAmt = company?.isVatActive
+    ? sql<string>`COALESCE(SUM(CASE WHEN ${receipts.vatRecoverable} THEN ${receiptLines.subtotal} ELSE ${receiptLines.total} END), 0)`
+    : sql<string>`COALESCE(SUM(${receiptLines.total}), 0)`;
+  const contraBillConds = [
+    eq(receipts.companyId, companyId),
+    eq(receipts.status, 'posted'),
+    isNull(receipts.deletedAt),
+    isNull(receiptLines.postedJobCostEntryId),
+    eq(accountingAccounts.rollupGroup, 'income'),
+  ];
+  if (filters.from) contraBillConds.push(gte(receipts.receiptDate, filters.from));
+  if (filters.to) contraBillConds.push(lte(receipts.receiptDate, filters.to));
+  const contraBillRows = await db
+    .select({
+      accountId: receiptLines.accountingAccountId,
+      accountName: accountingAccounts.name,
+      total: contraBillAmt,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(receiptLines)
+    .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, receiptLines.accountingAccountId),
+    )
+    .where(and(...contraBillConds))
+    .groupBy(receiptLines.accountingAccountId, accountingAccounts.name);
+  const contraBillAccounts: ProfitLossAccountRow[] = contraBillRows
+    .filter((r) => r.accountId)
+    .map((r) => ({
+      accountId: r.accountId!,
+      accountName: r.accountName,
+      rollupGroup: 'income' as RollupGroup,
+      amount: Math.round(Number(r.total) * 100) / 100,
+      entryCount: Number(r.count ?? 0),
+    }))
+    .sort((a, b) => b.amount - a.amount);
+  const contraBillTotal =
+    Math.round(contraBillAccounts.reduce((s, r) => s + r.amount, 0) * 100) /
+    100;
+  incomeTotal = Math.round((incomeTotal - contraBillTotal) * 100) / 100;
 
   // ----- Expense side: grouped by accounting_account_id -----
   const costConds = [
@@ -906,6 +960,7 @@ export async function buildProfitLossReport(
         invoiceCount: uncatIncomeCount,
       },
       creditMemos: { total: creditMemoTotal, count: creditMemoCount },
+      contraBills: { total: contraBillTotal, accounts: contraBillAccounts },
     },
     cogs: { total: cogsTotal, accounts: cogsAccounts },
     opex: { total: opexTotal, accounts: opexAccounts },

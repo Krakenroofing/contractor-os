@@ -45,6 +45,8 @@ import {
   listLinesForTransactionIds,
 } from '@/lib/data/statement-imports';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import {
   computeProjectFinancials,
   computeProjectCostCodeBreakdown,
@@ -1163,7 +1165,7 @@ export type { AgingBucket };
 // the vendor billed and was paid for unless the operator has also closed
 // the PO. Documented in REPORT_DESCRIPTION so operators know the caveat.
 
-export type ApSourceType = 'po' | 'sub_payment';
+export type ApSourceType = 'po' | 'sub_payment' | 'bill';
 
 export type ApAgingRow = {
   /** Synthetic id: `${ApSourceType}:${sourceId}` */
@@ -1215,6 +1217,7 @@ export type ApReportSummary = {
   overdueCount: number;
   poItemCount: number;
   subItemCount: number;
+  billItemCount: number;
 };
 
 export type APReport = {
@@ -1237,11 +1240,40 @@ export async function buildAPReport(
     Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()),
   );
 
-  const [pos, subPayments, vendors] = await Promise.all([
-    listPurchaseOrders(companyId),
-    listSubcontractorPayments(companyId),
-    listVendors(companyId),
-  ]);
+  const [pos, subPayments, vendors, postedReceipts, activeMatches] =
+    await Promise.all([
+      listPurchaseOrders(companyId),
+      listSubcontractorPayments(companyId),
+      listVendors(companyId),
+      listReceipts(companyId, { status: 'posted', limit: 2000 }),
+      listActiveMatchesForCompany(companyId),
+    ]);
+  // Unpaid bills = posted bank receipts not yet matched to a bank payment,
+  // counted at NET of applied vendor credits (what a payment would actually
+  // settle). Cash/card receipts were paid on the spot — not AP.
+  const paidReceiptIds = new Set(
+    activeMatches
+      .filter((m) => m.matchType === 'receipt' && m.receiptId)
+      .map((m) => m.receiptId!),
+  );
+  const openBills = postedReceipts.filter(
+    (r) => r.paymentSourceType === 'bank' && !paidReceiptIds.has(r.id),
+  );
+  const appliedCreditByReceipt = await sumAppliedCreditsByReceipt(
+    companyId,
+    openBills.map((r) => r.id),
+  );
+  // A bill created FROM a PO moves that slice of the commitment into AP —
+  // net it off the open PO so the same money isn't counted twice.
+  const billedByPo = new Map<string, number>();
+  for (const r of openBills) {
+    if (r.purchaseOrderId) {
+      billedByPo.set(
+        r.purchaseOrderId,
+        add(billedByPo.get(r.purchaseOrderId) ?? 0, Number(r.total)),
+      );
+    }
+  }
   const vendorById = new Map(vendors.map((v) => [v.id, v]));
   const projectCache = new Map<string, string | null>();
   async function projectName(projectId: string | null): Promise<string | null> {
@@ -1296,7 +1328,10 @@ export async function buildAPReport(
     const terms = resolveTerms(po.vendorId);
     const dueIso = addDays(issueIso, terms.days);
     const days = daysBetween(dueIso, today);
-    const amount = Number(po.total);
+    const amount = subtract(
+      Number(po.total),
+      billedByPo.get(po.id) ?? 0,
+    );
     if (!Number.isFinite(amount) || amount <= 0) continue;
     agingRows.push({
       id: `po:${po.id}`,
@@ -1353,6 +1388,55 @@ export async function buildAPReport(
     });
   }
 
+  // Unpaid bills (posted bank receipts awaiting their bank payment). Due
+  // date: the bill's own due date when typed, else vendor terms from the
+  // bill date. A bill can have no vendor (quick entry) — grouped under
+  // "— no vendor —" so it still shows instead of vanishing.
+  for (const bill of openBills) {
+    const issueIso = bill.receiptDate;
+    if (filters.from && issueIso < filters.from) continue;
+    const netDue = subtract(
+      Number(bill.total),
+      appliedCreditByReceipt.get(bill.id) ?? 0,
+    );
+    if (netDue <= 0) continue;
+    let dueIso: string;
+    let termsLabel: string;
+    if (bill.dueDate) {
+      dueIso = bill.dueDate;
+      termsLabel = 'Bill due date';
+    } else if (bill.vendorId) {
+      const terms = resolveTerms(bill.vendorId);
+      dueIso = addDays(issueIso, terms.days);
+      termsLabel = terms.label;
+    } else {
+      dueIso = addDays(issueIso, defaultTermsDays);
+      termsLabel = `Default (${defaultTermsDays === 0 ? 'Due on receipt' : `Net ${defaultTermsDays}`})`;
+    }
+    const days = daysBetween(dueIso, today);
+    agingRows.push({
+      id: `bill:${bill.id}`,
+      sourceType: 'bill',
+      sourceId: bill.id,
+      sourceLabel: bill.vendorInvoiceNumber
+        ? `Bill #${bill.vendorInvoiceNumber}`
+        : `Bill ${issueIso}`,
+      vendorId: bill.vendorId ?? 'no-vendor',
+      vendorName: bill.vendorId
+        ? (vendorById.get(bill.vendorId)?.name ?? 'Unknown vendor')
+        : '— no vendor —',
+      projectId: null,
+      projectName: null,
+      issueDate: issueIso,
+      dueDate: dueIso,
+      daysOverdue: days,
+      bucket: bucketize(days),
+      amount: netDue,
+      termsLabel,
+      vendorInvoiceNumber: bill.vendorInvoiceNumber ?? null,
+    });
+  }
+
   agingRows.sort((a, b) => b.daysOverdue - a.daysOverdue);
 
   const byVendor = new Map<string, ApVendorRow>();
@@ -1367,6 +1451,7 @@ export async function buildAPReport(
     overdueCount: 0,
     poItemCount: 0,
     subItemCount: 0,
+    billItemCount: 0,
   };
   for (const r of agingRows) {
     const existing = byVendor.get(r.vendorId) ?? {
@@ -1391,6 +1476,7 @@ export async function buildAPReport(
     summary[r.bucket] = add(summary[r.bucket], r.amount);
     if (r.daysOverdue > 0) summary.overdueCount += 1;
     if (r.sourceType === 'po') summary.poItemCount += 1;
+    else if (r.sourceType === 'bill') summary.billItemCount += 1;
     else summary.subItemCount += 1;
   }
   const vendorRows = Array.from(byVendor.values()).sort(

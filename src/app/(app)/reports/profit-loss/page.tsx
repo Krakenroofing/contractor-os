@@ -258,7 +258,39 @@ export default async function ProfitLossReportPage({
                     </TableCell>
                   </TableRow>
                 )}
-                {report.income.creditMemos.total > 0 && (
+                {report.income.contraBills.accounts.map((c) => (
+                  <TableRow key={`contra-${c.accountId}`}>
+                    <TableCell className="text-slate-700">
+                      <Link
+                        href={
+                          `/reports/profit-loss/${c.accountId}${revQs.toString() ? `?${revQs.toString()}` : ''}` as never
+                        }
+                        className="underline-offset-2 hover:underline"
+                      >
+                        Less bills — {c.accountName}
+                      </Link>
+                      <span className="ml-2 text-xs text-slate-500">
+                        posted bill lines on this revenue account —
+                        contra-revenue
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {c.entryCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      <Link
+                        href={
+                          `/reports/profit-loss/${c.accountId}${revQs.toString() ? `?${revQs.toString()}` : ''}` as never
+                        }
+                        className="text-red-700 underline underline-offset-2 hover:text-red-900"
+                      >
+                        ({formatMoney(c.amount)})
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(report.income.creditMemos.total > 0 ||
+                  report.income.contraBills.total > 0) && (
                   <TableRow>
                     <TableCell className="font-medium text-slate-900">
                       Net revenue

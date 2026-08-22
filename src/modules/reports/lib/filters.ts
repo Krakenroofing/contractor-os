@@ -60,7 +60,7 @@ export const REPORT_DESCRIPTION: Record<ReportType, string> = {
   'accounts-receivable':
     'Aging buckets per customer with overdue invoices flagged.',
   'accounts-payable':
-    'Open commitments aged by vendor: open POs (not closed/void) + approved-but-unpaid subcontractor payments. Choose a default Net term for vendors without one on file.',
+    'Open AP aged by vendor: unpaid bills (posted, awaiting their bank payment, net of vendor credits) + open POs (not closed/void, net of amounts already billed) + approved-but-unpaid subcontractor payments. Choose a default Net term for vendors without one on file.',
   'profit-loss':
     'Income statement: revenue (invoiced ex-VAT), cost of goods sold by operational category, gross profit, operating expenses by category, and net income. Accrual basis — invoices count when sent, costs when posted.',
   'wip':

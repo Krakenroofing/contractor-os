@@ -62,7 +62,7 @@ export default async function APReportPage({
         <KPI
           label="Total AP"
           value={formatMoney(report.summary.totalAP)}
-          hint={`${report.summary.poItemCount} PO · ${report.summary.subItemCount} sub`}
+          hint={`${report.summary.billItemCount} bill${report.summary.billItemCount === 1 ? '' : 's'} · ${report.summary.poItemCount} PO · ${report.summary.subItemCount} sub`}
           highlight
         />
         {AGING_BUCKETS.map((b) => (
@@ -197,6 +197,14 @@ export default async function APReportPage({
                         >
                           {r.sourceLabel}
                         </Link>
+                      ) : r.sourceType === 'bill' ? (
+                        <Link
+                          href={{ pathname: `/banking/receipts/${r.sourceId}` }}
+                          className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="Open this bill"
+                        >
+                          {r.sourceLabel}
+                        </Link>
                       ) : (
                         <Badge tone="amber">Sub</Badge>
                       )}
@@ -215,8 +223,24 @@ export default async function APReportPage({
                     <TableCell className="text-xs text-slate-500">
                       {r.termsLabel}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium text-amber-700">
-                      {formatMoney(r.amount)}
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {r.sourceType === 'po' || r.sourceType === 'bill' ? (
+                        <Link
+                          href={{
+                            pathname:
+                              r.sourceType === 'po'
+                                ? `/purchase-orders/${r.sourceId}`
+                                : `/banking/receipts/${r.sourceId}`,
+                          }}
+                          className="text-amber-700 underline underline-offset-2 hover:text-amber-900"
+                        >
+                          {formatMoney(r.amount)}
+                        </Link>
+                      ) : (
+                        <span className="text-amber-700">
+                          {formatMoney(r.amount)}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell
                       className={`text-right tabular-nums ${

@@ -49,6 +49,14 @@ export async function GET(req: NextRequest) {
           -report.income.creditMemos.total,
         ]] as CsvCell[][])
       : []),
+    ...report.income.contraBills.accounts.map(
+      (c) =>
+        [
+          'INCOME',
+          `Less bills — ${c.accountName} (contra)`,
+          -c.amount,
+        ] as CsvCell[],
+    ),
     ['INCOME', 'Total', report.income.total],
     [],
 
