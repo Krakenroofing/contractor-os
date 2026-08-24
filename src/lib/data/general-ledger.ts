@@ -858,3 +858,55 @@ export async function listJournalEntries(
     lines: (byEntry.get(e.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
   }));
 }
+
+/** One journal entry with its lines — for the journal page's ?entry= deep
+ *  link (drill-downs land on the exact entry). */
+export async function getJournalEntryWithLines(
+  companyId: string,
+  entryId: string,
+): Promise<JournalEntryWithLines | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+  const [entry] = await db
+    .select()
+    .from(journalEntries)
+    .where(
+      and(
+        eq(journalEntries.companyId, companyId),
+        eq(journalEntries.id, entryId),
+      ),
+    )
+    .limit(1);
+  if (!entry) return null;
+  const lines = await db
+    .select({
+      id: journalLines.id,
+      companyId: journalLines.companyId,
+      journalEntryId: journalLines.journalEntryId,
+      accountId: journalLines.accountId,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+      projectId: journalLines.projectId,
+      description: journalLines.description,
+      sortOrder: journalLines.sortOrder,
+      accountName: accountingAccounts.name,
+      accountCode: accountingAccounts.code,
+    })
+    .from(journalLines)
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, journalLines.accountId),
+    )
+    .where(
+      and(
+        eq(journalLines.companyId, companyId),
+        eq(journalLines.journalEntryId, entryId),
+      ),
+    );
+  return {
+    ...entry,
+    lines: (lines as JournalEntryWithLines['lines']).sort(
+      (a, b) => a.sortOrder - b.sortOrder,
+    ),
+  };
+}

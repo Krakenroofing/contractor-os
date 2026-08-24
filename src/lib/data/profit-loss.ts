@@ -1035,6 +1035,7 @@ export type ProfitLossAccountEntry = {
   importedTransactionId?: string;
   jobCostEntryId?: string;
   receiptId?: string;
+  journalEntryId?: string;
   /** Linked supplier, when the source row has one — lets the row name
    *  deep-link to the vendor's transaction history. */
   vendorId?: string | null;
@@ -1369,6 +1370,7 @@ export async function listProfitLossAccountEntries(
   if (filters.to) jeLineConds.push(lte(journalEntries.entryDate, filters.to));
   const jeLineRows = await db
     .select({
+      entryId: journalEntries.id,
       date: journalEntries.entryDate,
       memo: journalEntries.memo,
       lineDescription: journalLines.description,
@@ -1387,6 +1389,7 @@ export async function listProfitLossAccountEntries(
         'Manual journal entry',
       amount: Math.round((Number(r.debit) - Number(r.credit)) * 100) / 100,
       source: 'Journal entry' as const,
+      journalEntryId: r.entryId,
     })),
     ...vendorCreditEntries.map((vc) => ({
       date: vc.creditDate,

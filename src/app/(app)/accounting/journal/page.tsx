@@ -8,6 +8,7 @@ import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import {
   countJournalEntries,
+  getJournalEntryWithLines,
   listJournalEntries,
 } from '@/lib/data/general-ledger';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
@@ -30,15 +31,23 @@ export default async function JournalPage({
   const canEdit = canCreate(role, 'settings');
 
   const sp = await searchParams;
+  // ?entry=<id>: deep link from a report drill — show just that entry.
+  const focusEntryId = typeof sp.entry === 'string' ? sp.entry : '';
+  const focusEntry = focusEntryId
+    ? await getJournalEntryWithLines(company.id, focusEntryId)
+    : null;
+
   const rawPage = typeof sp.page === 'string' ? parseInt(sp.page, 10) : 1;
   const total = await countJournalEntries(company.id);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number.isFinite(rawPage) ? rawPage : 1), totalPages);
-  const entries = await listJournalEntries(
-    company.id,
-    PAGE_SIZE,
-    (page - 1) * PAGE_SIZE,
-  );
+  const entries = focusEntry
+    ? [focusEntry]
+    : await listJournalEntries(
+        company.id,
+        PAGE_SIZE,
+        (page - 1) * PAGE_SIZE,
+      );
 
   return (
     <div className="p-6 space-y-4 max-w-4xl">
@@ -74,6 +83,27 @@ export default async function JournalPage({
         </div>
       </div>
 
+      {focusEntry && (
+        <div className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900">
+          <span>
+            Showing one journal entry ({focusEntry.entryDate} ·{' '}
+            {focusEntry.memo ?? '(no memo)'}).
+          </span>
+          <Link
+            href={{ pathname: '/accounting/journal' }}
+            className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900"
+          >
+            Show full journal
+          </Link>
+        </div>
+      )}
+      {focusEntryId && !focusEntry && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          That journal entry no longer exists — it may have been removed by a
+          GL rebuild. Showing the full journal instead.
+        </div>
+      )}
+
       {entries.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-slate-500">
@@ -84,7 +114,9 @@ export default async function JournalPage({
         </Card>
       ) : (
         <div className="space-y-3">
-          <Pagination page={page} totalPages={totalPages} total={total} />
+          {!focusEntry && (
+            <Pagination page={page} totalPages={totalPages} total={total} />
+          )}
           {entries.map((e) => {
             const totalDebit = e.lines.reduce((s, l) => s + Number(l.debit), 0);
             const reversed = !!e.reversedByEntryId;
@@ -154,7 +186,9 @@ export default async function JournalPage({
               </Card>
             );
           })}
-          <Pagination page={page} totalPages={totalPages} total={total} />
+          {!focusEntry && (
+            <Pagination page={page} totalPages={totalPages} total={total} />
+          )}
         </div>
       )}
     </div>

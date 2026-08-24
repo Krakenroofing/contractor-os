@@ -166,6 +166,17 @@ export default async function ProfitLossAccountDetailPage({
                         >
                           {formatMoney(e.amount)}
                         </Link>
+                      ) : e.journalEntryId ? (
+                        <Link
+                          href={
+                            `/accounting/journal?entry=${e.journalEntryId}` as never
+                          }
+                          target="_blank"
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="View this journal entry"
+                        >
+                          {formatMoney(e.amount)}
+                        </Link>
                       ) : (
                         formatMoney(e.amount)
                       )}

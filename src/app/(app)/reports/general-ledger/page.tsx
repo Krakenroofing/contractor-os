@@ -159,7 +159,15 @@ export default async function GeneralLedgerDetailPage({
                         {l.date}
                       </TableCell>
                       <TableCell className="text-slate-700">
-                        {l.memo ?? '(no memo)'}
+                        <Link
+                          href={
+                            `/accounting/journal?entry=${l.entryId}` as never
+                          }
+                          className="underline-offset-2 hover:underline"
+                          title="View the full journal entry"
+                        >
+                          {l.memo ?? '(no memo)'}
+                        </Link>
                         {l.description ? (
                           <span className="ml-2 text-xs text-slate-400">
                             {l.description}
