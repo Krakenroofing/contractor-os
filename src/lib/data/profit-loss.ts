@@ -545,10 +545,33 @@ export async function buildProfitLossReport(
   // receipt / job-cost entry already counted above — and ignored rows. A
   // debit (negative amount) is an expense; a credit categorized to an
   // expense account is a refund, so we sum -amount.
+  // "Effectively unmatched": not reconciled at all, OR reconciled ONLY by
+  // receipt-matches to draft scan-holders (no posted receipt). A draft
+  // holder posts no bill, so the txn's own category still carries the
+  // expense — without this the amount vanishes from the statement entirely.
+  const effectivelyUnmatched = sql`(
+    ${importedTransactions.reconciledAt} IS NULL OR (
+      NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mo
+        WHERE mo.imported_transaction_id = ${importedTransactions.id}
+          AND mo.reversed_at IS NULL AND mo.match_type <> 'receipt')
+      AND EXISTS (
+        SELECT 1 FROM ${transactionMatches} mr
+        WHERE mr.imported_transaction_id = ${importedTransactions.id}
+          AND mr.reversed_at IS NULL AND mr.match_type = 'receipt')
+      AND NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mp
+        JOIN ${receipts} rp ON rp.id = mp.receipt_id
+        WHERE mp.imported_transaction_id = ${importedTransactions.id}
+          AND mp.reversed_at IS NULL AND mp.match_type = 'receipt'
+          AND rp.status = 'posted' AND rp.deleted_at IS NULL)
+    )
+  )`;
+
   const bankConds = [
     eq(importedTransactions.companyId, companyId),
     eq(importedTransactions.isIgnored, false),
-    isNull(importedTransactions.reconciledAt),
+    effectivelyUnmatched,
     isNotNull(importedTransactions.accountingAccountId),
   ];
   if (filters.from)
@@ -589,7 +612,7 @@ export async function buildProfitLossReport(
   const splitConds = [
     eq(importedTransactionLines.companyId, companyId),
     eq(importedTransactions.isIgnored, false),
-    isNull(importedTransactions.reconciledAt),
+    effectivelyUnmatched,
     isNull(importedTransactions.accountingAccountId),
     isNotNull(importedTransactionLines.accountingAccountId),
   ];
@@ -701,14 +724,20 @@ export async function buildProfitLossReport(
   // split line is the bank/transaction fee — a real expense on the payment
   // date. Count those fee lines (split lines on reconciled txns matched to a
   // bill/receipt), dated by the transaction.
+  // Only matches backed by a POSTED receipt count as bill payments — a match
+  // to a draft scan-holder posts no bill, so those txns are treated as
+  // unmatched (their own category/split carries the expense, not "fees").
   const billPaymentTxnIds = db
     .select({ id: transactionMatches.importedTransactionId })
     .from(transactionMatches)
+    .innerJoin(receipts, eq(receipts.id, transactionMatches.receiptId))
     .where(
       and(
         eq(transactionMatches.companyId, companyId),
         eq(transactionMatches.matchType, 'receipt'),
         isNull(transactionMatches.reversedAt),
+        eq(receipts.status, 'posted'),
+        isNull(receipts.deletedAt),
       ),
     );
   const feeConds = [
@@ -1063,11 +1092,31 @@ export async function listProfitLossAccountEntries(
     .from(jobCostEntries)
     .where(and(...jceConds));
 
-  // Categorized bank transactions on this account (unreconciled, not ignored).
+  // Categorized bank transactions on this account — unreconciled, or
+  // reconciled only by draft scan-holder receipt matches (mirrors the
+  // report's "effectively unmatched" rule so drill = statement).
+  const detailEffectivelyUnmatched = sql`(
+    ${importedTransactions.reconciledAt} IS NULL OR (
+      NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mo
+        WHERE mo.imported_transaction_id = ${importedTransactions.id}
+          AND mo.reversed_at IS NULL AND mo.match_type <> 'receipt')
+      AND EXISTS (
+        SELECT 1 FROM ${transactionMatches} mr
+        WHERE mr.imported_transaction_id = ${importedTransactions.id}
+          AND mr.reversed_at IS NULL AND mr.match_type = 'receipt')
+      AND NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mp
+        JOIN ${receipts} rp ON rp.id = mp.receipt_id
+        WHERE mp.imported_transaction_id = ${importedTransactions.id}
+          AND mp.reversed_at IS NULL AND mp.match_type = 'receipt'
+          AND rp.status = 'posted' AND rp.deleted_at IS NULL)
+    )
+  )`;
   const btConds = [
     eq(importedTransactions.companyId, companyId),
     eq(importedTransactions.isIgnored, false),
-    isNull(importedTransactions.reconciledAt),
+    detailEffectivelyUnmatched,
     eq(importedTransactions.accountingAccountId, accountId),
   ];
   if (filters.from)
@@ -1092,7 +1141,7 @@ export async function listProfitLossAccountEntries(
     eq(importedTransactionLines.companyId, companyId),
     eq(importedTransactionLines.accountingAccountId, accountId),
     eq(importedTransactions.isIgnored, false),
-    isNull(importedTransactions.reconciledAt),
+    detailEffectivelyUnmatched,
     isNull(importedTransactions.accountingAccountId),
   ];
   if (filters.from)
@@ -1233,14 +1282,20 @@ export async function listProfitLossAccountEntries(
   // report's fee-line source. The bill payment reconciles the parent txn
   // (so the plain bank source above skips it), but its split lines are
   // real expenses on the payment date and count on the statement.
+  // Only matches backed by a POSTED receipt count as bill payments — a match
+  // to a draft scan-holder posts no bill, so those txns are treated as
+  // unmatched (their own category/split carries the expense, not "fees").
   const billPaymentTxnIds = db
     .select({ id: transactionMatches.importedTransactionId })
     .from(transactionMatches)
+    .innerJoin(receipts, eq(receipts.id, transactionMatches.receiptId))
     .where(
       and(
         eq(transactionMatches.companyId, companyId),
         eq(transactionMatches.matchType, 'receipt'),
         isNull(transactionMatches.reversedAt),
+        eq(receipts.status, 'posted'),
+        isNull(receipts.deletedAt),
       ),
     );
   const feeConds = [

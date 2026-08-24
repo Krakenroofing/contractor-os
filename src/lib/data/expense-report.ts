@@ -12,7 +12,7 @@
 //   D. Bank-fee split lines on reconciled bill payments.
 
 import 'server-only';
-import { and, eq, gte, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
   bankAccounts,
@@ -83,10 +83,31 @@ export async function buildExpenseReport(
       : null;
 
   // ----- A. Categorized bank/CC transactions (single category) -----
+  // "Effectively unmatched" mirrors the P&L: not reconciled, OR reconciled
+  // only by receipt-matches to DRAFT scan-holders (no posted receipt) — a
+  // draft posts no bill, so the txn's own category still carries the cost.
+  const effectivelyUnmatched = sql`(
+    ${importedTransactions.reconciledAt} IS NULL OR (
+      NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mo
+        WHERE mo.imported_transaction_id = ${importedTransactions.id}
+          AND mo.reversed_at IS NULL AND mo.match_type <> 'receipt')
+      AND EXISTS (
+        SELECT 1 FROM ${transactionMatches} mr
+        WHERE mr.imported_transaction_id = ${importedTransactions.id}
+          AND mr.reversed_at IS NULL AND mr.match_type = 'receipt')
+      AND NOT EXISTS (
+        SELECT 1 FROM ${transactionMatches} mp
+        JOIN ${receipts} rp ON rp.id = mp.receipt_id
+        WHERE mp.imported_transaction_id = ${importedTransactions.id}
+          AND mp.reversed_at IS NULL AND mp.match_type = 'receipt'
+          AND rp.status = 'posted' AND rp.deleted_at IS NULL)
+    )
+  )`;
   const txnConds = [
     eq(importedTransactions.companyId, companyId),
     eq(importedTransactions.isIgnored, false),
-    isNull(importedTransactions.reconciledAt),
+    effectivelyUnmatched,
     isNotNull(importedTransactions.accountingAccountId),
     inArray(accountingAccounts.rollupGroup, [...EXPENSE_ROLLUPS]),
   ];
@@ -175,6 +196,7 @@ export async function buildExpenseReport(
       projectName: projects.name,
       methodName: paymentMethods.name,
       matchType: transactionMatches.matchType,
+      matchedReceiptStatus: receipts.status,
     })
     .from(importedTransactionLines)
     .innerJoin(
@@ -196,6 +218,7 @@ export async function buildExpenseReport(
         isNull(transactionMatches.reversedAt),
       ),
     )
+    .leftJoin(receipts, eq(receipts.id, transactionMatches.receiptId))
     .where(and(...lineConds));
 
   const seenLines = new Set<string>();
@@ -204,12 +227,19 @@ export async function buildExpenseReport(
     // join then repeats each line; keep one row per line.
     if (seenLines.has(l.lineId)) continue;
     seenLines.add(l.lineId);
-    // B: plain split (unreconciled, txn-level category NULL).
-    // D: fee line on a reconciled bill payment (matchType receipt/payroll).
-    const isPlainSplit = !l.reconciledAt && l.txnCategoryId === null;
-    const isBillFee =
-      l.reconciledAt !== null &&
-      (l.matchType === 'receipt' || l.matchType === 'payroll_bill');
+    // B: plain split (txn-level category NULL) — including one whose only
+    //    match is a DRAFT scan-holder receipt: no bill posted, so the split
+    //    lines ARE the cost (mirrors the P&L's effectively-unmatched rule).
+    // D: fee line on a reconciled bill payment (payroll bill, or a receipt
+    //    match backed by a POSTED receipt).
+    const postedBillMatch =
+      l.matchType === 'payroll_bill' ||
+      (l.matchType === 'receipt' && l.matchedReceiptStatus === 'posted');
+    const draftHolderMatch =
+      l.matchType === 'receipt' && l.matchedReceiptStatus !== 'posted';
+    const isPlainSplit =
+      l.txnCategoryId === null && (!l.reconciledAt || draftHolderMatch);
+    const isBillFee = l.reconciledAt !== null && postedBillMatch;
     if (!isPlainSplit && !isBillFee) continue;
     const signed = Number(l.lineAmount);
     const expense = Number(l.txnAmount) < 0 ? signed : -signed;

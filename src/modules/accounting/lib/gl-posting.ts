@@ -658,14 +658,33 @@ export async function rebuildGlFromInvoicesAndPayments(
   const matchByTxn = new Map(
     matches.map((m) => [m.importedTransactionId, m.matchType]),
   );
+  // Receipt matches only clear AP when a POSTED receipt backs them — a match
+  // to a draft scan-holder means the txn's own category carries the expense.
+  // `receipts` above holds every posted receipt, so membership is the test.
+  const postedReceiptIds = new Set(receipts.map((r) => r.id));
+  const receiptMatchIdsByTxn = new Map<string, string[]>();
+  for (const m of matches) {
+    if (m.matchType === 'receipt' && m.receiptId) {
+      const arr = receiptMatchIdsByTxn.get(m.importedTransactionId) ?? [];
+      arr.push(m.receiptId);
+      receiptMatchIdsByTxn.set(m.importedTransactionId, arr);
+    }
+  }
 
   for (const t of txns) {
     try {
+      let matchType = matchByTxn.get(t.id);
+      if (matchType === 'receipt') {
+        const rids = receiptMatchIdsByTxn.get(t.id) ?? [];
+        if (!rids.some((id) => postedReceiptIds.has(id))) {
+          matchType = undefined;
+        }
+      }
       const did = await postBankTxnToGl(
         companyId,
         t,
         linesByTxn.get(t.id) ?? [],
-        matchByTxn.get(t.id),
+        matchType,
         bankAcctById.get(t.bankAccountId),
         accounts,
       );
@@ -738,12 +757,25 @@ export async function syncBankTxnGl(
     listActiveMatchesForTxn(companyId, transactionId),
     getBankAccount(companyId, txn.bankAccountId),
   ]);
+  // A receipt match only means "bill payment → clear AP" when a POSTED
+  // receipt backs it. A match to a draft (a scan attached to a categorized
+  // row) posted no bill side — treat the txn as unmatched so its own
+  // category/split carries the expense instead of debiting phantom AP.
+  let matchType = matches[0]?.matchType as string | undefined;
+  if (matchType === 'receipt') {
+    const rIds = matches
+      .filter((m) => m.matchType === 'receipt' && m.receiptId)
+      .map((m) => m.receiptId!);
+    const rs = await Promise.all(rIds.map((id) => getReceipt(companyId, id)));
+    const anyPosted = rs.some((r) => r && r.status === 'posted' && !r.deletedAt);
+    if (!anyPosted) matchType = undefined;
+  }
   const accounts = await resolveGlSystemAccounts(companyId);
   await postBankTxnToGl(
     companyId,
     txn,
     lines,
-    matches[0]?.matchType,
+    matchType,
     bank?.accountingAccountId,
     accounts,
   );
