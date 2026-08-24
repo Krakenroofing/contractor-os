@@ -6,13 +6,22 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import { listJournalEntries } from '@/lib/data/general-ledger';
+import {
+  countJournalEntries,
+  listJournalEntries,
+} from '@/lib/data/general-ledger';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
 import { RebuildGlButton } from '@/modules/accounting/components/rebuild-gl-button';
 
 export const dynamic = 'force-dynamic';
 
-export default async function JournalPage() {
+const PAGE_SIZE = 50;
+
+export default async function JournalPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const role = await getActiveRole();
   // The GL journal is a financial surface — gate it on chart-of-accounts
   // visibility, not the general reports permission that PMs also hold.
@@ -20,7 +29,16 @@ export default async function JournalPage() {
   const company = await getActiveCompany();
   const canEdit = canCreate(role, 'settings');
 
-  const entries = await listJournalEntries(company.id, 100);
+  const sp = await searchParams;
+  const rawPage = typeof sp.page === 'string' ? parseInt(sp.page, 10) : 1;
+  const total = await countJournalEntries(company.id);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(Math.max(1, Number.isFinite(rawPage) ? rawPage : 1), totalPages);
+  const entries = await listJournalEntries(
+    company.id,
+    PAGE_SIZE,
+    (page - 1) * PAGE_SIZE,
+  );
 
   return (
     <div className="p-6 space-y-4 max-w-4xl">
@@ -66,6 +84,7 @@ export default async function JournalPage() {
         </Card>
       ) : (
         <div className="space-y-3">
+          <Pagination page={page} totalPages={totalPages} total={total} />
           {entries.map((e) => {
             const totalDebit = e.lines.reduce((s, l) => s + Number(l.debit), 0);
             const reversed = !!e.reversedByEntryId;
@@ -135,8 +154,81 @@ export default async function JournalPage() {
               </Card>
             );
           })}
+          <Pagination page={page} totalPages={totalPages} total={total} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Windowed page links: 1 … p−2 p−1 [p] p+1 p+2 … last, with Prev/Next.
+ *  Every page is a plain link so deep pages are bookmarkable. */
+function Pagination({
+  page,
+  totalPages,
+  total,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+}) {
+  if (totalPages <= 1) return null;
+  const pages: (number | 'gap')[] = [];
+  const window = 2;
+  let last = 0;
+  for (let p = 1; p <= totalPages; p++) {
+    if (p === 1 || p === totalPages || Math.abs(p - page) <= window) {
+      if (last && p - last > 1) pages.push('gap');
+      pages.push(p);
+      last = p;
+    }
+  }
+  const href = (p: number) => `/accounting/journal?page=${p}`;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="text-xs text-slate-500 tabular-nums">
+        {total.toLocaleString()} entries · page {page} of {totalPages}
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {page > 1 && (
+          <Link
+            href={href(page - 1) as never}
+            className="rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
+          >
+            ← Prev
+          </Link>
+        )}
+        {pages.map((p, i) =>
+          p === 'gap' ? (
+            <span key={`gap-${i}`} className="px-1 text-slate-400">
+              …
+            </span>
+          ) : p === page ? (
+            <span
+              key={p}
+              className="rounded border border-slate-900 bg-slate-900 px-2.5 py-1 font-medium text-white tabular-nums"
+            >
+              {p}
+            </span>
+          ) : (
+            <Link
+              key={p}
+              href={href(p) as never}
+              className="rounded border border-slate-300 px-2.5 py-1 text-blue-700 tabular-nums hover:bg-slate-50"
+            >
+              {p}
+            </Link>
+          ),
+        )}
+        {page < totalPages && (
+          <Link
+            href={href(page + 1) as never}
+            className="rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
+          >
+            Next →
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

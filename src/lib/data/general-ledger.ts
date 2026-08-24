@@ -639,6 +639,18 @@ export async function getGeneralLedgerDetail(
   return { accounts, from: opts.from ?? null, to: opts.to ?? null };
 }
 
+/** Total journal-entry count for the company — drives the journal list's
+ *  pagination. */
+export async function countJournalEntries(companyId: string): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(journalEntries)
+    .where(eq(journalEntries.companyId, companyId));
+  return Number(rows[0]?.count ?? 0);
+}
+
 export type CashFlowLine = { accountId: string; name: string; amount: number };
 export type CashFlowSection = { lines: CashFlowLine[]; total: number };
 export type CashFlow = {
@@ -795,6 +807,7 @@ export type JournalEntryWithLines = JournalEntry & {
 export async function listJournalEntries(
   companyId: string,
   limit = 100,
+  offset = 0,
 ): Promise<JournalEntryWithLines[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
@@ -803,7 +816,8 @@ export async function listJournalEntries(
     .from(journalEntries)
     .where(eq(journalEntries.companyId, companyId))
     .orderBy(desc(journalEntries.entryDate), desc(journalEntries.createdAt))
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
   if (entries.length === 0) return [];
 
   const ids = entries.map((e) => e.id);
