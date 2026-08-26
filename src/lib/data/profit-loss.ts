@@ -1033,6 +1033,9 @@ export type ProfitLossAccountEntry = {
   /** Source row id so the drill-down can deep-link to the full record.
    *  Exactly one is set per entry, matching `source`. */
   importedTransactionId?: string;
+  /** The txn's bank account — the drill links into that register's editable
+   *  ?txn= single-transaction mode (set with importedTransactionId). */
+  bankAccountId?: string;
   jobCostEntryId?: string;
   receiptId?: string;
   journalEntryId?: string;
@@ -1127,6 +1130,7 @@ export async function listProfitLossAccountEntries(
   const btRows = await db
     .select({
       id: importedTransactions.id,
+      bankAccountId: importedTransactions.bankAccountId,
       date: importedTransactions.transactionDate,
       description: importedTransactions.description,
       amount: importedTransactions.amount,
@@ -1152,6 +1156,7 @@ export async function listProfitLossAccountEntries(
   const slRows = await db
     .select({
       id: importedTransactions.id,
+      bankAccountId: importedTransactions.bankAccountId,
       date: importedTransactions.transactionDate,
       txnDescription: importedTransactions.description,
       lineDescription: importedTransactionLines.description,
@@ -1312,6 +1317,7 @@ export async function listProfitLossAccountEntries(
   const feeRows = await db
     .select({
       id: importedTransactions.id,
+      bankAccountId: importedTransactions.bankAccountId,
       date: importedTransactions.transactionDate,
       txnDescription: importedTransactions.description,
       lineDescription: importedTransactionLines.description,
@@ -1416,6 +1422,7 @@ export async function listProfitLossAccountEntries(
       amount: -Number(r.amount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
+      bankAccountId: r.bankAccountId,
       vendorId: r.vendorId,
     })),
     ...slRows.map((r) => ({
@@ -1429,6 +1436,7 @@ export async function listProfitLossAccountEntries(
       amount: Number(r.txnAmount) < 0 ? Number(r.lineAmount) : -Number(r.lineAmount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
+      bankAccountId: r.bankAccountId,
       vendorId: r.vendorId,
     })),
     // Reconciled bill-payment split lines: the report sums the raw positive
@@ -1442,6 +1450,7 @@ export async function listProfitLossAccountEntries(
       amount: Number(r.lineAmount),
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
+      bankAccountId: r.bankAccountId,
       vendorId: r.vendorId,
     })),
     ...receiptRows.map((r) => ({

@@ -157,7 +157,7 @@ export async function buildExpenseReport(
       accountName: t.accountName,
       paymentMethodName: t.methodName ?? null,
       amount: r2(-Number(t.amount)),
-      href: `/banking/accounts/${t.bankAccountId}?q=${encodeURIComponent(t.description)}&reviewed=1`,
+      href: `/banking/accounts/${t.bankAccountId}?txn=${t.id}`,
     });
   }
 
@@ -257,7 +257,7 @@ export async function buildExpenseReport(
       accountName: l.accountName,
       paymentMethodName: l.methodName ?? null,
       amount: r2(expense),
-      href: `/banking/accounts/${l.bankAccountId}?q=${encodeURIComponent(l.txnDescription)}&reviewed=1`,
+      href: `/banking/accounts/${l.bankAccountId}?txn=${l.txnId}`,
     });
   }
 

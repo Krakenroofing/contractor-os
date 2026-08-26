@@ -150,10 +150,14 @@ export default async function ProfitLossAccountDetailPage({
                     <TableCell className="text-right tabular-nums font-medium">
                       {e.importedTransactionId ? (
                         <Link
-                          href={`/banking/transactions/${e.importedTransactionId}`}
+                          href={
+                            (e.bankAccountId
+                              ? `/banking/accounts/${e.bankAccountId}?txn=${e.importedTransactionId}`
+                              : `/banking/transactions/${e.importedTransactionId}`) as never
+                          }
                           target="_blank"
                           className="text-blue-700 hover:underline"
-                          title="View this transaction"
+                          title="Open in the register to edit"
                         >
                           {formatMoney(e.amount)}
                         </Link>
