@@ -9,6 +9,7 @@ import {
   createCategoryAction,
   renameCategoryAction,
   setCategoryArchivedAction,
+  setCategoryGroupAction,
   setCategoryParentAction,
 } from '../actions';
 import {
@@ -62,6 +63,8 @@ export function AccountingCategoriesManager({
   const [editName, setEditName] = useState('');
   const [editIsSub, setEditIsSub] = useState(false);
   const [editParentId, setEditParentId] = useState('');
+  // COGS ↔ OpEx move (statement placement follows the category's group).
+  const [editGroup, setEditGroup] = useState<CategoryGroup>('opex');
 
   // Eligible parents = active top-level categories in a group (a subaccount
   // can't be a parent; nesting is one level, like QB's sensible limit).
@@ -118,20 +121,30 @@ export function AccountingCategoriesManager({
     setEditName(c.name);
     setEditIsSub(!!c.parentCategoryId);
     setEditParentId(c.parentCategoryId ?? '');
+    setEditGroup(c.group);
   }
 
   function saveEdit(c: ManagedCategory) {
-    if (editIsSub && !editParentId) {
+    const groupChanged =
+      (c.group === 'cogs' || c.group === 'opex') && editGroup !== c.group;
+    if (!groupChanged && editIsSub && !editParentId) {
       setError('Pick the parent account for this subaccount.');
       return;
     }
     const wantParent = editIsSub ? editParentId : '';
-    const parentChanged = wantParent !== (c.parentCategoryId ?? '');
+    const parentChanged =
+      !groupChanged && wantParent !== (c.parentCategoryId ?? '');
     const nameChanged = editName.trim() !== c.name;
     run(
       async () => {
         if (nameChanged) {
           const r = await renameCategoryAction({ id: c.id, name: editName });
+          if (!r.ok) return r;
+        }
+        if (groupChanged) {
+          // Moving section re-hangs the category (and its subaccounts) under
+          // the target header — the parent picker doesn't apply across groups.
+          const r = await setCategoryGroupAction({ id: c.id, group: editGroup });
           if (!r.ok) return r;
         }
         if (parentChanged) {
@@ -265,6 +278,23 @@ export function AccountingCategoriesManager({
                             if (e.key === 'Escape') setEditingId(null);
                           }}
                         />
+                        {(c.group === 'cogs' || c.group === 'opex') && (
+                          <Select
+                            value={editGroup}
+                            onChange={(e) =>
+                              setEditGroup(e.target.value as CategoryGroup)
+                            }
+                            className="h-8 w-52 text-xs"
+                            title="Which P&L section this category reports under — moving it restates all history"
+                          >
+                            <option value="cogs">
+                              {CATEGORY_GROUP_LABEL.cogs}
+                            </option>
+                            <option value="opex">
+                              {CATEGORY_GROUP_LABEL.opex}
+                            </option>
+                          </Select>
+                        )}
                         <label className="inline-flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
                           <input
                             type="checkbox"

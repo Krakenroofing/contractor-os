@@ -164,6 +164,37 @@ export async function setAccountingAccountParent(
   return row;
 }
 
+/** Move a leaf category to a different P&L section (COGS ↔ OpEx): rewrites
+ *  type + rollup_group and re-hangs it under the target section header.
+ *  The caller is responsible for moving any subaccounts alongside. */
+export async function setAccountingAccountGroup(
+  companyId: string,
+  id: string,
+  next: {
+    type: AccountingAccount['type'];
+    rollupGroup: AccountingAccount['rollupGroup'];
+    parentId: string;
+  },
+): Promise<AccountingAccount | undefined> {
+  const db = requireDb();
+  const [row] = await db
+    .update(accountingAccounts)
+    .set({
+      type: next.type,
+      rollupGroup: next.rollupGroup,
+      parentId: next.parentId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(accountingAccounts.id, id),
+        eq(accountingAccounts.companyId, companyId),
+      ),
+    )
+    .returning();
+  return row;
+}
+
 export async function countAccountChildren(
   companyId: string,
   id: string,

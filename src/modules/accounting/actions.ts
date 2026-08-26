@@ -13,8 +13,10 @@ import {
   findSectionHeader,
   getAccountingAccount,
   insertAccountingAccount,
+  listAccountingAccounts,
   renameAccountingAccount,
   setAccountingAccountArchived,
+  setAccountingAccountGroup,
   setAccountingAccountParent,
 } from '@/lib/data/accounting-accounts';
 import {
@@ -238,6 +240,87 @@ export async function setCategoryArchivedAction(input: {
   if (!guard.ok) return guard;
 
   await setAccountingAccountArchived(companyId, input.id, input.archived);
+  revalidateCategorySurfaces();
+  return { ok: true };
+}
+
+const setGroupSchema = z.object({
+  id: z.string().uuid(),
+  group: z.enum(['cogs', 'opex']),
+});
+
+/** Move an expense category between the two P&L sections (COGS ↔ OpEx).
+ *  Statement placement is driven by rollup_group, so the flip restates ALL
+ *  history — exactly what side-by-side QB comparison needs. Subaccounts move
+ *  with their parent; a subaccount moved on its own becomes top-level in the
+ *  target section (it can't stay under a parent in the other group). */
+export async function setCategoryGroupAction(input: {
+  id: string;
+  group: string;
+}): Promise<CategoryActionResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { ok: false, error: 'You do not have permission to manage categories.' };
+  }
+  const parsed = setGroupSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input.' };
+
+  const companyId = await getActiveCompanyId();
+  const guard = await loadManageableLeaf(companyId, parsed.data.id);
+  if (!guard.ok) return guard;
+  const account = guard.account;
+
+  if (account.rollupGroup !== 'cogs' && account.rollupGroup !== 'opex') {
+    return {
+      ok: false,
+      error:
+        'Only Cost of Goods Sold and Operating Expense categories can move between those two sections.',
+    };
+  }
+  if (account.rollupGroup === parsed.data.group) return { ok: true };
+
+  const meta = GROUP_META[parsed.data.group];
+  const dupe = await findActiveAccountByName(companyId, meta.rollup, account.name);
+  if (dupe && dupe.id !== account.id) {
+    return {
+      ok: false,
+      error: `A "${account.name}" category already exists under ${CATEGORY_GROUP_LABEL[parsed.data.group]}.`,
+    };
+  }
+
+  try {
+    let header = await findSectionHeader(companyId, meta.rollup);
+    if (!header) {
+      header = await insertAccountingAccount(companyId, {
+        name: meta.header,
+        type: meta.type,
+        rollupGroup: meta.rollup,
+        parentId: null,
+      });
+    }
+    await setAccountingAccountGroup(companyId, account.id, {
+      type: meta.type,
+      rollupGroup: meta.rollup,
+      parentId: header.id,
+    });
+    // Subaccounts follow their parent (they keep parentId = the account, so
+    // only their type/rollup need to flip).
+    const children = (await listAccountingAccounts(companyId)).filter(
+      (a) => a.parentId === account.id,
+    );
+    for (const child of children) {
+      await setAccountingAccountGroup(companyId, child.id, {
+        type: meta.type,
+        rollupGroup: meta.rollup,
+        parentId: account.id,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { ok: false, error: `Could not move the category: ${message}` };
+  }
+
   revalidateCategorySurfaces();
   return { ok: true };
 }
