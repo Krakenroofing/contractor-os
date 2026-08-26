@@ -108,6 +108,98 @@ export async function postJournalEntry(
 }
 
 /**
+ * Rewrite a MANUAL journal entry in place — date, memo, and the full line
+ * set (validated balanced, same rules as postJournalEntry). Only manual
+ * entries are editable: system-posted entries (bank/invoice/receipt/…) are
+ * rebuilt from their sources and would be silently overwritten. Entries in
+ * a reversal pair are frozen — reverse-and-repost instead.
+ */
+export async function updateManualJournalEntry(
+  companyId: string,
+  entryId: string,
+  input: { entryDate: string; memo?: string | null; lines: JournalLineInput[] },
+): Promise<{ id: string } | { error: string }> {
+  if (!isDatabaseConfigured()) {
+    return { error: 'General ledger requires a configured database.' };
+  }
+  const db = getDb()!;
+  const [entry] = await db
+    .select()
+    .from(journalEntries)
+    .where(
+      and(
+        eq(journalEntries.id, entryId),
+        eq(journalEntries.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  if (!entry) return { error: 'Journal entry not found.' };
+  if (entry.sourceType !== 'manual') {
+    return {
+      error:
+        'Only manual journal entries can be edited — this one is posted automatically from its source record.',
+    };
+  }
+  if (entry.reversedByEntryId || entry.reversesEntryId) {
+    return {
+      error:
+        'This entry is part of a reversal pair — post a new entry instead of editing it.',
+    };
+  }
+
+  const lines = input.lines
+    .map((l) => ({
+      ...l,
+      debit: round2(Math.max(0, Number(l.debit) || 0)),
+      credit: round2(Math.max(0, Number(l.credit) || 0)),
+    }))
+    .filter((l) => l.debit > 0 || l.credit > 0);
+  if (lines.length < 2) {
+    return { error: 'A journal entry needs at least two lines.' };
+  }
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const l of lines) {
+    if (l.debit > 0 && l.credit > 0) {
+      return { error: 'A line cannot have both a debit and a credit.' };
+    }
+    totalDebit = round2(totalDebit + l.debit);
+    totalCredit = round2(totalCredit + l.credit);
+  }
+  if (totalDebit === 0) return { error: 'A journal entry cannot be all zeros.' };
+  if (Math.abs(totalDebit - totalCredit) > 0.005) {
+    return { error: new UnbalancedJournalEntryError(totalDebit, totalCredit).message };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(journalEntries)
+      .set({
+        entryDate: input.entryDate,
+        memo: input.memo ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(journalEntries.id, entryId));
+    await tx
+      .delete(journalLines)
+      .where(eq(journalLines.journalEntryId, entryId));
+    await tx.insert(journalLines).values(
+      lines.map((l, i) => ({
+        companyId,
+        journalEntryId: entryId,
+        accountId: l.accountId,
+        debit: l.debit.toFixed(2),
+        credit: l.credit.toFixed(2),
+        projectId: l.projectId ?? null,
+        description: l.description ?? null,
+        sortOrder: i,
+      })),
+    );
+  });
+  return { id: entryId };
+}
+
+/**
  * Reverse a posted entry by creating a mirror entry (debit<->credit) linked
  * both ways. Idempotent: a no-op if the entry is already reversed. We never
  * delete posted entries — corrections are always reversing entries.

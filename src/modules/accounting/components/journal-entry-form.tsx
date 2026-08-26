@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { postManualJournalEntryAction } from '../gl-actions';
+import {
+  postManualJournalEntryAction,
+  updateManualJournalEntryAction,
+} from '../gl-actions';
 
 export type JournalAccountOption = { id: string; label: string; group: string };
 type Line = { accountId: string; debit: string; credit: string; description: string };
@@ -49,18 +52,42 @@ function money(n: number): string {
   }
 }
 
+export type JournalEntryInitial = {
+  /** Editing an existing MANUAL entry when set; omitted = new entry. */
+  entryId: string;
+  entryDate: string;
+  memo: string;
+  lines: Array<{
+    accountId: string;
+    debit: number;
+    credit: number;
+    description: string | null;
+  }>;
+};
+
 export function JournalEntryForm({
   accounts,
   defaultDate,
+  initial,
 }: {
   accounts: JournalAccountOption[];
   defaultDate: string;
+  initial?: JournalEntryInitial;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [entryDate, setEntryDate] = useState(defaultDate);
-  const [memo, setMemo] = useState('');
-  const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()]);
+  const [entryDate, setEntryDate] = useState(initial?.entryDate ?? defaultDate);
+  const [memo, setMemo] = useState(initial?.memo ?? '');
+  const [lines, setLines] = useState<Line[]>(
+    initial && initial.lines.length >= 2
+      ? initial.lines.map((l) => ({
+          accountId: l.accountId,
+          debit: l.debit > 0 ? l.debit.toFixed(2) : '',
+          credit: l.credit > 0 ? l.credit.toFixed(2) : '',
+          description: l.description ?? '',
+        }))
+      : [emptyLine(), emptyLine()],
+  );
   const [error, setError] = useState<string | null>(null);
 
   const grouped = useMemo(
@@ -111,16 +138,27 @@ export function JournalEntryForm({
       return;
     }
     startTransition(async () => {
-      const res = await postManualJournalEntryAction({
-        entryDate,
-        memo: memo || null,
-        lines: payloadLines,
-      });
+      const res = initial
+        ? await updateManualJournalEntryAction({
+            entryId: initial.entryId,
+            entryDate,
+            memo: memo || null,
+            lines: payloadLines,
+          })
+        : await postManualJournalEntryAction({
+            entryDate,
+            memo: memo || null,
+            lines: payloadLines,
+          });
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      router.push('/accounting/journal' as never);
+      router.push(
+        (initial
+          ? `/accounting/journal?entry=${initial.entryId}`
+          : '/accounting/journal') as never,
+      );
       router.refresh();
     });
   }
@@ -257,7 +295,11 @@ export function JournalEntryForm({
         <div className="flex-1" />
         {error && <span className="text-xs text-red-600">{error}</span>}
         <Button type="button" onClick={submit} disabled={pending || !balanced}>
-          {pending ? 'Posting…' : 'Post entry'}
+          {pending
+            ? 'Saving…'
+            : initial
+              ? 'Save changes'
+              : 'Post entry'}
         </Button>
       </div>
     </div>

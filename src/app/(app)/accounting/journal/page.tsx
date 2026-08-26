@@ -150,6 +150,17 @@ export default async function JournalPage({
                       <span className="text-sm font-medium tabular-nums text-slate-700">
                         {formatMoney(totalDebit)}
                       </span>
+                      {canEdit &&
+                        e.sourceType === 'manual' &&
+                        !reversed &&
+                        !isReversal && (
+                          <Link
+                            href={`/accounting/journal/${e.id}/edit` as never}
+                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Edit
+                          </Link>
+                        )}
                       {canEdit && !reversed && !isReversal && (
                         <ReverseEntryButton entryId={e.id} />
                       )}

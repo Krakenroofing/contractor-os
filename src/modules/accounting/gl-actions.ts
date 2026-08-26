@@ -9,6 +9,7 @@ import { canCreate } from '@/lib/permissions';
 import {
   postJournalEntry,
   reverseJournalEntry,
+  updateManualJournalEntry,
   UnbalancedJournalEntryError,
 } from '@/lib/data/general-ledger';
 import { rebuildGlFromInvoicesAndPayments } from './lib/gl-posting';
@@ -85,6 +86,53 @@ export async function postManualJournalEntryAction(input: {
           : 'Could not post the entry.';
     return { ok: false, error };
   }
+}
+
+/** Rewrite a MANUAL journal entry (date, memo, lines) in place. System
+ *  entries and reversal pairs are refused by the data layer. */
+export async function updateManualJournalEntryAction(input: {
+  entryId: string;
+  entryDate: string;
+  memo?: string | null;
+  lines: Array<{
+    accountId: string;
+    debit: number;
+    credit: number;
+    description?: string | null;
+  }>;
+}): Promise<PostJournalEntryResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { ok: false, error: 'You do not have permission to edit journal entries.' };
+  }
+  const entryId = z.string().uuid().safeParse(input.entryId);
+  if (!entryId.success) return { ok: false, error: 'Invalid entry.' };
+  const parsed = postSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error:
+        parsed.error.flatten().formErrors[0] ??
+        Object.values(parsed.error.flatten().fieldErrors)[0]?.[0] ??
+        'Invalid journal entry.',
+    };
+  }
+  const companyId = await getActiveCompanyId();
+  const res = await updateManualJournalEntry(companyId, entryId.data, {
+    entryDate: parsed.data.entryDate,
+    memo: parsed.data.memo ?? null,
+    lines: parsed.data.lines.map((l) => ({
+      accountId: l.accountId,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description ?? null,
+    })),
+  });
+  if ('error' in res) return { ok: false, error: res.error };
+  revalidatePath('/accounting/journal');
+  revalidatePath('/reports/trial-balance');
+  return { ok: true, id: res.id };
 }
 
 export type RebuildGlState = {
