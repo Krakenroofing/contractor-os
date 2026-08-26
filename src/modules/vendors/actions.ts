@@ -9,6 +9,7 @@ import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
 import {
   createVendor,
+  findActiveVendorByName,
   softDeleteVendor,
   updateVendor,
 } from '@/lib/data/vendors';
@@ -94,6 +95,15 @@ export async function createVendorAction(
 
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
+
+  const dupe = await findActiveVendorByName(companyId, data.name);
+  if (dupe) {
+    return {
+      errors: {
+        name: [`A vendor named "${dupe.name}" already exists — open it instead of creating a duplicate.`],
+      },
+    };
+  }
   let createdId: string;
 
   try {
@@ -147,6 +157,26 @@ export async function createVendorInlineAction(input: {
     return { ok: false, errors: parsed.error.flatten().fieldErrors };
   }
   const companyId = await getActiveCompanyId();
+  // Inline "+ Add new vendor" with an existing name: hand back the existing
+  // vendor instead of erroring — the picker's intent ("use this vendor") is
+  // satisfied either way, and no duplicate is created.
+  const existing = await findActiveVendorByName(companyId, parsed.data.name);
+  if (existing) {
+    return {
+      ok: true,
+      vendor: {
+        id: existing.id,
+        name: existing.name,
+        vatRatePercent:
+          existing.vatRatePercent != null
+            ? Number(existing.vatRatePercent)
+            : null,
+        defaultAccountingAccountId: existing.defaultAccountingAccountId ?? null,
+        defaultCostCodeId: existing.defaultCostCodeId ?? null,
+        defaultCostType: existing.defaultCostType ?? null,
+      },
+    };
+  }
   try {
     const vendor = await createVendor(companyId, {
       name: parsed.data.name,
@@ -216,6 +246,15 @@ export async function updateVendorAction(
 
   const data = parsed.data;
   const companyId = await getActiveCompanyId();
+
+  const dupe = await findActiveVendorByName(companyId, data.name);
+  if (dupe && dupe.id !== id) {
+    return {
+      errors: {
+        name: [`A vendor named "${dupe.name}" already exists.`],
+      },
+    };
+  }
 
   try {
     const updated = await updateVendor(companyId, id, {

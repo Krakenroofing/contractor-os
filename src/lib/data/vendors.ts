@@ -1,7 +1,7 @@
 // Async data accessor for vendors (dual-backend: Postgres or mock store).
 
 import 'server-only';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { vendors, type Vendor } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
@@ -48,6 +48,34 @@ export async function getVendor(
     return rows[0];
   }
   return mockGet(companyId, id);
+}
+
+/** Case- and whitespace-insensitive lookup of an ACTIVE vendor by name —
+ *  the duplicate guard for create/rename ("Quality Convenience Store" must
+ *  exist once, however it's typed). */
+export async function findActiveVendorByName(
+  companyId: string,
+  name: string,
+): Promise<Vendor | undefined> {
+  if (!isDatabaseConfigured()) {
+    const norm = name.trim().toLowerCase();
+    return (await mockList(companyId)).find(
+      (v) => v.name.trim().toLowerCase() === norm,
+    );
+  }
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(vendors)
+    .where(
+      and(
+        eq(vendors.companyId, companyId),
+        isNull(vendors.deletedAt),
+        sql`LOWER(TRIM(${vendors.name})) = LOWER(TRIM(${name}))`,
+      ),
+    )
+    .limit(1);
+  return rows[0];
 }
 
 export async function createVendor(
