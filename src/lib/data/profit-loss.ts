@@ -19,6 +19,7 @@ import 'server-only';
 import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
+  bankAccounts,
   creditMemos,
   employees,
   journalEntries,
@@ -1036,6 +1037,9 @@ export type ProfitLossAccountEntry = {
   /** The txn's bank account — the drill links into that register's editable
    *  ?txn= single-transaction mode (set with importedTransactionId). */
   bankAccountId?: string;
+  /** Where the money moved: the bank/card/cash account name for bank rows,
+   *  or the payment source ("Cash", "Bank", "Credit card") for receipts. */
+  accountLabel?: string | null;
   jobCostEntryId?: string;
   receiptId?: string;
   journalEntryId?: string;
@@ -1131,12 +1135,17 @@ export async function listProfitLossAccountEntries(
     .select({
       id: importedTransactions.id,
       bankAccountId: importedTransactions.bankAccountId,
+      bankAccountName: bankAccounts.name,
       date: importedTransactions.transactionDate,
       description: importedTransactions.description,
       amount: importedTransactions.amount,
       vendorId: importedTransactions.vendorId,
     })
     .from(importedTransactions)
+    .innerJoin(
+      bankAccounts,
+      eq(bankAccounts.id, importedTransactions.bankAccountId),
+    )
     .where(and(...btConds));
 
   // Split-transaction lines on this account. The parent transaction has no
@@ -1157,6 +1166,7 @@ export async function listProfitLossAccountEntries(
     .select({
       id: importedTransactions.id,
       bankAccountId: importedTransactions.bankAccountId,
+      bankAccountName: bankAccounts.name,
       date: importedTransactions.transactionDate,
       txnDescription: importedTransactions.description,
       lineDescription: importedTransactionLines.description,
@@ -1168,6 +1178,10 @@ export async function listProfitLossAccountEntries(
     .innerJoin(
       importedTransactions,
       eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      bankAccounts,
+      eq(bankAccounts.id, importedTransactions.bankAccountId),
     )
     .where(and(...slConds));
 
@@ -1318,6 +1332,7 @@ export async function listProfitLossAccountEntries(
     .select({
       id: importedTransactions.id,
       bankAccountId: importedTransactions.bankAccountId,
+      bankAccountName: bankAccounts.name,
       date: importedTransactions.transactionDate,
       txnDescription: importedTransactions.description,
       lineDescription: importedTransactionLines.description,
@@ -1328,6 +1343,10 @@ export async function listProfitLossAccountEntries(
     .innerJoin(
       importedTransactions,
       eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      bankAccounts,
+      eq(bankAccounts.id, importedTransactions.bankAccountId),
     )
     .where(and(...feeConds));
 
@@ -1353,6 +1372,7 @@ export async function listProfitLossAccountEntries(
       lineDescription: receiptLines.description,
       amount: receiptExpenseAmt,
       vendorId: receipts.vendorId,
+      paymentSourceType: receipts.paymentSourceType,
     })
     .from(receiptLines)
     .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
@@ -1423,6 +1443,7 @@ export async function listProfitLossAccountEntries(
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
       bankAccountId: r.bankAccountId,
+      accountLabel: r.bankAccountName,
       vendorId: r.vendorId,
     })),
     ...slRows.map((r) => ({
@@ -1437,6 +1458,7 @@ export async function listProfitLossAccountEntries(
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
       bankAccountId: r.bankAccountId,
+      accountLabel: r.bankAccountName,
       vendorId: r.vendorId,
     })),
     // Reconciled bill-payment split lines: the report sums the raw positive
@@ -1451,6 +1473,7 @@ export async function listProfitLossAccountEntries(
       source: 'Bank transaction' as const,
       importedTransactionId: r.id,
       bankAccountId: r.bankAccountId,
+      accountLabel: r.bankAccountName,
       vendorId: r.vendorId,
     })),
     ...receiptRows.map((r) => ({
@@ -1462,6 +1485,14 @@ export async function listProfitLossAccountEntries(
       amount: Number(r.amount),
       source: 'Receipt' as const,
       receiptId: r.receiptId,
+      accountLabel:
+        r.paymentSourceType === 'cash'
+          ? 'Cash'
+          : r.paymentSourceType === 'credit_card'
+            ? 'Credit card'
+            : r.paymentSourceType === 'bank'
+              ? 'Bank (bill)'
+              : null,
       vendorId: r.vendorId,
     })),
   ];

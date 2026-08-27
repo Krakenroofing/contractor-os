@@ -104,6 +104,7 @@ export default async function ProfitLossAccountDetailPage({
                   <TableHead className="w-28">Date</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-36">Source</TableHead>
+                  <TableHead className="w-44">Account</TableHead>
                   {canRecategorize && (
                     <TableHead className="w-64">Re-categorize</TableHead>
                   )}
@@ -130,6 +131,21 @@ export default async function ProfitLossAccountDetailPage({
                       )}
                     </TableCell>
                     <TableCell className="text-slate-500">{e.source}</TableCell>
+                    <TableCell className="text-slate-600">
+                      {e.accountLabel && e.bankAccountId ? (
+                        <Link
+                          href={
+                            `/banking/accounts/${e.bankAccountId}` as never
+                          }
+                          className="underline-offset-2 hover:underline"
+                          title="Open this account's register"
+                        >
+                          {e.accountLabel}
+                        </Link>
+                      ) : (
+                        (e.accountLabel ?? <span className="text-slate-300">—</span>)
+                      )}
+                    </TableCell>
                     {canRecategorize && (
                       <TableCell>
                         {e.jobCostEntryId ? (
@@ -189,7 +205,7 @@ export default async function ProfitLossAccountDetailPage({
                 ))}
                 <TableRow className="border-t-2 border-slate-200">
                   <TableCell
-                    colSpan={canRecategorize ? 4 : 3}
+                    colSpan={canRecategorize ? 5 : 4}
                     className="font-semibold text-slate-900"
                   >
                     Total
