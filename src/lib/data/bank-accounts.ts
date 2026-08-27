@@ -1,8 +1,13 @@
 // Data layer for bank_accounts.
 
 import 'server-only';
-import { and, asc, eq, isNull } from 'drizzle-orm';
-import { bankAccounts, type BankAccount, type NewBankAccount } from '@/db/schema';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import {
+  bankAccounts,
+  importedTransactions,
+  type BankAccount,
+  type NewBankAccount,
+} from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
 export class BankAccountsNotAvailableInDemoError extends Error {
@@ -33,6 +38,40 @@ export async function listBankAccounts(
     .from(bankAccounts)
     .where(where)
     .orderBy(asc(bankAccounts.name));
+}
+
+/** Current register balance per account: opening balance + the signed sum
+ *  of all non-ignored imported transactions. Map<bankAccountId, balance>.
+ *  One grouped query — cheap enough for the banking hub's accounts list. */
+export async function getCurrentBalancesByAccount(
+  companyId: string,
+): Promise<Map<string, number>> {
+  const balances = new Map<string, number>();
+  if (!isDatabaseConfigured()) return balances;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      id: bankAccounts.id,
+      opening: bankAccounts.openingBalance,
+      txnSum: sql<string>`COALESCE(SUM(${importedTransactions.amount}), 0)`,
+    })
+    .from(bankAccounts)
+    .leftJoin(
+      importedTransactions,
+      and(
+        eq(importedTransactions.bankAccountId, bankAccounts.id),
+        eq(importedTransactions.isIgnored, false),
+      ),
+    )
+    .where(eq(bankAccounts.companyId, companyId))
+    .groupBy(bankAccounts.id, bankAccounts.openingBalance);
+  for (const r of rows) {
+    balances.set(
+      r.id,
+      Math.round((Number(r.opening) + Number(r.txnSum)) * 100) / 100,
+    );
+  }
+  return balances;
 }
 
 export async function getBankAccount(

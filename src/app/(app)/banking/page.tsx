@@ -14,7 +14,10 @@ import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
-import { listBankAccounts } from '@/lib/data/bank-accounts';
+import {
+  getCurrentBalancesByAccount,
+  listBankAccounts,
+} from '@/lib/data/bank-accounts';
 import {
   listImportBatches,
 } from '@/lib/data/statement-imports';
@@ -28,9 +31,10 @@ export default async function BankingHome() {
   const role = await getActiveRole();
   if (!canView(role, 'bank_accounts')) redirect('/dashboard');
   const company = await getActiveCompany();
-  const [accounts, batches] = await Promise.all([
+  const [accounts, batches, balances] = await Promise.all([
     listBankAccounts(company.id),
     listImportBatches(company.id, { limit: 20 }),
+    getCurrentBalancesByAccount(company.id),
   ]);
   const canCreateBank = canCreate(role, 'bank_accounts');
   const canImport = canCreate(role, 'statement_imports');
@@ -106,6 +110,7 @@ export default async function BankingHome() {
                   <TableHead>Last 4</TableHead>
                   <TableHead>Currency</TableHead>
                   <TableHead className="text-right">Opening balance</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -125,8 +130,24 @@ export default async function BankingHome() {
                       {a.last4 ?? '—'}
                     </TableCell>
                     <TableCell>{a.currency}</TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right tabular-nums text-slate-600">
                       {formatMoney(a.openingBalance, a.currency)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      <Link
+                        href={{
+                          pathname: `/banking/accounts/${a.id}`,
+                          query: { reviewed: '1' },
+                        }}
+                        title="Open the register"
+                        className={`underline underline-offset-2 ${
+                          (balances.get(a.id) ?? 0) < 0
+                            ? 'text-red-600 hover:text-red-800'
+                            : 'text-blue-700 hover:text-blue-900'
+                        }`}
+                      >
+                        {formatMoney(balances.get(a.id) ?? 0, a.currency)}
+                      </Link>
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="inline-flex items-center gap-3">

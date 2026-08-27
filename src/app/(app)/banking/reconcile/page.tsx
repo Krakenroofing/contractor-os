@@ -146,10 +146,22 @@ export default async function BankReconcilePage({
                         </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatMoney(r.beginningBalance, account?.currency)}
+                        <Link
+                          href={{ pathname: `/banking/reconcile/${r.id}` }}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="Open this reconciliation"
+                        >
+                          {formatMoney(r.beginningBalance, account?.currency)}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatMoney(r.endingBalance, account?.currency)}
+                        <Link
+                          href={{ pathname: `/banking/reconcile/${r.id}` }}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="Open this reconciliation"
+                        >
+                          {formatMoney(r.endingBalance, account?.currency)}
+                        </Link>
                       </TableCell>
                       <TableCell>
                         {r.status === 'completed' ? (
