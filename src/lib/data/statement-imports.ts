@@ -323,7 +323,13 @@ export async function listImportedTransactions(
     conds.push(eq(importedTransactions.isReviewed, true));
   }
   if (filters.onlyUncategorized) {
+    // A SPLIT transaction is categorized through its lines while the
+    // txn-level category stays NULL — it must not count as uncategorized.
     conds.push(isNull(importedTransactions.accountingAccountId));
+    conds.push(
+      sql`NOT EXISTS (SELECT 1 FROM ${importedTransactionLines} l
+        WHERE l.imported_transaction_id = ${importedTransactions.id})`,
+    );
   }
   return await db
     .select()
@@ -405,7 +411,13 @@ export async function countImportedTransactions(
     conds.push(eq(importedTransactions.isReviewed, true));
   }
   if (filters.onlyUncategorized) {
+    // A SPLIT transaction is categorized through its lines while the
+    // txn-level category stays NULL — it must not count as uncategorized.
     conds.push(isNull(importedTransactions.accountingAccountId));
+    conds.push(
+      sql`NOT EXISTS (SELECT 1 FROM ${importedTransactionLines} l
+        WHERE l.imported_transaction_id = ${importedTransactions.id})`,
+    );
   }
   const rows = await db
     .select({ n: sql<number>`count(*)::int` })
