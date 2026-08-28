@@ -102,7 +102,38 @@ export const journalLines = pgTable(
   }),
 );
 
+// Supporting documents on MANUAL journal entries — the working paper behind
+// an adjustment ("how did I get this number a year later?"). Only manual
+// entries carry attachments: system-posted entries are deleted + re-created
+// by GL rebuilds (new ids), which would cascade-orphan any attachment.
+export const journalEntryAttachments = pgTable(
+  'journal_entry_attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    journalEntryId: uuid('journal_entry_id')
+      .notNull()
+      .references(() => journalEntries.id, { onDelete: 'cascade' }),
+    uploadedBy: uuid('uploaded_by'),
+    originalFileName: text('original_file_name').notNull(),
+    storagePath: text('storage_path').notNull(),
+    mimeType: text('mime_type').notNull(),
+    byteSize: integer('byte_size').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    entryIdx: index('journal_entry_attachments_entry_idx').on(t.journalEntryId),
+    companyIdx: index('journal_entry_attachments_company_idx').on(t.companyId),
+  }),
+);
+
 export type JournalEntry = typeof journalEntries.$inferSelect;
 export type NewJournalEntry = typeof journalEntries.$inferInsert;
 export type JournalLine = typeof journalLines.$inferSelect;
 export type NewJournalLine = typeof journalLines.$inferInsert;
+export type JournalEntryAttachment = typeof journalEntryAttachments.$inferSelect;
+export type NewJournalEntryAttachment = typeof journalEntryAttachments.$inferInsert;

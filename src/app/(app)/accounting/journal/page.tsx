@@ -11,8 +11,14 @@ import {
   getJournalEntryWithLines,
   listJournalEntries,
 } from '@/lib/data/general-ledger';
+import { listJournalEntryAttachments } from '@/lib/data/journal-entry-attachments';
+import { createSignedJournalAttachmentUrl } from '@/lib/storage/journal-entry-attachments';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
 import { RebuildGlButton } from '@/modules/accounting/components/rebuild-gl-button';
+import {
+  JournalEntryAttachments,
+  type JournalAttachmentView,
+} from '@/modules/accounting/components/journal-entry-attachments';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +54,30 @@ export default async function JournalPage({
         PAGE_SIZE,
         (page - 1) * PAGE_SIZE,
       );
+
+  // Supporting documents on the visible MANUAL entries (one batch query);
+  // image attachments get short-lived signed URLs for inline thumbnails.
+  const manualIds = entries
+    .filter((e) => e.sourceType === 'manual')
+    .map((e) => e.id);
+  const attachmentRows = await listJournalEntryAttachments(
+    company.id,
+    manualIds,
+  );
+  const attachmentsByEntry = new Map<string, JournalAttachmentView[]>();
+  for (const a of attachmentRows) {
+    const view: JournalAttachmentView = {
+      id: a.id,
+      originalFileName: a.originalFileName,
+      mimeType: a.mimeType,
+      viewUrl: a.mimeType.startsWith('image/')
+        ? await createSignedJournalAttachmentUrl(a.storagePath, 3600)
+        : null,
+    };
+    const arr = attachmentsByEntry.get(a.journalEntryId) ?? [];
+    arr.push(view);
+    attachmentsByEntry.set(a.journalEntryId, arr);
+  }
 
   return (
     <div className="p-6 space-y-4 max-w-4xl">
@@ -193,6 +223,13 @@ export default async function JournalPage({
                       ))}
                     </tbody>
                   </table>
+                  {e.sourceType === 'manual' && (
+                    <JournalEntryAttachments
+                      entryId={e.id}
+                      attachments={attachmentsByEntry.get(e.id) ?? []}
+                      canEdit={canEdit && !reversed && !isReversal}
+                    />
+                  )}
                 </CardContent>
               </Card>
             );
