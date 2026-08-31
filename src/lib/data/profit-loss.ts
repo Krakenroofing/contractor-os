@@ -277,7 +277,9 @@ async function sumPostedLaborByPeriod(
       and(
         eq(jobCostEntries.companyId, companyId),
         sql`${jobCostEntries.deletedAt} IS NULL`,
-        eq(jobCostEntries.source, 'labor_entry'),
+        // 'labor_manual' = hand-typed allocations for pre-time-tracking
+        // periods — same residual math as the time-based posting.
+        inArray(jobCostEntries.source, ['labor_entry', 'labor_manual']),
         inArray(jobCostEntries.sourceRefId, periodIds),
       ),
     )

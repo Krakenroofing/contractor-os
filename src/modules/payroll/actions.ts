@@ -15,12 +15,15 @@ import {
   updateTimeEntry,
 } from '@/lib/data/time-entries';
 import { getEmployee } from '@/lib/data/employees';
+import { getUserNamesByIds } from '@/lib/data/users';
 import { getCompany } from '@/lib/data/companies';
 import {
   createJobCostEntry,
   softDeleteJobCostEntriesBySource,
+  softDeleteManualLaborForEmployee,
   JobCostingNotAvailableInDemoError,
 } from '@/lib/data/job-cost-entries';
+import { listProjects } from '@/lib/data/projects';
 import { getOrCreatePeriodForDate, getPayPeriod, updatePayPeriod } from '@/lib/data/pay-periods';
 import {
   deletePeriodPayOverride,
@@ -1092,6 +1095,202 @@ export async function postPayrollLaborAction(
       entries: plan.bucketCount,
     },
   };
+}
+
+// =====================================================================
+// Manual labor allocation — historical periods from BEFORE time tracking
+// (imported from QuickBooks) have pay but no logged hours, so the
+// time-based posting has nothing to spread. This lets the operator type
+// the project split per employee directly. Entries post as
+// source='labor_manual' (never touched by the time-based repost), with
+// the employee id stamped in `notes` so an employee's split can be
+// replaced independently. Burden (employer NIB) follows proportionally.
+// =====================================================================
+
+export type ManualLaborAllocationResult = {
+  ok?: boolean;
+  error?: string;
+  wage?: number;
+  burden?: number;
+};
+
+export async function saveManualLaborAllocationAction(input: {
+  payPeriodId: string;
+  employeeId: string;
+  /** Project splits; empty array clears the employee's manual allocation. */
+  allocations: Array<{ projectId: string; wage: number }>;
+}): Promise<ManualLaborAllocationResult> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to post payroll.' };
+  }
+  const periodId = idSchema.safeParse(input.payPeriodId);
+  const employeeId = idSchema.safeParse(input.employeeId);
+  if (!periodId.success || !employeeId.success) {
+    return { error: 'Missing pay period or employee.' };
+  }
+  const allocations = (input.allocations ?? [])
+    .filter(
+      (a) =>
+        a &&
+        typeof a.projectId === 'string' &&
+        a.projectId &&
+        Number.isFinite(Number(a.wage)) &&
+        Number(a.wage) > 0,
+    )
+    .map((a) => ({ projectId: a.projectId, wage: round2(Number(a.wage)) }));
+
+  const companyId = await getActiveCompanyId();
+  const company = await getCompany(companyId);
+  if (!company) return { error: 'Active company not found.' };
+  const laborAcct = company.laborCogsAccountId;
+  const burdenAcct = company.laborBurdenAccountId;
+  if (!laborAcct || !burdenAcct) {
+    return {
+      error:
+        'Set the direct-labor and payroll-burden accounts under Settings → Accounting first.',
+    };
+  }
+
+  const period = await getPayPeriod(companyId, periodId.data);
+  if (!period) return { error: 'Pay period not found.' };
+  if (period.status !== 'locked') {
+    return { error: 'Lock the pay period before allocating its labor.' };
+  }
+
+  // The employee's frozen pay for the period — the cap for the allocation
+  // and the basis for the proportional burden.
+  const [employees, entries, overrides, snapshots, adjustments] =
+    await Promise.all([
+      listEmployees(companyId),
+      listTimeEntries(companyId, { payPeriodId: periodId.data }),
+      listPeriodPayOverrides(companyId, { payPeriodId: periodId.data }),
+      listPaystubSnapshots(companyId, { payPeriodId: periodId.data }),
+      listPaystubAdjustments(companyId, { payPeriodId: periodId.data }),
+    ]);
+  const paystubs = computePeriodPaystubs(
+    employees,
+    entries,
+    period,
+    overrides,
+    snapshots,
+    adjustments,
+  );
+  const stub = paystubs.find((p) => p.employeeId === employeeId.data);
+  if (!stub || stub.gross <= 0) {
+    return { error: 'That employee has no pay in this period.' };
+  }
+  const totalWage = round2(allocations.reduce((s, a) => s + a.wage, 0));
+  if (totalWage > stub.gross + 0.01) {
+    return {
+      error: `Allocation ($${totalWage.toFixed(2)}) exceeds the employee's gross for the period ($${stub.gross.toFixed(2)}).`,
+    };
+  }
+
+  const employee = employees.find((e) => e.id === employeeId.data);
+  const isSub = employee?.isSubcontractor === true;
+  const allAccounts = await listAccountingAccounts(companyId);
+  const subcontractorAcct =
+    allAccounts.find(
+      (acc) =>
+        !acc.isArchived && acc.name.trim().toLowerCase() === 'subcontractors',
+    )?.id ?? laborAcct;
+
+  // Cost code per project: the project's default labor cost code, falling
+  // back to the company default.
+  const projects = await listProjects(companyId);
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  for (const a of allocations) {
+    const project = projectById.get(a.projectId);
+    if (!project) return { error: 'One of the selected projects was not found.' };
+    const costCode =
+      project.defaultLaborCostCodeId ?? company.defaultLaborCostCodeId;
+    if (!costCode) {
+      return {
+        error: `"${project.name}" has no default labor cost code (and the company default isn't set) — set one on the project or under Settings.`,
+      };
+    }
+  }
+
+  const periodLabel = `${period.startDate} – ${period.endDate}`;
+  // Dev-demo guard: stamp created_by only when the user row exists.
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const createdBy = knownUsers.has(user.id) ? user.id : null;
+  try {
+    await softDeleteManualLaborForEmployee(
+      companyId,
+      periodId.data,
+      employeeId.data,
+    );
+    let burdenTotal = 0;
+    for (const a of allocations) {
+      const project = projectById.get(a.projectId)!;
+      const costCodeId = (project.defaultLaborCostCodeId ??
+        company.defaultLaborCostCodeId)!;
+      await createJobCostEntry({
+        companyId,
+        projectId: a.projectId,
+        costCodeId,
+        accountingAccountId: isSub ? subcontractorAcct : laborAcct,
+        source: 'labor_manual',
+        sourceRefId: periodId.data,
+        costType: isSub ? 'subcontractor' : 'labor',
+        entryDate: period.endDate,
+        vendorId: null,
+        description: `Payroll (manual allocation) — ${stub.employeeName} (${periodLabel})`,
+        quantity: '1',
+        unitCost: a.wage.toFixed(2),
+        amount: a.wage.toFixed(2),
+        isBillable: false,
+        markupPercent: null,
+        burdenPercent: null,
+        vendorInvoiceNumber: null,
+        attachmentUrl: null,
+        notes: employeeId.data,
+        createdByUserId: createdBy,
+      });
+      // Employer NIB rides along proportionally to the wage share.
+      const burden =
+        stub.gross > 0
+          ? round2((stub.nib.employer * a.wage) / stub.gross)
+          : 0;
+      if (burden > 0) {
+        burdenTotal = round2(burdenTotal + burden);
+        await createJobCostEntry({
+          companyId,
+          projectId: a.projectId,
+          costCodeId,
+          accountingAccountId: burdenAcct,
+          source: 'labor_manual',
+          sourceRefId: periodId.data,
+          costType: 'labor_burden',
+          entryDate: period.endDate,
+          vendorId: null,
+          description: `Payroll burden (NIB, manual allocation) — ${stub.employeeName} (${periodLabel})`,
+          quantity: '1',
+          unitCost: burden.toFixed(2),
+          amount: burden.toFixed(2),
+          isBillable: false,
+          markupPercent: null,
+          burdenPercent: null,
+          vendorInvoiceNumber: null,
+          attachmentUrl: null,
+          notes: employeeId.data,
+          createdByUserId: createdBy,
+        });
+      }
+    }
+    revalidatePath('/payroll');
+    revalidatePath('/reports/profit-loss', 'layout');
+    return { ok: true, wage: totalWage, burden: burdenTotal };
+  } catch (err) {
+    if (err instanceof JobCostingNotAvailableInDemoError) {
+      return { error: err.message };
+    }
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to save the allocation: ${message}` };
+  }
 }
 
 export async function unpostPayrollLaborAction(

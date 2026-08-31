@@ -10,6 +10,7 @@ import { listCostCodes } from '@/lib/data/cost-codes';
 import { getOrCreatePeriodForDate } from '@/lib/data/pay-periods';
 import { listTimeEntries } from '@/lib/data/time-entries';
 import { PeriodSelector } from '@/modules/payroll/components/period-selector';
+import { ManualLaborAllocator } from '@/modules/payroll/components/manual-labor-allocator';
 import { PayrollTabs, type TabKey } from '@/modules/payroll/components/tabs';
 import {
   TimesheetGrid,
@@ -142,6 +143,13 @@ export default async function PayrollPage({
     period.id,
   );
   const laborPostedCount = laborPostedEntries.length;
+  // Hand-typed allocations for pre-time-tracking periods (source
+  // 'labor_manual', employee id in notes) — shown/edited on the Pay Run tab.
+  const manualLaborEntries = await listJobCostEntriesBySource(
+    companyId,
+    'labor_manual',
+    period.id,
+  );
   const periodBills = await listPayrollBills(companyId, period.id);
   const payrollBillCount = periodBills.length;
   // Payment status per employee — how much of each bill has been settled by
@@ -526,15 +534,54 @@ export default async function PayrollPage({
               burden: agg.burden,
             }))
             .sort((a, b) => b.wage - a.wage);
+          // Manual (pre-time-tracking) allocations reduce what still shows
+          // as unposted; wage lines only — burden rides along automatically.
+          const manualWageByEmp = new Map<string, number>();
+          const manualRowsByEmp = new Map<
+            string,
+            Array<{ projectId: string; wage: number }>
+          >();
+          for (const m of manualLaborEntries) {
+            if (m.costType === 'labor_burden' || !m.notes) continue;
+            manualWageByEmp.set(
+              m.notes,
+              round2((manualWageByEmp.get(m.notes) ?? 0) + parseMoney(m.amount)),
+            );
+            const arr = manualRowsByEmp.get(m.notes) ?? [];
+            arr.push({ projectId: m.projectId, wage: parseMoney(m.amount) });
+            manualRowsByEmp.set(m.notes, arr);
+          }
           const unpostedRows: LaborAllocationUnpostedRow[] =
             allocationPlan.allocations
-              .filter((a) => a.unpostedWage > 0.004)
               .map((a) => ({
                 employeeName: a.employeeName,
-                amount: a.unpostedWage,
+                amount: round2(
+                  a.unpostedWage - (manualWageByEmp.get(a.employeeId) ?? 0),
+                ),
                 hasTime: allEntries.some((e) => e.employeeId === a.employeeId),
               }))
+              .filter((a) => a.amount > 0.004)
               .sort((a, b) => b.amount - a.amount);
+          // Employees the manual allocator offers: unassigned pay left, or an
+          // existing manual split to edit.
+          const allocatorEmployees = allocationPlan.allocations
+            .map((a) => ({
+              employeeId: a.employeeId,
+              employeeName: a.employeeName,
+              gross: round2(a.unpostedWage + a.buckets.reduce((s, b) => s + b.wage, 0)),
+              timeAllocated: round2(a.buckets.reduce((s, b) => s + b.wage, 0)),
+              manual: manualRowsByEmp.get(a.employeeId) ?? [],
+            }))
+            .filter(
+              (a) =>
+                a.manual.length > 0 ||
+                round2(
+                  a.gross -
+                    a.timeAllocated -
+                    (manualWageByEmp.get(a.employeeId) ?? 0),
+                ) > 0.004,
+            )
+            .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
           const postedWage = round2(
             laborPostedEntries
               .filter((e) => e.costType === 'labor')
@@ -565,6 +612,16 @@ export default async function PayrollPage({
                 postedBurden={postedBurden}
                 drift={allocationDrift}
               />
+              {isLocked && allocatorEmployees.length > 0 && (
+                <ManualLaborAllocator
+                  payPeriodId={period.id}
+                  employees={allocatorEmployees}
+                  projects={allProjects.map((p) => ({
+                    id: p.id,
+                    label: p.name,
+                  }))}
+                />
+              )}
               <div className="rounded-lg border border-slate-200 p-4">
                 <h3 className="text-sm font-medium text-slate-700">
                   Post labor to job costs

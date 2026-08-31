@@ -102,6 +102,10 @@ export const jobCostSourceEnum = pgEnum('job_cost_source', [
   // value is added now in the banking-phase1 migration so future phases
   // don't need a separate enum migration.
   'receipt_import',
+  // Historical labor allocations typed by hand (pre-time-tracking periods
+  // imported from QuickBooks). Kept as its own source so "Post labor to job
+  // costs" reposts never clobber them.
+  'labor_manual',
 ]);
 
 export const jobCostTypeEnum = pgEnum('job_cost_type', [

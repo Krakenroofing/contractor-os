@@ -173,6 +173,32 @@ export async function listJobCostEntriesBySource(
 
 /** Soft-delete every live entry for a source ref (idempotent re-post / unpost).
  *  Returns how many rows were reversed. */
+/** Soft-delete ONE employee's manual labor allocations for a period.
+ *  job_cost_entries carry no employee column — manual labor rows stamp the
+ *  employee id into `notes`, which is what this filters on. */
+export async function softDeleteManualLaborForEmployee(
+  companyId: string,
+  payPeriodId: string,
+  employeeId: string,
+): Promise<number> {
+  const db = requireDb();
+  const now = new Date();
+  const rows = await db
+    .update(jobCostEntries)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        eq(jobCostEntries.source, 'labor_manual'),
+        eq(jobCostEntries.sourceRefId, payPeriodId),
+        eq(jobCostEntries.notes, employeeId),
+        isNull(jobCostEntries.deletedAt),
+      ),
+    )
+    .returning({ id: jobCostEntries.id });
+  return rows.length;
+}
+
 export async function softDeleteJobCostEntriesBySource(
   companyId: string,
   source: JobCostEntry['source'],
