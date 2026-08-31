@@ -157,6 +157,44 @@ export type NewPayrollBillInput = {
   net: number;
 };
 
+/** Rewrite an UNMATCHED bill's amounts in place — the resync path when the
+ *  pay run changed after bills were generated. Matched bills are never
+ *  updated (the payment was matched against the old figure). */
+export async function updatePayrollBillAmounts(
+  companyId: string,
+  id: string,
+  input: Omit<NewPayrollBillInput, 'companyId' | 'payPeriodId' | 'employeeId'>,
+): Promise<PayrollBill | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const [row] = await db
+    .update(payrollBills)
+    .set({
+      billDate: input.billDate,
+      gross: input.gross.toFixed(2),
+      employeeNib: input.employeeNib.toFixed(2),
+      employerNib: input.employerNib.toFixed(2),
+      additions: input.additions.toFixed(2),
+      deductions: input.deductions.toFixed(2),
+      net: input.net.toFixed(2),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(payrollBills.companyId, companyId), eq(payrollBills.id, id)))
+    .returning();
+  return row;
+}
+
+export async function deletePayrollBill(
+  companyId: string,
+  id: string,
+): Promise<void> {
+  if (!isDatabaseConfigured()) return;
+  const db = getDb()!;
+  await db
+    .delete(payrollBills)
+    .where(and(eq(payrollBills.companyId, companyId), eq(payrollBills.id, id)));
+}
+
 export async function insertPayrollBill(
   input: NewPayrollBillInput,
 ): Promise<PayrollBill> {

@@ -49,6 +49,14 @@ export function PeriodLockButton({
         {unlockState.formError && (
           <p className="text-xs text-red-600">{unlockState.formError}</p>
         )}
+        {/* Post-lock bill-sync summary — the lock just happened in this
+            component instance, so surface it here even though the button
+            has flipped to Unlock. */}
+        {lockState.notice && (
+          <p className="max-w-md text-right text-xs text-amber-700">
+            {lockState.notice}
+          </p>
+        )}
       </form>
     );
   }

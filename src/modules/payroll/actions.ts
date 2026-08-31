@@ -60,9 +60,11 @@ import {
 } from '@/lib/data/general-ledger';
 import {
   listPayrollBills,
-  deletePayrollBillsForPeriod,
+  deletePayrollBill,
   insertPayrollBill,
+  updatePayrollBillAmounts,
 } from '@/lib/data/payroll-bills';
+import { sumPaidByPayrollBills } from '@/lib/data/transaction-matches';
 import {
   multiply,
   parseMoney,
@@ -794,7 +796,11 @@ export async function setLunchOverrideAction(input: {
 // Unlock clears snapshots and flips status to 'open'. Used to fix
 // mistakes; the computation goes live again.
 
-export type LockPeriodState = { formError?: string };
+export type LockPeriodState = {
+  formError?: string;
+  /** Post-lock info — e.g. how the period's payroll bills were re-synced. */
+  notice?: string;
+};
 
 function paystubToSnapshot(
   payPeriodId: string,
@@ -899,8 +905,31 @@ export async function lockPeriodAction(
     return { formError: `Failed to lock period: ${message}` };
   }
 
+  // If bills were already generated for this period, re-sync them so any pay
+  // changes made while unlocked flow into the bills automatically (unmatched
+  // bills update in place; bills matched to a bank payment stay put and are
+  // reported back so the operator can unmatch and re-lock).
+  let notice: string | undefined;
+  const priorBills = await listPayrollBills(companyId, payPeriodId);
+  if (priorBills.length > 0) {
+    try {
+      const sync = await syncPayrollBillsForPeriod(companyId, payPeriodId);
+      const parts: string[] = [];
+      if (sync.updated > 0) parts.push(`${sync.updated} bill${sync.updated === 1 ? '' : 's'} updated`);
+      if (sync.deleted > 0) parts.push(`${sync.deleted} removed`);
+      if (parts.length > 0) notice = `Payroll bills synced: ${parts.join(', ')}.`;
+      if (sync.warnings.length > 0) {
+        notice = `${notice ? `${notice} ` : ''}Not updated (bank payment matched): ${sync.warnings.join(' ')}`;
+      }
+    } catch (err) {
+      notice = `Period locked, but the payroll bills could not be re-synced: ${
+        err instanceof Error ? err.message : 'unknown error'
+      }. Use "Generate payroll bills" to retry.`;
+    }
+  }
+
   revalidatePath('/payroll');
-  return {};
+  return notice ? { notice } : {};
 }
 
 // =====================================================================
@@ -1107,25 +1136,35 @@ export type GeneratePayrollBillsResult = {
   error?: string;
   count?: number;
   total?: number;
+  updated?: number;
+  deleted?: number;
+  /** Bills that could NOT be updated (already matched to a bank payment). */
+  warnings?: string[];
 };
 
-export async function generatePayrollBillsAction(
+/**
+ * Sync a locked period's payroll bills to the CURRENT paystubs. Safe to run
+ * any number of times — including after the operator unlocks, fixes pay, and
+ * re-locks (bills auto-sync on lock):
+ *   - unmatched bills whose amounts drifted are rewritten in place (+ JE);
+ *   - bills already MATCHED to a bank payment are never touched — the payment
+ *     was matched against the old figure, so those surface as warnings for
+ *     the operator to unmatch first;
+ *   - employees no longer paid lose their (unmatched) bill; new ones gain one.
+ */
+async function syncPayrollBillsForPeriod(
+  companyId: string,
   payPeriodId: string,
-): Promise<GeneratePayrollBillsResult> {
-  await requireAuth();
-  const role = await getActiveRole();
-  if (!canCreate(role, 'payroll')) {
-    return { error: 'You do not have permission to post payroll.' };
-  }
-  const idResult = idSchema.safeParse(payPeriodId);
-  if (!idResult.success) return { error: 'Missing pay period id.' };
-  const companyId = await getActiveCompanyId();
-
+): Promise<
+  Required<
+    Pick<
+      GeneratePayrollBillsResult,
+      'count' | 'total' | 'updated' | 'deleted' | 'warnings'
+    >
+  >
+> {
   const period = await getPayPeriod(companyId, payPeriodId);
-  if (!period) return { error: 'Pay period not found.' };
-  if (period.status !== 'locked') {
-    return { error: 'Lock the pay period before generating payroll bills.' };
-  }
+  if (!period) throw new Error('Pay period not found.');
 
   const [employees, entries, overrides, snapshots, adjustments, lunch] =
     await Promise.all([
@@ -1146,68 +1185,164 @@ export async function generatePayrollBillsAction(
     lunch,
   );
 
-  try {
-    const accounts = await resolveGlSystemAccounts(companyId);
+  const accounts = await resolveGlSystemAccounts(companyId);
+  // Subcontractor-classified workers: gross debits the Subcontractors
+  // COGS account instead of Payroll Expenses (same routing as the labor
+  // posting and the P&L payroll source).
+  const allAccounts = await listAccountingAccounts(companyId);
+  const subcontractorAcct = allAccounts.find(
+    (acc) =>
+      !acc.isArchived && acc.name.trim().toLowerCase() === 'subcontractors',
+  )?.id;
+  const subFlagByEmployee = new Map(
+    employees.map((e) => [e.id, e.isSubcontractor]),
+  );
+  const employeeName = new Map(
+    employees.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()]),
+  );
 
-    // Subcontractor-classified workers: gross debits the Subcontractors
-    // COGS account instead of Payroll Expenses (same routing as the labor
-    // posting and the P&L payroll source).
-    const allAccounts = await listAccountingAccounts(companyId);
-    const subcontractorAcct = allAccounts.find(
-      (acc) =>
-        !acc.isArchived && acc.name.trim().toLowerCase() === 'subcontractors',
-    )?.id;
-    const subFlagByEmployee = new Map(
-      employees.map((e) => [e.id, e.isSubcontractor]),
-    );
+  const existing = await listPayrollBills(companyId, payPeriodId);
+  const existingByEmployee = new Map(existing.map((b) => [b.employeeId, b]));
+  // A bill with ANY active payment match is frozen — presence in the paid
+  // map is the test (matched amounts are always > 0).
+  const paidByBill = await sumPaidByPayrollBills(
+    companyId,
+    existing.map((b) => b.id),
+  );
 
-    // Idempotent: clear any prior bills + their journal entries first.
-    const existing = await listPayrollBills(companyId, payPeriodId);
-    for (const b of existing) {
-      await deleteJournalEntriesForSource(companyId, 'payroll_bill', b.id);
-    }
-    await deletePayrollBillsForPeriod(companyId, payPeriodId);
+  const centsEq = (a: number, b: number) =>
+    Math.round(a * 100) === Math.round(b * 100);
 
-    let count = 0;
-    let total = 0;
-    for (const p of paystubs) {
-      if (p.skipped || p.net <= 0) continue;
-      const amounts = {
-        gross: p.gross,
-        employeeNib: p.nib.employee,
-        employerNib: p.nib.employer,
-        additions: p.additionsTotal,
-        deductions: p.deductionsTotal,
-        net: p.net,
-      };
-      const bill = await insertPayrollBill({
+  type BillAmounts = {
+    gross: number;
+    employeeNib: number;
+    employerNib: number;
+    additions: number;
+    deductions: number;
+    net: number;
+  };
+  const postBillJe = async (
+    billId: string,
+    p: (typeof paystubs)[number],
+    amounts: BillAmounts,
+  ) => {
+    const isSub =
+      subFlagByEmployee.get(p.employeeId) === true && !!subcontractorAcct;
+    await deleteJournalEntriesForSource(companyId, 'payroll_bill', billId);
+    await postJournalEntry(companyId, {
+      entryDate: period.endDate,
+      memo: `Payroll — ${p.employeeName} (${period.startDate} – ${period.endDate})`,
+      sourceType: 'payroll_bill',
+      sourceId: billId,
+      lines: buildPayrollBillLines(
+        amounts,
+        isSub ? { ...accounts, payrollExpense: subcontractorAcct! } : accounts,
+      ),
+    });
+  };
+
+  let count = 0;
+  let updated = 0;
+  let deleted = 0;
+  let total = 0;
+  const warnings: string[] = [];
+  const payingEmployeeIds = new Set<string>();
+
+  for (const p of paystubs) {
+    if (p.skipped || p.net <= 0) continue;
+    payingEmployeeIds.add(p.employeeId);
+    const amounts: BillAmounts = {
+      gross: p.gross,
+      employeeNib: p.nib.employee,
+      employerNib: p.nib.employer,
+      additions: p.additionsTotal,
+      deductions: p.deductionsTotal,
+      net: p.net,
+    };
+    const bill = existingByEmployee.get(p.employeeId);
+    if (!bill) {
+      const created = await insertPayrollBill({
         companyId,
         payPeriodId,
         employeeId: p.employeeId,
         billDate: period.endDate,
         ...amounts,
       });
-      const isSub =
-        subFlagByEmployee.get(p.employeeId) === true && !!subcontractorAcct;
-      await postJournalEntry(companyId, {
-        entryDate: period.endDate,
-        memo: `Payroll — ${p.employeeName} (${period.startDate} – ${period.endDate})`,
-        sourceType: 'payroll_bill',
-        sourceId: bill.id,
-        lines: buildPayrollBillLines(
-          amounts,
-          isSub
-            ? { ...accounts, payrollExpense: subcontractorAcct! }
-            : accounts,
-        ),
-      });
+      await postBillJe(created.id, p, amounts);
       count += 1;
       total += p.net;
+      continue;
     }
+    const unchanged =
+      centsEq(Number(bill.gross), amounts.gross) &&
+      centsEq(Number(bill.employeeNib), amounts.employeeNib) &&
+      centsEq(Number(bill.employerNib), amounts.employerNib) &&
+      centsEq(Number(bill.additions), amounts.additions) &&
+      centsEq(Number(bill.deductions), amounts.deductions) &&
+      centsEq(Number(bill.net), amounts.net);
+    if (unchanged) {
+      count += 1;
+      total += p.net;
+      continue;
+    }
+    if (paidByBill.has(bill.id)) {
+      warnings.push(
+        `${p.employeeName}: bill stays at $${Number(bill.net).toFixed(2)} (current pay $${amounts.net.toFixed(2)}) — a bank payment is matched to it; unmatch first to update.`,
+      );
+      count += 1;
+      total += Number(bill.net);
+      continue;
+    }
+    await updatePayrollBillAmounts(companyId, bill.id, {
+      billDate: period.endDate,
+      ...amounts,
+    });
+    await postBillJe(bill.id, p, amounts);
+    count += 1;
+    updated += 1;
+    total += p.net;
+  }
 
+  // Bills for employees who no longer have pay this period.
+  for (const bill of existing) {
+    if (payingEmployeeIds.has(bill.employeeId)) continue;
+    if (paidByBill.has(bill.id)) {
+      warnings.push(
+        `${employeeName.get(bill.employeeId) ?? 'Employee'}: bill for $${Number(bill.net).toFixed(2)} kept — a bank payment is matched to it, but the current pay run has no pay for them.`,
+      );
+      continue;
+    }
+    await deleteJournalEntriesForSource(companyId, 'payroll_bill', bill.id);
+    await deletePayrollBill(companyId, bill.id);
+    deleted += 1;
+  }
+
+  return { count, total: round2(total), updated, deleted, warnings };
+}
+
+export async function generatePayrollBillsAction(
+  payPeriodId: string,
+): Promise<GeneratePayrollBillsResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to post payroll.' };
+  }
+  const idResult = idSchema.safeParse(payPeriodId);
+  if (!idResult.success) return { error: 'Missing pay period id.' };
+  const companyId = await getActiveCompanyId();
+
+  const period = await getPayPeriod(companyId, payPeriodId);
+  if (!period) return { error: 'Pay period not found.' };
+  if (period.status !== 'locked') {
+    return { error: 'Lock the pay period before generating payroll bills.' };
+  }
+
+  try {
+    const res = await syncPayrollBillsForPeriod(companyId, payPeriodId);
     revalidatePath('/payroll');
     revalidatePath('/reports/accounting', 'layout');
-    return { ok: true, count, total: round2(total) };
+    return { ok: true, ...res };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { error: `Failed to generate payroll bills: ${message}` };

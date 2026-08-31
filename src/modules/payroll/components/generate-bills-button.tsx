@@ -60,8 +60,16 @@ export function GeneratePayrollBillsButton({
       {result?.error && <p className="text-xs text-red-600">{result.error}</p>}
       {result?.ok && (
         <p className="text-xs text-emerald-700">
-          Generated {result.count} payroll bill{result.count === 1 ? '' : 's'} —{' '}
-          {formatMoney(result.total ?? 0)} net payable.
+          {result.count} payroll bill{result.count === 1 ? '' : 's'} in sync —{' '}
+          {formatMoney(result.total ?? 0)} net payable
+          {(result.updated ?? 0) > 0 && <> · {result.updated} updated</>}
+          {(result.deleted ?? 0) > 0 && <> · {result.deleted} removed</>}.
+        </p>
+      )}
+      {result?.ok && (result.warnings?.length ?? 0) > 0 && (
+        <p className="text-xs text-amber-700">
+          Not updated (a bank payment is matched):{' '}
+          {result.warnings!.join(' ')}
         </p>
       )}
     </div>

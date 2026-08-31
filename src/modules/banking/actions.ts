@@ -2789,11 +2789,14 @@ export async function unmatchTransactionAction(input: {
   if (matches.length === 0) {
     return { ok: false, error: 'No active match to reverse.' };
   }
+  // Demo-auth guard: only stamp reversed_by when the user row exists (same
+  // FK-safety pattern as matched_by everywhere else).
+  const reversedBy = await safeMatchUserId(user.id);
   for (const match of matches) {
     await reverseMatchAtomic({
       companyId,
       matchId: match.id,
-      reversedByUserId: user.id,
+      reversedByUserId: reversedBy,
     });
   }
   await syncTxnGlSafe(
