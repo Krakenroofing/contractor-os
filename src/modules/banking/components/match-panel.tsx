@@ -224,6 +224,11 @@ export function MatchPanel(props: MatchPanelProps) {
   // ----- Batch bill payment (money-out) state -----
   const [billMode, setBillMode] = useState(false);
   const [billQuery, setBillQuery] = useState('');
+  const [billDateFrom, setBillDateFrom] = useState('');
+  const [billDateTo, setBillDateTo] = useState('');
+  const [billSort, setBillSort] = useState<'best' | 'amount-desc' | 'amount-asc' | 'date'>(
+    'best',
+  );
   const [billResults, setBillResults] = useState<BillSearchResult[]>([]);
   const [billSearched, setBillSearched] = useState(false);
   const [billSelected, setBillSelected] = useState<
@@ -232,6 +237,7 @@ export function MatchPanel(props: MatchPanelProps) {
       {
         kind: 'receipt' | 'payroll_bill';
         label: string;
+        date: string;
         amount: number;
         /** Editable text mirror of `amount` (payroll bills only — partial
          *  payments). Receipts always pay in full. */
@@ -275,10 +281,19 @@ export function MatchPanel(props: MatchPanelProps) {
       next.set(r.id, {
         kind: r.kind,
         label: r.label,
+        date: r.date,
         amount,
         amountText: amount.toFixed(2),
         max: r.total,
       });
+      return next;
+    });
+  }
+
+  function removeSelectedBill(id: string) {
+    setBillSelected((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
       return next;
     });
   }
@@ -308,6 +323,8 @@ export function MatchPanel(props: MatchPanelProps) {
       const res = await searchBillsForMatchAction({
         transactionId: props.transactionId,
         query: billQuery,
+        dateFrom: billDateFrom || undefined,
+        dateTo: billDateTo || undefined,
       });
       setSearching(false);
       setBillSearched(true);
@@ -360,12 +377,28 @@ export function MatchPanel(props: MatchPanelProps) {
   function resetBillMode() {
     setBillMode(false);
     setBillQuery('');
+    setBillDateFrom('');
+    setBillDateTo('');
+    setBillSort('best');
     setBillResults([]);
     setBillSearched(false);
     setBillSelected(new Map());
     setFeeAccountId('');
     setErr(null);
   }
+
+  // Display order for the result list. 'best' keeps the server's ranking
+  // (same-amount first, then newest).
+  const billResultsSorted =
+    billSort === 'best'
+      ? billResults
+      : [...billResults].sort((a, b) =>
+          billSort === 'amount-desc'
+            ? b.total - a.total
+            : billSort === 'amount-asc'
+              ? a.total - b.total
+              : b.date.localeCompare(a.date),
+        );
 
   // Add receipt = pick the file(s) right here. Clicking "+ Add receipt" opens
   // the OS file picker; on selection we create the draft receipt (linking +
@@ -883,7 +916,7 @@ export function MatchPanel(props: MatchPanelProps) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             value={billQuery}
             onChange={(e) => setBillQuery(e.target.value)}
@@ -893,9 +926,27 @@ export function MatchPanel(props: MatchPanelProps) {
                 runBillSearch();
               }
             }}
-            placeholder="Vendor name"
-            className="h-8 text-xs"
+            placeholder="Vendor / employee name"
+            className="h-8 w-44 text-xs"
           />
+          <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+            From
+            <Input
+              type="date"
+              value={billDateFrom}
+              onChange={(e) => setBillDateFrom(e.target.value)}
+              className="h-8 w-32 text-xs"
+            />
+          </label>
+          <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+            To
+            <Input
+              type="date"
+              value={billDateTo}
+              onChange={(e) => setBillDateTo(e.target.value)}
+              className="h-8 w-32 text-xs"
+            />
+          </label>
           <Button
             type="button"
             size="sm"
@@ -904,7 +955,68 @@ export function MatchPanel(props: MatchPanelProps) {
           >
             {searching ? 'Searching…' : 'Search'}
           </Button>
+          {billResults.length > 1 && (
+            <label className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-600">
+              Sort
+              <select
+                value={billSort}
+                onChange={(e) =>
+                  setBillSort(e.target.value as typeof billSort)
+                }
+                className="h-8 rounded-md border border-slate-300 bg-white px-1.5 text-xs"
+              >
+                <option value="best">Best match</option>
+                <option value="amount-desc">Amount ↓</option>
+                <option value="amount-asc">Amount ↑</option>
+                <option value="date">Newest first</option>
+              </select>
+            </label>
+          )}
         </div>
+
+        {billSelected.size > 0 && (
+          <div className="rounded border border-blue-300 bg-white px-2 py-1.5">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              Selected — {billSelected.size} bill
+              {billSelected.size === 1 ? '' : 's'} · $
+              {fmtMoney(billSelectedSum)}
+            </p>
+            <ul className="space-y-1">
+              {Array.from(billSelected.entries()).map(([id, v]) => (
+                <li key={id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">
+                    {v.label}{' '}
+                    <span className="text-slate-400">· {v.date}</span>
+                  </span>
+                  {v.kind === 'payroll_bill' ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <span className="text-[11px] text-slate-500">Pay $</span>
+                      <Input
+                        value={v.amountText}
+                        onChange={(e) => setBillAmount(id, e.target.value)}
+                        className="h-7 w-24 text-right text-xs tabular-nums"
+                        inputMode="decimal"
+                        title={`Amount of this payment to apply — up to $${fmtMoney(v.max)} outstanding. Paying less keeps the rest of the bill open.`}
+                      />
+                    </span>
+                  ) : (
+                    <span className="shrink-0 tabular-nums">
+                      ${fmtMoney(v.amount)}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${v.label}`}
+                    onClick={() => removeSelectedBill(id)}
+                    className="shrink-0 rounded px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {billSearched && billResults.length === 0 && !err && (
           <p className="text-slate-600">
@@ -914,9 +1026,8 @@ export function MatchPanel(props: MatchPanelProps) {
 
         {billResults.length > 0 && (
           <div className="space-y-1">
-            {billResults.map((r) => {
-              const sel = billSelected.get(r.id);
-              const checked = !!sel;
+            {billResultsSorted.map((r) => {
+              const checked = billSelected.has(r.id);
               return (
                 <label
                   key={r.id}
@@ -943,22 +1054,6 @@ export function MatchPanel(props: MatchPanelProps) {
                       )}
                     </div>
                   </div>
-                  {checked && sel.kind === 'payroll_bill' && (
-                    <span
-                      className="flex shrink-0 items-center gap-1"
-                      onClick={(e) => e.preventDefault()}
-                    >
-                      <span className="text-[11px] text-slate-500">Pay $</span>
-                      <Input
-                        value={sel.amountText}
-                        onChange={(e) => setBillAmount(r.id, e.target.value)}
-                        onClick={(e) => e.preventDefault()}
-                        className="h-7 w-24 text-right text-xs tabular-nums"
-                        inputMode="decimal"
-                        title={`Amount of this payment to apply — up to $${fmtMoney(sel.max)} outstanding. Paying less keeps the rest of the bill open.`}
-                      />
-                    </span>
-                  )}
                 </label>
               );
             })}

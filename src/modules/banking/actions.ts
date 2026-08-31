@@ -2200,10 +2200,13 @@ export type BillSearchResult = {
 };
 
 /** Open bills — posted vendor receipts AND payroll bills — not yet matched,
- *  for the batch bill-payment picker. Money-out transactions only. */
+ *  for the batch bill-payment picker. Money-out transactions only.
+ *  dateFrom/dateTo bound the BILL date (receipt date / payroll bill date). */
 export async function searchBillsForMatchAction(input: {
   transactionId: string;
   query?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }): Promise<
   { ok: true; results: BillSearchResult[] } | { ok: false; error: string }
 > {
@@ -2236,6 +2239,12 @@ export async function searchBillsForMatchAction(input: {
   const vendorById = new Map(vendors.map((v) => [v.id, v]));
   const employeeById = new Map(employees.map((e) => [e.id, e]));
   const q = (input.query ?? '').trim().toLowerCase();
+  const dateFrom =
+    typeof input.dateFrom === 'string' && input.dateFrom ? input.dateFrom : null;
+  const dateTo =
+    typeof input.dateTo === 'string' && input.dateTo ? input.dateTo : null;
+  const inDateRange = (d: string) =>
+    (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
 
   // Applied vendor credits reduce what the bank payment covers — offer bills
   // at their NET due (bill − credits), same as the single-receipt matcher.
@@ -2254,6 +2263,7 @@ export async function searchBillsForMatchAction(input: {
       ? (vendorById.get(r.vendorId)?.name ?? '—')
       : '—';
     if (q && !vendorName.toLowerCase().includes(q)) continue;
+    if (!inDateRange(r.receiptDate)) continue;
     const credit = appliedCredits.get(r.id) ?? 0;
     const total = Math.round((Number(r.total) - credit) * 100) / 100;
     // The vendor's invoice number is how Chris/Olga recognize a bill when
@@ -2278,6 +2288,7 @@ export async function searchBillsForMatchAction(input: {
     const emp = employeeById.get(b.employeeId);
     const name = emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Employee';
     if (q && !name.toLowerCase().includes(q)) continue;
+    if (!inDateRange(b.billDate)) continue;
     const net = Number(b.net);
     const paid = paidByBill.get(b.id) ?? 0;
     const outstanding = Math.round((net - paid) * 100) / 100;
