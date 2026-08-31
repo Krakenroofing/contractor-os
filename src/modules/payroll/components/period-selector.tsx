@@ -14,23 +14,28 @@ export function PeriodSelector({
   weekStart,
   weekEnd,
   status,
+  view,
 }: {
   weekStart: string;
   weekEnd: string;
   status: 'open' | 'locked';
+  /** Active tab — carried through week navigation so flipping weeks stays on
+   *  the same tab (Pay run, Paystubs, …) instead of resetting to Timesheet. */
+  view?: string;
 }) {
   const router = useRouter();
   const prev = addDays(weekStart, -7);
   const next = addDays(weekStart, 7);
   const thisWeek = mondayOf(todayISO());
+  const viewSuffix = view ? `&view=${encodeURIComponent(view)}` : '';
 
   function jumpTo(week: string) {
-    router.push(`/payroll?week=${week}`);
+    router.push(`/payroll?week=${week}${viewSuffix}`);
   }
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Link href={`/payroll?week=${prev}`}>
+      <Link href={`/payroll?week=${prev}${viewSuffix}`}>
         <Button variant="outline" size="sm">
           ← Previous week
         </Button>
@@ -47,7 +52,7 @@ export function PeriodSelector({
           )}
         </span>
       </div>
-      <Link href={`/payroll?week=${next}`}>
+      <Link href={`/payroll?week=${next}${viewSuffix}`}>
         <Button variant="outline" size="sm">
           Next week →
         </Button>

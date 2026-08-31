@@ -46,6 +46,13 @@ export type PayRunRow = {
    *  the P&L (offsets NIB Payable). On TOP of net pay, never deducted from it. */
   employerNib: number;
   deductions: number;
+  /** Settlement of this period's payroll BILL for the employee: paid /
+   *  partially paid (with how much) / unpaid. Null = no bill generated yet. */
+  paid: {
+    status: 'paid' | 'partial' | 'unpaid';
+    paidAmount: number;
+    billNet: number;
+  } | null;
 };
 
 export function PayRunTable({
@@ -105,6 +112,7 @@ export function PayRunTable({
               <TableHead className="text-right">Gross this week</TableHead>
               <TableHead>Effective</TableHead>
               <TableHead className="text-right">Net pay</TableHead>
+              <TableHead>Paid</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -182,6 +190,27 @@ export function PayRunTable({
                       </div>
                     )}
                   </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {r.paid === null ? (
+                      <span
+                        className="text-xs text-slate-400"
+                        title="No payroll bill generated for this period yet — use 'Generate payroll bills' below."
+                      >
+                        no bill
+                      </span>
+                    ) : r.paid.status === 'paid' ? (
+                      <Badge tone="green">Paid</Badge>
+                    ) : r.paid.status === 'partial' ? (
+                      <span title="Partially paid — the rest of the bill stays open in the bills matcher.">
+                        <Badge tone="amber">
+                          {formatMoney(r.paid.paidAmount)} of{' '}
+                          {formatMoney(r.paid.billNet)}
+                        </Badge>
+                      </span>
+                    ) : (
+                      <Badge tone="red">Unpaid</Badge>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -190,7 +219,7 @@ export function PayRunTable({
                 colSpan={4}
                 className="font-semibold text-slate-900"
               >
-                Totals · {paidRows} paid
+                Totals · {paidRows} with pay
               </TableCell>
               <TableCell className="text-right tabular-nums text-slate-500">
                 {/* Gross input column — leave blank */}
@@ -205,6 +234,16 @@ export function PayRunTable({
                 <div className="text-[10px] uppercase tracking-wide text-slate-400">
                   Total net · pays out
                 </div>
+              </TableCell>
+              <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                {(() => {
+                  const withBill = rows.filter((r) => r.paid !== null);
+                  if (withBill.length === 0) return null;
+                  const settled = withBill.filter(
+                    (r) => r.paid!.status === 'paid',
+                  ).length;
+                  return `${settled}/${withBill.length} settled`;
+                })()}
               </TableCell>
             </TableRow>
           </TableBody>

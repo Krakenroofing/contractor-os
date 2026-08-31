@@ -38,6 +38,7 @@ import { PayrollAdjustmentsSection } from '@/modules/payroll/components/payroll-
 import { PieceWorkSection } from '@/modules/payroll/components/piece-work-section';
 import { listJobCostEntriesBySource } from '@/lib/data/job-cost-entries';
 import { listPayrollBills } from '@/lib/data/payroll-bills';
+import { sumPaidByPayrollBills } from '@/lib/data/transaction-matches';
 import { listLunchOverrides } from '@/lib/data/timesheet-lunch';
 import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
 import { computeHourlyOvertime } from '@/modules/payroll/lib/overtime';
@@ -141,7 +142,19 @@ export default async function PayrollPage({
     period.id,
   );
   const laborPostedCount = laborPostedEntries.length;
-  const payrollBillCount = (await listPayrollBills(companyId, period.id)).length;
+  const periodBills = await listPayrollBills(companyId, period.id);
+  const payrollBillCount = periodBills.length;
+  // Payment status per employee — how much of each bill has been settled by
+  // matched bank payments (supports partial payments).
+  const paidByBill = await sumPaidByPayrollBills(
+    companyId,
+    periodBills.map((b) => b.id),
+  );
+  const billByEmployee = new Map(
+    periodBills
+      .filter((b) => b.status !== 'void')
+      .map((b) => [b.employeeId, b]),
+  );
   // Unpaid lunch overrides for this period, indexed by employee+date.
   const lunchOverrides = await listLunchOverrides(companyId, period.id);
   const lunchByEmpDate = new Map(
@@ -341,6 +354,7 @@ export default async function PayrollPage({
           weekStart={period.startDate}
           weekEnd={period.endDate}
           status={period.status as 'open' | 'locked'}
+          view={view}
         />
         <div className="flex items-center gap-2">
           <a
@@ -447,6 +461,8 @@ export default async function PayrollPage({
                     : amountTotal;
               const existing = overrideByEmpId.get(e.id);
               const stub = stubByEmp.get(e.id);
+              const bill = billByEmployee.get(e.id);
+              const billPaid = bill ? (paidByBill.get(bill.id) ?? 0) : 0;
               return {
                 employeeId: e.id,
                 employeeName: `${e.firstName} ${e.lastName}`.trim(),
@@ -464,6 +480,18 @@ export default async function PayrollPage({
                 employeeNib: stub?.nib.employee ?? 0,
                 employerNib: stub?.nib.employer ?? 0,
                 deductions: stub?.deductionsTotal ?? 0,
+                paid: bill
+                  ? {
+                      status:
+                        bill.status === 'paid'
+                          ? ('paid' as const)
+                          : billPaid > 0.005
+                            ? ('partial' as const)
+                            : ('unpaid' as const),
+                      paidAmount: billPaid,
+                      billNet: Number(bill.net),
+                    }
+                  : null,
               };
             })
             .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
