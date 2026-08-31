@@ -216,7 +216,19 @@ export function MatchPanel(props: MatchPanelProps) {
   const [billResults, setBillResults] = useState<BillSearchResult[]>([]);
   const [billSearched, setBillSearched] = useState(false);
   const [billSelected, setBillSelected] = useState<
-    Map<string, { kind: 'receipt' | 'payroll_bill'; label: string; amount: number }>
+    Map<
+      string,
+      {
+        kind: 'receipt' | 'payroll_bill';
+        label: string;
+        amount: number;
+        /** Editable text mirror of `amount` (payroll bills only — partial
+         *  payments). Receipts always pay in full. */
+        amountText: string;
+        /** The bill's outstanding — the cap for a partial payment. */
+        max: number;
+      }
+    >
   >(new Map());
   const [feeAccountId, setFeeAccountId] = useState('');
 
@@ -233,8 +245,47 @@ export function MatchPanel(props: MatchPanelProps) {
   function toggleBill(r: BillSearchResult) {
     setBillSelected((prev) => {
       const next = new Map(prev);
-      if (next.has(r.id)) next.delete(r.id);
-      else next.set(r.id, { kind: r.kind, label: r.label, amount: r.total });
+      if (next.has(r.id)) {
+        next.delete(r.id);
+        return next;
+      }
+      // Payroll bills can be paid PARTIALLY: default to what this payment can
+      // still cover (never more than the bill's outstanding), so a $100
+      // withdrawal against a $1,000 bill starts at 100, not 1,000.
+      let amount = r.total;
+      if (r.kind === 'payroll_bill') {
+        const selectedSum = Array.from(next.values()).reduce(
+          (s, v) => s + v.amount,
+          0,
+        );
+        const unallocated = Math.round((billAbs - selectedSum) * 100) / 100;
+        if (unallocated > 0.005 && unallocated < r.total) amount = unallocated;
+      }
+      next.set(r.id, {
+        kind: r.kind,
+        label: r.label,
+        amount,
+        amountText: amount.toFixed(2),
+        max: r.total,
+      });
+      return next;
+    });
+  }
+
+  function setBillAmount(id: string, text: string) {
+    setBillSelected((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(id);
+      if (!cur) return prev;
+      const parsed = Number(text);
+      next.set(id, {
+        ...cur,
+        amountText: text,
+        amount:
+          Number.isFinite(parsed) && parsed > 0
+            ? Math.round(parsed * 100) / 100
+            : 0,
+      });
       return next;
     });
   }
@@ -262,16 +313,29 @@ export function MatchPanel(props: MatchPanelProps) {
     if (billSelected.size === 0) return;
     setErr(null);
     const receiptIds: string[] = [];
-    const payrollBillIds: string[] = [];
+    const payrollBills: Array<{ id: string; amount: number }> = [];
     for (const [id, v] of billSelected) {
-      if (v.kind === 'payroll_bill') payrollBillIds.push(id);
-      else receiptIds.push(id);
+      if (v.kind === 'payroll_bill') {
+        if (!(v.amount > 0)) {
+          setErr('Enter an amount for each selected payroll bill.');
+          return;
+        }
+        if (v.amount > v.max + 0.005) {
+          setErr(
+            `A payroll payment exceeds what's left on the bill ($${fmtMoney(v.max)}).`,
+          );
+          return;
+        }
+        payrollBills.push({ id, amount: v.amount });
+      } else {
+        receiptIds.push(id);
+      }
     }
     startTransition(async () => {
       const res = await matchBillsAction({
         transactionId: props.transactionId,
         receiptIds,
-        payrollBillIds,
+        payrollBills,
         feeAccountId: feeAccountId || null,
       });
       if (!res.ok) {
@@ -796,7 +860,8 @@ export function MatchPanel(props: MatchPanelProps) {
         {billResults.length > 0 && (
           <div className="space-y-1">
             {billResults.map((r) => {
-              const checked = billSelected.has(r.id);
+              const sel = billSelected.get(r.id);
+              const checked = !!sel;
               return (
                 <label
                   key={r.id}
@@ -823,6 +888,22 @@ export function MatchPanel(props: MatchPanelProps) {
                       )}
                     </div>
                   </div>
+                  {checked && sel.kind === 'payroll_bill' && (
+                    <span
+                      className="flex shrink-0 items-center gap-1"
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <span className="text-[11px] text-slate-500">Pay $</span>
+                      <Input
+                        value={sel.amountText}
+                        onChange={(e) => setBillAmount(r.id, e.target.value)}
+                        onClick={(e) => e.preventDefault()}
+                        className="h-7 w-24 text-right text-xs tabular-nums"
+                        inputMode="decimal"
+                        title={`Amount of this payment to apply — up to $${fmtMoney(sel.max)} outstanding. Paying less keeps the rest of the bill open.`}
+                      />
+                    </span>
+                  )}
                 </label>
               );
             })}

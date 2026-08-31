@@ -65,6 +65,7 @@ import {
   listActiveMatchesForCompany,
   listActiveMatchesForTxn,
   reverseMatchAtomic,
+  sumPaidByPayrollBills,
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getVendor, listVendors } from '@/lib/data/vendors';
@@ -2267,19 +2268,31 @@ export async function searchBillsForMatchAction(input: {
       sameAmount: Math.round(total * 100) === absCents,
     });
   }
+  // Partial payments: a bill may already be part-paid — offer the OUTSTANDING
+  // amount, and say so in the label.
+  const paidByBill = await sumPaidByPayrollBills(
+    companyId,
+    payrollBillsOpen.map((b) => b.id),
+  );
   for (const b of payrollBillsOpen) {
     const emp = employeeById.get(b.employeeId);
     const name = emp ? `${emp.firstName} ${emp.lastName}`.trim() : 'Employee';
-    const label = `${name} (payroll)`;
-    if (q && !label.toLowerCase().includes(q)) continue;
+    if (q && !name.toLowerCase().includes(q)) continue;
     const net = Number(b.net);
+    const paid = paidByBill.get(b.id) ?? 0;
+    const outstanding = Math.round((net - paid) * 100) / 100;
+    if (outstanding <= 0.005) continue;
+    const label =
+      paid > 0.005
+        ? `${name} (payroll · ${outstanding.toFixed(2)} left of ${net.toFixed(2)})`
+        : `${name} (payroll)`;
     results.push({
       kind: 'payroll_bill',
       id: b.id,
       label,
-      total: net,
+      total: outstanding,
       date: b.billDate,
-      sameAmount: Math.round(net * 100) === absCents,
+      sameAmount: Math.round(outstanding * 100) === absCents,
     });
   }
   results.sort((a, b) => {
@@ -2292,7 +2305,12 @@ export async function searchBillsForMatchAction(input: {
 export async function matchBillsAction(input: {
   transactionId: string;
   receiptIds?: string[];
+  /** Full-outstanding payroll settlements (legacy shape). */
   payrollBillIds?: string[];
+  /** Payroll settlements with an explicit amount — pays PART of a bill when
+   *  amount < outstanding (employee owed 1,000, paid 100 now); the bill stays
+   *  open with the remainder. Takes precedence over payrollBillIds. */
+  payrollBills?: Array<{ id: string; amount: number }>;
   feeAccountId?: string | null;
   confidence?: 'exact' | 'high' | 'low' | 'manual';
 }): Promise<{
@@ -2318,12 +2336,22 @@ export async function matchBillsAction(input: {
   const receiptIds = Array.from(
     new Set((input.receiptIds ?? []).filter((x) => typeof x === 'string' && x)),
   );
-  const payrollBillIds = Array.from(
-    new Set(
-      (input.payrollBillIds ?? []).filter((x) => typeof x === 'string' && x),
-    ),
-  );
-  if (receiptIds.length + payrollBillIds.length === 0) {
+  // Normalize the two payroll shapes into id → requested amount (null = the
+  // bill's full outstanding, resolved below).
+  const payrollRequested = new Map<string, number | null>();
+  for (const id of input.payrollBillIds ?? []) {
+    if (typeof id === 'string' && id) payrollRequested.set(id, null);
+  }
+  for (const p of input.payrollBills ?? []) {
+    if (p && typeof p.id === 'string' && p.id) {
+      const amt = Number(p.amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        return { ok: false, error: 'Each payroll payment amount must be greater than zero.' };
+      }
+      payrollRequested.set(p.id, Math.round(amt * 100) / 100);
+    }
+  }
+  if (receiptIds.length + payrollRequested.size === 0) {
     return { ok: false, error: 'Select at least one bill to match.' };
   }
 
@@ -2342,13 +2370,31 @@ export async function matchBillsAction(input: {
     }
     newSum += Number(r.total) - (creditByReceipt.get(id) ?? 0);
   }
-  for (const id of payrollBillIds) {
+  const paidSoFar = await sumPaidByPayrollBills(
+    companyId,
+    Array.from(payrollRequested.keys()),
+  );
+  const payrollBillPayments: Array<{ id: string; amount: number }> = [];
+  for (const [id, requested] of payrollRequested) {
     const b = await getPayrollBill(companyId, id);
     if (!b) return { ok: false, error: 'One of the selected payroll bills was not found.' };
     if (b.status !== 'open') {
       return { ok: false, error: 'That payroll bill is already paid.' };
     }
-    newSum += Number(b.net);
+    const outstanding =
+      Math.round((Number(b.net) - (paidSoFar.get(id) ?? 0)) * 100) / 100;
+    if (outstanding <= 0.005) {
+      return { ok: false, error: 'That payroll bill has nothing left to pay.' };
+    }
+    const amount = requested ?? outstanding;
+    if (amount > outstanding + 0.005) {
+      return {
+        ok: false,
+        error: `Payment exceeds what's left on the bill (${outstanding.toFixed(2)} outstanding).`,
+      };
+    }
+    payrollBillPayments.push({ id, amount });
+    newSum += amount;
   }
 
   // Add anything already matched to this withdrawal (incremental top-ups) —
@@ -2367,8 +2413,14 @@ export async function matchBillsAction(input: {
       const r = await getReceipt(companyId, m.receiptId);
       if (r) priorSum += Number(r.total) - (priorCredits.get(r.id) ?? 0);
     } else if (m.matchType === 'payroll_bill' && m.payrollBillId) {
-      const b = await getPayrollBill(companyId, m.payrollBillId);
-      if (b) priorSum += Number(b.net);
+      // Partial payments record how much THIS payment covered; legacy rows
+      // (null) covered the full net.
+      if (m.matchedAmount !== null) {
+        priorSum += Number(m.matchedAmount);
+      } else {
+        const b = await getPayrollBill(companyId, m.payrollBillId);
+        if (b) priorSum += Number(b.net);
+      }
     }
   }
 
@@ -2390,7 +2442,7 @@ export async function matchBillsAction(input: {
       companyId,
       importedTransactionId: txn.id,
       receiptIds,
-      payrollBillIds,
+      payrollBillPayments,
       fee,
       confidence: input.confidence ?? 'manual',
       matchedByUserId: await safeMatchUserId(user.id),

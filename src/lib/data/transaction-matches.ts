@@ -372,8 +372,11 @@ export async function createReceiptMatchesAtomic(input: {
   companyId: string;
   importedTransactionId: string;
   receiptIds: string[];
-  /** Payroll bills (net-pay payable) settled by this same payment. */
-  payrollBillIds?: string[];
+  /** Payroll bills settled (fully or PARTIALLY) by this same payment.
+   *  `amount` = how much of the bill this payment covers; null = the full
+   *  net. The bill flips to 'paid' only once its cumulative payments reach
+   *  the net — otherwise it stays open with the remainder outstanding. */
+  payrollBillPayments?: Array<{ id: string; amount: number | null }>;
   fee?: { accountingAccountId: string; amount: number; description?: string } | null;
   confidence: TransactionMatch['confidence'];
   matchedByUserId: string | null;
@@ -396,28 +399,60 @@ export async function createReceiptMatchesAtomic(input: {
         .returning();
       rows.push(row);
     }
-    for (const payrollBillId of input.payrollBillIds ?? []) {
+    for (const pay of input.payrollBillPayments ?? []) {
+      const [billRow] = await tx
+        .select()
+        .from(payrollBills)
+        .where(
+          and(
+            eq(payrollBills.id, pay.id),
+            eq(payrollBills.companyId, input.companyId),
+          ),
+        )
+        .limit(1);
+      if (!billRow) throw new Error('Payroll bill not found.');
+      const net = Number(billRow.net);
+      const amount = pay.amount ?? net;
       const [row] = await tx
         .insert(transactionMatches)
         .values({
           companyId: input.companyId,
           importedTransactionId: input.importedTransactionId,
           matchType: 'payroll_bill',
-          payrollBillId,
+          payrollBillId: pay.id,
+          matchedAmount: amount.toFixed(2),
           confidence: input.confidence,
           matchedByUserId: input.matchedByUserId,
         })
         .returning();
       rows.push(row);
-      await tx
-        .update(payrollBills)
-        .set({ status: 'paid', updatedAt: new Date() })
+      // Cumulative paid across ACTIVE matches (legacy null = full net).
+      const paidRows = await tx
+        .select({ amt: transactionMatches.matchedAmount })
+        .from(transactionMatches)
         .where(
           and(
-            eq(payrollBills.id, payrollBillId),
-            eq(payrollBills.companyId, input.companyId),
+            eq(transactionMatches.companyId, input.companyId),
+            eq(transactionMatches.payrollBillId, pay.id),
+            eq(transactionMatches.matchType, 'payroll_bill'),
+            isNull(transactionMatches.reversedAt),
           ),
         );
+      const paid = paidRows.reduce(
+        (s, r) => s + (r.amt !== null ? Number(r.amt) : net),
+        0,
+      );
+      if (paid >= net - 0.005) {
+        await tx
+          .update(payrollBills)
+          .set({ status: 'paid', updatedAt: new Date() })
+          .where(
+            and(
+              eq(payrollBills.id, pay.id),
+              eq(payrollBills.companyId, input.companyId),
+            ),
+          );
+      }
     }
     // The bank-fee remainder is stored as the txn's single split line. A bill
     // payment carries no other splits (the bills hold their own detail), so
@@ -453,6 +488,40 @@ export async function createReceiptMatchesAtomic(input: {
     }
     return rows;
   });
+}
+
+/** Amount already paid against each payroll bill (sum of ACTIVE payroll
+ *  matches; a legacy NULL matched_amount counts as the bill's full net).
+ *  Map<payrollBillId, paid>. */
+export async function sumPaidByPayrollBills(
+  companyId: string,
+  billIds: string[],
+): Promise<Map<string, number>> {
+  const paid = new Map<string, number>();
+  if (!isDatabaseConfigured() || billIds.length === 0) return paid;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      billId: transactionMatches.payrollBillId,
+      amt: transactionMatches.matchedAmount,
+      net: payrollBills.net,
+    })
+    .from(transactionMatches)
+    .innerJoin(payrollBills, eq(payrollBills.id, transactionMatches.payrollBillId))
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'payroll_bill'),
+        isNull(transactionMatches.reversedAt),
+        inArray(transactionMatches.payrollBillId, billIds),
+      ),
+    );
+  for (const r of rows) {
+    if (!r.billId) continue;
+    const amount = r.amt !== null ? Number(r.amt) : Number(r.net);
+    paid.set(r.billId, Math.round(((paid.get(r.billId) ?? 0) + amount) * 100) / 100);
+  }
+  return paid;
 }
 
 /** Single-row create. Caller must wrap with the reconciled_at flip on the

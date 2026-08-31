@@ -2,6 +2,7 @@ import {
   pgTable,
   uuid,
   text,
+  numeric,
   timestamp,
   index,
   uniqueIndex,
@@ -59,6 +60,10 @@ export const transactionMatches = pgTable(
       (): AnyPgColumn => importedTransactions.id,
       { onDelete: 'cascade' },
     ),
+
+    // How much of the matched record THIS payment covers — set for partial
+    // payroll-bill payments. NULL = the full amount (legacy semantics).
+    matchedAmount: numeric('matched_amount', { precision: 14, scale: 2 }),
 
     // 'exact' | 'high' | 'low' | 'manual'
     confidence: text('confidence').notNull().default('manual'),
