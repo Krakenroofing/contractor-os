@@ -14,6 +14,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listProjects } from '@/lib/data/projects';
+import { listEmployees } from '@/lib/data/employees';
 import { parseReportFilters } from '@/modules/reports/lib/filters';
 import { buildPayrollSummaryReport } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
@@ -34,10 +35,24 @@ export default async function PayrollSummaryReportPage({
   if (!canView(role, 'reports') || !canView(role, 'payroll')) redirect('/dashboard');
   const company = await getActiveCompany();
   const filters = parseReportFilters(await searchParams);
-  const [report, projects] = await Promise.all([
+  const [report, projects, employees] = await Promise.all([
     buildPayrollSummaryReport(company.id, filters),
     listProjects(company.id),
+    listEmployees(company.id),
   ]);
+  // Everyone from the payroll tab — active first, subcontractors labeled.
+  const employeeOptions = employees
+    .sort(
+      (a, b) =>
+        Number(b.active) - Number(a.active) ||
+        `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+    )
+    .map((e) => ({
+      id: e.id,
+      label: `${e.firstName} ${e.lastName}`.trim() +
+        (e.isSubcontractor ? ' (subcontractor)' : '') +
+        (e.active ? '' : ' — inactive'),
+    }));
 
   // Reflect the snapped current-month default in the filter pills.
   const effectiveFilters = {
@@ -53,6 +68,7 @@ export default async function PayrollSummaryReportPage({
       type="payroll-summary"
       filters={effectiveFilters}
       projects={projects.map((p) => ({ id: p.id, label: p.name }))}
+      employees={employeeOptions}
       companyName={company.name}
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

@@ -2612,6 +2612,9 @@ export async function buildPayrollSummaryReport(
 
   for (const { period, paystubs } of perPeriodData) {
     for (const p of paystubs) {
+      // Employee / subcontractor filter — scopes every surface (per-employee
+      // rows, adjustments, KPI totals) to the selected person.
+      if (filters.employeeId && p.employeeId !== filters.employeeId) continue;
       if (
         p.skipped ||
         (p.gross === 0 && p.deductionsTotal === 0 && p.additionsTotal === 0)

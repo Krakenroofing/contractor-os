@@ -13,6 +13,9 @@ export type ReportFilters = {
   /** Customer filter (UUID). Empty string = all customers. Currently honoured
    *  only by the customer-summary report. */
   customerId: string;
+  /** Employee / subcontractor filter (UUID). Empty string = everyone.
+   *  Currently honoured only by the payroll-summary report. */
+  employeeId: string;
 };
 
 export const REPORT_TYPES = [
@@ -163,6 +166,25 @@ export const REPORT_SUPPORTS_CUSTOMER_FILTER: Record<ReportType, boolean> = {
   'payroll-summary': false,
 };
 
+/** Reports whose filter bar offers the employee / subcontractor picker. */
+export const REPORT_SUPPORTS_EMPLOYEE_FILTER: Record<ReportType, boolean> = {
+  'project-financial': false,
+  'job-cost': false,
+  'accounts-receivable': false,
+  'accounts-payable': false,
+  'profit-loss': false,
+  'wip': false,
+  'invoice-summary': false,
+  'payment-summary': false,
+  'purchase-orders': false,
+  'landed-cost': false,
+  'vat-quarterly': false,
+  'vendor-vat': false,
+  'customer-summary': false,
+  'nib-monthly': false,
+  'payroll-summary': true,
+};
+
 export function parseReportFilters(
   searchParams: Record<string, string | string[] | undefined>,
 ): ReportFilters {
@@ -176,6 +198,7 @@ export function parseReportFilters(
     to: get('to'),
     projectId: get('projectId'),
     customerId: get('customerId'),
+    employeeId: get('employeeId'),
   };
 }
 
@@ -211,6 +234,7 @@ export function buildCsvUrl(
   if (filters.to) params.set('to', filters.to);
   if (filters.projectId) params.set('projectId', filters.projectId);
   if (filters.customerId) params.set('customerId', filters.customerId);
+  if (filters.employeeId) params.set('employeeId', filters.employeeId);
   if (extras) {
     for (const [k, v] of Object.entries(extras)) {
       if (v) params.set(k, v);

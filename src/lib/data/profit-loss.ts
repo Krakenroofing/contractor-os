@@ -976,6 +976,7 @@ export async function buildProfitLossReport(
     to: '',
     projectId: '',
     customerId: '',
+    employeeId: '',
   });
 
   return {

@@ -19,6 +19,7 @@ export async function ReportShell({
   filters,
   projects,
   customers = [],
+  employees = [],
   companyName,
   children,
 }: {
@@ -26,6 +27,7 @@ export async function ReportShell({
   filters: ReportFilters;
   projects: { id: string; label: string }[];
   customers?: { id: string; label: string }[];
+  employees?: { id: string; label: string }[];
   companyName: string;
   children: React.ReactNode;
 }) {
@@ -72,6 +74,7 @@ export async function ReportShell({
         initial={filters}
         projects={projects}
         customers={customers}
+        employees={employees}
       />
 
       <div className="space-y-6">{children}</div>

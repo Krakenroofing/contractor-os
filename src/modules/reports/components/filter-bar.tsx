@@ -17,6 +17,7 @@ import {
   type ReportFilters,
   REPORT_SUPPORTS_PROJECT_FILTER,
   REPORT_SUPPORTS_CUSTOMER_FILTER,
+  REPORT_SUPPORTS_EMPLOYEE_FILTER,
 } from '@/modules/reports/lib/filters';
 
 export function FilterBar({
@@ -24,11 +25,13 @@ export function FilterBar({
   initial,
   projects,
   customers = [],
+  employees = [],
 }: {
   reportType: ReportType;
   initial: ReportFilters;
   projects: { id: string; label: string }[];
   customers?: { id: string; label: string }[];
+  employees?: { id: string; label: string }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -37,10 +40,12 @@ export function FilterBar({
   const [to, setTo] = useState(initial.to);
   const [projectId, setProjectId] = useState(initial.projectId);
   const [customerId, setCustomerId] = useState(initial.customerId);
+  const [employeeId, setEmployeeId] = useState(initial.employeeId);
   const [pending, startTransition] = useTransition();
 
   const supportsProject = REPORT_SUPPORTS_PROJECT_FILTER[reportType];
   const supportsCustomer = REPORT_SUPPORTS_CUSTOMER_FILTER[reportType];
+  const supportsEmployee = REPORT_SUPPORTS_EMPLOYEE_FILTER[reportType];
 
   function applyFilters() {
     const params = new URLSearchParams(searchParams);
@@ -52,6 +57,8 @@ export function FilterBar({
     else params.delete('projectId');
     if (supportsCustomer && customerId) params.set('customerId', customerId);
     else params.delete('customerId');
+    if (supportsEmployee && employeeId) params.set('employeeId', employeeId);
+    else params.delete('employeeId');
     const qs = params.toString();
     startTransition(() => {
       // Cast through unknown — typedRoutes is OK with the pathname value at
@@ -67,6 +74,7 @@ export function FilterBar({
     setTo('');
     setProjectId('');
     setCustomerId('');
+    setEmployeeId('');
     startTransition(() => {
       router.push(pathname as unknown as Parameters<typeof router.push>[0]);
     });
@@ -83,6 +91,7 @@ export function FilterBar({
       to,
       projectId,
       customerId,
+      employeeId,
     },
     defaultTermsDays ? { defaultTermsDays } : undefined,
   );
@@ -98,6 +107,22 @@ export function FilterBar({
           <Label>To</Label>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
+        {supportsEmployee && (
+          <div className="space-y-1">
+            <Label>Employee / subcontractor</Label>
+            <Select
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+            >
+              <option value="">Everyone</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
         {supportsProject && (
           <div className="space-y-1">
             <Label>Project</Label>
