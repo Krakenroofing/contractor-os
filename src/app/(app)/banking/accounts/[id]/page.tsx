@@ -43,6 +43,7 @@ import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listBankReconciliations } from '@/lib/data/bank-reconciliations';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
+import { listPayrollBillsWithDetails } from '@/lib/data/payroll-bills';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
 import { TransactionRulePanel } from '@/modules/banking/components/transaction-rule-panel';
@@ -374,6 +375,67 @@ export default async function BankAccountDetailPage({
       0,
     );
     attachmentInfoByTxn.set(txnId, { count, primaryReceiptId: rIds[0] });
+  }
+
+  // Every bill (vendor receipt / payroll bill) inside each txn's active
+  // match — so a reconciled batch payment can list exactly what it paid:
+  // who, the bill date, the amount, each linking to its editable detail.
+  const receiptById = new Map(receipts.map((r) => [r.id, r]));
+  const payrollBillDetails = await listPayrollBillsWithDetails(company.id);
+  const payrollBillById = new Map(payrollBillDetails.map((b) => [b.id, b]));
+  const billMatchesByTxn = new Map<
+    string,
+    Array<{
+      matchId: string;
+      kind: 'receipt' | 'payroll_bill';
+      label: string;
+      date: string;
+      amount: number;
+      href: string;
+    }>
+  >();
+  for (const m of activeMatches) {
+    let entry: {
+      matchId: string;
+      kind: 'receipt' | 'payroll_bill';
+      label: string;
+      date: string;
+      amount: number;
+      href: string;
+    } | null = null;
+    if (m.matchType === 'receipt' && m.receiptId) {
+      const r = receiptById.get(m.receiptId);
+      if (r) {
+        const v = r.vendorId ? vendorById.get(r.vendorId) : null;
+        const credit = appliedCreditByReceipt.get(r.id) ?? 0;
+        entry = {
+          matchId: m.id,
+          kind: 'receipt',
+          label: v?.name ?? 'Receipt',
+          date: r.receiptDate,
+          amount: Math.round((Number(r.total) - credit) * 100) / 100,
+          href: `/banking/receipts/${r.id}`,
+        };
+      }
+    } else if (m.matchType === 'payroll_bill' && m.payrollBillId) {
+      const b = payrollBillById.get(m.payrollBillId);
+      if (b) {
+        entry = {
+          matchId: m.id,
+          kind: 'payroll_bill',
+          label: `${b.employeeName} (payroll)`,
+          date: b.billDate,
+          amount:
+            m.matchedAmount !== null ? Number(m.matchedAmount) : Number(b.net),
+          href: `/payroll?week=${b.periodStart}&view=pay-run`,
+        };
+      }
+    }
+    if (entry) {
+      const arr = billMatchesByTxn.get(m.importedTransactionId) ?? [];
+      arr.push(entry);
+      billMatchesByTxn.set(m.importedTransactionId, arr);
+    }
   }
 
   // Pre-shape transfer candidates (cross-account, unreconciled).
@@ -929,6 +991,7 @@ export default async function BankAccountDetailPage({
                                   : null
                               }
                               invoiceMatches={txnInvoiceMatches}
+                              billMatches={billMatchesByTxn.get(t.id) ?? []}
                               reconciled={triage === 'reconciled'}
                               feeAccountOptions={feeAccountOptions}
                               canEdit={canEdit}

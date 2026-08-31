@@ -83,6 +83,17 @@ export type MatchPanelProps = {
   transferAccounts?: { id: string; name: string }[];
   /** Invoice payments already linked to this deposit (possibly several). */
   invoiceMatches: ActiveInvoiceMatch[];
+  /** Bills (vendor receipts / payroll bills) inside this txn's active match —
+   *  the reconciled banner lists them: who, bill date, amount, each linking
+   *  to its editable detail. */
+  billMatches?: Array<{
+    matchId: string;
+    kind: 'receipt' | 'payroll_bill';
+    label: string;
+    date: string;
+    amount: number;
+    href: string;
+  }>;
   /** Whether the txn is fully reconciled (reconciled_at set). */
   reconciled: boolean;
   /** Expense accounts (COGS/OpEx) for the bank-fee picker on bill payments. */
@@ -442,12 +453,19 @@ export function MatchPanel(props: MatchPanelProps) {
   if (props.active) {
     const matchedReceiptId =
       props.active.matchType === 'receipt' ? props.active.receiptId : null;
+    const bills = props.billMatches ?? [];
+    const billTotal = bills.reduce((s, b) => s + b.amount, 0);
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
         <div className="flex items-center justify-between gap-2">
           <div className="text-emerald-900">
             <span className="font-semibold">Reconciled</span> —{' '}
-            {matchedReceiptId ? (
+            {bills.length > 1 ? (
+              <>
+                {bills.length} bills paid · $
+                <span className="tabular-nums">{fmtMoney(billTotal)}</span>
+              </>
+            ) : matchedReceiptId ? (
               <a
                 href={`/banking/receipts/${matchedReceiptId}`}
                 target="_blank"
@@ -455,6 +473,15 @@ export function MatchPanel(props: MatchPanelProps) {
                 className="underline hover:text-emerald-700"
               >
                 {props.active.targetLabel}
+              </a>
+            ) : bills.length === 1 ? (
+              <a
+                href={bills[0].href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-emerald-700"
+              >
+                {bills[0].label}
               </a>
             ) : (
               props.active.targetLabel
@@ -505,6 +532,34 @@ export function MatchPanel(props: MatchPanelProps) {
             )}
           </div>
         </div>
+        {bills.length > 1 && (
+          <ul className="mt-1.5 space-y-0.5 border-t border-emerald-200 pt-1.5">
+            {bills.map((b) => (
+              <li
+                key={b.matchId}
+                className="flex items-center justify-between gap-2 text-slate-700"
+              >
+                <span className="min-w-0 truncate">
+                  <a
+                    href={b.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                    title={
+                      b.kind === 'payroll_bill'
+                        ? 'Open the pay run — adjust pay and regenerate bills there'
+                        : 'Open this bill'
+                    }
+                  >
+                    {b.label}
+                  </a>{' '}
+                  <span className="text-slate-400">· {b.date}</span>
+                </span>
+                <span className="shrink-0 tabular-nums">${fmtMoney(b.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {err && <p className="mt-1 text-red-700">{err}</p>}
       </div>
     );
