@@ -1,6 +1,7 @@
 export * from './_enums';
 export * from './companies';
 export * from './users';
+export * from './user-login-sessions';
 export * from './memberships';
 export * from './customers';
 export * from './vendors';

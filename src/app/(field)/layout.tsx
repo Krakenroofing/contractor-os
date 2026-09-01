@@ -12,6 +12,7 @@ import { redirect } from 'next/navigation';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
+import { touchSession } from '@/lib/data/login-sessions';
 import { listMembershipsForUser } from '@/lib/data/memberships';
 import { FieldBottomNav } from '@/modules/field/components/bottom-nav';
 import { FieldHeader } from '@/modules/field/components/header';
@@ -33,6 +34,15 @@ export default async function FieldLayout({
   if (authEnabled && currentUser) {
     const userMemberships = await listMembershipsForUser(currentUser.id);
     if (userMemberships.length === 0) redirect('/no-access' as never);
+    // Heartbeat for the owner-only sign-in activity view (throttled
+    // inside; best-effort — never break the field shell on it).
+    if (!demoMode) {
+      try {
+        await touchSession(currentUser.id);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   // Active role + company resolve through the same shared helpers as the

@@ -7,11 +7,12 @@
 
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { z } from 'zod';
 import { updateUserLastLogin } from '@/lib/data/users';
+import { recordLogin } from '@/lib/data/login-sessions';
 
 export type LoginState = {
   error?: string;
@@ -138,11 +139,13 @@ export async function signInAction(
   // field_user can still reach /dashboard manually if they want, but
   // out-of-the-box the login flow should land them where they'll
   // actually work.
-  // Stamp last sign-in for the owner admin view. Best-effort — never block
-  // the login on this write.
+  // Stamp last sign-in + open an activity-session row for the owner admin
+  // view. Best-effort — never block the login on these writes.
   if (signInData?.user) {
     try {
       await updateUserLastLogin(signInData.user.id);
+      const ua = (await headers()).get('user-agent');
+      await recordLogin(signInData.user.id, ua);
     } catch {
       /* ignore */
     }

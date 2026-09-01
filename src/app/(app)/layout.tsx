@@ -9,6 +9,8 @@ import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
 import { getCompany, listCompanies } from '@/lib/data/companies';
 import { listMembershipsForUser } from '@/lib/data/memberships';
 import { canView, type Resource } from '@/lib/permissions';
+import { touchSession } from '@/lib/data/login-sessions';
+import { ACTIVITY_OWNER_EMAIL } from '@/lib/activity-owner';
 
 const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/dashboard', label: 'Dashboard', resource: 'dashboard' },
@@ -79,6 +81,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // URL-object form bypasses typedRoutes literal narrowing for routes
       // outside the (app) group that the type system hasn't picked up yet.
       redirect('/no-access' as never);
+    }
+  }
+
+  // Heartbeat for the owner-only sign-in activity view. Throttled inside
+  // (a write at most every couple of minutes per user); best-effort.
+  if (authEnabled && currentUser && !demoMode) {
+    try {
+      await touchSession(currentUser.id);
+    } catch {
+      /* ignore */
     }
   }
 
@@ -153,6 +165,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {settingsAllowed && (
           <nav className="p-3 space-y-1 border-t border-slate-200">
             <NavLink href="/settings" label="Settings" />
+            {/* Owner-only: sign-in activity. Gated by account, not role —
+                the page itself re-checks, so the link is just visibility. */}
+            {currentUser?.email === ACTIVITY_OWNER_EMAIL && (
+              <NavLink href="/settings/activity" label="Sign-in Activity" />
+            )}
           </nav>
         )}
 

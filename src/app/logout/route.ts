@@ -14,11 +14,20 @@
 // so it cannot be prefetched and only fires on an explicit click.
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { signOut } from '@/lib/auth';
+import { getCurrentUser, isDevDemoMode, signOut } from '@/lib/auth';
+import { endSession } from '@/lib/data/login-sessions';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Close the activity-session row before the cookies are cleared.
+  // Best-effort — sign-out must never fail on a tracking write.
+  try {
+    const user = await getCurrentUser();
+    if (user && !isDevDemoMode()) await endSession(user.id);
+  } catch {
+    /* ignore */
+  }
   await signOut();
   const url = req.nextUrl.clone();
   url.pathname = '/login';
