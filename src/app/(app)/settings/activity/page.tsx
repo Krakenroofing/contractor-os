@@ -15,12 +15,17 @@ import {
   listLoginSessions,
   type LoginSessionRow,
 } from '@/lib/data/login-sessions';
+import { todayISOInTZ } from '@/lib/tz';
 
 export const dynamic = 'force-dynamic';
 
 /** Someone whose heartbeat landed in the last 10 minutes is "online". */
 const ONLINE_WINDOW_MS = 10 * 60 * 1000;
-const WINDOW_DAYS = 30;
+/** Fetch window — covers the weekly matrix (8 weeks) with a margin. */
+const WINDOW_DAYS = 60;
+const WEEKS_SHOWN = 8;
+/** Cap the raw session list so 8 weeks of data doesn't render a monster. */
+const MAX_SESSION_ROWS = 100;
 
 function fmtWhen(d: Date): string {
   return d.toLocaleString('en-US', {
@@ -41,6 +46,26 @@ function fmtDuration(ms: number): string {
 
 function sessionEnd(s: LoginSessionRow): Date {
   return s.endedAt ?? s.lastSeenAt;
+}
+
+/** ISO date of the Monday starting the (Nassau-calendar) week `d` falls
+ *  in. Weekday math runs in UTC on the extracted calendar date, so DST
+ *  never shifts the boundary. */
+function weekMondayISO(d: Date): string {
+  const [y, m, day] = todayISOInTZ(d).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, day));
+  const dow = (dt.getUTCDay() + 6) % 7; // 0 = Monday
+  dt.setUTCDate(dt.getUTCDate() - dow);
+  return dt.toISOString().slice(0, 10);
+}
+
+function weekLabel(mondayISO: string): string {
+  const [y, m, d] = mondayISO.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 export default async function ActivityPage() {
@@ -73,6 +98,33 @@ export default async function ActivityPage() {
     byUser.set(s.userId, cur);
   }
   const rollup = [...byUser.values()].sort((a, b) => b.totalMs - a.totalMs);
+
+  // Weekly matrix: hours per person per Nassau-calendar week (Mon-start),
+  // newest week first. A session counts toward the week it STARTED in —
+  // the 6h-gap logic keeps sessions within a day, so no splitting needed.
+  const weekKeys: string[] = [];
+  {
+    let cursor = new Date();
+    for (let i = 0; i < WEEKS_SHOWN; i++) {
+      const iso = weekMondayISO(cursor);
+      weekKeys.push(iso);
+      const [y, m, d] = iso.split('-').map(Number);
+      cursor = new Date(Date.UTC(y, m - 1, d) - 24 * 60 * 60 * 1000);
+    }
+  }
+  const weekly = new Map<string, { name: string; byWeek: Map<string, number> }>();
+  for (const s of sessions) {
+    const wk = weekMondayISO(s.startedAt);
+    const ms = Math.max(0, sessionEnd(s).getTime() - s.startedAt.getTime());
+    const cur = weekly.get(s.userId) ?? { name: s.userName, byWeek: new Map() };
+    cur.byWeek.set(wk, (cur.byWeek.get(wk) ?? 0) + ms);
+    weekly.set(s.userId, cur);
+  }
+  const weeklyRows = [...weekly.values()].sort(
+    (a, b) =>
+      (b.byWeek.get(weekKeys[0]) ?? 0) + (b.byWeek.get(weekKeys[1]) ?? 0) -
+      ((a.byWeek.get(weekKeys[0]) ?? 0) + (a.byWeek.get(weekKeys[1]) ?? 0)),
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl">
@@ -145,7 +197,61 @@ export default async function ActivityPage() {
 
       <div className="rounded-lg border border-slate-200 bg-white">
         <p className="px-4 pt-3 text-xs uppercase tracking-wide text-slate-500">
-          Every session
+          Hours by week (Mon–Sun, last {WEEKS_SHOWN} weeks)
+        </p>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Person</TableHead>
+                {weekKeys.map((wk) => (
+                  <TableHead key={wk} className="text-right whitespace-nowrap">
+                    {weekLabel(wk)}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {weeklyRows.map((u) => (
+                <TableRow key={u.name}>
+                  <TableCell className="font-medium text-slate-900 whitespace-nowrap">
+                    {u.name}
+                  </TableCell>
+                  {weekKeys.map((wk) => {
+                    const ms = u.byWeek.get(wk) ?? 0;
+                    return (
+                      <TableCell
+                        key={wk}
+                        className={`text-right tabular-nums ${
+                          ms === 0 ? 'text-slate-300' : 'text-slate-700'
+                        }`}
+                      >
+                        {ms === 0 ? '—' : fmtDuration(ms)}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+              {weeklyRows.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={WEEKS_SHOWN + 1}
+                    className="text-center text-slate-500 py-8"
+                  >
+                    No activity recorded yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <p className="px-4 pt-3 text-xs uppercase tracking-wide text-slate-500">
+          Recent sessions{' '}
+          {sessions.length > MAX_SESSION_ROWS &&
+            `(latest ${MAX_SESSION_ROWS} of ${sessions.length})`}
         </p>
         <Table>
           <TableHeader>
@@ -158,7 +264,7 @@ export default async function ActivityPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sessions.map((s) => {
+            {sessions.slice(0, MAX_SESSION_ROWS).map((s) => {
               const end = sessionEnd(s);
               const online = !s.endedAt && now - s.lastSeenAt.getTime() < ONLINE_WINDOW_MS;
               return (
