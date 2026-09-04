@@ -38,6 +38,12 @@ export const employees = pgTable(
     // anyone not covered by Bahamas NIB. When true, paystub shows no NIB
     // lines and the C-10 summary excludes them.
     nibExempt: boolean('nib_exempt').notNull().default(false),
+    // NIB coverage began on this date: pay periods ENDING before it get no
+    // NIB (as if exempt) and are left off the C-10; periods ending on/after
+    // it calculate NIB normally. For people added to payroll mid-year whose
+    // earlier pay predates their NIB registration. Null = covered from the
+    // start; nibExempt=true overrides this entirely.
+    nibStartDate: date('nib_start_date'),
     // Economically a subcontractor (typically NIB-exempt) even though they
     // run through payroll for time/pay mechanics. Routes their labor cost to
     // the Subcontractors COGS category (job-cost posting, P&L payroll

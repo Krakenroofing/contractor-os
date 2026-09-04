@@ -101,6 +101,9 @@ export const employeeFormSchema = z.object({
   terminationDate: optionalDate,
   active: z.coerce.boolean().default(true),
   nibExempt: z.coerce.boolean().default(false),
+  // NIB coverage start — periods ending before this date compute with no
+  // NIB. Blank = covered from the start.
+  nibStartDate: optionalDate,
   isSubcontractor: z.coerce.boolean().default(false),
   notes: z.string().max(2000).optional().or(z.literal('')),
 });

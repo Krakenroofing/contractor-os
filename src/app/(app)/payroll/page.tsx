@@ -479,7 +479,11 @@ export default async function PayrollPage({
                 payRate,
                 rateGross,
                 overrideAmount: existing?.grossAmount ?? '',
-                nibExempt: e.nibExempt,
+                // Period-aware: the stub already resolved nibStartDate
+                // against this week, so an employee whose NIB coverage
+                // began later shows "NIB exempt" only on their pre-start
+                // weeks.
+                nibExempt: stub?.nibExempt ?? e.nibExempt,
                 // True gross the paystub pays on (rate/override + piece work);
                 // falls back to rateGross when there's no stub yet.
                 grossFull: stub?.gross ?? rateGross,

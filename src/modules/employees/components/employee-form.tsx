@@ -33,6 +33,7 @@ export type EmployeeFormInitialValues = {
   terminationDate: string;
   active: boolean;
   nibExempt: boolean;
+  nibStartDate: string;
   isSubcontractor: boolean;
   notes: string;
 };
@@ -49,6 +50,7 @@ const blankInitial: EmployeeFormInitialValues = {
   terminationDate: '',
   active: true,
   nibExempt: false,
+  nibStartDate: '',
   isSubcontractor: false,
   notes: '',
 };
@@ -230,6 +232,25 @@ export function EmployeeForm({
               </p>
             </div>
           </label>
+
+          {!nibExempt && (
+            <div className="pl-6">
+              <Label>NIB start date (optional)</Label>
+              <Input
+                name="nibStartDate"
+                type="date"
+                defaultValue={values.nibStartDate}
+                className="mt-1.5 max-w-[200px]"
+              />
+              <p className="text-[11px] text-slate-600 mt-1">
+                For someone added to payroll partway through the year: pay
+                weeks that <b>end before</b> this date compute with no NIB
+                (and stay off the C-10); weeks ending on or after it
+                calculate NIB normally. Leave blank if they were NIB-covered
+                from their first pay week.
+              </p>
+            </div>
+          )}
 
           <label className="flex items-start gap-2 cursor-pointer">
             <input

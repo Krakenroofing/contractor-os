@@ -57,6 +57,7 @@ export async function createEmployeeInlineAction(input: {
     terminationDate: '',
     active: true,
     nibExempt: false,
+    nibStartDate: '',
     notes: '',
   });
   if (!parsed.success) {
@@ -77,6 +78,7 @@ export async function createEmployeeInlineAction(input: {
       terminationDate: null,
       active: data.active,
       nibExempt: data.nibExempt,
+      nibStartDate: null,
       isSubcontractor: data.isSubcontractor,
       notes: null,
     });
@@ -119,6 +121,7 @@ function readForm(formData: FormData) {
     nibExempt:
       formData.get('nibExempt') === 'on' ||
       formData.get('nibExempt') === 'true',
+    nibStartDate: formData.get('nibStartDate') ?? '',
     isSubcontractor:
       formData.get('isSubcontractor') === 'on' ||
       formData.get('isSubcontractor') === 'true',
@@ -159,6 +162,10 @@ export async function createEmployeeAction(
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
       nibExempt: data.nibExempt,
+      // Full exemption makes a coverage start date moot — blank it.
+      nibStartDate: data.nibExempt
+        ? null
+        : emptyToNull(data.nibStartDate ?? null),
       isSubcontractor: data.isSubcontractor,
       notes: emptyToNull(data.notes ?? null),
     });
@@ -210,6 +217,9 @@ export async function updateEmployeeAction(
       terminationDate: emptyToNull(data.terminationDate ?? null),
       active: data.active,
       nibExempt: data.nibExempt,
+      nibStartDate: data.nibExempt
+        ? null
+        : emptyToNull(data.nibStartDate ?? null),
       isSubcontractor: data.isSubcontractor,
       notes: emptyToNull(data.notes ?? null),
     });

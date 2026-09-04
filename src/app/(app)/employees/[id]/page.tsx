@@ -64,6 +64,9 @@ export default async function EmployeeDetailPage({
               : employee.nibNumber
                 ? `NIB ${employee.nibNumber}`
                 : 'No NIB number on file'}
+            {!employee.nibExempt && employee.nibStartDate && (
+              <> · NIB from {employee.nibStartDate} (earlier weeks exempt)</>
+            )}
           </p>
         </div>
         {allowEdit && (

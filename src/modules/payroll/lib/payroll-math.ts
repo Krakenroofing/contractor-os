@@ -16,7 +16,8 @@
 //      for the period. If no amount entries exist yet → $0 (still needs
 //      entry via timesheet or Pay Run).
 //
-// NIB exemption (nibExempt = true):
+// NIB exemption (nibExempt = true, OR the period ends before the
+// employee's nibStartDate — coverage that began mid-year):
 //   - No employee NIB withheld.
 //   - No employer NIB owed.
 //   - Excluded from the C10 summary entirely (filed return only covers
@@ -289,7 +290,12 @@ export function computeEmployeePaystub(
   const employeeName = `${employee.firstName} ${employee.lastName}`.trim();
   const employmentType = employee.employmentType as EmploymentType;
   const payRate = parseMoney(employee.payRate);
-  const nibExempt = employee.nibExempt === true;
+  // Exempt outright, or exempt for THIS period because it ends before the
+  // employee's NIB coverage started (added to payroll mid-year). ISO date
+  // strings compare correctly as strings.
+  const nibExempt =
+    employee.nibExempt === true ||
+    (employee.nibStartDate != null && period.endDate < employee.nibStartDate);
 
   const myEntries = entries.filter((e) => e.employeeId === employee.id);
   // Group 'hours' rows by work date so the unpaid lunch (which is per-day,
