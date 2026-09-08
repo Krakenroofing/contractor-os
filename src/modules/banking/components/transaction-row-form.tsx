@@ -578,17 +578,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
 
       {/* Flags + Save + Notes */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-        <div className="md:col-span-9 flex items-center gap-2 text-xs">
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              name="isReviewed"
-              checked={isReviewed}
-              onChange={(e) => setIsReviewed(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            Reviewed
-          </label>
+        <div className="md:col-span-6 flex items-center gap-2 text-xs">
           <label className="flex items-center gap-1">
             <input
               type="checkbox"
@@ -600,7 +590,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
             Ignore
           </label>
         </div>
-        <div className="md:col-span-3 flex items-center gap-2 md:justify-end">
+        <div className="md:col-span-6 flex items-center gap-3 md:justify-end">
           {props.isManualEntry && props.canEdit && props.manualInitial && (
             <Button
               type="button"
@@ -626,6 +616,16 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
               {deleting ? '…' : 'Delete entry'}
             </Button>
           )}
+          <label className="flex items-center gap-1 text-xs whitespace-nowrap">
+            <input
+              type="checkbox"
+              name="isReviewed"
+              checked={isReviewed}
+              onChange={(e) => setIsReviewed(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Reviewed
+          </label>
           <Button type="submit" size="sm" disabled={pending || (split && !balanced)}>
             {pending ? '…' : 'Save'}
           </Button>
