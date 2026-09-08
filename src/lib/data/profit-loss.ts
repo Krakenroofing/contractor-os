@@ -284,7 +284,34 @@ async function sumPostedLaborByPeriod(
       ),
     )
     .groupBy(jobCostEntries.sourceRefId, jobCostEntries.costType);
-  for (const r of rows) {
+  // Work-order labor: source_ref_id is the WORK ORDER id (so unposting can
+  // find its entries), so map these to pay periods by entry_date instead —
+  // the hours on a service call are hours the employee is paid for through
+  // payroll, and must reduce the same "wages not assigned to a job" residual.
+  const woRows = await db
+    .select({
+      periodId: payPeriods.id,
+      costType: jobCostEntries.costType,
+      total: sql<string>`COALESCE(SUM(${jobCostEntries.amount}), 0)`,
+    })
+    .from(jobCostEntries)
+    .innerJoin(
+      payPeriods,
+      and(
+        eq(payPeriods.companyId, jobCostEntries.companyId),
+        sql`${jobCostEntries.entryDate} BETWEEN ${payPeriods.startDate} AND ${payPeriods.endDate}`,
+      ),
+    )
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        sql`${jobCostEntries.deletedAt} IS NULL`,
+        eq(jobCostEntries.source, 'work_order'),
+        inArray(payPeriods.id, periodIds),
+      ),
+    )
+    .groupBy(payPeriods.id, jobCostEntries.costType);
+  for (const r of [...rows, ...woRows]) {
     if (!r.periodId) continue;
     const cur =
       posted.get(r.periodId) ?? { wage: 0, subWage: 0, burden: 0 };

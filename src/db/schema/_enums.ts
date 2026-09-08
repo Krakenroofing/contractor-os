@@ -106,6 +106,16 @@ export const jobCostSourceEnum = pgEnum('job_cost_source', [
   // imported from QuickBooks). Kept as its own source so "Post labor to job
   // costs" reposts never clobber them.
   'labor_manual',
+  // Labor posted from a field work order (service call). source_ref_id is
+  // the WORK ORDER id (unposting deletes by it); the P&L payroll residual
+  // maps these to pay periods by entry_date instead.
+  'work_order',
+]);
+
+export const workOrderStatusEnum = pgEnum('work_order_status', [
+  'submitted',
+  'posted',
+  'void',
 ]);
 
 export const jobCostTypeEnum = pgEnum('job_cost_type', [

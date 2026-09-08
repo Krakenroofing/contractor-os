@@ -19,6 +19,7 @@ import { buildDashboardData, type AlertItem } from '@/modules/dashboard/lib/dash
 import { buildAccountingSummary } from '@/modules/dashboard/lib/accounting-summary';
 import { buildRemainingBillable } from '@/modules/dashboard/lib/remaining-billable';
 import { listAccountingReviewItems } from '@/lib/data/accounting-review';
+import { listWorkOrders } from '@/lib/data/work-orders';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
 import { TeamTasksPanel } from '@/modules/team-tasks/components/team-tasks-panel';
 import { requireAuth } from '@/lib/auth';
@@ -47,6 +48,13 @@ export default async function DashboardPage() {
   const accountingTodoCount = canSeeStatementImports
     ? (await listAccountingReviewItems(company.id)).length
     : 0;
+  // Field-submitted work orders waiting on the office (review → client →
+  // invoice → post). Surfaced as an alert card so a fresh service call is
+  // impossible to miss.
+  const canSeeWorkOrders = canView(role, 'projects');
+  const submittedWorkOrders = canSeeWorkOrders
+    ? await listWorkOrders(company.id, { status: 'submitted' })
+    : [];
   // Hide VAT chrome for non-VAT companies (e.g. Kraken Roofing LLC, US — no
   // VAT). Only TRB (VAT-registered) should see VAT figures/labels.
   const isVatActive = company.isVatActive;
@@ -360,6 +368,22 @@ export default async function DashboardPage() {
           Needs attention
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {canSeeWorkOrders && (
+            <AlertCard
+              title="Work orders to review"
+              count={submittedWorkOrders.length}
+              hint="from the field"
+              tone="amber"
+              moreHref="/work-orders"
+              items={submittedWorkOrders.slice(0, 5).map((wo) => ({
+                href: `/work-orders/${wo.id}`,
+                label: `${wo.number} · ${wo.workDate} · ${wo.employeeName}${
+                  wo.requestedBy ? ` — ${wo.requestedBy}` : ''
+                }`,
+              }))}
+              emptyText="No service calls waiting — field submissions land here."
+            />
+          )}
           {canSeeInvoices && (
             <AlertCard
               title="Overdue invoices"

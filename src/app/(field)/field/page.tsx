@@ -104,6 +104,16 @@ export default async function FieldHomePage() {
         disabled={!employee}
       />
 
+      {/* Work order — a service call: crew, hours, materials, repairs done.
+          Lands on the office dashboard for review → client → invoice →
+          posting to job costing. Needs the employee link (labor credit). */}
+      <ActionCard
+        title="Work order"
+        subtitle="Service call — crew, hours, materials, repairs"
+        href={employee ? '/field/work-orders' : undefined}
+        disabled={!employee}
+      />
+
       {/* Note for office — a quick line (and optional photo) to flag anything
           for the office to handle. Doesn't need an employee link — anyone
           signed in can send one. Lands in the office dashboard inbox. */}
