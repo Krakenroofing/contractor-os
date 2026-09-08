@@ -67,9 +67,14 @@ export const vendorCreditApplications = pgTable(
     creditId: uuid('credit_id')
       .notNull()
       .references(() => vendorCredits.id, { onDelete: 'cascade' }),
-    receiptId: uuid('receipt_id')
-      .notNull()
-      .references(() => receipts.id, { onDelete: 'cascade' }),
+    // Exactly ONE target per application (SQL CHECK): a bill (receipt) OR a
+    // split-categorized bank transaction whose credit line consumes the
+    // credit. The transaction FK lives in SQL only — importing the
+    // statement-imports schema here would create a module cycle.
+    receiptId: uuid('receipt_id').references(() => receipts.id, {
+      onDelete: 'cascade',
+    }),
+    importedTransactionId: uuid('imported_transaction_id'),
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
     appliedAt: timestamp('applied_at', { withTimezone: true })
       .notNull()

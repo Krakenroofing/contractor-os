@@ -603,7 +603,9 @@ export type ImportedTransactionLineInput = {
   projectId: string | null;
   costCodeId: string | null;
   description: string | null;
-  amount: string; // numeric string, positive magnitude
+  /** Applies this vendor credit — the amount is negative, account = A/P. */
+  vendorCreditId?: string | null;
+  amount: string; // numeric string, signed (negative = contra line)
 };
 
 /** Lines for a set of transactions, batched. Returns [] in demo mode (the
@@ -653,6 +655,7 @@ export async function replaceImportedTransactionLines(
           projectId: l.projectId,
           costCodeId: l.costCodeId,
           description: l.description,
+          vendorCreditId: l.vendorCreditId ?? null,
           amount: l.amount,
         })),
       );

@@ -41,13 +41,20 @@ export async function listVendorCredits(
     isNull(vendorCredits.deletedAt),
   ];
   if (filter.vendorId) conds.push(eq(vendorCredits.vendorId, filter.vendorId));
+  // Grouped LEFT JOIN, not a correlated sql`` subquery — the latter silently
+  // returns 0 under drizzle (same trap as getCurrentBalancesByAccount).
   const rows = await db
     .select({
       credit: vendorCredits,
-      appliedTotal: sql<string>`COALESCE((SELECT SUM(a.amount) FROM ${vendorCreditApplications} a WHERE a.credit_id = ${vendorCredits.id}), 0)`,
+      appliedTotal: sql<string>`COALESCE(SUM(${vendorCreditApplications.amount}), 0)`,
     })
     .from(vendorCredits)
+    .leftJoin(
+      vendorCreditApplications,
+      eq(vendorCreditApplications.creditId, vendorCredits.id),
+    )
     .where(and(...conds))
+    .groupBy(vendorCredits.id)
     .orderBy(desc(vendorCredits.creditDate));
   return rows.map((r) => ({
     ...r.credit,
@@ -64,9 +71,13 @@ export async function getVendorCredit(
   const rows = await db
     .select({
       credit: vendorCredits,
-      appliedTotal: sql<string>`COALESCE((SELECT SUM(a.amount) FROM ${vendorCreditApplications} a WHERE a.credit_id = ${vendorCredits.id}), 0)`,
+      appliedTotal: sql<string>`COALESCE(SUM(${vendorCreditApplications.amount}), 0)`,
     })
     .from(vendorCredits)
+    .leftJoin(
+      vendorCreditApplications,
+      eq(vendorCreditApplications.creditId, vendorCredits.id),
+    )
     .where(
       and(
         eq(vendorCredits.id, id),
@@ -74,6 +85,7 @@ export async function getVendorCredit(
         isNull(vendorCredits.deletedAt),
       ),
     )
+    .groupBy(vendorCredits.id)
     .limit(1);
   const r = rows[0];
   return r ? { ...r.credit, appliedTotal: Number(r.appliedTotal) } : undefined;
@@ -165,6 +177,62 @@ export async function createVendorCreditApplication(input: {
   return row;
 }
 
+/** Applications consuming credits against one BANK TRANSACTION (credit split
+ *  lines) — the other application target besides bills. */
+export async function listApplicationsForTransaction(
+  companyId: string,
+  importedTransactionId: string,
+): Promise<VendorCreditApplication[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(vendorCreditApplications)
+    .where(
+      and(
+        eq(vendorCreditApplications.companyId, companyId),
+        eq(
+          vendorCreditApplications.importedTransactionId,
+          importedTransactionId,
+        ),
+      ),
+    );
+}
+
+/** Replace ALL of one transaction's credit applications in one shot — called
+ *  by the categorize save so the application ledger always mirrors the
+ *  txn's credit split lines (empty array clears them). */
+export async function replaceTransactionCreditApplications(
+  companyId: string,
+  importedTransactionId: string,
+  apps: Array<{ creditId: string; amount: string }>,
+): Promise<void> {
+  const db = requireDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(vendorCreditApplications)
+      .where(
+        and(
+          eq(vendorCreditApplications.companyId, companyId),
+          eq(
+            vendorCreditApplications.importedTransactionId,
+            importedTransactionId,
+          ),
+        ),
+      );
+    if (apps.length > 0) {
+      await tx.insert(vendorCreditApplications).values(
+        apps.map((a) => ({
+          companyId,
+          creditId: a.creditId,
+          importedTransactionId,
+          amount: a.amount,
+        })),
+      );
+    }
+  });
+}
+
 export async function deleteVendorCreditApplication(
   companyId: string,
   id: string,
@@ -204,7 +272,9 @@ export async function sumAppliedCreditsByReceipt(
       ),
     )
     .groupBy(vendorCreditApplications.receiptId);
-  for (const r of rows) map.set(r.receiptId, Number(r.total));
+  // receipt_id is non-null on every row here (filtered by inArray), but the
+  // column itself is nullable since applications can target bank txns.
+  for (const r of rows) if (r.receiptId) map.set(r.receiptId, Number(r.total));
   return map;
 }
 

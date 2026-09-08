@@ -42,7 +42,10 @@ import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
 import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listBankReconciliations } from '@/lib/data/bank-reconciliations';
-import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
+import {
+  listVendorCredits,
+  sumAppliedCreditsByReceipt,
+} from '@/lib/data/vendor-credits';
 import { listPayrollBillsWithDetails } from '@/lib/data/payroll-bills';
 import { TransactionRowForm } from '@/modules/banking/components/transaction-row-form';
 import { toAccountingAccountOptions } from '@/modules/accounting/lib/account-options';
@@ -213,6 +216,25 @@ export default async function BankAccountDetailPage({
     arr.push(ln);
     linesByTxn.set(ln.importedTransactionId, arr);
   }
+
+  // Open vendor credits — offered in the split editor when their vendor is
+  // picked, so a payment can be itemized ABOVE the bank amount and netted
+  // back down by applying the credit as a negative line. Credits already
+  // referenced by a visible line are included even when fully applied, so
+  // an existing credit line still renders its label.
+  const allVendorCredits = await listVendorCredits(company.id);
+  const referencedCreditIds = new Set(
+    allLines.map((l) => l.vendorCreditId).filter(Boolean),
+  );
+  const vendorCreditOptions = allVendorCredits
+    .map((c) => ({
+      id: c.id,
+      vendorId: c.vendorId,
+      label: `${c.reference ? `#${c.reference} · ` : ''}${c.creditDate} credit of ${formatMoney(Number(c.amount), company.defaultCurrency)}`,
+      remaining:
+        Math.round((Number(c.amount) - c.appliedTotal) * 100) / 100,
+    }))
+    .filter((c) => c.remaining > 0.005 || referencedCreditIds.has(c.id));
 
   // The VAT Input (Recoverable) account — target of the "Auto-VAT split"
   // button. Resolved by type so it works regardless of code/name. Null when
@@ -744,10 +766,13 @@ export default async function BankAccountDetailPage({
                     rowLines.length > 0
                       ? rowLines
                           .map((l) =>
-                            l.accountingAccountId
-                              ? (categoryNameById.get(l.accountingAccountId) ??
-                                'Unknown')
-                              : 'Uncategorized',
+                            l.vendorCreditId
+                              ? 'Vendor credit'
+                              : l.accountingAccountId
+                                ? (categoryNameById.get(
+                                    l.accountingAccountId,
+                                  ) ?? 'Unknown')
+                                : 'Uncategorized',
                           )
                           .join(' + ')
                       : t.accountingAccountId
@@ -1052,6 +1077,7 @@ export default async function BankAccountDetailPage({
                                 projectId: ln.projectId,
                                 costCodeId: ln.costCodeId,
                                 description: ln.description,
+                                vendorCreditId: ln.vendorCreditId,
                                 amount: Number(ln.amount),
                               })),
                             }}
@@ -1063,6 +1089,7 @@ export default async function BankAccountDetailPage({
                             vendors={vendorOptions}
                             customers={customerOptions}
                             vatInputAccountId={vatInputAccountId}
+                            vendorCredits={vendorCreditOptions}
                             companyVatRatePercent={
                               company.vatRatePercent
                                 ? Number(company.vatRatePercent)

@@ -251,7 +251,15 @@ export const importedTransactionLines = pgTable(
       onDelete: 'set null',
     }),
     description: text('description'),
-    // Positive magnitude of this line's share of the expense. Lines sum to
+    // Set when this line APPLIES a vendor credit against the payment: the
+    // line's amount is negative and its account is Accounts Payable (clearing
+    // the Dr AP the credit posted at creation). FK lives in SQL only —
+    // declaring it here would import vendor-credits and create a schema
+    // module cycle. Kept in lockstep with a vendor_credit_applications row
+    // targeting this line's transaction.
+    vendorCreditId: uuid('vendor_credit_id'),
+    // SIGNED share of this line (negative lines post on the opposite side —
+    // e.g. a vendor-credit line inside an expense). Lines sum to
     // ABS(imported_transactions.amount).
     amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })

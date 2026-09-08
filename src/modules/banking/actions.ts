@@ -22,11 +22,19 @@ import {
   updateBankAccount,
 } from '@/lib/data/bank-accounts';
 import { getUserNamesByIds } from '@/lib/data/users';
-import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
+import {
+  getVendorCredit,
+  listApplicationsForTransaction,
+  replaceTransactionCreditApplications,
+  sumAppliedCreditsByReceipt,
+} from '@/lib/data/vendor-credits';
 import { findOrCreatePaymentMethod } from '@/lib/data/payment-methods';
 import { randomUUID } from 'crypto';
 import { insertManualBankTransaction } from '@/lib/data/bank-reconciliations';
-import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
+import {
+  resolveGlSystemAccounts,
+  syncBankTxnGl,
+} from '@/modules/accounting/lib/gl-posting';
 import {
   createImportBatch,
   deleteImportBatch,
@@ -542,6 +550,14 @@ const splitLineParseSchema = z.object({
   projectId: z.union([z.string(), z.null()]).optional(),
   costCodeId: z.union([z.string(), z.null()]).optional(),
   description: z.union([z.string().max(500), z.null()]).optional(),
+  // Set when the line APPLIES a vendor credit: the amount must be negative
+  // (it reduces the total the other lines have to cover) and the server
+  // forces the line's account to Accounts Payable — the credit posted
+  // Dr AP at creation, so consuming it here credits AP back out.
+  vendorCreditId: z
+    .union([z.string().uuid(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => (v && v !== '' ? v : null)),
   amount: z.coerce
     .number()
     .finite()
@@ -636,24 +652,94 @@ export async function updateImportedTransactionAction(
 
     // Can't mark reviewed with any line still uncategorized (it wouldn't flow
     // into the P&L / Balance Sheet). Saving uncategorized is fine — it lands in
-    // the Accounting To-Do. Transfers/reconciled + ignored are exempt.
+    // the Accounting To-Do. Transfers/reconciled + ignored are exempt, and so
+    // are vendor-credit lines (the server assigns their account below).
     if (
       commonPatch.isReviewed &&
       !commonPatch.isIgnored &&
       !txn.reconciledAt &&
-      !lines.every((l) => l.accountingAccountId != null)
+      !lines.every((l) => l.accountingAccountId != null || l.vendorCreditId)
     ) {
       return { formError: REVIEW_NEEDS_CATEGORY_ERROR };
     }
 
+    // Vendor-credit lines: validate against the credit's open remainder and
+    // pin the account to Accounts Payable. "Remaining" ignores THIS txn's own
+    // existing applications — this save replaces them wholesale.
+    const creditLines = lines.filter((l) => l.vendorCreditId);
+    const creditApps: Array<{ creditId: string; amount: string }> = [];
+    if (creditLines.length > 0) {
+      const ownApps = await listApplicationsForTransaction(
+        companyId,
+        parsed.data.id,
+      );
+      const ownByCredit = new Map<string, number>();
+      for (const a of ownApps) {
+        ownByCredit.set(
+          a.creditId,
+          (ownByCredit.get(a.creditId) ?? 0) + Number(a.amount),
+        );
+      }
+      const draftByCredit = new Map<string, number>();
+      for (const l of creditLines) {
+        if (l.amount >= 0) {
+          return {
+            formError:
+              'A vendor-credit line must be NEGATIVE — it reduces what the bank payment has to cover.',
+          };
+        }
+        draftByCredit.set(
+          l.vendorCreditId!,
+          (draftByCredit.get(l.vendorCreditId!) ?? 0) + Math.abs(l.amount),
+        );
+      }
+      for (const [creditId, wanted] of draftByCredit) {
+        const credit = await getVendorCredit(companyId, creditId);
+        if (!credit) {
+          return { formError: 'Vendor credit not found.' };
+        }
+        if (
+          parsed.data.vendorId &&
+          credit.vendorId !== parsed.data.vendorId
+        ) {
+          return {
+            formError:
+              'That vendor credit belongs to a different vendor than the one on this transaction.',
+          };
+        }
+        const available =
+          Number(credit.amount) -
+          credit.appliedTotal +
+          (ownByCredit.get(creditId) ?? 0);
+        if (wanted > available + 0.005) {
+          return {
+            formError: `Only ${formatMoney(available, txn.currency)} of that vendor credit is left to apply (asked for ${formatMoney(wanted, txn.currency)}).`,
+          };
+        }
+        creditApps.push({ creditId, amount: toMoneyString(wanted) });
+      }
+    }
+    const apAccountId =
+      creditLines.length > 0
+        ? (await resolveGlSystemAccounts(companyId)).accountsPayable
+        : null;
+
     const lineInputs: ImportedTransactionLineInput[] = lines.map((l) => ({
-      accountingAccountId: l.accountingAccountId,
+      accountingAccountId: l.vendorCreditId
+        ? apAccountId
+        : l.accountingAccountId,
       projectId: l.projectId ? l.projectId : null,
       costCodeId: l.costCodeId ? l.costCodeId : null,
       description: l.description ? l.description : null,
+      vendorCreditId: l.vendorCreditId ?? null,
       amount: toMoneyString(l.amount),
     }));
     await replaceImportedTransactionLines(companyId, parsed.data.id, lineInputs);
+    await replaceTransactionCreditApplications(
+      companyId,
+      parsed.data.id,
+      creditApps,
+    );
     // Lines are the source of truth → clear the single-category fields so the
     // transaction never carries two conflicting categorizations.
     await updateImportedTransaction(companyId, parsed.data.id, {
@@ -673,6 +759,8 @@ export async function updateImportedTransactionAction(
       return { formError: REVIEW_NEEDS_CATEGORY_ERROR };
     }
     await replaceImportedTransactionLines(companyId, parsed.data.id, []);
+    // Dropping the split also releases any vendor credit it was consuming.
+    await replaceTransactionCreditApplications(companyId, parsed.data.id, []);
     await updateImportedTransaction(companyId, parsed.data.id, {
       accountingAccountId: parsed.data.accountingAccountId,
       projectId: parsed.data.projectId,

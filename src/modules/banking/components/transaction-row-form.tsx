@@ -41,11 +41,14 @@ type VendorOption = {
 
 // A split line as the operator is editing it. `amount` is the raw text in the
 // number input ('' allowed mid-edit); serialized to a number on submit.
+// A line with vendorCreditId set is a CREDIT line: negative amount, account
+// assigned server-side (Accounts Payable) — the pickers don't render for it.
 type LineDraft = {
   accountingAccountId: string;
   projectId: string;
   costCodeId: string;
   description: string;
+  vendorCreditId: string;
   amount: string;
 };
 
@@ -54,7 +57,18 @@ type InitialLine = {
   projectId: string | null;
   costCodeId: string | null;
   description: string | null;
+  vendorCreditId?: string | null;
   amount: number;
+};
+
+/** An open credit note offered for application when its vendor is picked.
+ *  `remaining` is the company-wide unapplied remainder (bills + other txns —
+ *  this txn's own existing application is added back client-side). */
+export type VendorCreditOption = {
+  id: string;
+  vendorId: string;
+  label: string;
+  remaining: number;
 };
 
 export type TransactionRowFormProps = {
@@ -82,6 +96,10 @@ export type TransactionRowFormProps = {
    *  for Auto-VAT split when no VAT-registered vendor is selected, so a txn
    *  can be split at the company rate and categorized later. */
   companyVatRatePercent: number | null;
+  /** Open vendor credits (all vendors — filtered to the picked vendor in the
+   *  UI). Lets the operator apply a credit as a negative split line so the
+   *  expense lines can exceed the bank amount and net back down to it. */
+  vendorCredits?: VendorCreditOption[];
   paymentMethods?: PaymentMethodOption[];
   canEdit: boolean;
   /** True for register/reconcile entries typed by the operator (source
@@ -115,6 +133,7 @@ const emptyLine = (): LineDraft => ({
   projectId: '',
   costCodeId: '',
   description: '',
+  vendorCreditId: '',
   amount: '',
 });
 
@@ -216,6 +235,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
           projectId: l.projectId ?? '',
           costCodeId: l.costCodeId ?? '',
           description: l.description ?? '',
+          vendorCreditId: l.vendorCreditId ?? '',
           amount: l.amount.toFixed(2),
         }))
       : [emptyLine(), emptyLine()],
@@ -264,6 +284,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
         projectId,
         costCodeId,
         description: 'Cost (ex-VAT)',
+        vendorCreditId: '',
         amount: net.toFixed(2),
       },
       {
@@ -271,6 +292,7 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
         projectId: '',
         costCodeId: '',
         description: `VAT input @ ${rate}%`,
+        vendorCreditId: '',
         amount: vat.toFixed(2),
       },
     ]);
@@ -288,9 +310,68 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
       projectId: l.projectId || null,
       costCodeId: l.costCodeId || null,
       description: l.description || null,
+      vendorCreditId: l.vendorCreditId || null,
       amount: Number(l.amount) || 0,
     })),
   );
+
+  // ===== Vendor credits =====
+  // A credit's true availability for THIS editor = the company-wide remainder
+  // plus whatever this txn had already applied before the edit (the save
+  // replaces this txn's applications wholesale).
+  const creditById = new Map(
+    (props.vendorCredits ?? []).map((c) => [c.id, c]),
+  );
+  const initiallyAppliedByCredit = new Map<string, number>();
+  for (const l of props.initial.lines) {
+    if (!l.vendorCreditId) continue;
+    initiallyAppliedByCredit.set(
+      l.vendorCreditId,
+      (initiallyAppliedByCredit.get(l.vendorCreditId) ?? 0) +
+        Math.abs(l.amount),
+    );
+  }
+  const draftAppliedByCredit = new Map<string, number>();
+  for (const l of lines) {
+    if (!l.vendorCreditId) continue;
+    draftAppliedByCredit.set(
+      l.vendorCreditId,
+      (draftAppliedByCredit.get(l.vendorCreditId) ?? 0) +
+        Math.abs(Number(l.amount) || 0),
+    );
+  }
+  const availableCredits = (props.vendorCredits ?? [])
+    .filter((c) => c.vendorId === vendorId)
+    .map((c) => ({
+      ...c,
+      available: round2(
+        c.remaining +
+          (initiallyAppliedByCredit.get(c.id) ?? 0) -
+          (draftAppliedByCredit.get(c.id) ?? 0),
+      ),
+    }))
+    .filter((c) => c.available > 0.005);
+
+  // Prefill the credit line with what's needed to balance: if the expense
+  // lines already overshoot the bank amount, take exactly the overshoot
+  // (capped at the credit's remainder); otherwise take the full remainder.
+  function applyCredit(c: { id: string; available: number }) {
+    const overshoot = -remaining; // lines over the gross → positive overshoot
+    const take = round2(
+      overshoot > 0.005 ? Math.min(overshoot, c.available) : c.available,
+    );
+    setLines((prev) => [
+      ...prev,
+      {
+        accountingAccountId: '',
+        projectId: '',
+        costCodeId: '',
+        description: '',
+        vendorCreditId: c.id,
+        amount: (-take).toFixed(2),
+      },
+    ]);
+  }
 
   if (!props.canEdit) {
     return (
@@ -418,62 +499,121 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
       {/* Split grid */}
       {split && (
         <div className="rounded-md border border-slate-200 p-2 space-y-2">
-          {lines.map((l, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center"
-            >
-              <div className="md:col-span-4">
-                <AccountingAccountPicker
-                  value={l.accountingAccountId}
-                  onChange={(id) => setLine(i, { accountingAccountId: id })}
-                  accounts={props.categories}
-                  placeholder="— category —"
-                />
+          {lines.map((l, i) =>
+            l.vendorCreditId ? (
+              <div
+                key={i}
+                className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center rounded bg-emerald-50/60 px-1 py-0.5"
+              >
+                <div className="md:col-span-9 text-xs text-emerald-800">
+                  <span className="font-medium">Vendor credit applied</span>
+                  {' — '}
+                  {creditById.get(l.vendorCreditId)?.label ?? 'credit'}
+                  <span className="text-emerald-700/70">
+                    {' '}
+                    · negative amount reduces what the lines above must cover
+                  </span>
+                </div>
+                <div className="md:col-span-2">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    max="0"
+                    value={l.amount}
+                    onChange={(e) => setLine(i, { amount: e.target.value })}
+                    placeholder="-0.00"
+                    className="h-9 text-xs text-right tabular-nums"
+                  />
+                </div>
+                <div className="md:col-span-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => removeLine(i)}
+                    className="text-slate-400 hover:text-red-600 text-lg leading-none"
+                    title="Remove credit line"
+                    aria-label="Remove credit line"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
-              <div className="md:col-span-2">
-                <ProjectPicker
-                  value={l.projectId ?? ''}
-                  projects={props.projects.map((o) => ({
-                    id: o.id,
-                    name: o.label,
-                  }))}
-                  customers={props.customers}
-                  noneLabel="— no project —"
-                  onChange={(id) => setLine(i, { projectId: id })}
-                />
+            ) : (
+              <div
+                key={i}
+                className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center"
+              >
+                <div className="md:col-span-4">
+                  <AccountingAccountPicker
+                    value={l.accountingAccountId}
+                    onChange={(id) => setLine(i, { accountingAccountId: id })}
+                    accounts={props.categories}
+                    placeholder="— category —"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <ProjectPicker
+                    value={l.projectId ?? ''}
+                    projects={props.projects.map((o) => ({
+                      id: o.id,
+                      name: o.label,
+                    }))}
+                    customers={props.customers}
+                    noneLabel="— no project —"
+                    onChange={(id) => setLine(i, { projectId: id })}
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <Input
+                    value={l.description}
+                    onChange={(e) => setLine(i, { description: e.target.value })}
+                    placeholder="Description"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={l.amount}
+                    onChange={(e) => setLine(i, { amount: e.target.value })}
+                    placeholder="0.00"
+                    className="h-9 text-xs text-right tabular-nums"
+                  />
+                </div>
+                <div className="md:col-span-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => removeLine(i)}
+                    className="text-slate-400 hover:text-red-600 text-lg leading-none"
+                    title="Remove line"
+                    aria-label="Remove line"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
-              <div className="md:col-span-3">
-                <Input
-                  value={l.description}
-                  onChange={(e) => setLine(i, { description: e.target.value })}
-                  placeholder="Description"
-                  className="h-9 text-xs"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={l.amount}
-                  onChange={(e) => setLine(i, { amount: e.target.value })}
-                  placeholder="0.00"
-                  className="h-9 text-xs text-right tabular-nums"
-                />
-              </div>
-              <div className="md:col-span-1 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => removeLine(i)}
-                  className="text-slate-400 hover:text-red-600 text-lg leading-none"
-                  title="Remove line"
-                  aria-label="Remove line"
-                >
-                  ×
-                </button>
-              </div>
+            ),
+          )}
+          {availableCredits.length > 0 && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900">
+              <span className="font-medium">
+                Vendor credit available from this vendor:
+              </span>{' '}
+              {availableCredits.map((c) => (
+                <span key={c.id} className="mr-2 inline-flex items-center gap-1">
+                  {c.label} — {money(c.available, props.currency)} left
+                  <button
+                    type="button"
+                    onClick={() => applyCredit(c)}
+                    className="rounded border border-emerald-300 bg-white px-1.5 py-0.5 text-emerald-800 hover:bg-emerald-100"
+                    title="Add a negative line that applies this credit — prefilled with the amount needed to balance the split"
+                  >
+                    Apply
+                  </button>
+                </span>
+              ))}
             </div>
-          ))}
+          )}
           <div className="flex items-center justify-between pt-1">
             <button
               type="button"
