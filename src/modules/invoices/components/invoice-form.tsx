@@ -246,6 +246,20 @@ export function InvoiceForm({
     id: string;
     label: string;
     projectId: string | null;
+    /** Prefill built from the work order: one aggregated labor line (T&M
+     *  bill rate when the service project has one) + a line per material
+     *  (catalog cost, with the project's material markup applied) + the
+     *  repairs-done text for the notes. */
+    prefill?: {
+      notes: string;
+      lines: Array<{
+        description: string;
+        unit: string;
+        quantity: string;
+        unitCost: string;
+        inventoryItemId: string;
+      }>;
+    };
   }>;
   /** Prefill from /invoices/new?workOrder=… (the WO page's Create
    *  invoice link). */
@@ -264,14 +278,24 @@ export function InvoiceForm({
   const [state, formAction, pending] = useActionState(createInvoiceAction, initialState);
   const [dirty, setDirty] = useState(false);
   useUnsavedChangesGuard(dirty);
-  const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
   const defaultWorkOrder = workOrders.find((w) => w.id === defaultWorkOrderId);
+  // Deep-linked from a work order page → open with its lines already in.
+  const [lines, setLines] = useState<LineDraft[]>(() =>
+    defaultWorkOrder?.prefill && defaultWorkOrder.prefill.lines.length > 0
+      ? defaultWorkOrder.prefill.lines.map((l) => ({
+          ...l,
+          rowId: crypto.randomUUID(),
+        }))
+      : [newEmptyLine()],
+  );
   const [workOrderId, setWorkOrderId] = useState(defaultWorkOrder?.id ?? '');
   const [projectId, setProjectId] = useState(
     defaultWorkOrder?.projectId ?? '',
   );
   const [templateId, setTemplateId] = useState('');
-  const [billingType, setBillingType] = useState<string>('progress');
+  const [billingType, setBillingType] = useState<string>(
+    defaultWorkOrder?.prefill ? 't_m' : 'progress',
+  );
   // Phase 1.5: when the selected project's customer has open credit, the
   // operator can opt in to apply some/all of it to this new invoice.
   // FIFO consumption (oldest credits first) happens server-side after
@@ -775,6 +799,20 @@ export function InvoiceForm({
                   // A posted work order carries its service project —
                   // billing it selects that project automatically.
                   if (wo?.projectId) setProjectId(wo.projectId);
+                  // Prefill the invoice from the call: labor + material
+                  // lines, T&M billing, repairs text into Notes (via the
+                  // keyed textarea below). Picking a WO is an explicit
+                  // "bill this call", so it replaces the current lines.
+                  if (wo?.prefill && wo.prefill.lines.length > 0) {
+                    setLines(
+                      wo.prefill.lines.map((l) => ({
+                        ...l,
+                        rowId: crypto.randomUUID(),
+                      })),
+                    );
+                    setBillingType('t_m');
+                    setDirty(true);
+                  }
                 }}
               >
                 <option value="">— not for a work order —</option>
@@ -785,9 +823,12 @@ export function InvoiceForm({
                 ))}
               </Select>
               <p className="text-[11px] text-slate-500 mt-1">
-                Marries this invoice to the service call — the work order
-                records how it was billed, and its job costs tie to the same
-                project. Post the work order first to bill its own project.
+                Marries this invoice to the service call. Picking one
+                prefills the lines from the call — labor hours (at the
+                project&apos;s T&amp;M bill rate when set) and materials with
+                quantities — switches billing to Time &amp; Materials, and
+                drops the repairs summary into Notes. Adjust prices before
+                sending; post the work order first to bill its own project.
               </p>
             </Field>
           )}
@@ -1452,7 +1493,17 @@ export function InvoiceForm({
             Notes &amp; terms
           </legend>
           {showNotes && (
-            <TextareaField name="notes" label="Notes" rows={3} />
+            <TextareaField
+              // Keyed by the selected work order so picking one re-applies
+              // its repairs-done text (uncontrolled otherwise).
+              key={`notes-${workOrderId}`}
+              name="notes"
+              label="Notes"
+              rows={3}
+              defaultValue={
+                workOrders.find((w) => w.id === workOrderId)?.prefill?.notes
+              }
+            />
           )}
           {showPaymentTerms && (
             <TextareaField
@@ -1533,10 +1584,14 @@ function TextareaField({
   name,
   label,
   rows,
+  defaultValue,
 }: {
   name: string;
   label: string;
   rows: number;
+  /** Uncontrolled prefill — pair with a `key` on the call site to re-apply
+   *  when the source (e.g. the selected work order) changes. */
+  defaultValue?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -1544,6 +1599,7 @@ function TextareaField({
       <textarea
         name={name}
         rows={rows}
+        defaultValue={defaultValue}
         className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
     </div>

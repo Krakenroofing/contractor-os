@@ -16,7 +16,10 @@ import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import { nextNumberInSequence } from '@/lib/next-number';
-import { listWorkOrders } from '@/lib/data/work-orders';
+import {
+  getWorkOrderWithDetails,
+  listWorkOrders,
+} from '@/lib/data/work-orders';
 import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
 
 export const dynamic = 'force-dynamic';
@@ -202,19 +205,79 @@ export default async function NewInvoicePage({
 
   // Service-call work orders this invoice can be married to: not void and
   // not already billed (except the one deep-linked from a WO page, so the
-  // prefill still resolves even if it was linked before).
-  const workOrderOptions = (await listWorkOrders(companyId))
-    .filter(
-      (w) =>
-        w.status !== 'void' && (!w.invoiceId || w.id === sp.workOrder),
-    )
-    .map((w) => ({
-      id: w.id,
-      projectId: w.projectId,
-      label: `${w.number} · ${w.workDate} · ${
-        w.customerName ?? w.requestedBy ?? w.employeeName
-      }${w.status === 'posted' ? '' : ' (not posted yet)'}`,
-    }));
+  // prefill still resolves even if it was linked before). Each option
+  // carries a PREFILL built from the call — one aggregated labor line
+  // (priced at the service project's T&M bill rate when set), a line per
+  // material (catalog cost × the project's material markup), and the
+  // repairs-done text for the invoice notes.
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const openWorkOrders = (await listWorkOrders(companyId)).filter(
+    (w) => w.status !== 'void' && (!w.invoiceId || w.id === sp.workOrder),
+  );
+  const workOrderOptions = await Promise.all(
+    openWorkOrders.map(async (w) => {
+      const det = await getWorkOrderWithDetails(companyId, w.id);
+      const proj = det?.projectId
+        ? projects.find((p) => p.id === det.projectId)
+        : undefined;
+      const prefillLines: Array<{
+        description: string;
+        unit: string;
+        quantity: string;
+        unitCost: string;
+        inventoryItemId: string;
+      }> = [];
+      if (det) {
+        const laborHours = round2(
+          det.labor.reduce((s, l) => s + Number(l.hours), 0),
+        );
+        if (laborHours > 0) {
+          const billRate = proj?.tmLaborBillRate ?? 0;
+          prefillLines.push({
+            description: `Labor — service call ${det.number} (${det.workDate})`,
+            unit: 'hr',
+            quantity: laborHours.toFixed(2),
+            unitCost: billRate > 0 ? billRate.toFixed(2) : '0',
+            inventoryItemId: '',
+          });
+        }
+        for (const m of det.materials) {
+          const item = m.inventoryItemId
+            ? productById.get(m.inventoryItemId)
+            : undefined;
+          const baseCost = item?.defaultCost ?? 0;
+          const markupPct = proj?.tmMaterialMarkupPct ?? null;
+          const price =
+            baseCost > 0 && markupPct != null && markupPct > 0
+              ? round2(baseCost * (1 + markupPct / 100))
+              : baseCost;
+          prefillLines.push({
+            description: m.name,
+            unit: m.unit ?? '',
+            quantity: Number(m.quantity).toFixed(2),
+            unitCost: price > 0 ? price.toFixed(2) : '0',
+            inventoryItemId: m.inventoryItemId ?? '',
+          });
+        }
+      }
+      return {
+        id: w.id,
+        projectId: w.projectId,
+        label: `${w.number} · ${w.workDate} · ${
+          w.customerName ?? w.requestedBy ?? w.employeeName
+        }${w.status === 'posted' ? '' : ' (not posted yet)'}`,
+        prefill: det
+          ? {
+              notes: det.repairsDone
+                ? `Service call ${det.number} (${det.workDate}) — ${det.repairsDone}`
+                : `Service call ${det.number} (${det.workDate})`,
+              lines: prefillLines,
+            }
+          : undefined,
+      };
+    }),
+  );
 
   const today = new Date().toISOString().slice(0, 10);
   const due = (() => {
