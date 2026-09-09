@@ -140,7 +140,10 @@ export default async function WorkOrderDetailPage({
           }))}
         customers={customers.map((c) => ({ id: c.id, name: c.name }))}
         projects={projects
-          .filter((p) => p.status !== 'lost' && p.status !== 'closed')
+          // Keep CLOSED projects in the list — a service call is often
+          // marked closed the day it's done, and the work order still needs
+          // to book its labor there afterward. Only lost jobs drop out.
+          .filter((p) => p.status !== 'lost')
           .map((p) => ({
             id: p.id,
             name: p.name,

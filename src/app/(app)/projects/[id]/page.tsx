@@ -822,26 +822,39 @@ export default async function ProjectDetailPage({
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
-            <Stat
-              label="Remaining billable (net)"
-              value={formatMoney(remainingBillable)}
-              valueClassName={
-                remainingBillable > 0
-                  ? 'text-blue-700'
-                  : remainingBillable < 0
-                    ? 'text-amber-700'
-                    : 'text-slate-900'
-              }
-              sub={`revised contract ${formatMoney(parseMoney(project.contractValue))} − net billed${
-                invoiceSummary.retainageBalance > 0
-                  ? ` + ${formatMoney(invoiceSummary.retainageBalance)} retainage held`
-                  : ''
-              }${
-                refundsCreditedForProject > 0
-                  ? ` (less ${formatMoney(refundsCreditedForProject)} refunded)`
-                  : ''
-              }`}
-            />
+            {project.projectType === 'service' ||
+            parseMoney(project.contractValue) === 0 ? (
+              // T&M / service call (or no contract set yet): there is no
+              // contract cap, so "remaining billable" doesn't apply — a $0
+              // contract with billings would read as a bogus negative.
+              <Stat
+                label="T&M billed (net)"
+                value={formatMoney(invoiceSummary.totalInvoicedNet)}
+                valueClassName="text-blue-700"
+                sub="Time & Materials — billed from labor + materials, no contract cap"
+              />
+            ) : (
+              <Stat
+                label="Remaining billable (net)"
+                value={formatMoney(remainingBillable)}
+                valueClassName={
+                  remainingBillable > 0
+                    ? 'text-blue-700'
+                    : remainingBillable < 0
+                      ? 'text-amber-700'
+                      : 'text-slate-900'
+                }
+                sub={`revised contract ${formatMoney(parseMoney(project.contractValue))} − net billed${
+                  invoiceSummary.retainageBalance > 0
+                    ? ` + ${formatMoney(invoiceSummary.retainageBalance)} retainage held`
+                    : ''
+                }${
+                  refundsCreditedForProject > 0
+                    ? ` (less ${formatMoney(refundsCreditedForProject)} refunded)`
+                    : ''
+                }`}
+              />
+            )}
             <Stat
               label="Revenue invoiced (net)"
               value={formatMoney(invoiceSummary.totalInvoicedNet)}
