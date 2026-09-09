@@ -85,6 +85,11 @@ export type TransactionRowFormProps = {
     lines: InitialLine[];
   };
   grossAmount: number;
+  /** Total already attributed to matched bills (posted receipts net of
+   *  credits + payroll matched amounts). On a reconciled batch payment the
+   *  split lines only need to cover the REST of the bank amount — e.g. the
+   *  card payment + bank fees riding along with a payroll batch. */
+  matchedBillsTotal?: number;
   currency: string;
   categories: AccountingAccountOption[];
   projects: Option[];
@@ -274,7 +279,10 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   function autoVatSplit() {
     const rate = effectiveVatRate;
     if (!rate || !props.vatInputAccountId) return;
-    const gross = props.grossAmount;
+    // Split what the lines actually need to cover — net of matched bills.
+    const gross = round2(
+      props.grossAmount - round2(props.matchedBillsTotal ?? 0),
+    );
     const { net, vat } = computeVatSplit(gross, rate);
     const costAccount =
       accountingAccountId || selectedVendor?.defaultAccountingAccountId || '';
@@ -301,7 +309,12 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
   const linesTotal = round2(
     lines.reduce((s, l) => s + (Number(l.amount) || 0), 0),
   );
-  const remaining = round2(props.grossAmount - linesTotal);
+  // Lines must cover the bank amount MINUS whatever matched bills already
+  // account for (a batch payment's payroll/vendor bills) — the GL books
+  // those through AP, so the split only carries the remainder (fees etc.).
+  const matchedBillsTotal = round2(props.matchedBillsTotal ?? 0);
+  const splitTarget = round2(props.grossAmount - matchedBillsTotal);
+  const remaining = round2(splitTarget - linesTotal);
   const balanced = Math.abs(remaining) < 0.005;
 
   const linesJson = JSON.stringify(
@@ -627,8 +640,16 @@ export function TransactionRowForm(props: TransactionRowFormProps) {
               <span className="font-medium">{money(linesTotal, props.currency)}</span>
               <span className="text-slate-400">
                 {' '}
-                / {money(props.grossAmount, props.currency)}
+                / {money(splitTarget, props.currency)}
               </span>
+              {matchedBillsTotal > 0 && (
+                <span className="text-slate-400">
+                  {' '}
+                  ({money(matchedBillsTotal, props.currency)} of{' '}
+                  {money(props.grossAmount, props.currency)} covered by matched
+                  bills)
+                </span>
+              )}
               {balanced ? (
                 <span className="ml-2 text-emerald-700">balanced ✓</span>
               ) : (

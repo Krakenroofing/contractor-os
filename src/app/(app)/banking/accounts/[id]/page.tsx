@@ -1082,6 +1082,9 @@ export default async function BankAccountDetailPage({
                               })),
                             }}
                             grossAmount={Math.abs(Number(t.amount))}
+                            matchedBillsTotal={(
+                              billMatchesByTxn.get(t.id) ?? []
+                            ).reduce((s, b) => s + b.amount, 0)}
                             currency={t.currency}
                             categories={categories}
                             projects={projectOptions}

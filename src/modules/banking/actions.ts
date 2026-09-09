@@ -638,15 +638,58 @@ export async function updateImportedTransactionAction(
       (s, l) => s + Math.round(l.amount * 100),
       0,
     );
-    if (sumCents !== grossCents) {
+    // Bills matched to this payment (payroll matched amounts + POSTED
+    // receipts net of credits) are booked through AP by the GL — the split
+    // lines only cover the REMAINDER of the bank amount (fees, a card
+    // payment riding in the batch, …). Draft scan-holder matches count as
+    // nothing here, mirroring the "effectively unmatched" rule.
+    let matchedBillsCents = 0;
+    const txnMatches = await listActiveMatchesForTxn(companyId, txn.id);
+    for (const m of txnMatches) {
+      if (m.matchType === 'payroll_bill' && m.payrollBillId) {
+        if (m.matchedAmount !== null) {
+          matchedBillsCents += Math.round(Number(m.matchedAmount) * 100);
+        } else {
+          const bill = await getPayrollBill(companyId, m.payrollBillId);
+          if (bill) matchedBillsCents += Math.round(Number(bill.net) * 100);
+        }
+      } else if (m.matchType === 'receipt' && m.receiptId) {
+        const receipt = await getReceipt(companyId, m.receiptId);
+        if (receipt && receipt.status === 'posted') {
+          const credits = await sumAppliedCreditsByReceipt(companyId, [
+            receipt.id,
+          ]);
+          matchedBillsCents += Math.round(
+            (Number(receipt.total) - (credits.get(receipt.id) ?? 0)) * 100,
+          );
+        }
+      }
+    }
+    const targetCents = grossCents - matchedBillsCents;
+    if (sumCents !== targetCents) {
       return {
-        formError: `Split lines must add up to ${formatMoney(
-          Math.abs(Number(txn.amount)),
-          txn.currency,
-        )} — they currently total ${formatMoney(
-          sumCents / 100,
-          txn.currency,
-        )}.`,
+        formError:
+          matchedBillsCents > 0
+            ? `Split lines must add up to ${formatMoney(
+                targetCents / 100,
+                txn.currency,
+              )} — the bank amount ${formatMoney(
+                grossCents / 100,
+                txn.currency,
+              )} minus ${formatMoney(
+                matchedBillsCents / 100,
+                txn.currency,
+              )} already covered by matched bills. They currently total ${formatMoney(
+                sumCents / 100,
+                txn.currency,
+              )}.`
+            : `Split lines must add up to ${formatMoney(
+                Math.abs(Number(txn.amount)),
+                txn.currency,
+              )} — they currently total ${formatMoney(
+                sumCents / 100,
+                txn.currency,
+              )}.`,
       };
     }
 
