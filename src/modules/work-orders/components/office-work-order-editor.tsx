@@ -24,7 +24,13 @@ import {
   voidWorkOrderAction,
 } from '../actions';
 
-type EmployeeOption = { id: string; name: string };
+type EmployeeOption = {
+  id: string;
+  name: string;
+  /** Pay rate hint for the rate placeholder — only provided to
+   *  invoice-permission holders (rates are financial data). */
+  payRate?: number | null;
+};
 type ProjectOption = { id: string; name: string; projectType: string };
 type InvoiceOption = {
   id: string;
@@ -44,6 +50,7 @@ export function OfficeWorkOrderEditor({
   customers,
   projects,
   invoices,
+  canEditRates,
 }: {
   workOrder: {
     id: string;
@@ -65,6 +72,9 @@ export function OfficeWorkOrderEditor({
   customers: CustomerPickerOption[];
   projects: ProjectOption[];
   invoices: InvoiceOption[];
+  /** Only owner/admin/accountant (invoice permissions) see and set labor
+   *  COST rates — the work order itself carries hours + materials. */
+  canEditRates: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -84,7 +94,8 @@ export function OfficeWorkOrderEditor({
     workOrder.labor.map((l) => ({
       employeeId: l.employeeId,
       hoursText: Number(l.hours).toFixed(2),
-      rateText: Number(l.rate).toFixed(2),
+      // Unset rates render empty so the pay-rate placeholder hint shows.
+      rateText: Number(l.rate) > 0 ? Number(l.rate).toFixed(2) : '',
     })),
   );
   const [materials, setMaterials] = useState<MaterialRow[]>(
@@ -201,10 +212,11 @@ export function OfficeWorkOrderEditor({
         </div>
       </div>
 
-      {/* Crew + hours + cost rates */}
+      {/* Crew + hours; cost rates only for invoice-permission holders */}
       <div className="rounded-lg border border-slate-200 p-3 space-y-2">
         <p className="text-sm font-medium text-slate-800">
-          Crew on the call · labor cost {formatMoney(laborTotal)}
+          Crew on the call
+          {canEditRates && <> · labor cost {formatMoney(laborTotal)}</>}
         </p>
         {labor.map((l, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">
@@ -242,26 +254,40 @@ export function OfficeWorkOrderEditor({
               className="h-9 w-20 text-right tabular-nums"
               placeholder="hrs"
             />
-            <span className="text-xs text-slate-500">h ×</span>
-            <Input
-              value={l.rateText}
-              onChange={(e) =>
-                setLabor((prev) =>
-                  prev.map((r, idx) =>
-                    idx === i ? { ...r, rateText: e.target.value } : r,
-                  ),
-                )
-              }
-              disabled={locked}
-              inputMode="decimal"
-              className="h-9 w-24 text-right tabular-nums"
-              placeholder="cost $/h"
-            />
-            <span className="text-xs tabular-nums text-slate-600 w-20 text-right">
-              {formatMoney(
-                r2((Number(l.hoursText) || 0) * (Number(l.rateText) || 0)),
-              )}
-            </span>
+            {canEditRates && (
+              <>
+                <span className="text-xs text-slate-500">h ×</span>
+                <Input
+                  value={l.rateText}
+                  onChange={(e) =>
+                    setLabor((prev) =>
+                      prev.map((r, idx) =>
+                        idx === i ? { ...r, rateText: e.target.value } : r,
+                      ),
+                    )
+                  }
+                  disabled={locked}
+                  inputMode="decimal"
+                  className="h-9 w-24 text-right tabular-nums"
+                  placeholder={(() => {
+                    const pr = employees.find(
+                      (e) => e.id === l.employeeId,
+                    )?.payRate;
+                    return pr && pr > 0 ? `pay ${pr.toFixed(2)}` : 'cost $/h';
+                  })()}
+                />
+                <span className="text-xs tabular-nums text-slate-600 w-20 text-right">
+                  {formatMoney(
+                    r2(
+                      (Number(l.hoursText) || 0) * (Number(l.rateText) || 0),
+                    ),
+                  )}
+                </span>
+              </>
+            )}
+            {!canEditRates && (
+              <span className="text-xs text-slate-500">h</span>
+            )}
             {!locked && (
               <button
                 type="button"
@@ -292,9 +318,9 @@ export function OfficeWorkOrderEditor({
           </Button>
         )}
         <p className="text-[11px] text-slate-500">
-          Rate is the labor COST per hour used for job costing (prefilled from
-          the employee&apos;s pay rate) — the price you charge goes on the
-          invoice, not here.
+          {canEditRates
+            ? 'Rate is the labor COST per hour used for job costing (the grey hint is the pay rate) — the price you charge goes on the invoice, not here. Rates are required before posting.'
+            : 'Hours only — labor cost rates are entered by the owner/admin at review.'}
         </p>
       </div>
 

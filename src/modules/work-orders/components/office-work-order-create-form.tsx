@@ -189,8 +189,8 @@ export function OfficeWorkOrderCreateForm({
           + Add crew member
         </Button>
         <p className="text-[11px] text-slate-500">
-          Labor cost rates prefill from each employee&apos;s pay rate — you can
-          adjust them on the next screen before posting.
+          Hours only here — labor cost rates are plugged in on the review
+          screen (owner/admin) before the work order posts.
         </p>
       </div>
 

@@ -105,21 +105,19 @@ export async function submitWorkOrderAction(input: {
   }
 
   const companyId = await getActiveCompanyId();
-  // Cost-rate default per employee: hourly workers carry their pay rate so
-  // the office sees a labor cost immediately; variable-pay types start at 0
-  // for the office to fill before posting.
+  // Work orders carry HOURS only from the field — labor cost rates are
+  // financial data and are plugged in by the owner/admin on the review
+  // screen (invoice-permission holders), so every line starts at 0.
   const employees = await listEmployees(companyId);
   const empById = new Map(employees.map((e) => [e.id, e]));
   const labor: WorkOrderLaborInput[] = [];
   for (const l of data.labor) {
     const emp = empById.get(l.employeeId);
     if (!emp) return { error: 'One of the crew members was not found.' };
-    const rate =
-      emp.employmentType === 'hourly' ? Number(emp.payRate) : 0;
     labor.push({
       employeeId: l.employeeId,
       hours: l.hours.toFixed(2),
-      rate: rate.toFixed(4),
+      rate: '0.0000',
     });
   }
   const materials: WorkOrderMaterialInput[] = data.materials
@@ -193,11 +191,12 @@ export async function createWorkOrderOfficeAction(input: {
   for (const l of data.labor) {
     const emp = empById.get(l.employeeId);
     if (!emp) return { error: 'One of the crew members was not found.' };
-    const rate = emp.employmentType === 'hourly' ? Number(emp.payRate) : 0;
+    // Rates start at 0 even on office creation — they get plugged in on
+    // the review screen by an invoice-permission holder before posting.
     labor.push({
       employeeId: l.employeeId,
       hours: l.hours.toFixed(2),
-      rate: rate.toFixed(4),
+      rate: '0.0000',
     });
   }
   const materials: WorkOrderMaterialInput[] = data.materials
@@ -281,6 +280,13 @@ export async function updateWorkOrderOfficeAction(input: {
       error: 'This work order is posted — unpost it before editing.',
     };
   }
+  // Labor COST rates are restricted to invoice-permission holders (owner /
+  // admin / accountant). Anyone else saving keeps each employee's existing
+  // rate (new crew lines start at 0) — the client's rate values are ignored.
+  const canSetRates = canCreate(role, 'invoices');
+  const existingRateByEmployee = new Map(
+    wo.labor.map((l) => [l.employeeId, Number(l.rate)]),
+  );
   try {
     await replaceWorkOrderLines(
       companyId,
@@ -288,7 +294,10 @@ export async function updateWorkOrderOfficeAction(input: {
       data.labor.map((l) => ({
         employeeId: l.employeeId,
         hours: l.hours.toFixed(2),
-        rate: l.rate.toFixed(4),
+        rate: (canSetRates
+          ? l.rate
+          : (existingRateByEmployee.get(l.employeeId) ?? 0)
+        ).toFixed(4),
       })),
       data.materials
         .filter((m) => m.name)
@@ -337,6 +346,19 @@ export async function postWorkOrderAction(input: {
     return {
       error:
         'Record the client first — pick (or add) the customer, save, then post.',
+    };
+  }
+  // Rates are entered by the owner/admin at review — refuse to post while
+  // any worked line is still missing its labor cost rate (it would silently
+  // book $0 for that person's time).
+  const missingRates = wo.labor.filter(
+    (l) => Number(l.hours) > 0 && Number(l.rate) <= 0,
+  );
+  if (missingRates.length > 0) {
+    return {
+      error: `Enter the labor cost rate for ${missingRates
+        .map((l) => l.employeeName)
+        .join(', ')} before posting — rates are set here at review (admin only), then the labor books to job costing.`,
     };
   }
   const company = await getCompany(companyId);

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { canView } from '@/lib/permissions';
+import { canCreate, canView } from '@/lib/permissions';
 import { getWorkOrderWithDetails } from '@/lib/data/work-orders';
 import { listEmployees } from '@/lib/data/employees';
 import { listCustomers } from '@/lib/data/customers';
@@ -45,6 +45,9 @@ export default async function WorkOrderDetailPage({
   ]);
 
   const s = STATUS_BADGE[wo.status] ?? STATUS_BADGE.submitted;
+  // Labor COST rates are financial data — only invoice-permission holders
+  // (owner/admin/accountant) see or set them. PMs review hours/materials.
+  const canEditRates = canCreate(role, 'invoices');
   // Invoice options: the linked project's invoices first; fall back to the
   // client's when no project is linked yet. Keeps the dropdown short.
   const invoiceOptions = invoices
@@ -109,6 +112,13 @@ export default async function WorkOrderDetailPage({
           .map((e) => ({
             id: e.id,
             name: `${e.firstName} ${e.lastName}`.trim(),
+            // Pay-rate placeholder hint for the rate input — hourly workers
+            // only (a weekly salary would read as a bogus $/h figure), and
+            // withheld from roles that can't see rates.
+            payRate:
+              canEditRates && e.employmentType === 'hourly'
+                ? Number(e.payRate)
+                : null,
           }))}
         customers={customers.map((c) => ({ id: c.id, name: c.name }))}
         projects={projects
@@ -119,6 +129,7 @@ export default async function WorkOrderDetailPage({
             projectType: p.projectType,
           }))}
         invoices={invoiceOptions}
+        canEditRates={canEditRates}
       />
     </div>
   );
