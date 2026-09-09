@@ -226,6 +226,8 @@ export function InvoiceForm({
   templates,
   products = [],
   customers,
+  workOrders = [],
+  defaultWorkOrderId = '',
   defaultNumber,
   defaultInvoiceDate,
   defaultDueDate,
@@ -237,6 +239,17 @@ export function InvoiceForm({
   templates: InvoiceFormTemplateOption[];
   products?: ProductPickerOption[];
   customers: CustomerPickerOption[];
+  /** Open service-call work orders this invoice can be married to — the
+   *  link stamps the WO with the created invoice and, when the WO is
+   *  posted, pre-selects its project so job costing ties end-to-end. */
+  workOrders?: Array<{
+    id: string;
+    label: string;
+    projectId: string | null;
+  }>;
+  /** Prefill from /invoices/new?workOrder=… (the WO page's Create
+   *  invoice link). */
+  defaultWorkOrderId?: string;
   defaultNumber: string;
   defaultInvoiceDate: string;
   defaultDueDate: string;
@@ -252,7 +265,11 @@ export function InvoiceForm({
   const [dirty, setDirty] = useState(false);
   useUnsavedChangesGuard(dirty);
   const [lines, setLines] = useState<LineDraft[]>([newEmptyLine()]);
-  const [projectId, setProjectId] = useState('');
+  const defaultWorkOrder = workOrders.find((w) => w.id === defaultWorkOrderId);
+  const [workOrderId, setWorkOrderId] = useState(defaultWorkOrder?.id ?? '');
+  const [projectId, setProjectId] = useState(
+    defaultWorkOrder?.projectId ?? '',
+  );
   const [templateId, setTemplateId] = useState('');
   const [billingType, setBillingType] = useState<string>('progress');
   // Phase 1.5: when the selected project's customer has open credit, the
@@ -746,6 +763,34 @@ export function InvoiceForm({
               ))}
             </Select>
           </Field>
+          {workOrders.length > 0 && (
+            <Field label="Work order (optional)">
+              <input type="hidden" name="workOrderId" value={workOrderId} />
+              <Select
+                value={workOrderId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setWorkOrderId(id);
+                  const wo = workOrders.find((w) => w.id === id);
+                  // A posted work order carries its service project —
+                  // billing it selects that project automatically.
+                  if (wo?.projectId) setProjectId(wo.projectId);
+                }}
+              >
+                <option value="">— not for a work order —</option>
+                {workOrders.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.label}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Marries this invoice to the service call — the work order
+                records how it was billed, and its job costs tie to the same
+                project. Post the work order first to bill its own project.
+              </p>
+            </Field>
+          )}
           <Field label="Project" error={err('projectId')} required>
             <ProjectPicker
               name="projectId"

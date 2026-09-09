@@ -61,6 +61,11 @@ const materialRowSchema = z.object({
     .max(40)
     .optional()
     .transform((v) => (v ? v : null)),
+  // Catalog product picked at office review (field submissions omit it).
+  inventoryItemId: z
+    .union([z.string().uuid(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => (v && v !== '' ? v : null)),
 });
 
 function revalidateWorkOrders(id?: string) {
@@ -245,7 +250,12 @@ export async function updateWorkOrderOfficeAction(input: {
   officeNotes: string;
   customerId: string;
   labor: Array<{ employeeId: string; hours: number; rate: number }>;
-  materials: Array<{ name: string; quantity: number; unit?: string }>;
+  materials: Array<{
+    name: string;
+    quantity: number;
+    unit?: string;
+    inventoryItemId?: string | null;
+  }>;
 }): Promise<WorkOrderActionResult> {
   await requireAuth();
   const role = await getActiveRole();
@@ -305,6 +315,7 @@ export async function updateWorkOrderOfficeAction(input: {
           name: m.name,
           quantity: m.quantity.toFixed(2),
           unit: m.unit ?? null,
+          inventoryItemId: m.inventoryItemId ?? null,
         })),
     );
     await updateWorkOrder(companyId, id.data, {

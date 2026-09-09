@@ -118,6 +118,10 @@ export const workOrderMaterials = pgTable(
       .notNull()
       .references(() => workOrders.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Set when the office maps the crew's free-text material to a real
+    // catalog product at review. Plain uuid (FK in SQL) — importing the
+    // inventory schema here would risk a module cycle.
+    inventoryItemId: uuid('inventory_item_id'),
     quantity: numeric('quantity', { precision: 14, scale: 2 })
       .notNull()
       .default('1'),

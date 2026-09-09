@@ -16,6 +16,7 @@ import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import { nextNumberInSequence } from '@/lib/next-number';
+import { listWorkOrders } from '@/lib/data/work-orders';
 import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
 
 export const dynamic = 'force-dynamic';
@@ -30,11 +31,16 @@ async function nextInvoiceNumber(companyId: string): Promise<string> {
   );
 }
 
-export default async function NewInvoicePage() {
+export default async function NewInvoicePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ workOrder?: string }>;
+}) {
   const role = await getActiveRole();
   if (!canCreate(role, 'invoices')) redirect('/invoices');
   const companyId = await getActiveCompanyId();
   const activeCompany = await getActiveCompany();
+  const sp = (await searchParams) ?? {};
 
   // For each project, also bundle: contract values, sum of prior billed
   // (gross + net), and prior invoice count. The form uses these to power
@@ -194,6 +200,22 @@ export default async function NewInvoicePage() {
     name: c.name,
   }));
 
+  // Service-call work orders this invoice can be married to: not void and
+  // not already billed (except the one deep-linked from a WO page, so the
+  // prefill still resolves even if it was linked before).
+  const workOrderOptions = (await listWorkOrders(companyId))
+    .filter(
+      (w) =>
+        w.status !== 'void' && (!w.invoiceId || w.id === sp.workOrder),
+    )
+    .map((w) => ({
+      id: w.id,
+      projectId: w.projectId,
+      label: `${w.number} · ${w.workDate} · ${
+        w.customerName ?? w.requestedBy ?? w.employeeName
+      }${w.status === 'posted' ? '' : ' (not posted yet)'}`,
+    }));
+
   const today = new Date().toISOString().slice(0, 10);
   const due = (() => {
     const d = new Date();
@@ -231,6 +253,8 @@ export default async function NewInvoicePage() {
         templates={templates}
         products={products}
         customers={customers}
+        workOrders={workOrderOptions}
+        defaultWorkOrderId={sp.workOrder ?? ''}
         defaultNumber={await nextInvoiceNumber(companyId)}
         defaultInvoiceDate={today}
         defaultDueDate={due}

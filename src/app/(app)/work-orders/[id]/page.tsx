@@ -14,6 +14,7 @@ import { listEmployees } from '@/lib/data/employees';
 import { listCustomers } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import { listInvoices } from '@/lib/data/invoices';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 import { OfficeWorkOrderEditor } from '@/modules/work-orders/components/office-work-order-editor';
 
 export const dynamic = 'force-dynamic';
@@ -37,12 +38,14 @@ export default async function WorkOrderDetailPage({
   const wo = await getWorkOrderWithDetails(companyId, id);
   if (!wo) notFound();
 
-  const [employees, customers, projects, invoices] = await Promise.all([
-    listEmployees(companyId),
-    listCustomers(companyId),
-    listProjects(companyId),
-    listInvoices(companyId),
-  ]);
+  const [employees, customers, projects, invoices, inventoryItems] =
+    await Promise.all([
+      listEmployees(companyId),
+      listCustomers(companyId),
+      listProjects(companyId),
+      listInvoices(companyId),
+      listInventoryItems(companyId),
+    ]);
 
   const s = STATUS_BADGE[wo.status] ?? STATUS_BADGE.submitted;
   // Labor COST rates are financial data — only invoice-permission holders
@@ -108,6 +111,7 @@ export default async function WorkOrderDetailPage({
             name: m.name,
             quantity: String(m.quantity),
             unit: m.unit,
+            inventoryItemId: m.inventoryItemId,
           })),
         }}
         employees={employees
@@ -132,6 +136,14 @@ export default async function WorkOrderDetailPage({
             projectType: p.projectType,
           }))}
         invoices={invoiceOptions}
+        products={inventoryItems.map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          sku: p.sku,
+          unit: p.unit,
+          defaultCost: Number(p.defaultCost),
+        }))}
         canEditRates={canEditRates}
       />
     </div>

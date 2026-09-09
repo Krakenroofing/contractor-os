@@ -17,6 +17,10 @@ import {
   type CustomerPickerOption,
 } from '@/modules/customers/components/customer-picker';
 import {
+  ProductPicker,
+  type ProductPickerOption,
+} from '@/modules/inventory/components/product-picker';
+import {
   linkWorkOrderInvoiceAction,
   postWorkOrderAction,
   unpostWorkOrderAction,
@@ -40,7 +44,13 @@ type InvoiceOption = {
 };
 
 type LaborRow = { employeeId: string; hoursText: string; rateText: string };
-type MaterialRow = { name: string; qtyText: string; unit: string };
+type MaterialRow = {
+  name: string;
+  qtyText: string;
+  unit: string;
+  /** Catalog product mapped at review ('' = free text from the crew). */
+  inventoryItemId: string;
+};
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -50,6 +60,7 @@ export function OfficeWorkOrderEditor({
   customers,
   projects,
   invoices,
+  products,
   canEditRates,
 }: {
   workOrder: {
@@ -66,12 +77,19 @@ export function OfficeWorkOrderEditor({
     projectName: string | null;
     invoiceId: string | null;
     labor: Array<{ employeeId: string; hours: string; rate: string }>;
-    materials: Array<{ name: string; quantity: string; unit: string | null }>;
+    materials: Array<{
+      name: string;
+      quantity: string;
+      unit: string | null;
+      inventoryItemId: string | null;
+    }>;
   };
   employees: EmployeeOption[];
   customers: CustomerPickerOption[];
   projects: ProjectOption[];
   invoices: InvoiceOption[];
+  /** Inventory catalog for the material picker (with inline quick-add). */
+  products: ProductPickerOption[];
   /** Only owner/admin/accountant (invoice permissions) see and set labor
    *  COST rates — the work order itself carries hours + materials. */
   canEditRates: boolean;
@@ -103,6 +121,7 @@ export function OfficeWorkOrderEditor({
       name: m.name,
       qtyText: Number(m.quantity).toFixed(2),
       unit: m.unit ?? '',
+      inventoryItemId: m.inventoryItemId ?? '',
     })),
   );
   const [postProjectId, setPostProjectId] = useState(workOrder.projectId ?? '');
@@ -152,6 +171,7 @@ export function OfficeWorkOrderEditor({
               name: m.name.trim(),
               quantity: Number(m.qtyText) || 1,
               unit: m.unit.trim() || undefined,
+              inventoryItemId: m.inventoryItemId || null,
             })),
         }),
       'Saved.',
@@ -332,18 +352,49 @@ export function OfficeWorkOrderEditor({
         )}
         {materials.map((m, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">
+            <div className="w-64">
+              {/* Map the crew's free-text material to a real catalog
+                  product (searchable, with inline "+ Add new product").
+                  Picking one rewrites the name + unit; clearing it keeps
+                  the text as-is. */}
+              <ProductPicker
+                value={m.inventoryItemId}
+                options={products}
+                disabled={locked}
+                placeholder="— pick from catalog —"
+                defaultNewName={m.name}
+                onItemSelected={(item) =>
+                  setMaterials((prev) =>
+                    prev.map((r, idx) =>
+                      idx === i
+                        ? item
+                          ? {
+                              ...r,
+                              inventoryItemId: item.id,
+                              name: item.name,
+                              unit: item.unit ?? r.unit,
+                            }
+                          : { ...r, inventoryItemId: '' }
+                        : r,
+                    ),
+                  )
+                }
+              />
+            </div>
             <Input
               value={m.name}
               onChange={(e) =>
                 setMaterials((prev) =>
                   prev.map((r, idx) =>
-                    idx === i ? { ...r, name: e.target.value } : r,
+                    idx === i
+                      ? { ...r, name: e.target.value, inventoryItemId: '' }
+                      : r,
                   ),
                 )
               }
               disabled={locked}
-              className="h-9 w-72"
-              placeholder="Material"
+              className="h-9 w-64"
+              placeholder="Material (as reported)"
             />
             <Input
               value={m.qtyText}
@@ -394,7 +445,7 @@ export function OfficeWorkOrderEditor({
             onClick={() =>
               setMaterials((prev) => [
                 ...prev,
-                { name: '', qtyText: '', unit: '' },
+                { name: '', qtyText: '', unit: '', inventoryItemId: '' },
               ])
             }
           >
@@ -580,7 +631,12 @@ export function OfficeWorkOrderEditor({
             >
               Save link
             </Button>
-            <Link href={{ pathname: '/invoices/new' }}>
+            <Link
+              href={{
+                pathname: '/invoices/new',
+                query: { workOrder: workOrder.id },
+              }}
+            >
               <Button type="button" size="sm" variant="ghost">
                 Create invoice →
               </Button>

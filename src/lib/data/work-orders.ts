@@ -47,6 +47,8 @@ export type WorkOrderMaterialInput = {
   name: string;
   quantity: string;
   unit: string | null;
+  /** Catalog product this line maps to (office-set at review). */
+  inventoryItemId?: string | null;
 };
 
 /** Next 'WO-N' for the company — max existing N + 1, so voids/deletes never
@@ -107,6 +109,7 @@ export async function createWorkOrder(input: {
           companyId: input.companyId,
           workOrderId: wo.id,
           name: m.name,
+          inventoryItemId: m.inventoryItemId ?? null,
           quantity: m.quantity,
           unit: m.unit,
           sortOrder: i,
@@ -299,6 +302,7 @@ export async function replaceWorkOrderLines(
           companyId,
           workOrderId,
           name: m.name,
+          inventoryItemId: m.inventoryItemId ?? null,
           quantity: m.quantity,
           unit: m.unit,
           sortOrder: i,

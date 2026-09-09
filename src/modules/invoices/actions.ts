@@ -297,6 +297,22 @@ export async function createInvoiceAction(
     return { formError: `Failed to create invoice: ${message}` };
   }
 
+  // Work-order marriage: when the invoice was raised for a service call,
+  // stamp the work order with this invoice so the WO shows how it was
+  // billed and job costing ties end-to-end. Best-effort — a bad link
+  // doesn't roll back the invoice.
+  const workOrderIdRaw = formData.get('workOrderId');
+  if (typeof workOrderIdRaw === 'string' && workOrderIdRaw) {
+    try {
+      const { updateWorkOrder } = await import('@/lib/data/work-orders');
+      await updateWorkOrder(companyId, workOrderIdRaw, {
+        invoiceId: createdId,
+      });
+    } catch (err) {
+      console.error('[invoice-create] work-order link failed:', err);
+    }
+  }
+
   // Phase 1.5: optional open-credit auto-apply. The form prompt below
   // the project picker lets the operator opt in to consuming the
   // customer's open credit balance against this new invoice. We apply
