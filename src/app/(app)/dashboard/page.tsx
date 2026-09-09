@@ -70,6 +70,7 @@ export default async function DashboardPage() {
   // Quick-link visibility — hide buttons the active role can't act on.
   const quickLinks: { href: string; label: string; resource: Parameters<typeof canCreate>[1] }[] = [
     { href: '/projects/new', label: 'New Project', resource: 'projects' },
+    { href: '/work-orders/new', label: 'New Work Order', resource: 'projects' },
     { href: '/estimates/new', label: 'New Estimate', resource: 'estimates' },
     { href: '/proposals/new', label: 'New Proposal', resource: 'proposals' },
     { href: '/invoices/new', label: 'New Invoice', resource: 'invoices' },

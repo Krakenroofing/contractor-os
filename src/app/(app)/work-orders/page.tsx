@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -61,12 +62,17 @@ export default async function WorkOrdersPage({
 
   return (
     <div className="p-8 space-y-5 max-w-6xl">
-      <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Work orders</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Service calls submitted from the field. Review → record the client →
-          invoice → post to job costing.
-        </p>
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Work orders</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Service calls submitted from the field. Review → record the client
+            → invoice → post to job costing.
+          </p>
+        </div>
+        <Link href={{ pathname: '/work-orders/new' }}>
+          <Button>+ New work order</Button>
+        </Link>
       </header>
 
       <div className="flex items-center gap-2">

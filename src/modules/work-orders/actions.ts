@@ -152,6 +152,90 @@ export async function submitWorkOrderAction(input: {
   }
 }
 
+// ===== Office: create a work order directly =====
+// For calls that come in by phone or get reported verbally — same shape as
+// a field submission, but the office picks who ran the call (the first
+// crew line) and can stamp the client right away. Lands as 'submitted'
+// so the normal review → post flow continues on the detail page.
+
+export async function createWorkOrderOfficeAction(input: {
+  workDate: string;
+  requestedBy: string;
+  repairsDone: string;
+  customerId: string;
+  labor: Array<{ employeeId: string; hours: number }>;
+  materials: Array<{ name: string; quantity: number; unit?: string }>;
+}): Promise<WorkOrderActionResult> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'projects')) {
+    return { error: 'You do not have permission to create work orders.' };
+  }
+  const parsed = z
+    .object({
+      workDate: dateSchema,
+      requestedBy: z.string().trim().max(500),
+      repairsDone: z.string().trim().max(5000),
+      customerId: z.union([z.string().uuid(), z.literal('')]),
+      labor: z.array(laborRowSchema).min(1).max(30),
+      materials: z.array(materialRowSchema).max(60),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { error: 'Check the form — a field is missing or invalid.' };
+  }
+  const data = parsed.data;
+
+  const companyId = await getActiveCompanyId();
+  const employees = await listEmployees(companyId);
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  const labor: WorkOrderLaborInput[] = [];
+  for (const l of data.labor) {
+    const emp = empById.get(l.employeeId);
+    if (!emp) return { error: 'One of the crew members was not found.' };
+    const rate = emp.employmentType === 'hourly' ? Number(emp.payRate) : 0;
+    labor.push({
+      employeeId: l.employeeId,
+      hours: l.hours.toFixed(2),
+      rate: rate.toFixed(4),
+    });
+  }
+  const materials: WorkOrderMaterialInput[] = data.materials
+    .filter((m) => m.name)
+    .map((m) => ({
+      name: m.name,
+      quantity: m.quantity.toFixed(2),
+      unit: m.unit ?? null,
+    }));
+
+  const knownUsers = await getUserNamesByIds([user.id]);
+  try {
+    const number = await getNextWorkOrderNumber(companyId);
+    const wo = await createWorkOrder({
+      companyId,
+      number,
+      workDate: data.workDate,
+      // The first crew line is who ran the call.
+      createdByEmployeeId: labor[0].employeeId,
+      createdByUserId: knownUsers.has(user.id) ? user.id : null,
+      requestedBy: data.requestedBy || null,
+      repairsDone: data.repairsDone || null,
+      labor,
+      materials,
+    });
+    if (data.customerId) {
+      await updateWorkOrder(companyId, wo.id, {
+        customerId: data.customerId,
+      });
+    }
+    revalidateWorkOrders(wo.id);
+    return { ok: true, number: wo.number, id: wo.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to create the work order: ${message}` };
+  }
+}
+
 // ===== Office: edit a submitted work order =====
 
 export async function updateWorkOrderOfficeAction(input: {
