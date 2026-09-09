@@ -850,7 +850,7 @@ export async function lockPeriodAction(
   _prev: LockPeriodState,
   formData: FormData,
 ): Promise<LockPeriodState> {
-  await requireAuth();
+  const user = await requireAuth();
   const role = await getActiveRole();
   if (!canCreate(role, 'payroll')) {
     return { formError: 'You do not have permission to lock pay periods.' };
@@ -931,6 +931,33 @@ export async function lockPeriodAction(
     }
   }
 
+  // Auto-post labor to job costs on every lock (and re-lock) — the manual
+  // "Post labor" button caused five silent weeks of missing job-cost labor
+  // when nobody pressed it. Idempotent repost; best-effort so a period
+  // with nothing tagged (or unset labor accounts) never blocks locking.
+  try {
+    const knownUsers = await getUserNamesByIds([user.id]);
+    const posted = await postLaborForPeriodCore(
+      companyId,
+      payPeriodId,
+      knownUsers.has(user.id) ? user.id : null,
+    );
+    if (posted.ok && posted.summary) {
+      const s = posted.summary;
+      notice = `${notice ? `${notice} ` : ''}Labor posted to job costs: $${s.wage.toFixed(2)} wages + $${s.burden.toFixed(2)} burden across ${s.entries} job line${s.entries === 1 ? '' : 's'}${
+        s.unposted > 0.005
+          ? ` ($${s.unposted.toFixed(2)} has no job assigned — assign hours and re-post)`
+          : ''
+      }.`;
+    } else if (posted.error) {
+      notice = `${notice ? `${notice} ` : ''}Labor not posted to job costs: ${posted.error}`;
+    }
+  } catch (err) {
+    notice = `${notice ? `${notice} ` : ''}Labor not posted to job costs: ${
+      err instanceof Error ? err.message : 'unknown error'
+    } — use "Post labor" on the Pay Run tab to retry.`;
+  }
+
   revalidatePath('/payroll');
   return notice ? { notice } : {};
 }
@@ -962,7 +989,25 @@ export async function postPayrollLaborAction(
   const idResult = idSchema.safeParse(payPeriodId);
   if (!idResult.success) return { error: 'Missing pay period id.' };
   const companyId = await getActiveCompanyId();
+  // Dev-demo guard: stamp created_by only when the user row exists (same
+  // FK trap as the manual allocator).
+  const knownUsers = await getUserNamesByIds([user.id]);
+  return postLaborForPeriodCore(
+    companyId,
+    payPeriodId,
+    knownUsers.has(user.id) ? user.id : null,
+  );
+}
 
+/** The posting engine behind the "Post labor" button — also run
+ *  AUTOMATICALLY by lockPeriodAction so job costing never silently falls
+ *  behind because nobody pressed the button. Idempotent: reverses any
+ *  prior 'labor_entry' posting for the period before re-posting. */
+async function postLaborForPeriodCore(
+  companyId: string,
+  payPeriodId: string,
+  createdByUserId: string | null,
+): Promise<PostLaborResult> {
   const company = await getCompany(companyId);
   if (!company) return { error: 'Active company not found.' };
   const laborAcct = company.laborCogsAccountId;
@@ -1047,7 +1092,7 @@ export async function postPayrollLaborAction(
             vendorInvoiceNumber: null,
             attachmentUrl: null,
             notes: null,
-            createdByUserId: user.id,
+            createdByUserId,
           });
         }
         if (b.burden > 0) {
@@ -1071,7 +1116,7 @@ export async function postPayrollLaborAction(
             vendorInvoiceNumber: null,
             attachmentUrl: null,
             notes: null,
-            createdByUserId: user.id,
+            createdByUserId,
           });
         }
       }
