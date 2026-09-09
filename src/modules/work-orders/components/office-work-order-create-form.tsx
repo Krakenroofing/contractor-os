@@ -11,11 +11,15 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { downscalePhotoForUpload } from '@/lib/images/downscale-photo';
 import {
   CustomerPicker,
   type CustomerPickerOption,
 } from '@/modules/customers/components/customer-picker';
-import { createWorkOrderOfficeAction } from '../actions';
+import {
+  createWorkOrderOfficeAction,
+  uploadWorkOrderPhotoAction,
+} from '../actions';
 
 type EmployeeOption = { id: string; name: string };
 type LaborRow = { employeeId: string; hoursText: string };
@@ -44,6 +48,9 @@ export function OfficeWorkOrderCreateForm({
   const [materials, setMaterials] = useState<MaterialRow[]>([
     { name: '', qtyText: '', unit: '' },
   ]);
+  // Photos queued locally, uploaded after the WO exists (path needs its id).
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoProgress, setPhotoProgress] = useState<string | null>(null);
 
   function submit() {
     setError(null);
@@ -74,6 +81,28 @@ export function OfficeWorkOrderCreateForm({
       });
       if (!res.ok || !res.id) {
         setError(res.error ?? 'Could not create the work order.');
+        return;
+      }
+      // Photos upload after the create, then straight to the review page
+      // (where they show in the Job photos grid).
+      let failed = 0;
+      for (let i = 0; i < photos.length; i++) {
+        setPhotoProgress(`Uploading photo ${i + 1} of ${photos.length}…`);
+        try {
+          const fd = new FormData();
+          fd.set('photo', await downscalePhotoForUpload(photos[i]));
+          const up = await uploadWorkOrderPhotoAction(res.id, fd);
+          if (!up.ok) failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed > 0) {
+        setPhotoProgress(null);
+        setError(
+          `Work order created, but ${failed} photo${failed === 1 ? '' : 's'} failed to upload — add them again from the review page.`,
+        );
+        setTimeout(() => router.push(`/work-orders/${res.id}` as never), 2500);
         return;
       }
       router.push(`/work-orders/${res.id}` as never);
@@ -259,6 +288,51 @@ export function OfficeWorkOrderCreateForm({
         </Button>
       </div>
 
+      <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+        <p className="text-sm font-medium text-slate-800">Job photos</p>
+        <Input
+          type="file"
+          accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+          multiple
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length > 0) setPhotos((prev) => [...prev, ...files]);
+            e.target.value = '';
+          }}
+        />
+        {photos.length > 0 && (
+          <ul className="space-y-1">
+            {photos.map((f, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between gap-2 text-xs text-slate-700"
+              >
+                <span className="truncate">
+                  📷 {f.name || `Photo ${i + 1}`}{' '}
+                  <span className="text-slate-400">
+                    ({(f.size / 1024 / 1024).toFixed(1)}MB)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPhotos((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  className="px-2 text-base text-slate-400 hover:text-red-600"
+                  aria-label="Remove photo"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-[11px] text-slate-500">
+          Uploaded when you create the work order — mark the ones for the
+          client&apos;s invoice on the review page.
+        </p>
+      </div>
+
       <div>
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Repairs done
@@ -274,7 +348,7 @@ export function OfficeWorkOrderCreateForm({
 
       <div className="flex items-center gap-2">
         <Button type="button" disabled={pending} onClick={submit}>
-          {pending ? 'Creating…' : 'Create work order'}
+          {pending ? (photoProgress ?? 'Creating…') : 'Create work order'}
         </Button>
         <p className="text-xs text-slate-500">
           Opens the review page next — post it there when the client is set.

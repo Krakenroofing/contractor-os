@@ -49,29 +49,36 @@ export default async function FieldWorkOrdersPage() {
           {mine.map((wo) => {
             const s = STATUS_LABEL[wo.status] ?? STATUS_LABEL.submitted;
             return (
-              <li
-                key={wo.id}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {wo.number}
-                    <span className="ml-2 font-normal text-slate-500">
-                      {wo.workDate}
-                    </span>
+              <li key={wo.id}>
+                {/* Whole card links to the detail — where photos can still
+                    be added until the office posts the call. */}
+                <Link
+                  href={{ pathname: `/field/work-orders/${wo.id}` }}
+                  className="block rounded-xl border border-slate-200 bg-white px-4 py-3 active:scale-[0.99]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {wo.number}
+                      <span className="ml-2 font-normal text-slate-500">
+                        {wo.workDate}
+                      </span>
+                    </p>
+                    <Badge tone={s.tone}>{s.label}</Badge>
+                  </div>
+                  {wo.requestedBy && (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Requested by {wo.requestedBy}
+                    </p>
+                  )}
+                  {wo.repairsDone && (
+                    <p className="text-xs text-slate-600 mt-1 line-clamp-2">
+                      {wo.repairsDone}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] text-blue-700">
+                    View / add photos ›
                   </p>
-                  <Badge tone={s.tone}>{s.label}</Badge>
-                </div>
-                {wo.requestedBy && (
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Requested by {wo.requestedBy}
-                  </p>
-                )}
-                {wo.repairsDone && (
-                  <p className="text-xs text-slate-600 mt-1 line-clamp-2">
-                    {wo.repairsDone}
-                  </p>
-                )}
+                </Link>
               </li>
             );
           })}
