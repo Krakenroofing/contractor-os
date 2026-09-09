@@ -160,34 +160,45 @@ export function OfficeWorkOrderEditor({
     });
   }
 
+  const savePayload = () => ({
+    id: workOrder.id,
+    workDate,
+    requestedBy,
+    repairsDone,
+    officeNotes,
+    customerId,
+    labor: labor
+      .filter((l) => l.employeeId)
+      .map((l) => ({
+        employeeId: l.employeeId,
+        hours: Number(l.hoursText) || 0,
+        rate: Number(l.rateText) || 0,
+      })),
+    materials: materials
+      .filter((m) => m.name.trim())
+      .map((m) => ({
+        name: m.name.trim(),
+        quantity: Number(m.qtyText) || 1,
+        unit: m.unit.trim() || undefined,
+        inventoryItemId: m.inventoryItemId || null,
+      })),
+  });
+
   const save = () =>
-    run(
-      () =>
-        updateWorkOrderOfficeAction({
-          id: workOrder.id,
-          workDate,
-          requestedBy,
-          repairsDone,
-          officeNotes,
-          customerId,
-          labor: labor
-            .filter((l) => l.employeeId)
-            .map((l) => ({
-              employeeId: l.employeeId,
-              hours: Number(l.hoursText) || 0,
-              rate: Number(l.rateText) || 0,
-            })),
-          materials: materials
-            .filter((m) => m.name.trim())
-            .map((m) => ({
-              name: m.name.trim(),
-              quantity: Number(m.qtyText) || 1,
-              unit: m.unit.trim() || undefined,
-              inventoryItemId: m.inventoryItemId || null,
-            })),
-        }),
-      'Saved.',
-    );
+    run(() => updateWorkOrderOfficeAction(savePayload()), 'Saved.');
+
+  // Post SAVES the current form first — rates typed into the grid used to
+  // be silently ignored unless the operator pressed Save before Post,
+  // which read as "it keeps saying to enter rates yet they are entered."
+  const saveThenPost = () =>
+    run(async () => {
+      const saved = await updateWorkOrderOfficeAction(savePayload());
+      if (!saved.ok) return saved;
+      return postWorkOrderAction({
+        id: workOrder.id,
+        projectId: postProjectId,
+      });
+    }, 'Posted — labor is in job costing.');
 
   return (
     <div className="space-y-4">
@@ -695,24 +706,15 @@ export function OfficeWorkOrderEditor({
                 <Button
                   type="button"
                   disabled={pending}
-                  onClick={() =>
-                    run(
-                      () =>
-                        postWorkOrderAction({
-                          id: workOrder.id,
-                          projectId: postProjectId,
-                        }),
-                      'Posted — labor is in job costing.',
-                    )
-                  }
+                  onClick={saveThenPost}
                 >
-                  {pending ? '…' : 'Post'}
+                  {pending ? '…' : 'Save & post'}
                 </Button>
               </div>
               <p className="text-[11px] text-emerald-800">
-                Posting books each crew line (hours × cost rate) to the
-                project&apos;s job costs and the P&amp;L direct-labor split.
-                Save any edits first — posting uses the saved values.
+                Saves everything on this page (rates included), then books
+                each crew line (hours × cost rate) to the project&apos;s job
+                costs and the P&amp;L direct-labor split.
               </p>
             </>
           )}
