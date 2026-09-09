@@ -99,7 +99,10 @@ export default async function WorkOrderDetailPage({
           labor: wo.labor.map((l) => ({
             employeeId: l.employeeId,
             hours: String(l.hours),
-            rate: String(l.rate),
+            // Never ship rate values to a viewer who can't see them — the
+            // editor hides the column, but props serialize into the page
+            // payload where dev tools could read them.
+            rate: canEditRates ? String(l.rate) : '0',
           })),
           materials: wo.materials.map((m) => ({
             name: m.name,

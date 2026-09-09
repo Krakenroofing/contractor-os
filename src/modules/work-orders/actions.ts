@@ -450,7 +450,10 @@ export async function postWorkOrderAction(input: {
         costType: isSub ? 'subcontractor' : 'labor',
         entryDate: wo.workDate,
         vendorId: null,
-        description: `Service call ${wo.number} — ${empName} (${Number(l.hours).toFixed(2)}h @ $${Number(l.rate).toFixed(2)})`,
+        // No rate in the description — job-costing viewers (PMs) shouldn't
+        // read per-person rates off the entry text. Hours + amount columns
+        // carry the numbers for those allowed to see them.
+        description: `Service call ${wo.number} — ${empName} (${Number(l.hours).toFixed(2)}h)`,
         quantity: Number(l.hours).toFixed(2),
         unitCost: Number(l.rate).toFixed(4),
         amount: amount.toFixed(2),
