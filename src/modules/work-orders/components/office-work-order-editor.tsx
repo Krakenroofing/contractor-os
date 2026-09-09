@@ -20,11 +20,15 @@ import {
   ProductPicker,
   type ProductPickerOption,
 } from '@/modules/inventory/components/product-picker';
+import { downscalePhotoForUpload } from '@/lib/images/downscale-photo';
 import {
+  deleteWorkOrderPhotoAction,
   linkWorkOrderInvoiceAction,
   postWorkOrderAction,
+  toggleWorkOrderPhotoInvoiceAction,
   unpostWorkOrderAction,
   updateWorkOrderOfficeAction,
+  uploadWorkOrderPhotoAction,
   voidWorkOrderAction,
 } from '../actions';
 
@@ -61,6 +65,7 @@ export function OfficeWorkOrderEditor({
   projects,
   invoices,
   products,
+  photos,
   canEditRates,
 }: {
   workOrder: {
@@ -90,6 +95,13 @@ export function OfficeWorkOrderEditor({
   invoices: InvoiceOption[];
   /** Inventory catalog for the material picker (with inline quick-add). */
   products: ProductPickerOption[];
+  /** Job photos with fresh signed URLs (private bucket). */
+  photos: Array<{
+    id: string;
+    url: string | null;
+    caption: string | null;
+    includeOnInvoice: boolean;
+  }>;
   /** Only owner/admin/accountant (invoice permissions) see and set labor
    *  COST rates — the work order itself carries hours + materials. */
   canEditRates: boolean;
@@ -456,6 +468,118 @@ export function OfficeWorkOrderEditor({
           Quantities are what the crew reported — price them on the invoice.
           Material COST reaches job costing through receipts categorized to
           this call&apos;s project, as usual.
+        </p>
+      </div>
+
+      {/* Job photos */}
+      <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+        <p className="text-sm font-medium text-slate-800">Job photos</p>
+        {photos.length === 0 && (
+          <p className="text-xs text-slate-500">
+            None yet — the crew attaches them when submitting, or add some
+            below.
+          </p>
+        )}
+        {photos.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {photos.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-md border border-slate-200 overflow-hidden bg-slate-50"
+              >
+                {p.url ? (
+                  <a href={p.url} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.url}
+                      alt={p.caption ?? 'Job photo'}
+                      className="h-32 w-full object-cover"
+                    />
+                  </a>
+                ) : (
+                  <div className="flex h-32 items-center justify-center text-xs text-slate-400">
+                    unavailable
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                  <label className="flex items-center gap-1 text-[11px] text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={p.includeOnInvoice}
+                      disabled={pending}
+                      onChange={(e) =>
+                        run(
+                          () =>
+                            toggleWorkOrderPhotoInvoiceAction({
+                              photoId: p.id,
+                              include: e.target.checked,
+                            }),
+                          e.target.checked
+                            ? 'Photo will appear on the invoice.'
+                            : 'Photo removed from the invoice.',
+                        )
+                      }
+                      className="h-3.5 w-3.5 rounded border-slate-300"
+                    />
+                    On invoice
+                  </label>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => {
+                      if (!window.confirm('Delete this photo?')) return;
+                      run(
+                        () => deleteWorkOrderPhotoAction(p.id),
+                        'Photo deleted.',
+                      );
+                    }}
+                    className="text-slate-400 hover:text-red-600"
+                    title="Delete photo"
+                    aria-label="Delete photo"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!isVoid && (
+          <div>
+            <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer rounded-md border border-slate-300 px-2.5 py-1.5 hover:bg-slate-50">
+              📷 Add photos
+              <input
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                multiple
+                className="hidden"
+                disabled={pending}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (files.length === 0) return;
+                  run(async () => {
+                    for (const f of files) {
+                      const fd = new FormData();
+                      fd.set('photo', await downscalePhotoForUpload(f));
+                      const res = await uploadWorkOrderPhotoAction(
+                        workOrder.id,
+                        fd,
+                      );
+                      if (!res.ok) return res;
+                    }
+                    return { ok: true };
+                  }, `${files.length} photo${files.length === 1 ? '' : 's'} uploaded.`);
+                }}
+              />
+            </label>
+          </div>
+        )}
+        <p className="text-[11px] text-slate-500">
+          Photos ticked &quot;On invoice&quot; render in a photo section on
+          the client&apos;s invoice PDF (via the married invoice). After
+          posting, all of them also show in the project&apos;s Photos
+          gallery.
         </p>
       </div>
 

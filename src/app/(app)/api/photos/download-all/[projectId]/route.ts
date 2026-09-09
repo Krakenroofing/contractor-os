@@ -8,6 +8,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
 import { listPhotosForProject } from '@/lib/data/daily-reports';
+import { listWorkOrderPhotosForProject } from '@/lib/data/work-orders';
 import {
   buildPhotoZip,
   MAX_PHOTOS_PER_ZIP,
@@ -30,7 +31,13 @@ export async function GET(
   const project = await getProject(companyId, projectId);
   if (!project) return new Response('Project not found', { status: 404 });
 
-  const photos = await listPhotosForProject(companyId, projectId);
+  const photos = [
+    ...(await listPhotosForProject(companyId, projectId)),
+    // Work-order photos booked to this project ride along in the same zip.
+    ...(await listWorkOrderPhotosForProject(companyId, projectId)).map(
+      (p) => ({ ...p, category: 'work_order' }),
+    ),
+  ];
   if (photos.length === 0) {
     return new Response('No photos for this project.', { status: 404 });
   }

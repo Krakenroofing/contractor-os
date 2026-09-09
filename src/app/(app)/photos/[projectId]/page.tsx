@@ -11,6 +11,7 @@ import { canView } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
 import { getCustomer } from '@/lib/data/customers';
 import { listPhotosForProject } from '@/lib/data/daily-reports';
+import { listWorkOrderPhotosForProject } from '@/lib/data/work-orders';
 import { createSignedPhotoUrl } from '@/lib/storage/daily-report-photos';
 import {
   PhotoGalleryClient,
@@ -32,13 +33,16 @@ export default async function ProjectPhotosPage({
   const project = await getProject(companyId, projectId);
   if (!project) notFound();
 
-  const [customer, photos] = await Promise.all([
+  const [customer, photos, woPhotos] = await Promise.all([
     getCustomer(companyId, project.customerId),
     listPhotosForProject(companyId, projectId),
+    // Work-order photos land here once the office posts the service call
+    // to this project — same gallery, linked back to the work order.
+    listWorkOrderPhotosForProject(companyId, projectId),
   ]);
 
-  const cards: PhotoCard[] = await Promise.all(
-    photos.map(async (p) => ({
+  const cards: PhotoCard[] = await Promise.all([
+    ...photos.map(async (p) => ({
       id: p.id,
       url: await createSignedPhotoUrl(p.storagePath).catch(() => null),
       category: p.category,
@@ -47,7 +51,16 @@ export default async function ProjectPhotosPage({
       reportHref: `/projects/${projectId}/daily-reports/${p.dailyReportId}`,
       downloadHref: `/api/photos/download/${p.id}`,
     })),
-  );
+    ...woPhotos.map(async (p) => ({
+      id: p.id,
+      url: await createSignedPhotoUrl(p.storagePath).catch(() => null),
+      category: 'progress',
+      date: p.uploadedAt.toISOString().slice(0, 10),
+      caption: p.caption ?? `Work order ${p.workOrderNumber}`,
+      reportHref: `/work-orders/${p.workOrderId}`,
+      downloadHref: `/api/photos/download/${p.id}`,
+    })),
+  ]);
 
   return (
     <div className="p-8 space-y-6 max-w-[100rem]">

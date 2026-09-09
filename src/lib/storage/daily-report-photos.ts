@@ -100,6 +100,35 @@ export async function uploadDailyReportPhoto(
   return { storagePath };
 }
 
+/** Work-order photos share the same private bucket, keyed under a literal
+ *  'work-orders' segment (there's no project yet at field-upload time):
+ *  <companyId>/work-orders/<workOrderId>/<uuid>.<ext>. Every read helper
+ *  below (signed URLs, data URLs, byte downloads) works on these paths. */
+export async function uploadWorkOrderPhoto(input: {
+  companyId: string;
+  workOrderId: string;
+  bytes: ArrayBuffer | Buffer | Uint8Array;
+  mimeType: string;
+}): Promise<UploadDailyReportPhotoResult> {
+  const client = getSupabaseAdminClient();
+  if (!client) throw new PhotoStorageNotConfiguredError();
+  const id = randomUUID();
+  const ext = extFromMime(input.mimeType);
+  const storagePath = `${input.companyId}/work-orders/${input.workOrderId}/${id}.${ext}`;
+  const body =
+    input.bytes instanceof ArrayBuffer
+      ? new Uint8Array(input.bytes)
+      : input.bytes;
+  const { error } = await client.storage
+    .from(DAILY_REPORT_PHOTOS_BUCKET)
+    .upload(storagePath, body as Uint8Array, {
+      contentType: input.mimeType,
+      upsert: false,
+    });
+  if (error) throw new Error(`Photo upload failed: ${error.message}`);
+  return { storagePath };
+}
+
 export async function createSignedPhotoUrl(
   storagePath: string,
   ttlSeconds: number = SIGNED_URL_TTL_SECONDS,

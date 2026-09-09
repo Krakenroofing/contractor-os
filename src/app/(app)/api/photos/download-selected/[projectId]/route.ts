@@ -10,6 +10,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { getProject } from '@/lib/data/projects';
 import { listPhotosForProject } from '@/lib/data/daily-reports';
+import { listWorkOrderPhotosForProject } from '@/lib/data/work-orders';
 import {
   buildPhotoZip,
   MAX_PHOTOS_PER_ZIP,
@@ -57,11 +58,15 @@ export async function POST(
     );
   }
 
-  // Resolve ids against this project's own photos — anything else drops out.
+  // Resolve ids against this project's own photos (daily-report AND
+  // work-order sources) — anything else drops out.
   const wanted = new Set(ids);
-  const photos = (await listPhotosForProject(companyId, projectId)).filter(
-    (p) => wanted.has(p.id),
-  );
+  const photos = [
+    ...(await listPhotosForProject(companyId, projectId)),
+    ...(await listWorkOrderPhotosForProject(companyId, projectId)).map(
+      (p) => ({ ...p, category: 'work_order' }),
+    ),
+  ].filter((p) => wanted.has(p.id));
   if (photos.length === 0) {
     return new Response('No matching photos found.', { status: 404 });
   }

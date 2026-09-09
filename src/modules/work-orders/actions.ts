@@ -25,14 +25,24 @@ import {
 import { createProject, getProject } from '@/lib/data/projects';
 import {
   createWorkOrder,
+  deleteWorkOrderPhotoRow,
   getNextWorkOrderNumber,
+  getWorkOrderPhoto,
   getWorkOrderWithDetails,
+  insertWorkOrderPhoto,
   listWorkOrders,
   replaceWorkOrderLines,
+  setWorkOrderPhotoInvoiceFlag,
   updateWorkOrder,
   type WorkOrderLaborInput,
   type WorkOrderMaterialInput,
 } from '@/lib/data/work-orders';
+import {
+  ALLOWED_PHOTO_MIME,
+  MAX_PHOTO_BYTES,
+  deleteDailyReportPhotoBlob,
+  uploadWorkOrderPhoto,
+} from '@/lib/storage/daily-report-photos';
 
 export type WorkOrderActionResult = {
   ok?: boolean;
@@ -574,6 +584,137 @@ export async function linkWorkOrderInvoiceAction(input: {
     invoiceId: invoiceId ? invoiceId.data : null,
   });
   revalidateWorkOrders(id.data);
+  return { ok: true };
+}
+
+// ===== Photos =====
+// The crew attaches job photos when submitting (or right after) from the
+// field; the office can add more at review. Uploading needs either the
+// creator's own employee link or office (projects) permissions.
+
+async function canTouchWorkOrderPhotos(
+  companyId: string,
+  workOrderId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const role = await getActiveRole();
+  if (canCreate(role, 'projects')) return { ok: true };
+  const employee = await getActiveEmployee();
+  if (!employee) {
+    return { ok: false, error: 'No permission to change these photos.' };
+  }
+  const wo = await getWorkOrderWithDetails(companyId, workOrderId);
+  if (!wo) return { ok: false, error: 'Work order not found.' };
+  if (wo.createdByEmployeeId !== employee.id) {
+    return {
+      ok: false,
+      error: 'Only the crew member who submitted this call can add photos.',
+    };
+  }
+  if (wo.status !== 'submitted') {
+    return {
+      ok: false,
+      error: 'This work order is closed — ask the office to add photos.',
+    };
+  }
+  return { ok: true };
+}
+
+export async function uploadWorkOrderPhotoAction(
+  workOrderId: string,
+  formData: FormData,
+): Promise<WorkOrderActionResult> {
+  const user = await requireAuth();
+  const id = idSchema.safeParse(workOrderId);
+  if (!id.success) return { error: 'Missing work order id.' };
+  const companyId = await getActiveCompanyId();
+  const allowed = await canTouchWorkOrderPhotos(companyId, id.data);
+  if (!allowed.ok) return { error: allowed.error };
+
+  const file = formData.get('photo');
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: 'Choose a photo to upload.' };
+  }
+  if (file.size > MAX_PHOTO_BYTES) {
+    return {
+      error: `Photo is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max is ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)}MB.`,
+    };
+  }
+  const mime = (file.type || '').toLowerCase();
+  if (!ALLOWED_PHOTO_MIME.has(mime)) {
+    return {
+      error: `Unsupported file type: ${file.type || 'unknown'}. Use JPG, PNG, WebP, or HEIC.`,
+    };
+  }
+  const caption = (formData.get('caption') ?? '').toString().slice(0, 500);
+  const knownUsers = await getUserNamesByIds([user.id]);
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const upload = await uploadWorkOrderPhoto({
+      companyId,
+      workOrderId: id.data,
+      bytes,
+      mimeType: mime,
+    });
+    await insertWorkOrderPhoto({
+      companyId,
+      workOrderId: id.data,
+      storagePath: upload.storagePath,
+      fileName: file.name || null,
+      mimeType: mime,
+      byteSize: file.size,
+      caption: caption || null,
+      uploadedBy: knownUsers.has(user.id) ? user.id : null,
+    });
+    revalidateWorkOrders(id.data);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Photo upload failed: ${message}` };
+  }
+}
+
+export async function deleteWorkOrderPhotoAction(
+  photoId: string,
+): Promise<WorkOrderActionResult> {
+  await requireAuth();
+  const id = idSchema.safeParse(photoId);
+  if (!id.success) return { error: 'Missing photo id.' };
+  const companyId = await getActiveCompanyId();
+  const photo = await getWorkOrderPhoto(companyId, id.data);
+  if (!photo) return { error: 'Photo not found.' };
+  const allowed = await canTouchWorkOrderPhotos(companyId, photo.workOrderId);
+  if (!allowed.ok) return { error: allowed.error };
+  try {
+    await deleteWorkOrderPhotoRow(companyId, id.data);
+    await deleteDailyReportPhotoBlob(photo.storagePath);
+    revalidateWorkOrders(photo.workOrderId);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return { error: `Failed to delete the photo: ${message}` };
+  }
+}
+
+/** Office-only: flag whether a photo renders on the client's invoice. */
+export async function toggleWorkOrderPhotoInvoiceAction(input: {
+  photoId: string;
+  include: boolean;
+}): Promise<WorkOrderActionResult> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'projects')) {
+    return { error: 'You do not have permission to change invoice photos.' };
+  }
+  const id = idSchema.safeParse(input.photoId);
+  if (!id.success) return { error: 'Missing photo id.' };
+  const companyId = await getActiveCompanyId();
+  const updated = await setWorkOrderPhotoInvoiceFlag(
+    companyId,
+    id.data,
+    Boolean(input.include),
+  );
+  if (!updated) return { error: 'Photo not found.' };
+  revalidateWorkOrders(updated.workOrderId);
   return { ok: true };
 }
 

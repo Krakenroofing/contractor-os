@@ -5,6 +5,7 @@ import {
   timestamp,
   numeric,
   integer,
+  boolean,
   date,
   index,
   uniqueIndex,
@@ -132,6 +133,44 @@ export const workOrderMaterials = pgTable(
     woIdx: index('work_order_materials_wo_idx').on(t.workOrderId),
   }),
 );
+
+// Job photos attached by the crew at submission (or the office at review).
+// Blobs live in the daily-report-photos bucket under
+// <companyId>/work-orders/<workOrderId>/. After posting, the project's
+// Photos gallery lists these; include_on_invoice marks the ones rendered
+// on the client's invoice PDF.
+export const workOrderPhotos = pgTable(
+  'work_order_photos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    workOrderId: uuid('work_order_id')
+      .notNull()
+      .references(() => workOrders.id, { onDelete: 'cascade' }),
+    storagePath: text('storage_path').notNull(),
+    fileName: text('file_name'),
+    mimeType: text('mime_type'),
+    byteSize: integer('byte_size'),
+    caption: text('caption'),
+    includeOnInvoice: boolean('include_on_invoice').notNull().default(false),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => ({
+    woIdx: index('work_order_photos_wo_idx').on(t.workOrderId),
+    companyIdx: index('work_order_photos_company_idx').on(t.companyId),
+  }),
+);
+
+export type WorkOrderPhoto = typeof workOrderPhotos.$inferSelect;
+export type NewWorkOrderPhoto = typeof workOrderPhotos.$inferInsert;
 
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type NewWorkOrder = typeof workOrders.$inferInsert;

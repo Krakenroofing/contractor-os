@@ -39,6 +39,37 @@ export async function buildInvoicePayload(
     : undefined;
   const lines = await getInvoiceLineItems(invoice.id);
 
+  // Married work-order photos: when this invoice bills a service call, the
+  // photos the office ticked "On invoice" render as a photo gallery on the
+  // PDF — before/after proof for the client. Unreadable blobs are skipped
+  // rather than failing the export.
+  const workOrderImages: import('@/lib/exports/types').DocumentImage[] = [];
+  try {
+    const { getWorkOrderByInvoice, listWorkOrderPhotos } = await import(
+      '@/lib/data/work-orders'
+    );
+    const { getDailyReportPhotoDataUrl } = await import(
+      '@/lib/storage/daily-report-photos'
+    );
+    const wo = await getWorkOrderByInvoice(companyId, invoice.id);
+    if (wo) {
+      const photos = (await listWorkOrderPhotos(companyId, wo.id)).filter(
+        (p) => p.includeOnInvoice,
+      );
+      for (const p of photos) {
+        const src = await getDailyReportPhotoDataUrl(
+          p.storagePath,
+          p.mimeType,
+        );
+        if (src) {
+          workOrderImages.push({ src, caption: p.caption ?? null });
+        }
+      }
+    }
+  } catch {
+    /* photos are best-effort — never break the invoice PDF over them */
+  }
+
   const subtotal = parseMoney(invoice.subtotal);
   // Project-credit lines are itemised under the subtotal so VAT reads as
   // charged on the net. `subtotal` (invoice.subtotal) is already the net; the
@@ -757,6 +788,7 @@ export async function buildInvoicePayload(
       return parts.length > 0 ? parts.join('\n\n') : null;
     })(),
     signatureBlock,
+    imageGallery: workOrderImages.length > 0 ? workOrderImages : undefined,
     footerNote: showFooter ? (template?.footerText ?? null) : null,
   };
 }

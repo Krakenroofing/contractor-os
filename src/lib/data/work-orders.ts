@@ -11,10 +11,12 @@ import {
   projects,
   workOrderLabor,
   workOrderMaterials,
+  workOrderPhotos,
   workOrders,
   type WorkOrder,
   type WorkOrderLabor,
   type WorkOrderMaterial,
+  type WorkOrderPhoto,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
@@ -256,6 +258,141 @@ export async function updateWorkOrder(
       ),
     )
     .returning();
+  return rows[0];
+}
+
+// ===== Photos =====
+
+export async function listWorkOrderPhotos(
+  companyId: string,
+  workOrderId: string,
+): Promise<WorkOrderPhoto[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return await db
+    .select()
+    .from(workOrderPhotos)
+    .where(
+      and(
+        eq(workOrderPhotos.companyId, companyId),
+        eq(workOrderPhotos.workOrderId, workOrderId),
+      ),
+    )
+    .orderBy(asc(workOrderPhotos.sortOrder), asc(workOrderPhotos.uploadedAt));
+}
+
+export async function insertWorkOrderPhoto(input: {
+  companyId: string;
+  workOrderId: string;
+  storagePath: string;
+  fileName: string | null;
+  mimeType: string | null;
+  byteSize: number | null;
+  caption: string | null;
+  uploadedBy: string | null;
+}): Promise<WorkOrderPhoto> {
+  const db = requireDb();
+  const [row] = await db.insert(workOrderPhotos).values(input).returning();
+  return row;
+}
+
+export async function getWorkOrderPhoto(
+  companyId: string,
+  id: string,
+): Promise<WorkOrderPhoto | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(workOrderPhotos)
+    .where(
+      and(
+        eq(workOrderPhotos.id, id),
+        eq(workOrderPhotos.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export async function deleteWorkOrderPhotoRow(
+  companyId: string,
+  id: string,
+): Promise<WorkOrderPhoto | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .delete(workOrderPhotos)
+    .where(
+      and(
+        eq(workOrderPhotos.id, id),
+        eq(workOrderPhotos.companyId, companyId),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+export async function setWorkOrderPhotoInvoiceFlag(
+  companyId: string,
+  id: string,
+  includeOnInvoice: boolean,
+): Promise<WorkOrderPhoto | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(workOrderPhotos)
+    .set({ includeOnInvoice })
+    .where(
+      and(
+        eq(workOrderPhotos.id, id),
+        eq(workOrderPhotos.companyId, companyId),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
+/** Photos of every work order booked to a project — the Photos gallery
+ *  shows these next to the daily-report photos once the WO is posted. */
+export async function listWorkOrderPhotosForProject(
+  companyId: string,
+  projectId: string,
+): Promise<Array<WorkOrderPhoto & { workOrderNumber: string }>> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({ photo: workOrderPhotos, number: workOrders.number })
+    .from(workOrderPhotos)
+    .innerJoin(workOrders, eq(workOrders.id, workOrderPhotos.workOrderId))
+    .where(
+      and(
+        eq(workOrderPhotos.companyId, companyId),
+        eq(workOrders.projectId, projectId),
+        isNull(workOrders.deletedAt),
+      ),
+    )
+    .orderBy(asc(workOrderPhotos.uploadedAt));
+  return rows.map((r) => ({ ...r.photo, workOrderNumber: r.number }));
+}
+
+/** The work order an invoice was raised for (married via wo.invoice_id) —
+ *  the invoice PDF pulls its flagged photos into the photo gallery. */
+export async function getWorkOrderByInvoice(
+  companyId: string,
+  invoiceId: string,
+): Promise<WorkOrder | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .select()
+    .from(workOrders)
+    .where(
+      and(
+        eq(workOrders.companyId, companyId),
+        eq(workOrders.invoiceId, invoiceId),
+        isNull(workOrders.deletedAt),
+      ),
+    )
+    .limit(1);
   return rows[0];
 }
 

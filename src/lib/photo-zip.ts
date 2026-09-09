@@ -1,7 +1,17 @@
 import 'server-only';
 import JSZip from 'jszip';
 import { downloadPhotoBytes } from '@/lib/storage/daily-report-photos';
-import type { DailyReportPhoto } from '@/db/schema';
+
+// Structural shape shared by daily-report photos AND work-order photos —
+// both live in the same bucket, so one zip pipeline serves both.
+export type ZipPhoto = {
+  id: string;
+  storagePath: string;
+  fileName: string | null;
+  mimeType: string | null;
+  uploadedAt: Date;
+  category?: string | null;
+};
 
 // Shared zip-bundling helpers for the photo download routes (download-all
 // and download-selected). JPEGs are already compressed, so entries are
@@ -11,7 +21,7 @@ import type { DailyReportPhoto } from '@/db/schema';
 // photos in smaller batches instead.
 export const MAX_PHOTOS_PER_ZIP = 800;
 
-export function extFor(p: DailyReportPhoto): string {
+export function extFor(p: ZipPhoto): string {
   if (p.fileName && p.fileName.includes('.')) {
     return p.fileName.split('.').pop()!.toLowerCase();
   }
@@ -22,11 +32,11 @@ export function extFor(p: DailyReportPhoto): string {
   return 'jpg';
 }
 
-export function entryName(p: DailyReportPhoto, i: number): string {
+export function entryName(p: ZipPhoto, i: number): string {
   const date = p.uploadedAt.toISOString().slice(0, 10);
   const short = p.id.slice(0, 8);
   // Index prefix guarantees uniqueness even if two photos share a date+id8.
-  return `${String(i + 1).padStart(3, '0')}_${date}_${p.category}_${short}.${extFor(p)}`;
+  return `${String(i + 1).padStart(3, '0')}_${date}_${p.category ?? 'photo'}_${short}.${extFor(p)}`;
 }
 
 export function safeFile(name: string): string {
@@ -39,7 +49,7 @@ export function safeFile(name: string): string {
  * could be read at all.
  */
 export async function buildPhotoZip(
-  photos: DailyReportPhoto[],
+  photos: ZipPhoto[],
 ): Promise<Buffer | null> {
   const zip = new JSZip();
   let added = 0;

@@ -11,7 +11,11 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { submitWorkOrderAction } from '../actions';
+import { downscalePhotoForUpload } from '@/lib/images/downscale-photo';
+import {
+  submitWorkOrderAction,
+  uploadWorkOrderPhotoAction,
+} from '../actions';
 
 type EmployeeOption = { id: string; name: string };
 
@@ -41,6 +45,11 @@ export function FieldWorkOrderForm({
   const [materials, setMaterials] = useState<MaterialRow[]>([
     { name: '', qtyText: '', unit: '' },
   ]);
+  // Job photos queued locally; uploaded one-by-one AFTER the work order is
+  // created (the storage path needs its id). Downscaled client-side so a
+  // 10MB camera shot never trips Vercel's ~4.5MB request cap.
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoProgress, setPhotoProgress] = useState<string | null>(null);
 
   const nameById = new Map(employees.map((e) => [e.id, e.name]));
   const chosen = new Set(labor.map((l) => l.employeeId));
@@ -84,10 +93,29 @@ export function FieldWorkOrderForm({
         labor: laborRows,
         materials: materialRows,
       });
-      if (!res.ok) {
+      if (!res.ok || !res.id) {
         setError(res.error ?? 'Could not submit the work order.');
         return;
       }
+      // Photos ride after the create — one at a time so a flaky connection
+      // fails loudly per photo instead of losing the whole batch.
+      let failed = 0;
+      for (let i = 0; i < photos.length; i++) {
+        setPhotoProgress(`Uploading photo ${i + 1} of ${photos.length}…`);
+        try {
+          const fd = new FormData();
+          fd.set('photo', await downscalePhotoForUpload(photos[i]));
+          const up = await uploadWorkOrderPhotoAction(res.id, fd);
+          if (!up.ok) failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      setPhotoProgress(
+        failed > 0
+          ? `${failed} photo${failed === 1 ? '' : 's'} failed to upload — you can retry from My work orders later.`
+          : null,
+      );
       setDone(res.number ?? 'Submitted');
       router.refresh();
     });
@@ -102,9 +130,24 @@ export function FieldWorkOrderForm({
         <p className="text-sm text-emerald-800">
           The office will review it, add the client, and invoice the call.
         </p>
+        {photoProgress && (
+          <p className="text-xs text-amber-800">{photoProgress}</p>
+        )}
         <Button type="button" onClick={() => router.push('/field' as never)}>
           Back to home
         </Button>
+      </div>
+    );
+  }
+
+  if (pending && photoProgress) {
+    // Keep the crew member on a clear progress screen while photos upload.
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-5 text-center space-y-2">
+        <p className="text-base font-semibold text-slate-900">
+          Submitting work order…
+        </p>
+        <p className="text-sm text-slate-600">{photoProgress}</p>
       </div>
     );
   }
@@ -256,6 +299,53 @@ export function FieldWorkOrderForm({
         >
           + Add material
         </Button>
+      </section>
+
+      {/* Job photos */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+        <p className="text-sm font-semibold text-slate-900">Job photos</p>
+        <p className="text-xs text-slate-500">
+          Before / after shots of the repair. They go to the office with the
+          work order and can end up on the client&apos;s invoice.
+        </p>
+        <Input
+          type="file"
+          accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+          multiple
+          className="h-11"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length > 0) setPhotos((prev) => [...prev, ...files]);
+            e.target.value = '';
+          }}
+        />
+        {photos.length > 0 && (
+          <ul className="space-y-1">
+            {photos.map((f, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between gap-2 text-xs text-slate-700"
+              >
+                <span className="truncate">
+                  📷 {f.name || `Photo ${i + 1}`}{' '}
+                  <span className="text-slate-400">
+                    ({(f.size / 1024 / 1024).toFixed(1)}MB)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPhotos((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  className="px-2 text-base text-slate-400"
+                  aria-label="Remove photo"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* Repairs done */}

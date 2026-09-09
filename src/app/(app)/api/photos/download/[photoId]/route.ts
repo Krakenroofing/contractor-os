@@ -7,6 +7,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
 import { getPhoto } from '@/lib/data/daily-reports';
+import { getWorkOrderPhoto } from '@/lib/data/work-orders';
 import { createSignedDownloadUrl } from '@/lib/storage/daily-report-photos';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,11 @@ export async function GET(
   const companyId = await getActiveCompanyId();
   const { photoId } = await params;
 
-  const photo = await getPhoto(companyId, photoId);
+  // Daily-report photo first; fall back to a work-order photo (same
+  // private bucket, same signed-download helper).
+  const photo =
+    (await getPhoto(companyId, photoId)) ??
+    (await getWorkOrderPhoto(companyId, photoId));
   if (!photo) return new Response('Not found', { status: 404 });
 
   const filename = photo.fileName ?? `photo-${photo.id}.jpg`;
