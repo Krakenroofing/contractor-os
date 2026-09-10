@@ -551,13 +551,22 @@ export async function postSessionsToTimeEntries(
     .limit(1);
   const companyDefaultCostCodeId = companyRow[0]?.defaultLaborCostCodeId ?? null;
 
+  // A worker who clocked in on Overhead can still pick the real job at
+  // clock-out ("I forgot to set it this morning") — honor it. The IN
+  // punch's project wins when both are set (a mid-session job switch on
+  // the out punch is ambiguous; the day view handles splits).
+  const sessionProjectId = (s: PostableSession): string | null =>
+    s.in.projectId ?? s.out.projectId ?? null;
+  const sessionCostCodeId = (s: PostableSession): string | null =>
+    s.in.projectId ? s.in.costCodeId : (s.out.costCodeId ?? s.in.costCodeId);
+
   // Per-project defaults for the distinct jobs in this batch that need a
   // fallback (job punch, no code). One query, not one per session.
   const projectIdsNeedingCode = [
     ...new Set(
       sessions
-        .filter((s) => !s.in.costCodeId && s.in.projectId)
-        .map((s) => s.in.projectId as string),
+        .filter((s) => !sessionCostCodeId(s) && sessionProjectId(s))
+        .map((s) => sessionProjectId(s) as string),
     ),
   ];
   const projectDefaultCostCode = new Map<string, string | null>();
@@ -629,13 +638,14 @@ export async function postSessionsToTimeEntries(
             entryType: 'hours',
             hours: hoursNum.toFixed(2),
             amount: '0',
-            projectId: s.in.projectId,
-            costCodeId: resolveCostCodeId(s.in.costCodeId, s.in.projectId),
+            projectId: sessionProjectId(s),
+            costCodeId: resolveCostCodeId(sessionCostCodeId(s), sessionProjectId(s)),
             // A punch with no job selected is NOT overhead — the worker just
-            // didn't pick one. Flagging it overhead made the timesheet show
-            // "job ✓" on hours that silently never reached job costing.
-            // Leave it floating so the grid prompts "+ assign job"; overhead
-            // stays an explicit office choice in the day view.
+            // didn't pick one (or tapped Overhead as a shortcut). Flagging it
+            // overhead made the timesheet show "job ✓" on hours that silently
+            // never reached job costing. Leave it floating so the grid prompts
+            // "+ assign job"; overhead stays an explicit office choice in the
+            // day view.
             isOverhead: false,
             notes,
           })
