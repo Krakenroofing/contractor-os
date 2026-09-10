@@ -200,6 +200,9 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               <Label htmlFor="projectId" className="text-xs">
                 Project (required)
               </Label>
+              {/* Defaults to the worker's last job (the crew works one job
+                  at a time), so the normal morning stays one tap and
+                  there's no temptation to bypass the picker via Overhead. */}
               <Select
                 name="projectId"
                 id="projectId"

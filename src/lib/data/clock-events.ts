@@ -640,13 +640,12 @@ export async function postSessionsToTimeEntries(
             amount: '0',
             projectId: sessionProjectId(s),
             costCodeId: resolveCostCodeId(sessionCostCodeId(s), sessionProjectId(s)),
-            // A punch with no job selected is NOT overhead — the worker just
-            // didn't pick one (or tapped Overhead as a shortcut). Flagging it
-            // overhead made the timesheet show "job ✓" on hours that silently
-            // never reached job costing. Leave it floating so the grid prompts
-            // "+ assign job"; overhead stays an explicit office choice in the
-            // day view.
-            isOverhead: false,
+            // Overhead punches are a deliberate choice (job-mode punch-ins
+            // REQUIRE a project), and some workers are genuinely shop/
+            // overhead — keep the flag. The timesheet renders these as
+            // "overhead" (not "job ✓") so a field crew parking jobsite
+            // hours on Overhead is visible at a glance.
+            isOverhead: sessionProjectId(s) == null,
             notes,
           })
           .returning({ id: timeEntries.id });

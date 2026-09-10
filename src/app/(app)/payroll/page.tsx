@@ -258,6 +258,7 @@ export default async function PayrollPage({
         payCount: number;
         payUnassigned: boolean;
         hoursUnassigned: boolean;
+        hoursOverhead: boolean;
         lunchMinutes: number;
       }
     > = {};
@@ -270,6 +271,7 @@ export default async function PayrollPage({
         payCount: 0,
         payUnassigned: false,
         hoursUnassigned: false,
+        hoursOverhead: false,
         lunchMinutes: 0,
       });
       if (entry.entryType === 'amount') {
@@ -287,6 +289,10 @@ export default async function PayrollPage({
         // otherwise every clocked-in shift would nag. Only truly floating
         // hours (typed inline, no project, not overhead) prompt "+ assign job".
         if (!entry.projectId && !entry.isOverhead) slot.hoursUnassigned = true;
+        // Deliberate overhead renders as "overhead", never "job ✓" — shop
+        // guys legitimately live here, but a field crew punching Overhead
+        // as a picker shortcut must stay visible to the office.
+        if (!entry.projectId && entry.isOverhead) slot.hoursOverhead = true;
       }
     }
     // Lunch only affects hourly pay; show the deduction line for those.

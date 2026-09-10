@@ -34,6 +34,10 @@ export type TimesheetDay = {
   payUnassigned: boolean;
   /** True when hours that day aren't fully allocated to a job + cost code. */
   hoursUnassigned: boolean;
+  /** True when hours that day are explicitly overhead (no job, on purpose).
+   *  Rendered as "overhead" — never "job ✓" — so jobsite hours parked on
+   *  the Overhead punch button stay visible to the office. */
+  hoursOverhead: boolean;
   /** Effective unpaid lunch for the day, in minutes (0 when N/A). */
   lunchMinutes: number;
 };
@@ -57,6 +61,7 @@ const EMPTY_DAY: TimesheetDay = {
   payCount: 0,
   payUnassigned: false,
   hoursUnassigned: false,
+  hoursOverhead: false,
   lunchMinutes: 0,
 };
 
@@ -149,6 +154,7 @@ export function TimesheetGrid({
                         payCount={day.payCount}
                         payUnassigned={day.payUnassigned}
                         hoursUnassigned={day.hoursUnassigned}
+                        hoursOverhead={day.hoursOverhead}
                         showPay={emp.isVariablePay || day.pay > 0}
                         showLunch={emp.appliesLunch}
                         lunchMinutes={day.lunchMinutes}

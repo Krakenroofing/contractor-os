@@ -25,6 +25,8 @@ export type TimesheetCellData = {
   payUnassigned: boolean;
   /** Hours that day that aren't fully allocated to a job + cost code. */
   hoursUnassigned: boolean;
+  /** Hours that day explicitly marked overhead (no job, on purpose). */
+  hoursOverhead: boolean;
   /** Variable-pay worker → render the $ pay input under the hours. */
   showPay: boolean;
   /** Hourly worker → render the unpaid-lunch control under the hours. */
@@ -56,10 +58,24 @@ export function TimesheetCell(props: TimesheetCellData) {
             pathname: '/payroll/day',
             query: { employeeId: props.employeeId, workDate: props.workDate },
           }}
-          title="Assign these hours to a job + cost code"
-          className="text-[10px] tabular-nums text-slate-400 hover:text-blue-700 hover:underline"
+          title={
+            props.hoursUnassigned
+              ? 'Assign these hours to a job + cost code'
+              : props.hoursOverhead
+                ? 'Punched in as Overhead — not on a job. Click to reassign if they were actually on a jobsite.'
+                : 'Assign these hours to a job + cost code'
+          }
+          className={`text-[10px] tabular-nums hover:underline ${
+            props.hoursOverhead && !props.hoursUnassigned
+              ? 'text-amber-600 hover:text-amber-700'
+              : 'text-slate-400 hover:text-blue-700'
+          }`}
         >
-          {props.hoursUnassigned ? '+ assign job' : 'job ✓'}
+          {props.hoursUnassigned
+            ? '+ assign job'
+            : props.hoursOverhead
+              ? 'overhead'
+              : 'job ✓'}
         </Link>
       )}
       {props.showPay && (

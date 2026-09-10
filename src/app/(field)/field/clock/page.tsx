@@ -138,10 +138,12 @@ export default async function FieldClockPage({
           // Open session's project always wins (you don't want a stale
           // deep-link to change which job you're billed against
           // mid-shift). When not clocked in, prefer the ?project= deep
-          // link from /field/jobs; otherwise blank.
+          // link from /field/jobs, then fall back to the worker's LAST
+          // punch's job — the crew works one job at a time, so the normal
+          // morning is one tap with their job already selected.
           isClockedIn
             ? latest?.projectId ?? null
-            : ((await searchParams).project ?? null)
+            : ((await searchParams).project ?? latest?.projectId ?? null)
         }
       />
 
