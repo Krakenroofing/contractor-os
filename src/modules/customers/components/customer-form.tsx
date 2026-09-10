@@ -26,6 +26,7 @@ export type CustomerFormInitialValues = {
   billingState: string;
   billingPostalCode: string;
   tinNumber: string;
+  intercompanyAccountId: string;
   notes: string;
 };
 
@@ -40,6 +41,7 @@ const blankInitial: CustomerFormInitialValues = {
   billingState: '',
   billingPostalCode: '',
   tinNumber: '',
+  intercompanyAccountId: '',
   notes: '',
 };
 
@@ -53,9 +55,13 @@ type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
 export function CustomerForm({
   mode = { kind: 'create' },
   initial,
+  intercompanyAccountOptions = [],
 }: {
   mode?: Mode;
   initial?: CustomerFormInitialValues;
+  /** Balance-sheet accounts offered for the related-party setting (e.g.
+   *  "Due from TRB"). Empty → the section doesn't render. */
+  intercompanyAccountOptions?: { id: string; label: string }[];
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -161,6 +167,33 @@ export function CustomerForm({
           />
         </Field>
       </fieldset>
+
+      {intercompanyAccountOptions.length > 0 && (
+        <fieldset className="border border-amber-200 bg-amber-50/40 rounded-lg p-4 space-y-2">
+          <legend className="px-2 text-sm font-medium text-amber-900">
+            Related party (intercompany)
+          </legend>
+          <Field label="Post invoices to" error={err('intercompanyAccountId')}>
+            <Select
+              name="intercompanyAccountId"
+              defaultValue={values.intercompanyAccountId}
+            >
+              <option value="">— not a related party —</option>
+              {intercompanyAccountOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-amber-800 mt-1">
+              When set, invoices to this customer credit the chosen
+              balance-sheet account (e.g. &quot;Due from TRB&quot;) instead of
+              revenue, and stay OFF the P&amp;L income section — intercompany
+              recharges are not revenue. AR and payments work as usual.
+            </p>
+          </Field>
+        </fieldset>
+      )}
 
       <Field label="Notes" error={err('notes')}>
         <textarea

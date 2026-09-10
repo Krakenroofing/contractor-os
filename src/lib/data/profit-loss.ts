@@ -412,6 +412,13 @@ export async function buildProfitLossReport(
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
+    // Related-party (intercompany) invoices are NOT revenue — they post to
+    // the customer's balance-sheet account (e.g. Kraken's "Due from TRB")
+    // and stay off the income statement entirely.
+    sql`NOT EXISTS (
+      SELECT 1 FROM projects p JOIN customers c ON c.id = p.customer_id
+      WHERE p.id = ${invoices.projectId} AND c.intercompany_account_id IS NOT NULL
+    )`,
   ];
   if (accrualBasis) incomeConds.push(ne(invoices.billingType, 'retainage'));
   if (filters.from) incomeConds.push(gte(invoices.invoiceDate, filters.from));
@@ -1588,6 +1595,12 @@ export async function listProfitLossRevenueEntries(
     eq(invoices.companyId, companyId),
     ne(invoices.status, 'draft'),
     ne(invoices.status, 'void'),
+    // Mirror the statement: related-party (intercompany) invoices are not
+    // revenue, so the drill excludes them too.
+    sql`NOT EXISTS (
+      SELECT 1 FROM projects p JOIN customers c ON c.id = p.customer_id
+      WHERE p.id = ${invoices.projectId} AND c.intercompany_account_id IS NOT NULL
+    )`,
   ];
   if (accrualBasis) conds.push(ne(invoices.billingType, 'retainage'));
   if (filters.from) conds.push(gte(invoices.invoiceDate, filters.from));

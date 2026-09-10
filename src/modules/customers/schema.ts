@@ -20,6 +20,11 @@ export const customerFormSchema = z.object({
   billingState: optionalString,
   billingPostalCode: optionalString,
   tinNumber: optionalString,
+  // Related-party balance-sheet account (e.g. "Due from TRB") — invoices
+  // to this customer post there instead of revenue. Empty = normal customer.
+  intercompanyAccountId: z
+    .union([z.string().uuid(), z.literal('')])
+    .optional(),
   notes: z.string().max(2000).optional().or(z.literal('')),
 });
 

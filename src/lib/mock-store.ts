@@ -174,6 +174,7 @@ function makeCustomer(
     billingState: null,
     billingPostalCode: null,
     tinNumber: null,
+    intercompanyAccountId: null,
     notes: null,
     deletedAt: null,
     createdAt: now,

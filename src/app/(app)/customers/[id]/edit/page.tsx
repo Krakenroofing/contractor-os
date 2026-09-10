@@ -7,6 +7,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getCustomer } from '@/lib/data/customers';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,16 @@ export default async function EditCustomerPage({
   const companyId = await getActiveCompanyId();
   const customer = await getCustomer(companyId, id);
   if (!customer) notFound();
+
+  // Balance-sheet accounts for the related-party (intercompany) picker —
+  // asset/liability side only; revenue stays out by design.
+  const intercompanyAccountOptions = (await listAccountingAccounts(companyId))
+    .filter(
+      (a) =>
+        !a.isArchived &&
+        ['asset', 'liability'].includes(a.rollupGroup as string),
+    )
+    .map((a) => ({ id: a.id, label: a.name }));
 
   return (
     <div className="p-8 max-w-3xl space-y-6">
@@ -60,8 +71,10 @@ export default async function EditCustomerPage({
           billingState: customer.billingState ?? '',
           billingPostalCode: customer.billingPostalCode ?? '',
           tinNumber: customer.tinNumber ?? '',
+          intercompanyAccountId: customer.intercompanyAccountId ?? '',
           notes: customer.notes ?? '',
         }}
+        intercompanyAccountOptions={intercompanyAccountOptions}
       />
     </div>
   );

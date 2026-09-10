@@ -59,6 +59,7 @@ function readForm(formData: FormData) {
     billingState: formData.get('billingState') ?? '',
     billingPostalCode: formData.get('billingPostalCode') ?? '',
     tinNumber: formData.get('tinNumber') ?? '',
+    intercompanyAccountId: formData.get('intercompanyAccountId') ?? '',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -95,6 +96,7 @@ export async function createCustomerAction(
       billingState: emptyToNull(data.billingState ?? null),
       billingPostalCode: emptyToNull(data.billingPostalCode ?? null),
       tinNumber: emptyToNull(data.tinNumber ?? null),
+      intercompanyAccountId: emptyToNull(data.intercompanyAccountId ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = customer.id;
@@ -139,6 +141,7 @@ export async function createCustomerInlineAction(input: {
       billingState: null,
       billingPostalCode: null,
       tinNumber: null,
+      intercompanyAccountId: null,
       notes: null,
     });
     revalidatePath('/customers');
@@ -189,6 +192,7 @@ export async function updateCustomerAction(
       billingState: emptyToNull(data.billingState ?? null),
       billingPostalCode: emptyToNull(data.billingPostalCode ?? null),
       tinNumber: emptyToNull(data.tinNumber ?? null),
+      intercompanyAccountId: emptyToNull(data.intercompanyAccountId ?? null),
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

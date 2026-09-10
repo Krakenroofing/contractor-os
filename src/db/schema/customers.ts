@@ -22,6 +22,12 @@ export const customers = pgTable(
     // Client TIN. Rendered on invoices when the active template enables
     // the bill-to TIN section.
     tinNumber: text('tin_number'),
+    // Related-party customer: invoices post their subtotal to this
+    // balance-sheet account (e.g. "Due from TRB") instead of revenue, and
+    // the P&L income section excludes them — intercompany recharges are
+    // not revenue. Plain uuid (FK in SQL) — the customers schema stays
+    // independent of accounting-accounts.
+    intercompanyAccountId: uuid('intercompany_account_id'),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

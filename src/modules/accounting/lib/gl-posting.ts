@@ -19,6 +19,8 @@ import {
   listAccountingAccounts,
 } from '@/lib/data/accounting-accounts';
 import { getInvoice, listInvoices } from '@/lib/data/invoices';
+import { getProject } from '@/lib/data/projects';
+import { getCustomer } from '@/lib/data/customers';
 import { getPayment, listPayments } from '@/lib/data/invoice-payments';
 import { getBankAccount, listBankAccounts } from '@/lib/data/bank-accounts';
 import {
@@ -254,6 +256,7 @@ export async function resolveGlSystemAccounts(
 function invoiceLines(
   invoice: Invoice,
   accounts: GlSystemAccounts,
+  intercompanyAccountId?: string | null,
 ): JournalLineInput[] {
   const subtotal = Number(invoice.subtotal);
   const tax = Number(invoice.taxAmount);
@@ -262,9 +265,14 @@ function invoiceLines(
 
   // Base vs CO separation: CO invoices credit Change Order Revenue; base
   // invoices credit their service-line category, else the default income line.
-  const revenueAccount = invoice.changeOrderId
-    ? accounts.changeOrderRevenue
-    : (invoice.accountingAccountId ?? accounts.defaultRevenue);
+  // RELATED-PARTY override: invoices to an intercompany customer (e.g.
+  // Kraken billing TRB) credit the customer's balance-sheet account ("Due
+  // from TRB") instead of any revenue account — recharges are not revenue.
+  const revenueAccount =
+    intercompanyAccountId ??
+    (invoice.changeOrderId
+      ? accounts.changeOrderRevenue
+      : (invoice.accountingAccountId ?? accounts.defaultRevenue));
 
   const lines: JournalLineInput[] = [];
   if (total > 0) {
@@ -305,7 +313,19 @@ export async function postInvoiceToGl(
   accounts: GlSystemAccounts,
 ): Promise<boolean> {
   await deleteJournalEntriesForSource(companyId, 'invoice', invoice.id);
-  const lines = invoiceLines(invoice, accounts);
+  // Related-party customer? Resolve project → customer for the
+  // intercompany override (one cheap lookup per invoice).
+  let intercompanyAccountId: string | null = null;
+  try {
+    const project = await getProject(companyId, invoice.projectId);
+    if (project) {
+      const customer = await getCustomer(companyId, project.customerId);
+      intercompanyAccountId = customer?.intercompanyAccountId ?? null;
+    }
+  } catch {
+    /* fall back to normal revenue posting */
+  }
+  const lines = invoiceLines(invoice, accounts, intercompanyAccountId);
   if (lines.length < 2) return false;
   await postJournalEntry(companyId, {
     entryDate: invoice.invoiceDate,

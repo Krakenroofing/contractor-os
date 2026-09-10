@@ -128,6 +128,7 @@ export async function backfillCustomerAction(
     phone: emptyToNull(data.phone ?? null),
     billingAddressLine1: null,
     billingAddressLine2: null,
+    intercompanyAccountId: null,
     billingCity: null,
     billingState: null,
     billingPostalCode: null,
