@@ -12,6 +12,7 @@ import { listChangeOrders } from '@/lib/data/change-orders';
 import { listProposals } from '@/lib/data/proposals';
 import { listPurchaseOrders } from '@/lib/data/purchase-orders';
 import { listProjects } from '@/lib/data/projects';
+import { listCustomers } from '@/lib/data/customers';
 import { buildProfitLossReport } from '@/lib/data/profit-loss';
 import { add, parseMoney, round2, subtract } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
@@ -247,7 +248,25 @@ export async function buildDashboardData(
   // (which can drift when a manual "Mark Paid" status flip lands without a
   // matching payment row) cannot lie to the dashboard. Source of truth is the
   // invoice_payments table, joined per-invoice.
-  const invoices = await listInvoices(companyId);
+  // Related-party (intercompany) customers — e.g. Kraken billing TRB. Their
+  // invoices post to a balance-sheet account (Due from TRB), not revenue,
+  // so the dashboard's revenue/invoiced/paid/AR tiles exclude them too: the
+  // dashboard measures client business, and the AR report + Due-from
+  // account carry the intercompany side.
+  const relatedCustomerIds = new Set(
+    (await listCustomers(companyId))
+      .filter((c) => c.intercompanyAccountId !== null)
+      .map((c) => c.id),
+  );
+  const relatedProjectIds = new Set(
+    projects
+      .filter((p) => relatedCustomerIds.has(p.customerId))
+      .map((p) => p.id),
+  );
+
+  const invoices = (await listInvoices(companyId)).filter(
+    (i) => !relatedProjectIds.has(i.projectId),
+  );
   const allPayments = await listInvoicePaymentsForCompany(companyId);
   const paymentsByInvoice = groupPaymentsByInvoice(allPayments);
   let totalInvoicedGross = 0;

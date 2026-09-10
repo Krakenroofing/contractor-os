@@ -78,11 +78,19 @@ export async function buildRemainingBillable(
   const customerById = new Map(customers.map((c) => [c.id, c]));
 
   const rows: ProjectRemainingBillable[] = [];
+  // Related-party (intercompany) customers' projects are recharge vehicles,
+  // not contract work — same exclusion the P&L and dashboard revenue apply.
+  const relatedCustomerIds = new Set(
+    customers.filter((c) => c.intercompanyAccountId !== null).map((c) => c.id),
+  );
   // Service / T&M jobs have no contract value — exclude them from this
   // contract-based "remaining billable" view (else a $0 contract billed as
   // T&M reads as negative remaining).
   for (const p of projects.filter(
-    (pr) => isActiveProject(pr.status) && pr.projectType !== 'service',
+    (pr) =>
+      isActiveProject(pr.status) &&
+      pr.projectType !== 'service' &&
+      !relatedCustomerIds.has(pr.customerId),
   )) {
     const summary = await computeProjectInvoiceSummary(p.id);
     const revisedContract = r2(parseMoney(p.contractValue));
