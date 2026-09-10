@@ -631,7 +631,12 @@ export async function postSessionsToTimeEntries(
             amount: '0',
             projectId: s.in.projectId,
             costCodeId: resolveCostCodeId(s.in.costCodeId, s.in.projectId),
-            isOverhead: s.in.projectId == null,
+            // A punch with no job selected is NOT overhead — the worker just
+            // didn't pick one. Flagging it overhead made the timesheet show
+            // "job ✓" on hours that silently never reached job costing.
+            // Leave it floating so the grid prompts "+ assign job"; overhead
+            // stays an explicit office choice in the day view.
+            isOverhead: false,
             notes,
           })
           .returning({ id: timeEntries.id });
