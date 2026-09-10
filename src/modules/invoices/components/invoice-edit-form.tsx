@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { ProofreadButton } from '@/components/proofread-button';
 import { add, formatMoney, multiply, subtract } from '@/lib/money';
 import {
   updateInvoiceFullAction,
@@ -89,6 +90,7 @@ export function InvoiceEditForm({
   companyVatRatePercent = 0,
   projectLinkBroken = false,
   projectOptions = [],
+  proofreadAvailable = false,
 }: {
   initial: InvoiceEditFormInitial;
   changeOrderOptions: InvoiceEditFormChangeOrderOption[];
@@ -105,6 +107,8 @@ export function InvoiceEditForm({
    *  editing the total also updates the VAT — unless the operator overrides
    *  it by typing in the field. */
   companyVatRatePercent?: number;
+  /** True when ANTHROPIC_API_KEY is configured — enables AI spell check. */
+  proofreadAvailable?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     updateInvoiceFullAction,
@@ -471,6 +475,8 @@ export function InvoiceEditForm({
                     updateLine(line.rowId, { description: e.target.value })
                   }
                   placeholder="Description"
+                  spellCheck
+                  data-proofread="Line item description"
                 />
                 <Input
                   inputMode="decimal"
@@ -677,6 +683,8 @@ export function InvoiceEditForm({
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            spellCheck
+            data-proofread="Notes"
             className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           />
         </div>
@@ -687,10 +695,14 @@ export function InvoiceEditForm({
             rows={3}
             value={termsOverride}
             onChange={(e) => setTermsOverride(e.target.value)}
+            spellCheck
+            data-proofread="Payment terms"
             className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           />
         </div>
       </fieldset>
+
+      <ProofreadButton available={proofreadAvailable} />
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>

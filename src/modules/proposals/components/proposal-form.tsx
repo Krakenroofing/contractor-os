@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { ProofreadButton } from '@/components/proofread-button';
 import { formatMoney } from '@/lib/money';
 import {
   createProposalAction,
@@ -76,6 +77,7 @@ export function ProposalForm({
   initial,
   prefill,
   source,
+  proofreadAvailable = false,
 }: {
   estimates: EstimateOption[];
   projects: ProjectOption[];
@@ -84,6 +86,8 @@ export function ProposalForm({
   initial?: ProposalFormInitial;
   prefill?: ProposalFormPrefill;
   source?: ProposalFormSource;
+  /** True when ANTHROPIC_API_KEY is configured — enables AI spell check. */
+  proofreadAvailable?: boolean;
 }) {
   const action = initial
     ? updateProposalAction.bind(null, initial.id)
@@ -279,6 +283,8 @@ export function ProposalForm({
         defaultValue={initial?.termsAndConditions ?? prefill?.termsAndConditions ?? ''}
       />
 
+      <ProofreadButton available={proofreadAvailable} />
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending
@@ -340,6 +346,8 @@ function TextareaField({
         name={name}
         rows={rows}
         defaultValue={defaultValue}
+        spellCheck
+        data-proofread={label}
         className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
       {error && <p className="text-xs text-red-600">{error}</p>}

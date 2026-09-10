@@ -322,6 +322,7 @@ export default async function NewInvoicePage({
         defaultInvoiceDate={today}
         defaultDueDate={due}
         companyVatRatePercent={Number(activeCompany.vatRatePercent)}
+        proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
       />
     </div>
   );

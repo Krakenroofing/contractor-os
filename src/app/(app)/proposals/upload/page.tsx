@@ -71,6 +71,7 @@ export default async function ProposalUploadPage() {
       <ProposalPdfUpload
         estimates={estimates}
         projects={projects}
+        proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
         defaultNumber={await nextProposalNumber(companyId)}
       />
     </div>

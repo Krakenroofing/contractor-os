@@ -73,6 +73,7 @@ export default async function NewProposalPage() {
         estimates={estimates}
         projects={projects}
         defaultNumber={await nextProposalNumber(companyId)}
+        proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
       />
     </div>
   );

@@ -99,6 +99,7 @@ export default async function EditProposalPage({
         projects={projects}
         defaultNumber={proposal.number}
         initial={initial}
+        proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
       />
     </div>
   );

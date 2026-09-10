@@ -90,6 +90,7 @@ export default async function EditInvoicePage({
       <InvoiceEditForm
         showVat={company.isVatActive}
         companyVatRatePercent={Number(company.vatRatePercent)}
+        proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
         initial={{
           id: invoice.id,
           number: invoice.number,

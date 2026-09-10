@@ -27,10 +27,12 @@ export function ProposalPdfUpload({
   estimates,
   projects,
   defaultNumber,
+  proofreadAvailable = false,
 }: {
   estimates: EstimateOption[];
   projects: ProjectOption[];
   defaultNumber: string;
+  proofreadAvailable?: boolean;
 }) {
   const [state, setState] = useState<ExtractProposalPdfState>({});
   const [pending, setPending] = useState(false);
@@ -89,6 +91,7 @@ export function ProposalPdfUpload({
         defaultNumber={defaultNumber}
         prefill={prefill}
         source={state.source}
+        proofreadAvailable={proofreadAvailable}
       />
     );
   }

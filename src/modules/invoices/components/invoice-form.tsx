@@ -31,6 +31,7 @@ import {
   ProductPicker,
   type ProductPickerOption,
 } from '@/modules/inventory/components/product-picker';
+import { ProofreadButton } from '@/components/proofread-button';
 
 const initialState: CreateInvoiceState = {};
 
@@ -232,6 +233,7 @@ export function InvoiceForm({
   defaultInvoiceDate,
   defaultDueDate,
   companyVatRatePercent = 0,
+  proofreadAvailable = false,
 }: {
   projects: InvoiceFormProjectOption[];
   proposals: InvoiceFormProposalOption[];
@@ -267,6 +269,8 @@ export function InvoiceForm({
   defaultNumber: string;
   defaultInvoiceDate: string;
   defaultDueDate: string;
+  /** True when ANTHROPIC_API_KEY is configured — enables AI spell check. */
+  proofreadAvailable?: boolean;
   /**
    * The active company's VAT rate (numeric percent). When > 0, the Tax/VAT
    * field auto-fills to subtotal × rate / 100 as the user edits line items.
@@ -1207,6 +1211,8 @@ export function InvoiceForm({
                   value={line.description}
                   onChange={(e) => updateLine(line.rowId, { description: e.target.value })}
                   placeholder="Description"
+                  spellCheck
+                  data-proofread="Line item description"
                 />
                 <Input
                   inputMode="decimal"
@@ -1530,6 +1536,8 @@ export function InvoiceForm({
         />
       )}
 
+      <ProofreadButton available={proofreadAvailable} />
+
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="submit"
@@ -1600,6 +1608,8 @@ function TextareaField({
         name={name}
         rows={rows}
         defaultValue={defaultValue}
+        spellCheck
+        data-proofread={label}
         className="flex w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
       />
     </div>
