@@ -27,6 +27,9 @@ export type EmployeeLaborAllocation = {
   postedWage: number;
   /** Gross attributable to untagged/overhead time (or no time at all). */
   unpostedWage: number;
+  /** Portion of unpostedWage attributable to service-call time — the
+   *  work-order lane carries that job cost, so it's expected here. */
+  serviceCallWage: number;
 };
 
 export type LaborPostingPlan = {
@@ -34,6 +37,8 @@ export type LaborPostingPlan = {
   totalWagePosted: number;
   totalBurdenPosted: number;
   totalUnposted: number;
+  /** Slice of totalUnposted that is service-call time (costed via WOs). */
+  totalServiceCall: number;
   bucketCount: number;
 };
 
@@ -77,9 +82,21 @@ export function computeLaborPostingPlan(
         buckets: [],
         postedWage: 0,
         unpostedWage: p.gross,
+        serviceCallWage: 0,
       });
       continue;
     }
+
+    // Service-call slice of the unposted wage: those hours' cost reaches
+    // the job via the posted work order, so they're expected off this
+    // posting — reported separately so the lock notice doesn't read them
+    // as forgotten assignments.
+    const serviceValue = empEntries.reduce(
+      (s, e) =>
+        !e.projectId && e.isServiceCall ? s + entryValue(e, p.payRate) : s,
+      0,
+    );
+    const serviceCallWage = round2(p.gross * (serviceValue / totalValue));
 
     // Sum value by (project, cost code), skipping untagged/overhead time.
     const byBucket = new Map<
@@ -116,16 +133,19 @@ export function computeLaborPostingPlan(
       buckets,
       postedWage,
       unpostedWage: round2(p.gross - postedWage),
+      serviceCallWage,
     });
   }
 
   let totalWagePosted = 0;
   let totalBurdenPosted = 0;
   let totalUnposted = 0;
+  let totalServiceCall = 0;
   let bucketCount = 0;
   for (const a of allocations) {
     totalWagePosted += a.postedWage;
     totalUnposted += a.unpostedWage;
+    totalServiceCall += a.serviceCallWage;
     for (const b of a.buckets) {
       totalBurdenPosted += b.burden;
       bucketCount += 1;
@@ -137,6 +157,7 @@ export function computeLaborPostingPlan(
     totalWagePosted: round2(totalWagePosted),
     totalBurdenPosted: round2(totalBurdenPosted),
     totalUnposted: round2(totalUnposted),
+    totalServiceCall: round2(totalServiceCall),
     bucketCount,
   };
 }

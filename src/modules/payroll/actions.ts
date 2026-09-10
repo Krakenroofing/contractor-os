@@ -78,6 +78,7 @@ import {
 import { mondayOf } from './lib/periods';
 import {
   OVERHEAD_VALUE,
+  SERVICE_CALL_VALUE,
   timeEntryCreateSchema,
   timeEntryEditSchema,
   type TimeEntryAllocation,
@@ -169,6 +170,8 @@ export async function saveTimesheetCell(input: {
       projectId: null,
       costCodeId: null,
       isOverhead: false,
+      isServiceCall: false,
+      workOrderId: null,
       notes: null,
     });
   }
@@ -226,16 +229,20 @@ function readEditForm(formData: FormData) {
 }
 
 /**
- * Resolve a project selection ('UUID' | OVERHEAD_VALUE | null) into the
- * pair of DB columns (project_id, is_overhead) it maps to.
+ * Resolve a project selection ('UUID' | OVERHEAD_VALUE |
+ * SERVICE_CALL_VALUE | null) into the DB columns (project_id,
+ * is_overhead, is_service_call) it maps to.
  */
 function resolveProjectSelection(
   projectId: string | null,
-): { projectId: string | null; isOverhead: boolean } {
+): { projectId: string | null; isOverhead: boolean; isServiceCall: boolean } {
   if (projectId === OVERHEAD_VALUE) {
-    return { projectId: null, isOverhead: true };
+    return { projectId: null, isOverhead: true, isServiceCall: false };
   }
-  return { projectId, isOverhead: false };
+  if (projectId === SERVICE_CALL_VALUE) {
+    return { projectId: null, isOverhead: false, isServiceCall: true };
+  }
+  return { projectId, isOverhead: false, isServiceCall: false };
 }
 
 /**
@@ -344,6 +351,8 @@ export async function createTimeEntryAction(
         projectId: resolved.projectId,
         costCodeId: alloc.costCodeId,
         isOverhead: resolved.isOverhead,
+        isServiceCall: resolved.isServiceCall,
+        workOrderId: null,
         notes,
       });
     }
@@ -413,6 +422,10 @@ export async function updateTimeEntryAction(
       projectId: resolved.projectId,
       costCodeId: data.costCodeId,
       isOverhead: resolved.isOverhead,
+      isServiceCall: resolved.isServiceCall,
+      // Re-marking as service call (or assigning a job) releases any
+      // work-order claim; the WO's own posting is untouched.
+      workOrderId: null,
       notes: emptyToNull(data.notes ?? null),
     });
   } catch (err) {
@@ -457,6 +470,7 @@ export async function setTimeEntryAllocationAction(
   await updateTimeEntry(companyId, idResult.data, {
     projectId: resolved.projectId,
     isOverhead: resolved.isOverhead,
+    isServiceCall: resolved.isServiceCall,
     costCodeId,
   });
   revalidatePath('/payroll/day');
@@ -521,6 +535,8 @@ export async function addPieceWorkEntryAction(
     projectId: d.projectId,
     costCodeId: d.costCodeId,
     isOverhead: false,
+    isServiceCall: false,
+    workOrderId: null,
     notes: d.notes ?? null,
   });
   revalidatePath('/payroll');
@@ -957,10 +973,23 @@ export async function lockPeriodAction(
     );
     if (posted.ok && posted.summary) {
       const s = posted.summary;
+      // Split the unposted figure: service-call time is costed through
+      // its work order and belongs off this posting — only the rest is a
+      // "go assign hours" problem.
+      const trulyUnassigned = Math.max(0, s.unposted - s.serviceCall);
+      const parts: string[] = [];
+      if (s.serviceCall > 0.005) {
+        parts.push(
+          `$${s.serviceCall.toFixed(2)} on service calls — costed via their work orders`,
+        );
+      }
+      if (trulyUnassigned > 0.005) {
+        parts.push(
+          `$${trulyUnassigned.toFixed(2)} has no job assigned — assign hours and re-post`,
+        );
+      }
       notice = `${notice ? `${notice} ` : ''}Labor posted to job costs: $${s.wage.toFixed(2)} wages + $${s.burden.toFixed(2)} burden across ${s.entries} job line${s.entries === 1 ? '' : 's'}${
-        s.unposted > 0.005
-          ? ` ($${s.unposted.toFixed(2)} has no job assigned — assign hours and re-post)`
-          : ''
+        parts.length > 0 ? ` (${parts.join('; ')})` : ''
       }.`;
     } else if (posted.error) {
       notice = `${notice ? `${notice} ` : ''}Labor not posted to job costs: ${posted.error}`;
@@ -987,7 +1016,15 @@ export async function lockPeriodAction(
 export type PostLaborResult = {
   ok?: boolean;
   error?: string;
-  summary?: { wage: number; burden: number; unposted: number; entries: number };
+  summary?: {
+    wage: number;
+    burden: number;
+    unposted: number;
+    /** Slice of `unposted` that is service-call time — costed via posted
+     *  work orders, so expected off the payroll posting. */
+    serviceCall: number;
+    entries: number;
+  };
   reversed?: number;
 };
 
@@ -1150,6 +1187,7 @@ async function postLaborForPeriodCore(
       wage: plan.totalWagePosted,
       burden: plan.totalBurdenPosted,
       unposted: plan.totalUnposted,
+      serviceCall: plan.totalServiceCall,
       entries: plan.bucketCount,
     },
   };

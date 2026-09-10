@@ -13,7 +13,7 @@
 
 import { useState, useTransition } from 'react';
 import { Select } from '@/components/ui/select';
-import { OVERHEAD_VALUE } from '../schema';
+import { OVERHEAD_VALUE, SERVICE_CALL_VALUE } from '../schema';
 import { setTimeEntryAllocationAction } from '../actions';
 
 type Option = { id: string; label: string };
@@ -23,6 +23,7 @@ export function EntryAllocationSelect({
   projectId,
   costCodeId,
   isOverhead,
+  isServiceCall = false,
   projects,
   costCodes,
 }: {
@@ -30,11 +31,16 @@ export function EntryAllocationSelect({
   projectId: string | null;
   costCodeId: string | null;
   isOverhead: boolean;
+  isServiceCall?: boolean;
   projects: Option[];
   costCodes: Option[];
 }) {
   const [project, setProject] = useState(
-    isOverhead ? OVERHEAD_VALUE : projectId ?? '',
+    isOverhead
+      ? OVERHEAD_VALUE
+      : isServiceCall
+        ? SERVICE_CALL_VALUE
+        : projectId ?? '',
   );
   const [costCode, setCostCode] = useState(costCodeId ?? '');
   const [pending, startTransition] = useTransition();
@@ -70,6 +76,9 @@ export function EntryAllocationSelect({
       >
         <option value="">— unassigned —</option>
         <option value={OVERHEAD_VALUE}>Overhead (no job)</option>
+        <option value={SERVICE_CALL_VALUE}>
+          Service / leak call (job via work order)
+        </option>
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}

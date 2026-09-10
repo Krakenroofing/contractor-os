@@ -4,6 +4,7 @@ import {
   text,
   timestamp,
   numeric,
+  boolean,
   index,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
@@ -36,6 +37,11 @@ export const clockEvents = pgTable(
     // 'in' | 'out'. Plain text with a DB CHECK so future kinds (e.g.
     // 'break_start') can be added without an enum-alter migration.
     kind: text('kind').notNull(),
+    // "Service / leak call" punch — the crew is on a service call whose
+    // job doesn't exist yet (the office creates it when posting the work
+    // order). Distinct from overhead so these hours prompt WO matching
+    // instead of reading as yard time.
+    isServiceCall: boolean('is_service_call').notNull().default(false),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
     // Phone-reported GPS. Nullable because (a) older phones may not
     // resolve a fix in time, (b) the user may decline location

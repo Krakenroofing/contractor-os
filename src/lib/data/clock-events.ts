@@ -36,6 +36,9 @@ export type CreateClockEventInput = {
   employeeId: string;
   projectId: string | null;
   costCodeId: string | null;
+  /** "Service / leak call" punch — no job exists yet; the work order
+   *  posted later carries the cost. Mutually exclusive with projectId. */
+  isServiceCall?: boolean;
   kind: ClockEventKind;
   occurredAt: Date;
   gpsLat: string | null;
@@ -60,6 +63,7 @@ export async function recordClockEvent(
       employeeId: input.employeeId,
       projectId: input.projectId,
       costCodeId: input.costCodeId,
+      isServiceCall: input.isServiceCall ?? false,
       kind: input.kind,
       occurredAt: input.occurredAt,
       gpsLat: input.gpsLat,
@@ -162,6 +166,7 @@ export async function listOpenSessionsForCompany(
     employee_id: string;
     project_id: string | null;
     cost_code_id: string | null;
+    is_service_call: boolean;
     kind: string;
     occurred_at: Date;
     gps_lat: string | null;
@@ -188,6 +193,7 @@ export async function listOpenSessionsForCompany(
       employeeId: r.employee_id,
       projectId: r.project_id,
       costCodeId: r.cost_code_id,
+      isServiceCall: r.is_service_call,
       kind: r.kind,
       occurredAt: new Date(r.occurred_at),
       gpsLat: r.gps_lat,
@@ -559,6 +565,11 @@ export async function postSessionsToTimeEntries(
     s.in.projectId ?? s.out.projectId ?? null;
   const sessionCostCodeId = (s: PostableSession): string | null =>
     s.in.projectId ? s.in.costCodeId : (s.out.costCodeId ?? s.in.costCodeId);
+  // A session is a service call when either punch says so and no real
+  // job was picked (a job picked at clock-out upgrades the session).
+  const sessionServiceCall = (s: PostableSession): boolean =>
+    sessionProjectId(s) == null &&
+    (s.in.isServiceCall || s.out.isServiceCall);
 
   // Per-project defaults for the distinct jobs in this batch that need a
   // fallback (job punch, no code). One query, not one per session.
@@ -640,12 +651,16 @@ export async function postSessionsToTimeEntries(
             amount: '0',
             projectId: sessionProjectId(s),
             costCodeId: resolveCostCodeId(sessionCostCodeId(s), sessionProjectId(s)),
+            // "Service / leak call" punches flag the entry so the office
+            // matches them to a work order instead of assigning a job.
+            isServiceCall: sessionServiceCall(s),
+            workOrderId: null,
             // Overhead punches are a deliberate choice (job-mode punch-ins
             // REQUIRE a project), and some workers are genuinely shop/
             // overhead — keep the flag. The timesheet renders these as
             // "overhead" (not "job ✓") so a field crew parking jobsite
             // hours on Overhead is visible at a glance.
-            isOverhead: sessionProjectId(s) == null,
+            isOverhead: sessionProjectId(s) == null && !sessionServiceCall(s),
             notes,
           })
           .returning({ id: timeEntries.id });

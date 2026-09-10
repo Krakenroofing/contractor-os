@@ -259,6 +259,8 @@ export default async function PayrollPage({
         payUnassigned: boolean;
         hoursUnassigned: boolean;
         hoursOverhead: boolean;
+        hoursServiceCall: boolean;
+        hoursServiceLinked: boolean;
         lunchMinutes: number;
       }
     > = {};
@@ -272,6 +274,8 @@ export default async function PayrollPage({
         payUnassigned: false,
         hoursUnassigned: false,
         hoursOverhead: false,
+        hoursServiceCall: false,
+        hoursServiceLinked: false,
         lunchMinutes: 0,
       });
       if (entry.entryType === 'amount') {
@@ -288,11 +292,18 @@ export default async function PayrollPage({
         // NO cost code, so we deliberately DON'T require a cost code here —
         // otherwise every clocked-in shift would nag. Only truly floating
         // hours (typed inline, no project, not overhead) prompt "+ assign job".
-        if (!entry.projectId && !entry.isOverhead) slot.hoursUnassigned = true;
+        if (!entry.projectId && !entry.isOverhead && !entry.isServiceCall)
+          slot.hoursUnassigned = true;
         // Deliberate overhead renders as "overhead", never "job ✓" — shop
         // guys legitimately live here, but a field crew punching Overhead
         // as a picker shortcut must stay visible to the office.
         if (!entry.projectId && entry.isOverhead) slot.hoursOverhead = true;
+        // Service-call hours: awaiting a work order, or already claimed
+        // by one (the WO lane carries their job cost).
+        if (!entry.projectId && entry.isServiceCall) {
+          slot.hoursServiceCall = true;
+          if (entry.workOrderId) slot.hoursServiceLinked = true;
+        }
       }
     }
     // Lunch only affects hourly pay; show the deduction line for those.

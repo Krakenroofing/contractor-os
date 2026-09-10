@@ -2,7 +2,7 @@
 // hours on one date, optionally tied to a project + cost code.
 
 import 'server-only';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { timeEntries, type TimeEntry } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import {
@@ -72,6 +72,68 @@ export async function findDayTypeEntries(
   return mockList(companyId, { employeeId }).filter(
     (t) => t.workDate === workDate && t.entryType === entryType,
   );
+}
+
+/**
+ * Posting a work order claims the crew's matching clocked hours: for
+ * each (employee, work date) labor line, jobless time entries are linked
+ * via work_order_id and flagged is_service_call. Linked hours stay OFF
+ * payroll's job-cost posting (no project) — the work-order lane carries
+ * the cost — and the timesheet shows the link instead of prompting.
+ * Returns how many entries were linked.
+ */
+export async function linkTimeEntriesToWorkOrder(
+  companyId: string,
+  workOrderId: string,
+  lines: Array<{ employeeId: string; workDate: string }>,
+): Promise<number> {
+  if (!isDatabaseConfigured() || lines.length === 0) return 0;
+  const db = getDb()!;
+  let linked = 0;
+  for (const line of lines) {
+    const rows = await db
+      .update(timeEntries)
+      .set({
+        workOrderId,
+        isServiceCall: true,
+        isOverhead: false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(timeEntries.companyId, companyId),
+          eq(timeEntries.employeeId, line.employeeId),
+          eq(timeEntries.workDate, line.workDate),
+          isNull(timeEntries.projectId),
+          isNull(timeEntries.workOrderId),
+        ),
+      )
+      .returning({ id: timeEntries.id });
+    linked += rows.length;
+  }
+  return linked;
+}
+
+/** Unposting a work order releases its claimed hours. They stay flagged
+ *  service-call so the timesheet keeps prompting for a WO match instead
+ *  of reading as unassigned. */
+export async function unlinkTimeEntriesFromWorkOrder(
+  companyId: string,
+  workOrderId: string,
+): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+  const db = getDb()!;
+  const rows = await db
+    .update(timeEntries)
+    .set({ workOrderId: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(timeEntries.companyId, companyId),
+        eq(timeEntries.workOrderId, workOrderId),
+      ),
+    )
+    .returning({ id: timeEntries.id });
+  return rows.length;
 }
 
 export async function getTimeEntry(

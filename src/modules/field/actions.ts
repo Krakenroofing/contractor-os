@@ -28,6 +28,7 @@ import {
 } from '@/lib/data/clock-events';
 import { getCompany } from '@/lib/data/companies';
 import { formatTimeInTZ } from '@/lib/tz';
+import { SERVICE_CALL_VALUE } from './constants';
 
 export type PunchState = {
   ok?: boolean;
@@ -92,8 +93,13 @@ export async function punchInAction(
   const pre = await commonPreflight();
   if (!pre.ok) return { formError: pre.error };
 
+  // "Service / leak call" is a sentinel in the job picker, not a project
+  // uuid — strip it before validation and carry it as a flag instead.
+  const rawProjectId = (formData.get('projectId') ?? '').toString();
+  const isServiceCall = rawProjectId === SERVICE_CALL_VALUE;
+
   const parsed = punchSchema.safeParse({
-    projectId: formData.get('projectId') ?? '',
+    projectId: isServiceCall ? '' : rawProjectId,
     costCodeId: formData.get('costCodeId') ?? '',
     notes: formData.get('notes') ?? '',
     gpsLat: formData.get('gpsLat') ?? '',
@@ -105,17 +111,18 @@ export async function punchInAction(
   }
 
   // Job vs. overhead is an explicit toggle on the field clock screen. In
-  // "job" mode a project is required — otherwise the time silently lands as
-  // overhead and has to be hand-recoded on /clock. In "overhead" mode the
-  // worker is deliberately on yard / general time, so an empty projectId is
-  // allowed and stored as null below. Enforced here (not just the UI)
-  // because the field Select renders its required flag on a hidden input,
-  // which browsers skip during constraint validation.
+  // "job" mode a project OR "Service / leak call" is required — otherwise
+  // the time silently lands as overhead and has to be hand-recoded on
+  // /clock. In "overhead" mode the worker is deliberately on yard /
+  // general time, so an empty projectId is allowed and stored as null
+  // below. Enforced here (not just the UI) because the field Select
+  // renders its required flag on a hidden input, which browsers skip
+  // during constraint validation.
   const isOverhead = formData.get('mode') === 'overhead';
-  if (!isOverhead && !parsed.data.projectId) {
+  if (!isOverhead && !isServiceCall && !parsed.data.projectId) {
     return {
       formError:
-        'Pick the job you’re working on, or switch to Overhead if you’re on yard / general time.',
+        'Pick the job you’re working on (or "Service / leak call" if the job isn\'t created yet), or switch to Overhead for yard / general time.',
     };
   }
 
@@ -133,6 +140,7 @@ export async function punchInAction(
     employeeId: pre.employeeId,
     projectId: parsed.data.projectId ?? null,
     costCodeId: parsed.data.costCodeId ?? null,
+    isServiceCall,
     kind: 'in',
     occurredAt: new Date(),
     gpsLat: normGps(parsed.data.gpsLat),
@@ -153,8 +161,14 @@ export async function punchOutAction(
   const pre = await commonPreflight();
   if (!pre.ok) return { formError: pre.error };
 
+  // Same sentinel handling as punch-in: "Service / leak call" is a flag,
+  // not a project. Picking it at clock-out marks the session a service
+  // call even when the morning punch didn't.
+  const rawProjectId = (formData.get('projectId') ?? '').toString();
+  const isServiceCall = rawProjectId === SERVICE_CALL_VALUE;
+
   const parsed = punchSchema.safeParse({
-    projectId: formData.get('projectId') ?? '',
+    projectId: isServiceCall ? '' : rawProjectId,
     costCodeId: formData.get('costCodeId') ?? '',
     notes: formData.get('notes') ?? '',
     gpsLat: formData.get('gpsLat') ?? '',
@@ -178,9 +192,11 @@ export async function punchOutAction(
     employeeId: pre.employeeId,
     // Carry the open session's project forward if the client didn't send
     // one — most punches are "I'm done with what I was doing", not
-    // switching jobs.
-    projectId: parsed.data.projectId ?? last.projectId,
-    costCodeId: parsed.data.costCodeId ?? last.costCodeId,
+    // switching jobs. Picking "Service / leak call" clears the project
+    // and flags instead.
+    projectId: isServiceCall ? null : (parsed.data.projectId ?? last.projectId),
+    costCodeId: isServiceCall ? null : (parsed.data.costCodeId ?? last.costCodeId),
+    isServiceCall: isServiceCall || (last.isServiceCall && !parsed.data.projectId),
     kind: 'out',
     occurredAt: new Date(),
     gpsLat: normGps(parsed.data.gpsLat),

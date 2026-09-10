@@ -62,6 +62,7 @@ export default async function EditTimeEntryPage({
           projectId: entry.projectId ?? '',
           costCodeId: entry.costCodeId ?? '',
           isOverhead: entry.isOverhead,
+          isServiceCall: entry.isServiceCall,
           notes: entry.notes ?? '',
         }}
         employees={employees.map((e) => ({

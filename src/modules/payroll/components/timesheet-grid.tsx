@@ -38,6 +38,12 @@ export type TimesheetDay = {
    *  Rendered as "overhead" — never "job ✓" — so jobsite hours parked on
    *  the Overhead punch button stay visible to the office. */
   hoursOverhead: boolean;
+  /** True when hours were punched "Service / leak call" — awaiting a work
+   *  order (or already claimed by one, see hoursServiceLinked). */
+  hoursServiceCall: boolean;
+  /** True when a posted work order claimed the service-call hours — the
+   *  WO lane carries the job cost; rendered "WO ✓". */
+  hoursServiceLinked: boolean;
   /** Effective unpaid lunch for the day, in minutes (0 when N/A). */
   lunchMinutes: number;
 };
@@ -62,6 +68,8 @@ const EMPTY_DAY: TimesheetDay = {
   payUnassigned: false,
   hoursUnassigned: false,
   hoursOverhead: false,
+  hoursServiceCall: false,
+  hoursServiceLinked: false,
   lunchMinutes: 0,
 };
 
@@ -155,6 +163,8 @@ export function TimesheetGrid({
                         payUnassigned={day.payUnassigned}
                         hoursUnassigned={day.hoursUnassigned}
                         hoursOverhead={day.hoursOverhead}
+                        hoursServiceCall={day.hoursServiceCall}
+                        hoursServiceLinked={day.hoursServiceLinked}
                         showPay={emp.isVariablePay || day.pay > 0}
                         showLunch={emp.appliesLunch}
                         lunchMinutes={day.lunchMinutes}

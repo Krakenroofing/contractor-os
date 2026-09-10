@@ -55,6 +55,14 @@ const nullableUuid = z
  */
 export const OVERHEAD_VALUE = '__overhead__';
 
+/**
+ * Sentinel for "Service / leak call" — hours on a service call whose job
+ * doesn't exist yet. Maps to is_service_call = true, project_id = null;
+ * posting the call's work order later claims the hours. Same value as
+ * the field clock picker's sentinel (src/modules/field/constants.ts).
+ */
+export const SERVICE_CALL_VALUE = '__service_call__';
+
 const projectSelection = z
   .string()
   .transform((v) => (v === '' ? null : v))
@@ -62,6 +70,7 @@ const projectSelection = z
     (v) =>
       v === null ||
       v === OVERHEAD_VALUE ||
+      v === SERVICE_CALL_VALUE ||
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
     { message: 'Invalid project selection' },
   );

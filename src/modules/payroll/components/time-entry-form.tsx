@@ -13,7 +13,7 @@ import {
   updateTimeEntryAction,
   type TimeEntryState,
 } from '../actions';
-import { OVERHEAD_VALUE } from '../schema';
+import { OVERHEAD_VALUE, SERVICE_CALL_VALUE } from '../schema';
 import {
   EMPLOYMENT_TYPE_LABEL,
   type EmploymentType,
@@ -36,6 +36,7 @@ export type TimeEntryFormInitialValues = {
   projectId: string;
   costCodeId: string;
   isOverhead: boolean;
+  isServiceCall?: boolean;
   notes: string;
 };
 
@@ -48,6 +49,7 @@ const blankInitial: TimeEntryFormInitialValues = {
   projectId: '',
   costCodeId: '',
   isOverhead: false,
+  isServiceCall: false,
   notes: '',
 };
 
@@ -411,6 +413,9 @@ function CreateAllocationFields({
               >
                 <option value="">— Unassigned —</option>
                 <option value={OVERHEAD_VALUE}>Overhead (non-project)</option>
+                <option value={SERVICE_CALL_VALUE}>
+                  Service / leak call (job via work order)
+                </option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
@@ -497,7 +502,9 @@ function EditAllocationFields({
 }) {
   const defaultProject = initial.isOverhead
     ? OVERHEAD_VALUE
-    : initial.projectId;
+    : initial.isServiceCall
+      ? SERVICE_CALL_VALUE
+      : initial.projectId;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -505,6 +512,9 @@ function EditAllocationFields({
         <Select name="projectId" defaultValue={defaultProject}>
           <option value="">— Unassigned —</option>
           <option value={OVERHEAD_VALUE}>Overhead (non-project)</option>
+          <option value={SERVICE_CALL_VALUE}>
+            Service / leak call (job via work order)
+          </option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}

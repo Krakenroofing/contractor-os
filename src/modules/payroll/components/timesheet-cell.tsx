@@ -27,6 +27,10 @@ export type TimesheetCellData = {
   hoursUnassigned: boolean;
   /** Hours that day explicitly marked overhead (no job, on purpose). */
   hoursOverhead: boolean;
+  /** Hours punched "Service / leak call" — awaiting a work order. */
+  hoursServiceCall: boolean;
+  /** Service-call hours already claimed by a posted work order. */
+  hoursServiceLinked: boolean;
   /** Variable-pay worker → render the $ pay input under the hours. */
   showPay: boolean;
   /** Hourly worker → render the unpaid-lunch control under the hours. */
@@ -61,21 +65,35 @@ export function TimesheetCell(props: TimesheetCellData) {
           title={
             props.hoursUnassigned
               ? 'Assign these hours to a job + cost code'
-              : props.hoursOverhead
-                ? 'Punched in as Overhead — not on a job. Click to reassign if they were actually on a jobsite.'
-                : 'Assign these hours to a job + cost code'
+              : props.hoursServiceCall && !props.hoursServiceLinked
+                ? 'Punched as Service / leak call — post the work order for this call and these hours link to it (the WO books the job cost).'
+                : props.hoursServiceLinked
+                  ? 'Service call — claimed by a posted work order, which carries the job cost.'
+                  : props.hoursOverhead
+                    ? 'Punched in as Overhead — not on a job. Click to reassign if they were actually on a jobsite.'
+                    : 'Assign these hours to a job + cost code'
           }
           className={`text-[10px] tabular-nums hover:underline ${
-            props.hoursOverhead && !props.hoursUnassigned
-              ? 'text-amber-600 hover:text-amber-700'
-              : 'text-slate-400 hover:text-blue-700'
+            props.hoursUnassigned
+              ? 'text-slate-400 hover:text-blue-700'
+              : props.hoursServiceCall && !props.hoursServiceLinked
+                ? 'text-sky-600 hover:text-sky-700'
+                : props.hoursServiceLinked
+                  ? 'text-slate-400 hover:text-blue-700'
+                  : props.hoursOverhead
+                    ? 'text-amber-600 hover:text-amber-700'
+                    : 'text-slate-400 hover:text-blue-700'
           }`}
         >
           {props.hoursUnassigned
             ? '+ assign job'
-            : props.hoursOverhead
-              ? 'overhead'
-              : 'job ✓'}
+            : props.hoursServiceCall && !props.hoursServiceLinked
+              ? 'service call'
+              : props.hoursServiceLinked
+                ? 'WO ✓'
+                : props.hoursOverhead
+                  ? 'overhead'
+                  : 'job ✓'}
         </Link>
       )}
       {props.showPay && (

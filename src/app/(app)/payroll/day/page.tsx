@@ -213,6 +213,7 @@ export default async function PayrollDayPage({
                           projectId={entry.projectId}
                           costCodeId={entry.costCodeId}
                           isOverhead={entry.isOverhead}
+                          isServiceCall={entry.isServiceCall}
                           projects={projectOptions}
                           costCodes={costCodeOptions}
                         />

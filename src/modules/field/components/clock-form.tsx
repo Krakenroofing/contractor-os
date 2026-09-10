@@ -26,6 +26,7 @@ import {
   punchOutAction,
   type PunchState,
 } from '../actions';
+import { SERVICE_CALL_VALUE } from '../constants';
 
 const initial: PunchState = {};
 
@@ -162,8 +163,12 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
             name="projectId"
             id="projectId"
             defaultValue={defaultProjectId ?? ''}
+            pinnedValues={[SERVICE_CALL_VALUE]}
           >
             <option value="">— Same job (carry forward) —</option>
+            <option value={SERVICE_CALL_VALUE}>
+              🔧 Service / leak call (no job yet)
+            </option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
@@ -202,14 +207,21 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               </Label>
               {/* Defaults to the worker's last job (the crew works one job
                   at a time), so the normal morning stays one tap and
-                  there's no temptation to bypass the picker via Overhead. */}
+                  there's no temptation to bypass the picker via Overhead.
+                  "Service / leak call" covers calls whose job the office
+                  hasn't created yet — those hours get matched to the work
+                  order later. */}
               <Select
                 name="projectId"
                 id="projectId"
                 defaultValue={defaultProjectId ?? ''}
                 required
+                pinnedValues={[SERVICE_CALL_VALUE]}
               >
                 <option value="">— Pick a job —</option>
+                <option value={SERVICE_CALL_VALUE}>
+                  🔧 Service / leak call (no job yet)
+                </option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}

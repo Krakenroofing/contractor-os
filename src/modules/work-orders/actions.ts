@@ -24,6 +24,10 @@ import {
 } from '@/lib/data/job-cost-entries';
 import { createProject, getProject } from '@/lib/data/projects';
 import {
+  linkTimeEntriesToWorkOrder,
+  unlinkTimeEntriesFromWorkOrder,
+} from '@/lib/data/time-entries';
+import {
   createWorkOrder,
   deleteWorkOrderPhotoRow,
   getNextWorkOrderNumber,
@@ -494,6 +498,17 @@ export async function postWorkOrderAction(input: {
       postedAt: new Date(),
       postedByUserId: createdBy,
     });
+    // Claim the crew's matching clocked hours (jobless entries on the
+    // call's date): they show as linked on the timesheet and stay off
+    // payroll's job-cost posting — this WO carries the cost, so the same
+    // hours never book twice.
+    await linkTimeEntriesToWorkOrder(
+      companyId,
+      id.data,
+      wo.labor
+        .filter((l) => Number(l.hours) > 0)
+        .map((l) => ({ employeeId: l.employeeId, workDate: wo.workDate })),
+    );
     revalidateWorkOrders(id.data);
     revalidatePath('/job-costing');
     revalidatePath('/reports/profit-loss', 'layout');
@@ -524,6 +539,7 @@ export async function unpostWorkOrderAction(
   }
   try {
     await softDeleteJobCostEntriesBySource(companyId, 'work_order', id.data);
+    await unlinkTimeEntriesFromWorkOrder(companyId, id.data);
     await updateWorkOrder(companyId, id.data, {
       status: 'submitted',
       postedAt: null,

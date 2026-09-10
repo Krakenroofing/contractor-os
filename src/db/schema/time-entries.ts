@@ -59,6 +59,17 @@ export const timeEntries = pgTable(
     // separately from "Unassigned" rows that just haven't been
     // allocated to a job yet.
     isOverhead: boolean('is_overhead').notNull().default(false),
+    // True when the hours were punched as "Service / leak call" — the
+    // crew was on a service call whose job didn't exist yet. Like
+    // overhead, project_id stays null and payroll's labor posting skips
+    // the hours; unlike overhead, the cost is expected to reach a job
+    // via the WORK ORDER lane (source 'work_order').
+    isServiceCall: boolean('is_service_call').notNull().default(false),
+    // Set when a posted work order claimed these hours (same employee +
+    // work date). Marks the service-call loop closed: the WO carries the
+    // job cost, the timesheet shows the link instead of prompting.
+    // ON DELETE SET NULL via SQL FK (see 2026-09-10 migration).
+    workOrderId: uuid('work_order_id'),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
