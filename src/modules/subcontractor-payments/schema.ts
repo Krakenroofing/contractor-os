@@ -32,6 +32,17 @@ const moneyString = z
     message: 'Enter a non-negative number',
   });
 
+// Blank = "compute it for me" (gross × retainage %). FormData posts a blank
+// input as '', so a required-money validator here would reject the form's
+// own recommended default.
+const optionalMoneyString = z
+  .string()
+  .trim()
+  .refine((v) => v === '' || (!Number.isNaN(Number(v)) && Number(v) >= 0), {
+    message: 'Enter a non-negative number',
+  })
+  .default('');
+
 const percentString = z
   .string()
   .trim()
@@ -77,7 +88,7 @@ export const subPaymentFormSchema = z
       .max(2000),
     grossAmount: moneyString,
     retainagePercent: percentString,
-    retainageHeld: moneyString.default('0'),
+    retainageHeld: optionalMoneyString,
     paidDate: optionalDate,
     status: z.enum(subPaymentStatusValues).default('draft'),
     notes: z.string().max(2000).optional().or(z.literal('')),
