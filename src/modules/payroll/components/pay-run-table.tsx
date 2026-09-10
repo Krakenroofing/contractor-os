@@ -94,6 +94,11 @@ export function PayRunTable({
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="payPeriodId" value={payPeriodId} />
+      {/* Stale-tab guard: a payroll tab left open for days (with old
+          amounts still in the inputs) once re-saved last week's numbers
+          into the wrong period. The action rejects saves from forms
+          rendered too long ago. */}
+      <input type="hidden" name="formLoadedAt" value={String(Date.now())} />
 
       {state.formError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">

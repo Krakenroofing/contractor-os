@@ -668,6 +668,19 @@ export async function savePayRunAction(
   const payPeriodId = periodResult.data;
   const companyId = await getActiveCompanyId();
 
+  // Stale-tab guard: a Pay Run tab left open for days still holds old
+  // amounts in its inputs; saving it silently rewrote a whole week's
+  // overrides with last week's numbers. Reject saves from a form rendered
+  // more than 4 hours ago — refresh shows current values first.
+  const loadedAtRaw = formData.get('formLoadedAt');
+  const loadedAt = typeof loadedAtRaw === 'string' ? Number(loadedAtRaw) : NaN;
+  if (Number.isFinite(loadedAt) && Date.now() - loadedAt > 4 * 60 * 60 * 1000) {
+    return {
+      formError:
+        'This Pay Run page has been open for a long time — the amounts on screen may be outdated. Refresh the page, re-check the numbers, then save.',
+    };
+  }
+
   const periodCheck = await assertPeriodEditable(companyId, payPeriodId);
   if (!periodCheck.ok) return { formError: periodCheck.reason };
 
