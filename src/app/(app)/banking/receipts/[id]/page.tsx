@@ -184,11 +184,34 @@ export default async function ReceiptDetailPage({
   const canApprove = canApproveReceipt(role);
   // Postable = at least one line, and every line is EITHER a job cost
   // (project + cost code) OR overhead (an accounting category, no project).
-  const canPostable =
-    lines.length > 0 &&
-    lines.every(
-      (l) => (l.projectId && l.costCodeId) || l.accountingAccountId,
-    );
+  // Built as a list of precise per-line blockers (empty = postable) so the
+  // disabled Approve & post button can say exactly what's missing where,
+  // instead of a generic hint the operator has to decode.
+  const postBlockers: string[] = [];
+  if (lines.length === 0) {
+    postBlockers.push('Add at least one line.');
+  } else {
+    lines.forEach((l, i) => {
+      if ((l.projectId && l.costCodeId) || l.accountingAccountId) return;
+      const desc = l.description?.trim()
+        ? ` (${l.description.trim().slice(0, 40)})`
+        : '';
+      const label = `Line ${i + 1}${desc}`;
+      if (l.projectId && !l.costCodeId) {
+        postBlockers.push(
+          `${label}: has a project but no cost code — pick the cost code, or clear the project and use an accounting category instead.`,
+        );
+      } else if (!l.projectId && l.costCodeId) {
+        postBlockers.push(
+          `${label}: has a cost code but no project — pick the project, or clear the cost code and use an accounting category instead.`,
+        );
+      } else {
+        postBlockers.push(
+          `${label}: pick a Project + Cost code (job cost), or an Accounting category (overhead).`,
+        );
+      }
+    });
+  }
 
   // Look up names for the audit fields shown in the post panel.
   const userIds = [
@@ -344,7 +367,7 @@ export default async function ReceiptDetailPage({
               <ReceiptPostPanel
                 receiptId={receipt.id}
                 status={receipt.status}
-                canPostable={canPostable}
+                postBlockers={postBlockers}
                 hasPotentialDuplicate={Boolean(dupWarning)}
                 potentialDuplicateMessage={dupWarning ?? undefined}
                 canApprove={canApprove}

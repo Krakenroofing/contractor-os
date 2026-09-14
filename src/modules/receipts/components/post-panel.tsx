@@ -16,7 +16,10 @@ import {
 export type PostPanelProps = {
   receiptId: string;
   status: 'draft' | 'submitted' | 'posted' | 'void';
-  canPostable: boolean; // ≥1 line; each line has project+cost code OR a category
+  /** Precise reasons the receipt can't post yet (per line), empty when
+   *  postable. Rendered as a checklist so the greyed-out button explains
+   *  itself instead of leaving the operator to guess. */
+  postBlockers: string[];
   hasPotentialDuplicate: boolean;
   potentialDuplicateMessage?: string;
   /** Approve & post, reject, unpost, void, delete. Owners + accounting. */
@@ -35,6 +38,9 @@ export function ReceiptPostPanel(props: PostPanelProps) {
   const [pending, startTransition] = useTransition();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+
+  const canPostable = props.postBlockers.length === 0;
+  const blockerTitle = canPostable ? undefined : props.postBlockers.join('\n');
 
   function onSubmitForReview() {
     startTransition(async () => {
@@ -174,13 +180,9 @@ export function ReceiptPostPanel(props: PostPanelProps) {
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              disabled={pending || !props.canPostable}
+              disabled={pending || !canPostable}
               onClick={onApproveAndPost}
-              title={
-                !props.canPostable
-                  ? 'Each line needs a project + cost code, or an accounting category, before posting.'
-                  : undefined
-              }
+              title={blockerTitle}
             >
               {pending ? 'Posting…' : 'Approve & post'}
             </Button>
@@ -195,6 +197,7 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             </Button>
           </div>
         )}
+        {props.canApprove && <BlockerList blockers={props.postBlockers} />}
         {props.canApprove && rejectOpen && (
           <div className="space-y-2 pt-1">
             <Input
@@ -251,13 +254,9 @@ export function ReceiptPostPanel(props: PostPanelProps) {
         {props.canApprove && (
           <Button
             type="button"
-            disabled={pending || !props.canPostable}
+            disabled={pending || !canPostable}
             onClick={onApproveAndPost}
-            title={
-              !props.canPostable
-                ? 'Each line needs a project + cost code, or an accounting category, before posting.'
-                : undefined
-            }
+            title={blockerTitle}
           >
             {pending ? 'Posting…' : 'Approve & post'}
           </Button>
@@ -267,13 +266,9 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             type="button"
             variant={props.canApprove ? 'outline' : 'default'}
             size={props.canApprove ? 'sm' : undefined}
-            disabled={pending || !props.canPostable}
+            disabled={pending || !canPostable}
             onClick={onSubmitForReview}
-            title={
-              !props.canPostable
-                ? 'Each line needs a project + cost code, or an accounting category, before submitting.'
-                : undefined
-            }
+            title={blockerTitle}
           >
             {pending ? 'Submitting…' : 'Submit for review'}
           </Button>
@@ -301,13 +296,26 @@ export function ReceiptPostPanel(props: PostPanelProps) {
           </>
         )}
       </div>
-      {!props.canPostable && (
-        <p className="text-[11px] text-slate-500">
-          Each line needs a project + cost code (job cost), or an accounting
-          category (overhead), before
-          {props.canApprove ? ' posting or submitting' : ' submitting'}.
-        </p>
-      )}
+      <BlockerList blockers={props.postBlockers} />
+    </div>
+  );
+}
+
+/** Amber checklist of exactly why the receipt can't post/submit yet —
+ *  one row per problem line, so the greyed-out button never leaves the
+ *  operator guessing. Renders nothing when the receipt is postable. */
+function BlockerList({ blockers }: { blockers: string[] }) {
+  if (blockers.length === 0) return null;
+  return (
+    <div className="rounded bg-amber-50 border border-amber-200 px-3 py-2">
+      <div className="text-xs font-medium text-amber-900">
+        Can&apos;t post yet — fix the following:
+      </div>
+      <ul className="mt-1 space-y-0.5 text-[11px] text-amber-800 list-disc pl-4">
+        {blockers.map((b, i) => (
+          <li key={i}>{b}</li>
+        ))}
+      </ul>
     </div>
   );
 }
