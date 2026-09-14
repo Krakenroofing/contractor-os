@@ -45,7 +45,12 @@ import {
   listLinesForTransactionIds,
 } from '@/lib/data/statement-imports';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
-import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import {
+  listActiveMatchesForCompany,
+  sumPayrollBillSettlements,
+  sumReceiptSettlements,
+} from '@/lib/data/transaction-matches';
+import { listOpenPayrollBills } from '@/lib/data/payroll-bills';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import {
   computeProjectFinancials,
@@ -1165,7 +1170,7 @@ export type { AgingBucket };
 // the vendor billed and was paid for unless the operator has also closed
 // the PO. Documented in REPORT_DESCRIPTION so operators know the caveat.
 
-export type ApSourceType = 'po' | 'sub_payment' | 'bill';
+export type ApSourceType = 'po' | 'sub_payment' | 'bill' | 'payroll';
 
 export type ApAgingRow = {
   /** Synthetic id: `${ApSourceType}:${sourceId}` */
@@ -1218,6 +1223,22 @@ export type ApReportSummary = {
   poItemCount: number;
   subItemCount: number;
   billItemCount: number;
+  payrollItemCount: number;
+};
+
+/** An open PO. A commitment, NOT a payable — it becomes AP when the vendor
+ *  bills it. Reported alongside AP so the operator still sees what's coming,
+ *  but never inside the AP total. */
+export type ApCommitmentRow = {
+  poId: string;
+  number: string;
+  vendorId: string;
+  vendorName: string;
+  projectName: string | null;
+  issueDate: string;
+  /** PO total less anything already turned into a bill. */
+  remaining: number;
+  vendorInvoiceNumber: string | null;
 };
 
 export type APReport = {
@@ -1226,6 +1247,12 @@ export type APReport = {
   vendorRows: ApVendorRow[];
   agingRows: ApAgingRow[];
   summary: ApReportSummary;
+  /** Open POs, shown separately from AP. */
+  commitmentRows: ApCommitmentRow[];
+  committedTotal: number;
+  /** Bills still sitting in draft — they carry no liability until posted,
+   *  which is the usual reason a just-entered bill "isn't on the report". */
+  draftBills: { count: number; total: number };
 };
 
 export async function buildAPReport(
@@ -1240,29 +1267,49 @@ export async function buildAPReport(
     Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()),
   );
 
-  const [pos, subPayments, vendors, postedReceipts, activeMatches] =
-    await Promise.all([
-      listPurchaseOrders(companyId),
-      listSubcontractorPayments(companyId),
-      listVendors(companyId),
-      listReceipts(companyId, { status: 'posted', limit: 2000 }),
-      listActiveMatchesForCompany(companyId),
-    ]);
-  // Unpaid bills = posted bank receipts not yet matched to a bank payment,
-  // counted at NET of applied vendor credits (what a payment would actually
-  // settle). Cash/card receipts were paid on the spot — not AP.
-  const paidReceiptIds = new Set(
-    activeMatches
-      .filter((m) => m.matchType === 'receipt' && m.receiptId)
-      .map((m) => m.receiptId!),
-  );
-  const openBills = postedReceipts.filter(
-    (r) => r.paymentSourceType === 'bank' && !paidReceiptIds.has(r.id),
+  const [
+    pos,
+    subPayments,
+    vendors,
+    postedReceipts,
+    draftReceipts,
+    receiptPaid,
+    payrollBills,
+    payrollPaid,
+    employeeList,
+  ] = await Promise.all([
+    listPurchaseOrders(companyId),
+    listSubcontractorPayments(companyId),
+    listVendors(companyId),
+    listReceipts(companyId, { status: 'posted', limit: 5000 }),
+    listReceipts(companyId, { status: 'draft', limit: 5000 }),
+    sumReceiptSettlements(companyId),
+    listOpenPayrollBills(companyId),
+    sumPayrollBillSettlements(companyId),
+    listEmployees(companyId),
+  ]);
+  // Unpaid bills = posted bank receipts, at NET of applied vendor credits and
+  // of whatever bank money has actually settled them. A bill only leaves the
+  // report when that remainder hits zero, so partly-paid bills stay visible
+  // for their balance. Cash/card receipts were paid on the spot — not AP.
+  const bankBills = postedReceipts.filter(
+    (r) => r.paymentSourceType === 'bank',
   );
   const appliedCreditByReceipt = await sumAppliedCreditsByReceipt(
     companyId,
-    openBills.map((r) => r.id),
+    bankBills.map((r) => r.id),
   );
+  const openBills = bankBills.filter((r) => {
+    const net = subtract(
+      Number(r.total),
+      appliedCreditByReceipt.get(r.id) ?? 0,
+    );
+    return subtract(net, receiptPaid.get(r.id) ?? 0) > 0.005;
+  });
+  const draftBills = {
+    count: draftReceipts.length,
+    total: draftReceipts.reduce((s, r) => add(s, Number(r.total)), 0),
+  };
   // A bill created FROM a PO moves that slice of the commitment into AP —
   // net it off the open PO so the same money isn't counted twice.
   const billedByPo = new Map<string, number>();
@@ -1318,37 +1365,65 @@ export async function buildAPReport(
 
   const agingRows: ApAgingRow[] = [];
 
-  // POs — open = status NOT IN (draft, closed, void).
+  // POs — open = status NOT IN (draft, closed, void). These are COMMITMENTS,
+  // not payables: nothing is owed until the vendor bills against the PO, and
+  // that bill then shows up as AP on its own. Reported in their own section
+  // so the AP total is only money actually owed.
+  const commitmentRows: ApCommitmentRow[] = [];
   for (const po of pos) {
     if (po.status === 'draft' || po.status === 'closed' || po.status === 'void') {
       continue;
     }
     const issueIso = po.issueDate ?? po.createdAt.toISOString().slice(0, 10);
     if (filters.from && issueIso < filters.from) continue;
-    const terms = resolveTerms(po.vendorId);
-    const dueIso = addDays(issueIso, terms.days);
-    const days = daysBetween(dueIso, today);
-    const amount = subtract(
-      Number(po.total),
-      billedByPo.get(po.id) ?? 0,
-    );
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    agingRows.push({
-      id: `po:${po.id}`,
-      sourceType: 'po',
-      sourceId: po.id,
-      sourceLabel: po.number,
+    const remaining = subtract(Number(po.total), billedByPo.get(po.id) ?? 0);
+    if (!Number.isFinite(remaining) || remaining <= 0) continue;
+    commitmentRows.push({
+      poId: po.id,
+      number: po.number,
       vendorId: po.vendorId,
       vendorName: vendorById.get(po.vendorId)?.name ?? 'Unknown vendor',
-      projectId: po.projectId,
       projectName: await projectName(po.projectId),
       issueDate: issueIso,
-      dueDate: dueIso,
+      remaining,
+      vendorInvoiceNumber: po.vendorInvoiceNumber ?? null,
+    });
+  }
+  commitmentRows.sort((a, b) => b.remaining - a.remaining);
+  const committedTotal = commitmentRows.reduce(
+    (s, c) => add(s, c.remaining),
+    0,
+  );
+
+  // Unpaid payroll — an open payroll bill is money owed to an employee, so it
+  // belongs on AP just like a vendor bill. Grouped under one pseudo-vendor so
+  // the vendor table stays about suppliers; the employee is on the row.
+  const employeeName = new Map(
+    employeeList.map((e) => [e.id, `${e.firstName} ${e.lastName}`.trim()]),
+  );
+  for (const pb of payrollBills) {
+    const issueIso = pb.billDate;
+    if (filters.from && issueIso < filters.from) continue;
+    const owed = subtract(Number(pb.net), payrollPaid.get(pb.id) ?? 0);
+    if (!Number.isFinite(owed) || owed <= 0.005) continue;
+    // Payroll is due the day it's run — no vendor terms apply.
+    const days = daysBetween(issueIso, today);
+    agingRows.push({
+      id: `payroll:${pb.id}`,
+      sourceType: 'payroll',
+      sourceId: pb.id,
+      sourceLabel: `Payroll — ${employeeName.get(pb.employeeId) ?? 'Employee'} ${issueIso}`,
+      vendorId: 'payroll',
+      vendorName: 'Payroll (employees)',
+      projectId: null,
+      projectName: null,
+      issueDate: issueIso,
+      dueDate: issueIso,
       daysOverdue: days,
       bucket: bucketize(days),
-      amount,
-      termsLabel: terms.label,
-      vendorInvoiceNumber: po.vendorInvoiceNumber ?? null,
+      amount: owed,
+      termsLabel: 'Due on pay date',
+      vendorInvoiceNumber: null,
     });
   }
 
@@ -1396,10 +1471,10 @@ export async function buildAPReport(
     const issueIso = bill.receiptDate;
     if (filters.from && issueIso < filters.from) continue;
     const netDue = subtract(
-      Number(bill.total),
-      appliedCreditByReceipt.get(bill.id) ?? 0,
+      subtract(Number(bill.total), appliedCreditByReceipt.get(bill.id) ?? 0),
+      receiptPaid.get(bill.id) ?? 0,
     );
-    if (netDue <= 0) continue;
+    if (netDue <= 0.005) continue;
     let dueIso: string;
     let termsLabel: string;
     if (bill.dueDate) {
@@ -1449,9 +1524,10 @@ export async function buildAPReport(
     b90_plus: 0,
     itemCount: agingRows.length,
     overdueCount: 0,
-    poItemCount: 0,
+    poItemCount: commitmentRows.length,
     subItemCount: 0,
     billItemCount: 0,
+    payrollItemCount: 0,
   };
   for (const r of agingRows) {
     const existing = byVendor.get(r.vendorId) ?? {
@@ -1475,9 +1551,9 @@ export async function buildAPReport(
     summary.totalAP = add(summary.totalAP, r.amount);
     summary[r.bucket] = add(summary[r.bucket], r.amount);
     if (r.daysOverdue > 0) summary.overdueCount += 1;
-    if (r.sourceType === 'po') summary.poItemCount += 1;
-    else if (r.sourceType === 'bill') summary.billItemCount += 1;
-    else summary.subItemCount += 1;
+    if (r.sourceType === 'bill') summary.billItemCount += 1;
+    else if (r.sourceType === 'payroll') summary.payrollItemCount += 1;
+    else if (r.sourceType === 'sub_payment') summary.subItemCount += 1;
   }
   const vendorRows = Array.from(byVendor.values()).sort(
     (a, b) => b.totalAP - a.totalAP,
@@ -1489,6 +1565,9 @@ export async function buildAPReport(
     vendorRows,
     agingRows,
     summary,
+    commitmentRows,
+    committedTotal,
+    draftBills,
   };
 }
 

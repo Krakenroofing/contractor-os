@@ -68,6 +68,9 @@ export default async function APReportPage({
         const vendorRows = fullReport.vendorRows.filter(
           (v) => v.vendorId === vendorId,
         );
+        const commitmentRows = fullReport.commitmentRows.filter(
+          (c) => c.vendorId === vendorId,
+        );
         const sum = (b: (typeof agingRows)[number]['bucket']) =>
           agingRows
             .filter((r) => r.bucket === b)
@@ -85,13 +88,18 @@ export default async function APReportPage({
             b90_plus: sum('b90_plus'),
             itemCount: agingRows.length,
             overdueCount: agingRows.filter((r) => r.daysOverdue > 0).length,
-            poItemCount: agingRows.filter((r) => r.sourceType === 'po').length,
+            poItemCount: commitmentRows.length,
             subItemCount: agingRows.filter(
               (r) => r.sourceType === 'sub_payment',
             ).length,
             billItemCount: agingRows.filter((r) => r.sourceType === 'bill')
               .length,
+            payrollItemCount: agingRows.filter(
+              (r) => r.sourceType === 'payroll',
+            ).length,
           },
+          commitmentRows,
+          committedTotal: commitmentRows.reduce((s, c) => s + c.remaining, 0),
         };
       })()
     : fullReport;
@@ -116,7 +124,7 @@ export default async function APReportPage({
         <KPI
           label="Total AP"
           value={formatMoney(report.summary.totalAP)}
-          hint={`${report.summary.billItemCount} bill${report.summary.billItemCount === 1 ? '' : 's'} · ${report.summary.poItemCount} PO · ${report.summary.subItemCount} sub`}
+          hint={`${report.summary.billItemCount} bill${report.summary.billItemCount === 1 ? '' : 's'} · ${report.summary.payrollItemCount} payroll · ${report.summary.subItemCount} sub`}
           highlight
         />
         {AGING_BUCKETS.map((b) => (
@@ -138,7 +146,7 @@ export default async function APReportPage({
       </div>
 
       <p className="text-sm text-slate-600">
-        {report.summary.itemCount} open commitment
+        {report.summary.itemCount} unpaid obligation
         {report.summary.itemCount === 1 ? '' : 's'}
         {report.summary.overdueCount > 0
           ? ` · ${report.summary.overdueCount} overdue`
@@ -149,6 +157,24 @@ export default async function APReportPage({
           ? 'Due on receipt'
           : `Net ${defaultTermsDays}`}
       </p>
+
+      {fullReport.draftBills.count > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-medium">
+            {fullReport.draftBills.count} bill
+            {fullReport.draftBills.count === 1 ? '' : 's'} still in draft
+          </span>{' '}
+          ({formatMoney(fullReport.draftBills.total)}) — a draft carries no
+          liability, so it is not on this report until it is approved &amp;
+          posted.{' '}
+          <Link
+            href={{ pathname: '/banking/receipts' }}
+            className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+          >
+            Review drafts
+          </Link>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -219,11 +245,14 @@ export default async function APReportPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Open commitments</CardTitle>
+          <CardTitle>Unpaid bills &amp; obligations</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {report.agingRows.length === 0 ? (
-            <p className="p-6 text-sm text-slate-500">No open commitments.</p>
+            <p className="p-6 text-sm text-slate-500">
+              Nothing outstanding — every posted bill, payroll run and
+              subcontractor payment has been settled.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -259,6 +288,14 @@ export default async function APReportPage({
                         >
                           {r.sourceLabel}
                         </Link>
+                      ) : r.sourceType === 'payroll' ? (
+                        <Link
+                          href={{ pathname: '/payroll/bills' }}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          title="Open the payroll bills page"
+                        >
+                          {r.sourceLabel}
+                        </Link>
                       ) : (
                         <Badge tone="amber">Sub</Badge>
                       )}
@@ -278,13 +315,13 @@ export default async function APReportPage({
                       {r.termsLabel}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
-                      {r.sourceType === 'po' || r.sourceType === 'bill' ? (
+                      {r.sourceType === 'bill' || r.sourceType === 'payroll' ? (
                         <Link
                           href={{
                             pathname:
-                              r.sourceType === 'po'
-                                ? `/purchase-orders/${r.sourceId}`
-                                : `/banking/receipts/${r.sourceId}`,
+                              r.sourceType === 'bill'
+                                ? `/banking/receipts/${r.sourceId}`
+                                : '/payroll/bills',
                           }}
                           className="text-amber-700 underline underline-offset-2 hover:text-amber-900"
                         >
@@ -304,6 +341,66 @@ export default async function APReportPage({
                       }`}
                     >
                       {r.daysOverdue}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Open purchase orders — committed, not yet payable{' '}
+            <span className="text-slate-500 font-normal">
+              ({formatMoney(report.committedTotal)})
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <p className="px-6 pt-4 text-sm text-slate-600">
+            A purchase order is an order placed, not money owed. It becomes
+            accounts payable when the vendor bills it — use{' '}
+            <span className="font-medium">Create bill from PO</span> on the PO.
+            These amounts are deliberately excluded from the AP totals above.
+          </p>
+          {report.commitmentRows.length === 0 ? (
+            <p className="p-6 text-sm text-slate-500">No open POs.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>PO</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Order date</TableHead>
+                  <TableHead className="text-right">Not yet billed</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.commitmentRows.map((c) => (
+                  <TableRow key={c.poId}>
+                    <TableCell className="text-xs">
+                      <Link
+                        href={{ pathname: `/purchase-orders/${c.poId}` }}
+                        className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                      >
+                        {c.number}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-slate-700">
+                      {c.vendorName}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {c.projectName ?? <span className="text-slate-400">—</span>}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {c.issueDate}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-700">
+                      {formatMoney(c.remaining)}
                     </TableCell>
                   </TableRow>
                 ))}

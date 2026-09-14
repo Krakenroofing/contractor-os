@@ -34,6 +34,10 @@ export type VendorRow = {
   defaultTerms: string | null;
   openPOCount: number;
   committed: number;
+  /** Posted bills with money still owed on them. */
+  openBillCount: number;
+  /** Total still owed across those bills. */
+  outstanding: number;
 };
 
 type FilterKey = 'type';
@@ -81,6 +85,10 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
             return v.openPOCount;
           case 'committed':
             return v.committed;
+          case 'bills':
+            return v.openBillCount;
+          case 'outstanding':
+            return v.outstanding;
           default:
             return null;
         }
@@ -153,6 +161,24 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
                 <TableHead>Terms</TableHead>
                 <TableHead className="text-right">
                   <ColumnHeader
+                    label="Open bills"
+                    sortKey="bills"
+                    sort={sort}
+                    onSortChange={setSort}
+                    align="right"
+                  />
+                </TableHead>
+                <TableHead className="text-right">
+                  <ColumnHeader
+                    label="Outstanding"
+                    sortKey="outstanding"
+                    sort={sort}
+                    onSortChange={setSort}
+                    align="right"
+                  />
+                </TableHead>
+                <TableHead className="text-right">
+                  <ColumnHeader
                     label="Open POs"
                     sortKey="open"
                     sort={sort}
@@ -190,9 +216,25 @@ export function VendorsListClient({ vendors }: { vendors: VendorRow[] }) {
                       {v.defaultTerms ?? '—'}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-slate-600">
-                      {v.openPOCount}
+                      {v.openBillCount === 0 ? (
+                        <span className="text-slate-300">—</span>
+                      ) : (
+                        v.openBillCount
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
+                      {v.outstanding > 0.005 ? (
+                        <span className="text-amber-700">
+                          {formatMoney(v.outstanding)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {v.openPOCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
                       {formatMoney(v.committed)}
                     </TableCell>
                     <TableCell className="text-right">

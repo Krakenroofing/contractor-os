@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
       report.summary.overdueCount,
     ],
     [],
-    ['Open commitments', '', '', '', '', '', '', '', ''],
+    ['Unpaid bills & obligations', '', '', '', '', '', '', '', ''],
     [
       'Source type',
       'Source ID',
@@ -78,7 +78,13 @@ export async function GET(req: NextRequest) {
       'Days overdue',
     ],
     ...report.agingRows.map((r) => [
-      r.sourceType === 'po' ? 'PO' : 'Sub payment',
+      r.sourceType === 'bill'
+        ? 'Bill'
+        : r.sourceType === 'payroll'
+          ? 'Payroll'
+          : r.sourceType === 'po'
+            ? 'PO'
+            : 'Sub payment',
       r.sourceLabel,
       r.vendorInvoiceNumber ?? '',
       r.vendorName,
@@ -89,6 +95,20 @@ export async function GET(req: NextRequest) {
       r.amount,
       r.daysOverdue,
     ]),
+    [],
+    [
+      'Open purchase orders — committed, not yet payable',
+      '', '', '', '',
+    ],
+    ['PO', 'Vendor', 'Project', 'Order date', 'Not yet billed'],
+    ...report.commitmentRows.map((c) => [
+      c.number,
+      c.vendorName,
+      c.projectName ?? '',
+      c.issueDate,
+      c.remaining,
+    ]),
+    ['TOTAL COMMITTED', '', '', '', report.committedTotal],
   ];
 
   return csvResponse(

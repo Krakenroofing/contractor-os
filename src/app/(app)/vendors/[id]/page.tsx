@@ -24,7 +24,7 @@ import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { listImportedTransactions } from '@/lib/data/statement-imports';
 import { listReceipts } from '@/lib/data/receipts';
-import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import { sumReceiptSettlements } from '@/lib/data/transaction-matches';
 import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import {
   STATUS_LABEL as PO_STATUS_LABEL,
@@ -80,13 +80,15 @@ export default async function VendorDetailPage({
   // ----- Bills (posted receipts on this vendor) with per-bill settlement.
   // Outstanding = total − applied credits − matched bank payments; cash /
   // card receipts were paid on the spot so they're settled by definition.
-  const bills = await listReceipts(companyId, {
-    vendorId: vendor.id,
-    status: 'posted',
-  });
-  const activeMatches = (await listActiveMatchesForCompany(companyId)).filter(
-    (m) => m.matchType === 'receipt' && m.receiptId,
-  );
+  // Drafts are listed too (flagged as such) so a bill someone entered is
+  // never invisible here — it just carries no liability until it's posted.
+  const [postedBills, draftBillRows] = await Promise.all([
+    listReceipts(companyId, { vendorId: vendor.id, status: 'posted' }),
+    listReceipts(companyId, { vendorId: vendor.id, status: 'draft' }),
+  ]);
+  const bills = [...postedBills, ...draftBillRows];
+  const draftBillIds = new Set(draftBillRows.map((b) => b.id));
+  const receiptPaid = await sumReceiptSettlements(companyId);
   const creditByBill = await sumAppliedCreditsByReceipt(
     companyId,
     bills.map((b) => b.id),
@@ -95,17 +97,19 @@ export default async function VendorDetailPage({
     .map((b) => {
       const total = Number(b.total);
       const credit = creditByBill.get(b.id) ?? 0;
-      const own = activeMatches.filter((m) => m.receiptId === b.id);
-      // NULL matchedAmount = the payment covered the whole bill (legacy
-      // semantics); otherwise sum the partial payments.
-      const paid = own.some((m) => m.matchedAmount === null)
-        ? Math.max(0, total - credit)
-        : own.reduce((s, m) => s + Number(m.matchedAmount ?? 0), 0);
+      // What the bank has actually settled, capped at what the bill owes —
+      // a payment smaller than the bill leaves the rest outstanding.
+      const paid = Math.min(
+        receiptPaid.get(b.id) ?? 0,
+        Math.max(0, total - credit),
+      );
       const isBank = b.paymentSourceType === 'bank';
-      const outstanding = isBank
-        ? Math.round(Math.max(0, total - credit - paid) * 100) / 100
-        : 0;
-      return { b, total, credit, paid, outstanding, isBank };
+      const isDraft = draftBillIds.has(b.id);
+      const outstanding =
+        isBank && !isDraft
+          ? Math.round(Math.max(0, total - credit - paid) * 100) / 100
+          : 0;
+      return { b, total, credit, paid, outstanding, isBank, isDraft };
     })
     .sort((x, y) => y.b.receiptDate.localeCompare(x.b.receiptDate));
   const totalOutstanding = billViews.reduce((s, v) => s + v.outstanding, 0);
@@ -241,7 +245,7 @@ export default async function VendorDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {billViews.map(({ b, total, credit, paid, outstanding, isBank }) => (
+                {billViews.map(({ b, total, credit, paid, outstanding, isBank, isDraft }) => (
                   <TableRow key={b.id}>
                     <TableCell className="tabular-nums text-slate-700">
                       {b.receiptDate}
@@ -273,7 +277,9 @@ export default async function VendorDetailPage({
                       )}
                     </TableCell>
                     <TableCell>
-                      {!isBank ? (
+                      {isDraft ? (
+                        <Badge tone="slate">Draft — not posted</Badge>
+                      ) : !isBank ? (
                         <Badge tone="slate">
                           Paid ({b.paymentSourceType === 'cash' ? 'cash' : b.paymentSourceType === 'credit_card' ? 'card' : 'other'})
                         </Badge>

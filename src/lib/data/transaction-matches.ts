@@ -104,6 +104,92 @@ export async function listActiveMatchesForCompany(
     .orderBy(desc(transactionMatches.matchedAt));
 }
 
+/**
+ * How much bank money has actually settled each posted bill (receipt),
+ * company-wide. Key = receipt id, value = the sum of the settling payments.
+ *
+ * `matched_amount` is NULL on a whole-bill match (the legacy / one-click
+ * shape). Historically that was read as "this bill is fully paid", which
+ * silently wrote off the gap whenever the bank payment was SMALLER than the
+ * bill — a $2,242.68 bill matched to a $948.33 withdrawal vanished from AP.
+ * So a NULL now settles the bank transaction's own amount instead, and the
+ * caller caps it at what the bill still owes. A lump payment covering many
+ * bills still clears them all (each bill is ≤ the lump), and an exact 1:1
+ * match is unchanged — only the under-payment case behaves differently.
+ */
+export async function sumReceiptSettlements(
+  companyId: string,
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured()) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      receiptId: transactionMatches.receiptId,
+      matchedAmount: transactionMatches.matchedAmount,
+      txnAmount: importedTransactions.amount,
+    })
+    .from(transactionMatches)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, transactionMatches.importedTransactionId),
+    )
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'receipt'),
+        isNull(transactionMatches.reversedAt),
+      ),
+    );
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.receiptId) continue;
+    const paid =
+      r.matchedAmount !== null
+        ? Math.abs(Number(r.matchedAmount))
+        : Math.abs(Number(r.txnAmount));
+    if (!Number.isFinite(paid)) continue;
+    out.set(r.receiptId, (out.get(r.receiptId) ?? 0) + paid);
+  }
+  return out;
+}
+
+/** Same idea for payroll bills — how much bank money has settled each one. */
+export async function sumPayrollBillSettlements(
+  companyId: string,
+): Promise<Map<string, number>> {
+  if (!isDatabaseConfigured()) return new Map();
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      payrollBillId: transactionMatches.payrollBillId,
+      matchedAmount: transactionMatches.matchedAmount,
+      txnAmount: importedTransactions.amount,
+    })
+    .from(transactionMatches)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, transactionMatches.importedTransactionId),
+    )
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'payroll_bill'),
+        isNull(transactionMatches.reversedAt),
+      ),
+    );
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.payrollBillId) continue;
+    const paid =
+      r.matchedAmount !== null
+        ? Math.abs(Number(r.matchedAmount))
+        : Math.abs(Number(r.txnAmount));
+    if (!Number.isFinite(paid)) continue;
+    out.set(r.payrollBillId, (out.get(r.payrollBillId) ?? 0) + paid);
+  }
+  return out;
+}
+
 export async function getActiveMatchForTxn(
   companyId: string,
   importedTransactionId: string,
