@@ -26,6 +26,7 @@ import {
 } from '@/modules/reports/lib/reports';
 import { ReportShell } from '@/modules/reports/components/report-shell';
 import { ApDefaultTermsPicker } from '@/modules/reports/components/ap-default-terms-picker';
+import { ApVendorPicker } from '@/modules/reports/components/ap-vendor-picker';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +45,56 @@ export default async function APReportPage({
     : params.defaultTermsDays;
   const defaultTermsDays = parseApDefaultTermsDays(rawDefaultTerms);
 
-  const [report, projects] = await Promise.all([
+  const [fullReport, projects] = await Promise.all([
     buildAPReport(company.id, filters, defaultTermsDays),
     listProjects(company.id),
   ]);
+
+  // Optional ?vendor= filter: narrow both tables to one vendor and
+  // recompute the KPI tiles from the filtered rows so the totals match
+  // what's on screen. The picker lists only vendors with open AP.
+  const rawVendor = Array.isArray(params.vendor)
+    ? params.vendor[0]
+    : params.vendor;
+  const vendorId =
+    rawVendor && fullReport.vendorRows.some((v) => v.vendorId === rawVendor)
+      ? rawVendor
+      : '';
+  const report = vendorId
+    ? (() => {
+        const agingRows = fullReport.agingRows.filter(
+          (r) => r.vendorId === vendorId,
+        );
+        const vendorRows = fullReport.vendorRows.filter(
+          (v) => v.vendorId === vendorId,
+        );
+        const sum = (b: (typeof agingRows)[number]['bucket']) =>
+          agingRows
+            .filter((r) => r.bucket === b)
+            .reduce((s, r) => s + r.amount, 0);
+        return {
+          ...fullReport,
+          agingRows,
+          vendorRows,
+          summary: {
+            totalAP: agingRows.reduce((s, r) => s + r.amount, 0),
+            current: sum('current'),
+            b1_30: sum('b1_30'),
+            b31_60: sum('b31_60'),
+            b61_90: sum('b61_90'),
+            b90_plus: sum('b90_plus'),
+            itemCount: agingRows.length,
+            overdueCount: agingRows.filter((r) => r.daysOverdue > 0).length,
+            poItemCount: agingRows.filter((r) => r.sourceType === 'po').length,
+            subItemCount: agingRows.filter(
+              (r) => r.sourceType === 'sub_payment',
+            ).length,
+            billItemCount: agingRows.filter((r) => r.sourceType === 'bill')
+              .length,
+          },
+        };
+      })()
+    : fullReport;
 
   return (
     <ReportShell
@@ -57,6 +104,13 @@ export default async function APReportPage({
       companyName={company.name}
     >
       <ApDefaultTermsPicker selected={defaultTermsDays} />
+      <ApVendorPicker
+        selected={vendorId}
+        vendors={fullReport.vendorRows.map((v) => ({
+          id: v.vendorId,
+          name: v.vendorName,
+        }))}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPI

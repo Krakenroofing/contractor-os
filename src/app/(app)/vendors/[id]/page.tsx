@@ -23,6 +23,9 @@ import {
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { listImportedTransactions } from '@/lib/data/statement-imports';
+import { listReceipts } from '@/lib/data/receipts';
+import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import { sumAppliedCreditsByReceipt } from '@/lib/data/vendor-credits';
 import {
   STATUS_LABEL as PO_STATUS_LABEL,
   STATUS_TONE as PO_STATUS_TONE,
@@ -73,6 +76,39 @@ export default async function VendorDetailPage({
     notes: c.notes,
   }));
   const canManageCredits = canCreate(role, 'receipts');
+
+  // ----- Bills (posted receipts on this vendor) with per-bill settlement.
+  // Outstanding = total − applied credits − matched bank payments; cash /
+  // card receipts were paid on the spot so they're settled by definition.
+  const bills = await listReceipts(companyId, {
+    vendorId: vendor.id,
+    status: 'posted',
+  });
+  const activeMatches = (await listActiveMatchesForCompany(companyId)).filter(
+    (m) => m.matchType === 'receipt' && m.receiptId,
+  );
+  const creditByBill = await sumAppliedCreditsByReceipt(
+    companyId,
+    bills.map((b) => b.id),
+  );
+  const billViews = bills
+    .map((b) => {
+      const total = Number(b.total);
+      const credit = creditByBill.get(b.id) ?? 0;
+      const own = activeMatches.filter((m) => m.receiptId === b.id);
+      // NULL matchedAmount = the payment covered the whole bill (legacy
+      // semantics); otherwise sum the partial payments.
+      const paid = own.some((m) => m.matchedAmount === null)
+        ? Math.max(0, total - credit)
+        : own.reduce((s, m) => s + Number(m.matchedAmount ?? 0), 0);
+      const isBank = b.paymentSourceType === 'bank';
+      const outstanding = isBank
+        ? Math.round(Math.max(0, total - credit - paid) * 100) / 100
+        : 0;
+      return { b, total, credit, paid, outstanding, isBank };
+    })
+    .sort((x, y) => y.b.receiptDate.localeCompare(x.b.receiptDate));
+  const totalOutstanding = billViews.reduce((s, v) => s + v.outstanding, 0);
 
   let committed = 0;
   let received = 0;
@@ -156,12 +192,113 @@ export default async function VendorDetailPage({
         <Badge tone={TYPE_TONE[type]}>{TYPE_LABEL[type]}</Badge>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <KPI
+          label="Bills outstanding"
+          value={formatMoney(totalOutstanding)}
+          sub={`${billViews.filter((v) => v.outstanding > 0.005).length} unpaid of ${billViews.length} bill${billViews.length === 1 ? '' : 's'}`}
+        />
         <KPI label="Open POs" value={String(openCount)} sub={`${pos.length} total`} />
         <KPI label="Committed" value={formatMoney(committed)} />
         <KPI label="Received" value={formatMoney(received)} />
         <KPI label="Linked projects" value={String(linkedProjects.length)} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Bills ({billViews.length}) —{' '}
+            <span className="text-amber-700">
+              {formatMoney(totalOutstanding)} outstanding
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          {billViews.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">
+              No bills from this vendor yet. Enter one at{' '}
+              <Link
+                href={{ pathname: '/banking/bills/new' }}
+                className="text-blue-700 hover:underline"
+              >
+                Add Bill
+              </Link>{' '}
+              or create one from a PO.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-28">Date</TableHead>
+                  <TableHead>Vendor inv #</TableHead>
+                  <TableHead>Due</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Credits</TableHead>
+                  <TableHead className="text-right">Paid</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {billViews.map(({ b, total, credit, paid, outstanding, isBank }) => (
+                  <TableRow key={b.id}>
+                    <TableCell className="tabular-nums text-slate-700">
+                      {b.receiptDate}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-600">
+                      {b.vendorInvoiceNumber ?? (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {b.dueDate ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(total)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {credit > 0.005 ? `−${formatMoney(credit)}` : ''}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {paid > 0.005 ? formatMoney(paid) : ''}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {outstanding > 0.005 ? (
+                        <span className="text-amber-700">
+                          {formatMoney(outstanding)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {!isBank ? (
+                        <Badge tone="slate">
+                          Paid ({b.paymentSourceType === 'cash' ? 'cash' : b.paymentSourceType === 'credit_card' ? 'card' : 'other'})
+                        </Badge>
+                      ) : outstanding <= 0.005 ? (
+                        <Badge tone="green">Paid</Badge>
+                      ) : paid + credit > 0.005 ? (
+                        <Badge tone="amber">Partial</Badge>
+                      ) : (
+                        <Badge tone="red">Unpaid</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/banking/receipts/${b.id}`}>
+                        <Button size="sm" variant="outline">
+                          View
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
