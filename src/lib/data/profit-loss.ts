@@ -32,8 +32,10 @@ import {
   payPeriods,
   paystubAdjustments,
   periodPaystubSnapshots,
+  projects,
   receipts,
   receiptLines,
+  vendors,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import { listProjects } from '@/lib/data/projects';
@@ -317,6 +319,104 @@ async function sumPostedLaborByPeriod(
     posted.set(r.periodId, cur);
   }
   return posted;
+}
+
+/** Per-employee gross inside each pay period, split by worker classification.
+ *  Lets the drill name the people behind a "not assigned to a job" lump
+ *  instead of showing one anonymous period total. */
+async function listPeriodGrossByEmployee(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+  periodIds: string[],
+  subcontractor: boolean,
+): Promise<Map<string, { name: string; gross: number }[]>> {
+  const out = new Map<string, { name: string; gross: number }[]>();
+  if (periodIds.length === 0) return out;
+  const rows = await db
+    .select({
+      periodId: periodPaystubSnapshots.payPeriodId,
+      name: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+      gross: periodPaystubSnapshots.gross,
+    })
+    .from(periodPaystubSnapshots)
+    .innerJoin(employees, eq(employees.id, periodPaystubSnapshots.employeeId))
+    .where(
+      and(
+        eq(periodPaystubSnapshots.companyId, companyId),
+        inArray(periodPaystubSnapshots.payPeriodId, periodIds),
+        subcontractor
+          ? eq(employees.isSubcontractor, true)
+          : sql`COALESCE(${employees.isSubcontractor}, false) = false`,
+      ),
+    );
+  for (const r of rows) {
+    const list = out.get(r.periodId) ?? [];
+    list.push({ name: r.name.trim(), gross: Number(r.gross) });
+    out.set(r.periodId, list);
+  }
+  return out;
+}
+
+/** Labor already posted to jobs, keyed by `${periodId}|${worker name}`.
+ *  The worker's name only exists in the posting's description (job-cost
+ *  entries carry no employee id), and those descriptions are written by our
+ *  own posting code, so parsing them back out is reliable. */
+async function sumPostedLaborByPeriodAndWorker(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+  periodIds: string[],
+  subcontractor: boolean,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (periodIds.length === 0) return out;
+  const costTypeCond = subcontractor
+    ? eq(jobCostEntries.costType, 'subcontractor')
+    : sql`${jobCostEntries.costType} NOT IN ('subcontractor', 'labor_burden')`;
+  const rows = await db
+    .select({
+      periodId: jobCostEntries.sourceRefId,
+      description: jobCostEntries.description,
+      amount: jobCostEntries.amount,
+    })
+    .from(jobCostEntries)
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        sql`${jobCostEntries.deletedAt} IS NULL`,
+        inArray(jobCostEntries.source, ['labor_entry', 'labor_manual']),
+        inArray(jobCostEntries.sourceRefId, periodIds),
+        costTypeCond,
+      ),
+    );
+  const woRows = await db
+    .select({
+      periodId: payPeriods.id,
+      description: jobCostEntries.description,
+      amount: jobCostEntries.amount,
+    })
+    .from(jobCostEntries)
+    .innerJoin(
+      payPeriods,
+      and(
+        eq(payPeriods.companyId, jobCostEntries.companyId),
+        sql`${jobCostEntries.entryDate} BETWEEN ${payPeriods.startDate} AND ${payPeriods.endDate}`,
+      ),
+    )
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        sql`${jobCostEntries.deletedAt} IS NULL`,
+        eq(jobCostEntries.source, 'work_order'),
+        inArray(payPeriods.id, periodIds),
+        costTypeCond,
+      ),
+    );
+  for (const r of [...rows, ...woRows]) {
+    if (!r.periodId) continue;
+    const key = `${r.periodId}|${payeeFromDescription(r.description)}`;
+    out.set(key, (out.get(key) ?? 0) + Number(r.amount));
+  }
+  return out;
 }
 
 /**
@@ -1073,6 +1173,13 @@ export type ProfitLossAccountEntry = {
   /** Job-cost rows: the project the entry is on, so the drill can
    *  deep-link to the project's financials. */
   projectId?: string | null;
+  /** WHO the money went to, resolved as far as the source allows: the linked
+   *  vendor's name, the worker named on a labor posting, or the bank payee.
+   *  Lets the drill roll a category up by payee instead of making the reader
+   *  add rows by hand. */
+  payeeName?: string | null;
+  /** The job this entry sits on, when it's job-costed. */
+  projectName?: string | null;
 };
 
 export type ProfitLossAccountDetail = {
@@ -1228,11 +1335,55 @@ export async function listProfitLossAccountEntries(
     if (periods.length > 0) {
       const periodById = new Map(periods.map((p) => [p.id, p]));
       if (isWages || isBurden || isSubs) {
+        const periodIds = periods.map((p) => p.id);
         const postedLabor = await sumPostedLaborByPeriod(
           db,
           companyId,
-          periods.map((p) => p.id),
+          periodIds,
         );
+        // Who's inside the unassigned lump. Only used when the per-worker
+        // residuals add back up to the period residual exactly — otherwise
+        // the single period row stands, so the drill can never drift off the
+        // statement for the sake of a nicer breakdown.
+        const grossByEmployee = isSubs
+          ? await listPeriodGrossByEmployee(db, companyId, periodIds, true)
+          : isWages
+            ? await listPeriodGrossByEmployee(db, companyId, periodIds, false)
+            : new Map<string, { name: string; gross: number }[]>();
+        const postedByWorker =
+          isSubs || isWages
+            ? await sumPostedLaborByPeriodAndWorker(
+                db,
+                companyId,
+                periodIds,
+                isSubs,
+              )
+            : new Map<string, number>();
+        /** Per-worker rows for an unassigned residual, or null when they
+         *  don't reconcile to the period total. */
+        const splitResidual = (
+          periodId: string,
+          residual: number,
+        ): { name: string; amount: number }[] | null => {
+          const people = grossByEmployee.get(periodId) ?? [];
+          if (people.length === 0) return null;
+          const rows = people
+            .map((e) => ({
+              name: e.name,
+              amount:
+                Math.round(
+                  Math.max(
+                    0,
+                    e.gross - (postedByWorker.get(`${periodId}|${e.name}`) ?? 0),
+                  ) * 100,
+                ) / 100,
+            }))
+            .filter((r) => r.amount >= 0.005);
+          const sum =
+            Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+          if (Math.abs(sum - residual) > 0.01) return null;
+          return rows;
+        };
         for (const p of periods) {
           const posted =
             postedLabor.get(p.id) ?? { wage: 0, subWage: 0, burden: 0 };
@@ -1241,26 +1392,54 @@ export async function listProfitLossAccountEntries(
             const residual =
               Math.round(Math.max(0, p.gross - posted.wage) * 100) / 100;
             if (residual >= 0.005) {
-              payrollEntries.push({
-                date: p.endDate,
-                description: `Wages not assigned to a job (pay period ${label})`,
-                amount: residual,
-                source: 'Payroll',
-                payrollWeekStart: p.startDate,
-              });
+              const split = splitResidual(p.id, residual);
+              if (split) {
+                for (const s of split) {
+                  payrollEntries.push({
+                    date: p.endDate,
+                    description: `Wages not assigned to a job — ${s.name} (pay period ${label})`,
+                    amount: s.amount,
+                    source: 'Payroll',
+                    payrollWeekStart: p.startDate,
+                    payeeName: s.name,
+                  });
+                }
+              } else {
+                payrollEntries.push({
+                  date: p.endDate,
+                  description: `Wages not assigned to a job (pay period ${label})`,
+                  amount: residual,
+                  source: 'Payroll',
+                  payrollWeekStart: p.startDate,
+                });
+              }
             }
           }
           if (isSubs) {
             const residual =
               Math.round(Math.max(0, p.grossSub - posted.subWage) * 100) / 100;
             if (residual >= 0.005) {
-              payrollEntries.push({
-                date: p.endDate,
-                description: `Subcontractor labor not assigned to a job (pay period ${label})`,
-                amount: residual,
-                source: 'Payroll',
-                payrollWeekStart: p.startDate,
-              });
+              const split = splitResidual(p.id, residual);
+              if (split) {
+                for (const s of split) {
+                  payrollEntries.push({
+                    date: p.endDate,
+                    description: `Subcontractor labor not assigned to a job — ${s.name} (pay period ${label})`,
+                    amount: s.amount,
+                    source: 'Payroll',
+                    payrollWeekStart: p.startDate,
+                    payeeName: s.name,
+                  });
+                }
+              } else {
+                payrollEntries.push({
+                  date: p.endDate,
+                  description: `Subcontractor labor not assigned to a job (pay period ${label})`,
+                  amount: residual,
+                  source: 'Payroll',
+                  payrollWeekStart: p.startDate,
+                });
+              }
             }
           }
           if (isBurden) {
@@ -1515,6 +1694,43 @@ export async function listProfitLossAccountEntries(
       vendorId: r.vendorId,
     })),
   ];
+  // ----- Resolve WHO and WHICH JOB for every row, in two batched lookups.
+  // The row already knows its vendor/project id; the drill needs the names so
+  // it can group the category by payee without the reader adding it up.
+  const vendorIds = Array.from(
+    new Set(entries.map((e) => e.vendorId).filter((v): v is string => !!v)),
+  );
+  const projectIds = Array.from(
+    new Set(entries.map((e) => e.projectId).filter((v): v is string => !!v)),
+  );
+  const vendorNameById = new Map<string, string>();
+  if (vendorIds.length > 0) {
+    for (const v of await db
+      .select({ id: vendors.id, name: vendors.name })
+      .from(vendors)
+      .where(inArray(vendors.id, vendorIds))) {
+      vendorNameById.set(v.id, v.name);
+    }
+  }
+  const projectNameById = new Map<string, string>();
+  if (projectIds.length > 0) {
+    for (const p of await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(inArray(projects.id, projectIds))) {
+      projectNameById.set(p.id, p.name);
+    }
+  }
+  for (const e of entries) {
+    e.payeeName =
+      e.payeeName ??
+      (e.vendorId ? vendorNameById.get(e.vendorId) : null) ??
+      payeeFromDescription(e.description);
+    e.projectName = e.projectId
+      ? (projectNameById.get(e.projectId) ?? null)
+      : null;
+  }
+
   entries.sort((a, b) => a.date.localeCompare(b.date));
   const total = entries.reduce((s, e) => s + e.amount, 0);
 
@@ -1525,6 +1741,25 @@ export async function listProfitLossAccountEntries(
     total,
     entries,
   };
+}
+
+/**
+ * Best-effort payee for a row with no linked vendor. Labor and service-call
+ * postings are described by our own code in a fixed shape — "Payroll — Roland
+ * Altidor (2026-08-17 – 2026-08-23)", "Service call WO-1 — Roland Altidor
+ * (3.00h)" — so the worker is the segment after the em-dash, minus its
+ * trailing parenthetical. Everything else falls back to the description
+ * itself, which for a bank row is the statement payee.
+ */
+function payeeFromDescription(description: string): string {
+  const text = (description ?? '').trim();
+  if (text === '') return '—';
+  const dashIdx = text.indexOf(' — ');
+  const candidate =
+    dashIdx >= 0 ? text.slice(dashIdx + 3).trim() : text;
+  const parenIdx = candidate.indexOf(' (');
+  const name = (parenIdx > 0 ? candidate.slice(0, parenIdx) : candidate).trim();
+  return name === '' ? text : name;
 }
 
 // ---------------------------------------------------------------------------

@@ -87,6 +87,40 @@ export default async function ProfitLossAccountDetailPage({
   const accountOptions = toAccountingAccountOptions(allAccounts);
   const canRecategorize = entries.some((e) => e.jobCostEntryId);
 
+  // "Who makes up this number" — one row per payee × job, so a category like
+  // Subcontractors reads as a list of names and the jobs they worked instead
+  // of a pile of transactions to add up by hand. Grouped by vendor id where
+  // there is one, so two spellings of the same supplier still collapse.
+  const payeeGroups = new Map<
+    string,
+    {
+      payeeName: string;
+      vendorId: string | null;
+      projectId: string | null;
+      projectName: string | null;
+      count: number;
+      amount: number;
+    }
+  >();
+  for (const e of entries) {
+    const payeeName = e.payeeName ?? '—';
+    const key = `${e.vendorId ?? payeeName.toLowerCase()}|${e.projectId ?? ''}`;
+    const cur = payeeGroups.get(key) ?? {
+      payeeName,
+      vendorId: e.vendorId ?? null,
+      projectId: e.projectId ?? null,
+      projectName: e.projectName ?? null,
+      count: 0,
+      amount: 0,
+    };
+    cur.count += 1;
+    cur.amount = Math.round((cur.amount + e.amount) * 100) / 100;
+    payeeGroups.set(key, cur);
+  }
+  const payeeRows = Array.from(payeeGroups.values()).sort(
+    (a, b) => b.amount - a.amount,
+  );
+
   const backHref = {
     pathname: '/reports/profit-loss' as const,
     query: {
@@ -121,6 +155,75 @@ export default async function ProfitLossAccountDetailPage({
         </p>
       </div>
 
+      {payeeRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Who this is — {payeeRows.length}{' '}
+              {payeeRows.length === 1 ? 'payee' : 'payees'} &amp; jobs
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-56">Job</TableHead>
+                  <TableHead className="text-right w-24">Entries</TableHead>
+                  <TableHead className="text-right w-32">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {payeeRows.map((p, i) => (
+                  <TableRow key={`${p.payeeName}-${p.projectId ?? ''}-${i}`}>
+                    <TableCell className="text-slate-900">
+                      {p.vendorId ? (
+                        <Link
+                          href={`/vendors/${p.vendorId}`}
+                          className="text-blue-700 hover:underline"
+                          title="View this supplier"
+                        >
+                          {p.payeeName}
+                        </Link>
+                      ) : (
+                        p.payeeName
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {p.projectId && p.projectName ? (
+                        <Link
+                          href={`/projects/${p.projectId}` as never}
+                          className="text-blue-700 hover:underline"
+                          title="Open this job"
+                        >
+                          {p.projectName}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400">Not job-costed</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {p.count}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {formatMoney(p.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="border-t-2 border-slate-200">
+                  <TableCell colSpan={3} className="font-semibold text-slate-900">
+                    Total
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums font-semibold">
+                    {formatMoney(total)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Entries</CardTitle>
@@ -139,6 +242,7 @@ export default async function ProfitLossAccountDetailPage({
                   {includeSubs && (
                     <TableHead className="w-40">Category</TableHead>
                   )}
+                  <TableHead className="w-44">Job</TableHead>
                   <TableHead className="w-36">Source</TableHead>
                   <TableHead className="w-44">Account</TableHead>
                   {canRecategorize && (
@@ -181,6 +285,19 @@ export default async function ProfitLossAccountDetailPage({
                         {e.entryAccountName}
                       </TableCell>
                     )}
+                    <TableCell className="text-slate-600">
+                      {e.projectId && e.projectName ? (
+                        <Link
+                          href={`/projects/${e.projectId}` as never}
+                          className="hover:underline underline-offset-2"
+                          title="Open this job"
+                        >
+                          {e.projectName}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-slate-500">{e.source}</TableCell>
                     <TableCell className="text-slate-600">
                       {e.accountLabel && e.bankAccountId ? (
@@ -277,7 +394,7 @@ export default async function ProfitLossAccountDetailPage({
                 ))}
                 <TableRow className="border-t-2 border-slate-200">
                   <TableCell
-                    colSpan={(canRecategorize ? 5 : 4) + (includeSubs ? 1 : 0)}
+                    colSpan={(canRecategorize ? 6 : 5) + (includeSubs ? 1 : 0)}
                     className="font-semibold text-slate-900"
                   >
                     Total
