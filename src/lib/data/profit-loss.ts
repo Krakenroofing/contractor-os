@@ -1067,6 +1067,12 @@ export type ProfitLossAccountEntry = {
   /** Linked supplier, when the source row has one — lets the row name
    *  deep-link to the vendor's transaction history. */
   vendorId?: string | null;
+  /** Payroll rows: the pay period's Monday, so the drill can deep-link
+   *  to /payroll?week=… for that week. */
+  payrollWeekStart?: string;
+  /** Job-cost rows: the project the entry is on, so the drill can
+   *  deep-link to the project's financials. */
+  projectId?: string | null;
 };
 
 export type ProfitLossAccountDetail = {
@@ -1117,6 +1123,7 @@ export async function listProfitLossAccountEntries(
       description: jobCostEntries.description,
       amount: jobCostEntries.amount,
       vendorId: jobCostEntries.vendorId,
+      projectId: jobCostEntries.projectId,
     })
     .from(jobCostEntries)
     .where(and(...jceConds));
@@ -1239,6 +1246,7 @@ export async function listProfitLossAccountEntries(
                 description: `Wages not assigned to a job (pay period ${label})`,
                 amount: residual,
                 source: 'Payroll',
+                payrollWeekStart: p.startDate,
               });
             }
           }
@@ -1251,6 +1259,7 @@ export async function listProfitLossAccountEntries(
                 description: `Subcontractor labor not assigned to a job (pay period ${label})`,
                 amount: residual,
                 source: 'Payroll',
+                payrollWeekStart: p.startDate,
               });
             }
           }
@@ -1263,6 +1272,7 @@ export async function listProfitLossAccountEntries(
                 description: `Employer NIB — unassigned share (pay period ${label})`,
                 amount: residual,
                 source: 'Payroll',
+                payrollWeekStart: p.startDate,
               });
             }
           }
@@ -1313,6 +1323,7 @@ export async function listProfitLossAccountEntries(
             description: `${TYPE_LABEL[r.type] ?? r.type} — ${r.employeeName} (pay period ${p.startDate} – ${p.endDate})${extra}`,
             amount: Number(r.amount),
             source: 'Payroll',
+            payrollWeekStart: p.startDate,
           });
         }
       }
@@ -1441,6 +1452,7 @@ export async function listProfitLossAccountEntries(
       source: 'Job cost' as const,
       jobCostEntryId: r.id,
       vendorId: r.vendorId,
+      projectId: r.projectId,
     })),
     ...btRows.map((r) => ({
       date: r.date,

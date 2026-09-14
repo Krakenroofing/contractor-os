@@ -162,6 +162,16 @@ export default async function ProfitLossAccountDetailPage({
                         >
                           {e.description || '—'}
                         </Link>
+                      ) : e.payrollWeekStart ? (
+                        <Link
+                          href={
+                            `/payroll?week=${e.payrollWeekStart}` as never
+                          }
+                          className="text-blue-700 hover:underline"
+                          title="Open this pay period on the payroll page"
+                        >
+                          {e.description || '—'}
+                        </Link>
                       ) : (
                         e.description || '—'
                       )}
@@ -236,6 +246,26 @@ export default async function ProfitLossAccountDetailPage({
                           target="_blank"
                           className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
                           title="View this journal entry"
+                        >
+                          {formatMoney(e.amount)}
+                        </Link>
+                      ) : e.payrollWeekStart ? (
+                        <Link
+                          href={
+                            `/payroll?week=${e.payrollWeekStart}` as never
+                          }
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                          title="Open this pay period on the payroll page"
+                        >
+                          {formatMoney(e.amount)}
+                        </Link>
+                      ) : e.projectId ? (
+                        <Link
+                          href={`/projects/${e.projectId}` as never}
+                          target="_blank"
+                          className="text-blue-700 hover:underline"
+                          title="Open the project this cost is on"
                         >
                           {formatMoney(e.amount)}
                         </Link>
