@@ -105,7 +105,9 @@ export function VendorCreditsCard({
               />
             </div>
             <div className="space-y-1.5 w-60">
-              <Label htmlFor="vc-category">Reduces category</Label>
+              {/* Reference only — credits don't touch the P&L (reasons vary:
+                  overpayment, goodwill, returns); they net future bills. */}
+              <Label htmlFor="vc-category">Category (reference)</Label>
               <AccountingAccountPicker
                 id="vc-category"
                 name="accountingAccountId"
@@ -155,7 +157,7 @@ export function VendorCreditsCard({
               <TableRow>
                 <TableHead className="w-28">Date</TableHead>
                 <TableHead>Reference</TableHead>
-                <TableHead>Reduces</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead className="text-right">Applied</TableHead>
                 <TableHead className="text-right">Available</TableHead>

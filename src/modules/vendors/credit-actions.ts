@@ -30,11 +30,9 @@ import {
 import { getVendor } from '@/lib/data/vendors';
 import { getReceipt } from '@/lib/data/receipts';
 import { getAccountingAccount } from '@/lib/data/accounting-accounts';
-import {
-  deleteJournalEntriesForSource,
-  postJournalEntry,
-} from '@/lib/data/general-ledger';
-import { resolveGlSystemAccounts } from '@/modules/accounting/lib/gl-posting';
+// deleteJournalEntriesForSource stays: legacy credits (pre-2026-09-14)
+// posted a Dr AP / Cr category JE that deletion must still clean up.
+import { deleteJournalEntriesForSource } from '@/lib/data/general-ledger';
 import { getUserNamesByIds } from '@/lib/data/users';
 
 export type VendorCreditActionState = {
@@ -121,23 +119,12 @@ export async function createVendorCreditAction(
       notes: input.notes || null,
       createdByUserId: auth.userId,
     });
-    // GL: we owe the vendor less, and the original cost comes back down.
-    // Best-effort like every other GL sync — never blocks the credit.
-    try {
-      const accounts = await resolveGlSystemAccounts(auth.companyId);
-      await postJournalEntry(auth.companyId, {
-        entryDate: input.creditDate,
-        memo: `Vendor credit — ${vendor.name}${input.reference ? ` (${input.reference})` : ''}`,
-        sourceType: 'vendor_credit',
-        sourceId: credit.id,
-        lines: [
-          { accountId: accounts.accountsPayable, debit: input.amount, credit: 0 },
-          { accountId: input.accountingAccountId, debit: 0, credit: input.amount },
-        ],
-      });
-    } catch {
-      /* GL is rebuilt idempotently; the credit row is the source of truth. */
-    }
+    // No GL / no P&L (2026-09-14): credit reasons vary (overpayment,
+    // goodwill, returns) and most aren't expense reversals, so a credit
+    // books nothing at creation — it's vendor-owed value that nets FUTURE
+    // bills in the AP lane (bill netting, register credit lines pinned to
+    // AP). The category field stays as a reference only. Same pattern as
+    // customer credit memos, which also post no GL.
   } catch (err) {
     if (err instanceof VendorCreditsNotAvailableInDemoError) {
       return { formError: err.message };

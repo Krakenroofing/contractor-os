@@ -36,10 +36,6 @@ import {
   receiptLines,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
-import {
-  listVendorCreditsForAccount,
-  sumVendorCreditsByAccount,
-} from '@/lib/data/vendor-credits';
 import { listProjects } from '@/lib/data/projects';
 import { listCustomers } from '@/lib/data/customers';
 import { getCompany } from '@/lib/data/companies';
@@ -945,23 +941,11 @@ export async function buildProfitLossReport(
     })),
   );
 
-  // ----- Expense side (5): vendor credits (contra) -----
-  // A vendor credit reduces the expense category it was issued against, the
-  // same way it reduces AP on the GL — so the category's statement line is
-  // net of credits.
-  const vendorCreditRows = await sumVendorCreditsByAccount(companyId, {
-    from: filters.from || undefined,
-    to: filters.to || undefined,
-  });
-  accumulate(
-    vendorCreditRows.map((r) => ({
-      accountId: r.accountingAccountId,
-      accountName: r.accountName,
-      rollupGroup: r.rollupGroup,
-      total: (-r.total).toFixed(2),
-      count: r.count,
-    })),
-  );
+  // ----- Vendor credits: deliberately NOT on the P&L (2026-09-14) -----
+  // Credit reasons vary (overpayment, goodwill, returns) and most aren't
+  // expense reversals — they're vendor-owed value that pays down FUTURE
+  // bills. Expenses stay gross here; credits do their work in the AP lane
+  // (bill netting, register credit lines). Chris's call.
 
   const cogsAccounts: ProfitLossAccountRow[] = [];
   const opexAccounts: ProfitLossAccountRow[] = [];
@@ -1415,13 +1399,8 @@ export async function listProfitLossAccountEntries(
     .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
     .where(and(...receiptConds));
 
-  // Vendor credits against this category — contra rows (negative), mirrors
-  // report expense source 5.
-  const vendorCreditEntries = await listVendorCreditsForAccount(
-    companyId,
-    accountId,
-    { from: filters.from || undefined, to: filters.to || undefined },
-  );
+  // Vendor credits: not on the P&L (see the report note) — the drill
+  // mirrors the statement, so no contra rows here either.
 
   // Manual journal lines on this account — mirrors expense source 6.
   const jeLineConds = [
@@ -1453,15 +1432,6 @@ export async function listProfitLossAccountEntries(
       amount: Math.round((Number(r.debit) - Number(r.credit)) * 100) / 100,
       source: 'Journal entry' as const,
       journalEntryId: r.entryId,
-    })),
-    ...vendorCreditEntries.map((vc) => ({
-      date: vc.creditDate,
-      description: `Vendor credit${vc.reference ? ` ${vc.reference}` : ''}${
-        vc.notes ? ` — ${vc.notes}` : ''
-      }`,
-      amount: -Number(vc.amount),
-      source: 'Vendor credit' as const,
-      vendorId: vc.vendorId,
     })),
     ...payrollEntries,
     ...jceRows.map((r) => ({

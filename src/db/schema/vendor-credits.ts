@@ -13,11 +13,13 @@ import { accountingAccounts } from './accounting-accounts';
 import { receipts } from './receipts';
 import { users } from './users';
 
-// A credit note from a vendor: reduces what we owe them. At creation it
-// posts Dr Accounts Payable / Cr <expense category> (source 'vendor_credit');
-// applications spread the credit across bills (receipts) so a bill's
-// remaining due = total − applied credits — the figure the bank payment
-// should match during reconciliation.
+// A credit note from a vendor: reduces what we owe them. Creation books
+// NOTHING (no GL, no P&L — since 2026-09-14): credit reasons vary
+// (overpayment, goodwill, returns) and most aren't expense reversals, so
+// the category is kept as a reference only. Applications spread the
+// credit across bills (receipts) so a bill's remaining due = total −
+// applied credits — the figure the bank payment should match during
+// reconciliation.
 export const vendorCredits = pgTable(
   'vendor_credits',
   {
