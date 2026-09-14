@@ -44,7 +44,12 @@ export default async function ProfitLossAccountDetailPage({
   const { accountId } = await params;
   const sp = await searchParams;
   const filters = parseReportFilters(sp);
+  // ?subs=1 (the P&L's "Total parent" rows): include the parent's
+  // subaccounts so the drill matches books that track only the total
+  // (QB with no subcategories).
+  const includeSubs = sp.subs === '1';
 
+  const allAccounts = await listAccountingAccounts(company.id);
   const detail = await listProfitLossAccountEntries(
     company.id,
     accountId,
@@ -52,11 +57,35 @@ export default async function ProfitLossAccountDetailPage({
   );
   if (!detail) notFound();
 
+  const subAccounts = includeSubs
+    ? allAccounts.filter((a) => a.parentId === accountId)
+    : [];
+  const subDetails = (
+    await Promise.all(
+      subAccounts.map((a) =>
+        listProfitLossAccountEntries(company.id, a.id, filters),
+      ),
+    )
+  ).filter((d): d is NonNullable<typeof d> => d !== null);
+
+  // One flat list; in combined mode each entry remembers which category it
+  // came from (rendered as a column, and re-categorization targets it).
+  const allDetails = [detail, ...subDetails];
+  const entries = allDetails
+    .flatMap((d) =>
+      d.entries.map((e) => ({
+        ...e,
+        entryAccountId: d.accountId,
+        entryAccountName: d.accountName,
+      })),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const total = allDetails.reduce((s, d) => s + d.total, 0);
+  const title = includeSubs ? `Total ${detail.accountName}` : detail.accountName;
+
   // Category options for inline re-categorization of job-cost (expense) rows.
-  const accountOptions = toAccountingAccountOptions(
-    await listAccountingAccounts(company.id),
-  );
-  const canRecategorize = detail.entries.some((e) => e.jobCostEntryId);
+  const accountOptions = toAccountingAccountOptions(allAccounts);
+  const canRecategorize = entries.some((e) => e.jobCostEntryId);
 
   const backHref = {
     pathname: '/reports/profit-loss' as const,
@@ -76,14 +105,18 @@ export default async function ProfitLossAccountDetailPage({
           ← Back to Profit &amp; Loss
         </Link>
         <h1 className="text-xl font-semibold text-slate-900 mt-1">
-          {detail.accountName}
+          {title}
         </h1>
         <p className="text-sm text-slate-500">
           {GROUP_LABEL[detail.rollupGroup] ?? detail.rollupGroup} ·{' '}
-          {describeRange(filters)} · {detail.entries.length} entr
-          {detail.entries.length === 1 ? 'y' : 'ies'} ·{' '}
+          {includeSubs &&
+            `${detail.accountName} + ${subAccounts.length} subcategor${
+              subAccounts.length === 1 ? 'y' : 'ies'
+            } · `}
+          {describeRange(filters)} · {entries.length} entr
+          {entries.length === 1 ? 'y' : 'ies'} ·{' '}
           <span className="font-medium text-slate-900">
-            {formatMoney(detail.total)}
+            {formatMoney(total)}
           </span>
         </p>
       </div>
@@ -93,7 +126,7 @@ export default async function ProfitLossAccountDetailPage({
           <CardTitle>Entries</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          {detail.entries.length === 0 ? (
+          {entries.length === 0 ? (
             <p className="p-6 text-sm text-slate-500">
               No entries for this category in the selected range.
             </p>
@@ -103,6 +136,9 @@ export default async function ProfitLossAccountDetailPage({
                 <TableRow>
                   <TableHead className="w-28">Date</TableHead>
                   <TableHead>Description</TableHead>
+                  {includeSubs && (
+                    <TableHead className="w-40">Category</TableHead>
+                  )}
                   <TableHead className="w-36">Source</TableHead>
                   <TableHead className="w-44">Account</TableHead>
                   {canRecategorize && (
@@ -112,7 +148,7 @@ export default async function ProfitLossAccountDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {detail.entries.map((e, i) => (
+                {entries.map((e, i) => (
                   <TableRow key={`${e.date}-${i}`}>
                     <TableCell className="tabular-nums text-slate-700">
                       {e.date}
@@ -130,6 +166,11 @@ export default async function ProfitLossAccountDetailPage({
                         e.description || '—'
                       )}
                     </TableCell>
+                    {includeSubs && (
+                      <TableCell className="text-slate-600">
+                        {e.entryAccountName}
+                      </TableCell>
+                    )}
                     <TableCell className="text-slate-500">{e.source}</TableCell>
                     <TableCell className="text-slate-600">
                       {e.accountLabel && e.bankAccountId ? (
@@ -151,9 +192,10 @@ export default async function ProfitLossAccountDetailPage({
                         {e.jobCostEntryId ? (
                           <RecategorizeCell
                             entryId={e.jobCostEntryId}
-                            currentAccountId={accountId}
+                            currentAccountId={e.entryAccountId}
                             accounts={accountOptions}
                           />
+
                         ) : (
                           <span className="text-xs text-slate-400">
                             {e.source === 'Payroll'
@@ -205,13 +247,13 @@ export default async function ProfitLossAccountDetailPage({
                 ))}
                 <TableRow className="border-t-2 border-slate-200">
                   <TableCell
-                    colSpan={canRecategorize ? 5 : 4}
+                    colSpan={(canRecategorize ? 5 : 4) + (includeSubs ? 1 : 0)}
                     className="font-semibold text-slate-900"
                   >
                     Total
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-semibold">
-                    {formatMoney(detail.total)}
+                    {formatMoney(total)}
                   </TableCell>
                 </TableRow>
               </TableBody>

@@ -463,6 +463,9 @@ type SectionRow = {
   entryCount: number | null;
   indent: boolean;
   subtotal: boolean;
+  /** "Total parent" rows: drill into the parent PLUS its subaccounts
+   *  combined (?subs=1) — matches QB books that track only the total. */
+  drillSubs?: boolean;
 };
 
 /**
@@ -543,12 +546,14 @@ function rollUpSubaccounts(
     }
     rows.push({
       key: `${t.id}:total`,
+      accountId: t.id,
       name: `Total ${t.name}`,
       amount: (own?.amount ?? 0) + kids.reduce((s, k) => s + k.amount, 0),
       entryCount:
         (own?.entryCount ?? 0) + kids.reduce((s, k) => s + k.entryCount, 0),
       indent: false,
       subtotal: true,
+      drillSubs: true,
     });
   }
   return rows;
@@ -605,54 +610,60 @@ function AccountSection({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.key}>
-                  <TableCell
-                    className={
-                      r.subtotal ? 'font-semibold text-slate-900' : undefined
-                    }
-                  >
-                    {r.indent && (
-                      <span className="mr-1.5 pl-4 text-slate-400">↳</span>
-                    )}
-                    {r.accountId ? (
-                      <Link
-                        href={
-                          `/reports/profit-loss/${r.accountId}${suffix}` as never
-                        }
-                        className="text-slate-900 underline-offset-2 hover:underline"
-                      >
-                        {r.name}
-                      </Link>
-                    ) : (
-                      r.name
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-slate-600">
-                    {r.entryCount ?? ''}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums ${
-                      r.subtotal ? 'font-semibold' : 'font-medium'
-                    }`}
-                  >
-                    {r.amount === null ? (
-                      ''
-                    ) : r.accountId ? (
-                      <Link
-                        href={
-                          `/reports/profit-loss/${r.accountId}${suffix}` as never
-                        }
-                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
-                      >
-                        {formatMoney(r.amount)}
-                      </Link>
-                    ) : (
-                      formatMoney(r.amount)
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {rows.map((r) => {
+                // "Total parent" rows drill into parent + subs combined.
+                const rowQs = new URLSearchParams(qs);
+                if (r.drillSubs) rowQs.set('subs', '1');
+                const drillHref = r.accountId
+                  ? `/reports/profit-loss/${r.accountId}${
+                      rowQs.toString() ? `?${rowQs.toString()}` : ''
+                    }`
+                  : null;
+                return (
+                  <TableRow key={r.key}>
+                    <TableCell
+                      className={
+                        r.subtotal ? 'font-semibold text-slate-900' : undefined
+                      }
+                    >
+                      {r.indent && (
+                        <span className="mr-1.5 pl-4 text-slate-400">↳</span>
+                      )}
+                      {drillHref ? (
+                        <Link
+                          href={drillHref as never}
+                          className="text-slate-900 underline-offset-2 hover:underline"
+                        >
+                          {r.name}
+                        </Link>
+                      ) : (
+                        r.name
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {r.entryCount ?? ''}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        r.subtotal ? 'font-semibold' : 'font-medium'
+                      }`}
+                    >
+                      {r.amount === null ? (
+                        ''
+                      ) : drillHref ? (
+                        <Link
+                          href={drillHref as never}
+                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        >
+                          {formatMoney(r.amount)}
+                        </Link>
+                      ) : (
+                        formatMoney(r.amount)
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
