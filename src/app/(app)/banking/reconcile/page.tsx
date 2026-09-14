@@ -12,7 +12,7 @@ import {
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, toCardLiability } from '@/lib/money';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import {
   getLastCompletedBankReconciliation,
@@ -53,11 +53,17 @@ export default async function BankReconcilePage({
         name: a.name,
         last4: a.last4,
         currency: a.currency,
+        isCreditCard: a.type === 'credit_card',
         // Next period's beginning = last completed ending, else the account's
         // opening balance.
         beginningBalance: last
           ? Number(last.endingBalance)
           : Number(a.openingBalance),
+        /** Where that figure came from, so "why is my beginning balance 0?"
+         *  answers itself instead of sending the operator hunting. */
+        beginningSource: last
+          ? (`the ${last.statementDate} reconciliation` as const)
+          : ('the account’s opening balance' as const),
         lastStatementDate: last?.statementDate ?? null,
         openReconciliationId: open?.id ?? null,
       };
@@ -123,7 +129,12 @@ export default async function BankReconcilePage({
                   <TableHead>Account</TableHead>
                   <TableHead>Statement date</TableHead>
                   <TableHead className="text-right">Beginning</TableHead>
-                  <TableHead className="text-right">Ending</TableHead>
+                  <TableHead className="text-right">
+                    Ending
+                    <span className="block text-[10px] font-normal text-slate-400">
+                      cards: amount owed
+                    </span>
+                  </TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Completed</TableHead>
                   <TableHead className="text-right"></TableHead>
@@ -132,6 +143,16 @@ export default async function BankReconcilePage({
               <TableBody>
                 {history.map((r) => {
                   const account = accountById.get(r.bankAccountId);
+                  // A card reads as a liability: positive = owed.
+                  const isCard = account?.type === 'credit_card';
+                  const beginning = toCardLiability(
+                    Number(r.beginningBalance),
+                    isCard,
+                  );
+                  const ending = toCardLiability(
+                    Number(r.endingBalance),
+                    isCard,
+                  );
                   return (
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">
@@ -151,7 +172,7 @@ export default async function BankReconcilePage({
                           className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
                           title="Open this reconciliation"
                         >
-                          {formatMoney(r.beginningBalance, account?.currency)}
+                          {formatMoney(beginning, account?.currency)}
                         </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
@@ -160,7 +181,7 @@ export default async function BankReconcilePage({
                           className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
                           title="Open this reconciliation"
                         >
-                          {formatMoney(r.endingBalance, account?.currency)}
+                          {formatMoney(ending, account?.currency)}
                         </Link>
                       </TableCell>
                       <TableCell>

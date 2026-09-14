@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, toCardLiability } from '@/lib/money';
 import {
   getCurrentBalancesByAccount,
   listBankAccounts,
@@ -110,7 +110,12 @@ export default async function BankingHome() {
                   <TableHead>Last 4</TableHead>
                   <TableHead>Currency</TableHead>
                   <TableHead className="text-right">Opening balance</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">
+                    Balance
+                    <span className="block text-[10px] font-normal text-slate-400">
+                      cards: amount owed
+                    </span>
+                  </TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -131,7 +136,13 @@ export default async function BankingHome() {
                     </TableCell>
                     <TableCell>{a.currency}</TableCell>
                     <TableCell className="text-right tabular-nums text-slate-600">
-                      {formatMoney(a.openingBalance, a.currency)}
+                      {formatMoney(
+                        toCardLiability(
+                          Number(a.openingBalance),
+                          a.type === 'credit_card',
+                        ),
+                        a.currency,
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       <Link
@@ -139,14 +150,24 @@ export default async function BankingHome() {
                           pathname: `/banking/accounts/${a.id}`,
                           query: { reviewed: '1' },
                         }}
-                        title="Open the register"
+                        title={
+                          a.type === 'credit_card'
+                            ? 'Open the register — a card shows what you owe'
+                            : 'Open the register'
+                        }
                         className={`underline underline-offset-2 ${
                           (balances.get(a.id) ?? 0) < 0
                             ? 'text-red-600 hover:text-red-800'
                             : 'text-blue-700 hover:text-blue-900'
                         }`}
                       >
-                        {formatMoney(balances.get(a.id) ?? 0, a.currency)}
+                        {formatMoney(
+                          toCardLiability(
+                            balances.get(a.id) ?? 0,
+                            a.type === 'credit_card',
+                          ),
+                          a.currency,
+                        )}
                       </Link>
                     </TableCell>
                     <TableCell className="text-right">

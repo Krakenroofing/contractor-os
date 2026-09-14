@@ -373,3 +373,25 @@ export function calcMargin(contract: number, cost: number) {
   const marginPct = contract > 0 ? round3((profit / contract) * 100) : 0;
   return { profit, marginPct };
 }
+
+// ----- Credit-card sign convention -----
+//
+// A card register is stored like a bank register: negative = money you owe,
+// positive = a credit balance (an overpayment or a refund). Bookkeepers read
+// a card the other way round — as a LIABILITY, where a positive number is
+// what you owe, charges push it up and payments bring it down. These two
+// helpers convert between the two at the UI edge; nothing in storage or in
+// the reconciliation math changes.
+
+/** Register amount → what the operator reads on a card statement. */
+export function toCardLiability(amount: number, isCreditCard: boolean): number {
+  return isCreditCard ? round2(-amount) : round2(amount);
+}
+
+/** What the operator typed on a card statement → register amount. */
+export function fromCardLiability(
+  amount: number,
+  isCreditCard: boolean,
+): number {
+  return isCreditCard ? round2(-amount) : round2(amount);
+}

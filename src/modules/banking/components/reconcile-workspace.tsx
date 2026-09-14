@@ -25,7 +25,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatMoney } from '@/lib/money';
+import {
+  formatMoney,
+  fromCardLiability,
+  toCardLiability,
+} from '@/lib/money';
 import { useActionState } from 'react';
 import {
   addManualTransactionAction,
@@ -60,6 +64,7 @@ export function ReconcileWorkspace({
   reconciliationId,
   accountName,
   currency,
+  isCreditCard,
   statementDate,
   beginningBalance,
   endingBalance,
@@ -72,6 +77,10 @@ export function ReconcileWorkspace({
   reconciliationId: string;
   accountName: string;
   currency: string;
+  /** Cards read as a liability — positive = owed — so every balance on this
+   *  screen is flipped for display and flipped back on save. The stored
+   *  figures and the reconciliation math itself are untouched. */
+  isCreditCard: boolean;
   statementDate: string;
   beginningBalance: number;
   endingBalance: number;
@@ -183,28 +192,39 @@ export function ReconcileWorkspace({
         <CardContent className="py-4">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <SummaryStat
-              label="Beginning balance"
-              value={formatMoney(beginningBalance, currency)}
+              label={
+                isCreditCard ? 'Beginning balance owed' : 'Beginning balance'
+              }
+              value={formatMoney(
+                toCardLiability(beginningBalance, isCreditCard),
+                currency,
+              )}
             />
-            <span className="text-slate-400">−</span>
+            <span className="text-slate-400">{isCreditCard ? '+' : '−'}</span>
             <SummaryStat
-              label={`${rows.filter((r) => (clearedById.get(r.id) ?? r.cleared) && r.amount < 0).length} payments`}
+              label={`${rows.filter((r) => (clearedById.get(r.id) ?? r.cleared) && r.amount < 0).length} ${isCreditCard ? 'charges' : 'payments'}`}
               value={formatMoney(totals.payments, currency)}
             />
-            <span className="text-slate-400">+</span>
+            <span className="text-slate-400">{isCreditCard ? '−' : '+'}</span>
             <SummaryStat
-              label={`${rows.filter((r) => (clearedById.get(r.id) ?? r.cleared) && r.amount > 0).length} deposits`}
+              label={`${rows.filter((r) => (clearedById.get(r.id) ?? r.cleared) && r.amount > 0).length} ${isCreditCard ? 'payments / credits' : 'deposits'}`}
               value={formatMoney(totals.deposits, currency)}
             />
             <span className="text-slate-400">=</span>
             <SummaryStat
-              label="Cleared balance"
-              value={formatMoney(totals.clearedBalance, currency)}
+              label={isCreditCard ? 'Cleared balance owed' : 'Cleared balance'}
+              value={formatMoney(
+                toCardLiability(totals.clearedBalance, isCreditCard),
+                currency,
+              )}
             />
             <span className="text-slate-400">vs</span>
             <SummaryStat
               label={`Statement ending (${statementDate})`}
-              value={formatMoney(endingBalance, currency)}
+              value={formatMoney(
+                toCardLiability(endingBalance, isCreditCard),
+                currency,
+              )}
             />
             <div
               className={`ml-auto rounded-md px-4 py-2 text-right ${
@@ -273,6 +293,7 @@ export function ReconcileWorkspace({
           statementDate={statementDate}
           beginningBalance={beginningBalance}
           endingBalance={endingBalance}
+          isCreditCard={isCreditCard}
           onDone={() => setShowEditInfo(false)}
         />
       )}
@@ -431,12 +452,14 @@ function EditInfoForm({
   statementDate,
   beginningBalance,
   endingBalance,
+  isCreditCard,
   onDone,
 }: {
   reconciliationId: string;
   statementDate: string;
   beginningBalance: number;
   endingBalance: number;
+  isCreditCard: boolean;
   onDone: () => void;
 }) {
   const [state, formAction, pending] = useActionState<
@@ -447,30 +470,55 @@ function EditInfoForm({
     if (res.ok) onDone();
     return res;
   }, {});
+  // On a card the operator types what is owed; the hidden fields carry the
+  // register-signed value the action actually stores.
+  const [beginning, setBeginning] = useState(
+    toCardLiability(beginningBalance, isCreditCard).toFixed(2),
+  );
+  const [ending, setEnding] = useState(
+    toCardLiability(endingBalance, isCreditCard).toFixed(2),
+  );
+  const signed = (raw: string): string => {
+    const n = Number(String(raw).replace(/,/g, ''));
+    if (!Number.isFinite(n)) return raw;
+    return fromCardLiability(n, isCreditCard).toFixed(2);
+  };
   return (
     <Card>
       <CardContent className="py-4">
         <form action={formAction} className="flex flex-wrap items-end gap-3">
           <input type="hidden" name="reconciliationId" value={reconciliationId} />
           <div className="space-y-1.5">
-            <Label htmlFor="edit-beginning">Beginning balance</Label>
+            <Label htmlFor="edit-beginning">
+              {isCreditCard ? 'Beginning balance owed' : 'Beginning balance'}
+            </Label>
             <Input
               id="edit-beginning"
-              name="beginningBalance"
               inputMode="decimal"
-              defaultValue={beginningBalance.toFixed(2)}
+              value={beginning}
+              onChange={(e) => setBeginning(e.target.value)}
               className="w-40"
+            />
+            <input
+              type="hidden"
+              name="beginningBalance"
+              value={signed(beginning)}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="edit-ending">Statement ending balance</Label>
+            <Label htmlFor="edit-ending">
+              {isCreditCard
+                ? 'Statement ending balance owed'
+                : 'Statement ending balance'}
+            </Label>
             <Input
               id="edit-ending"
-              name="endingBalance"
               inputMode="decimal"
-              defaultValue={endingBalance.toFixed(2)}
+              value={ending}
+              onChange={(e) => setEnding(e.target.value)}
               className="w-40"
             />
+            <input type="hidden" name="endingBalance" value={signed(ending)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="edit-date">Statement ending date</Label>

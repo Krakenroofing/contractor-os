@@ -16,7 +16,7 @@ import {
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, toCardLiability } from '@/lib/money';
 import { getBankAccount } from '@/lib/data/bank-accounts';
 import {
   countImportedTransactions,
@@ -556,7 +556,14 @@ export default async function BankAccountDetailPage({
             {BANK_ACCOUNT_TYPE_LABEL[account.type]} ·{' '}
             {account.last4 ? `****${account.last4} · ` : ''}
             {account.currency} · Opening{' '}
-            {formatMoney(account.openingBalance, account.currency)}
+            {formatMoney(
+              toCardLiability(
+                Number(account.openingBalance),
+                account.type === 'credit_card',
+              ),
+              account.currency,
+            )}
+            {account.type === 'credit_card' && ' owed'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -726,7 +733,9 @@ export default async function BankAccountDetailPage({
                   <TableHead>Payee</TableHead>
                   <TableHead className="text-right">Debit</TableHead>
                   <TableHead className="text-right">Credit</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">
+                    {account.type === 'credit_card' ? 'Balance owed' : 'Balance'}
+                  </TableHead>
                   <TableHead>Reference</TableHead>
                   <TableHead>Flags</TableHead>
                   <TableHead className="text-center">Attach</TableHead>
@@ -918,7 +927,13 @@ export default async function BankAccountDetailPage({
                           }`}
                         >
                           {runningBalanceById.has(t.id)
-                            ? formatMoney(runningBalanceById.get(t.id)!, t.currency)
+                            ? formatMoney(
+                                toCardLiability(
+                                  runningBalanceById.get(t.id)!,
+                                  account.type === 'credit_card',
+                                ),
+                                t.currency,
+                              )
                             : '—'}
                         </TableCell>
                         <TableCell className="text-xs font-mono text-slate-500">

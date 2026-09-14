@@ -86,6 +86,7 @@ export default async function BankReconcileWorkspacePage({
         reconciliationId={rec.id}
         accountName={account.name}
         currency={account.currency}
+        isCreditCard={account.type === 'credit_card'}
         statementDate={rec.statementDate}
         beginningBalance={Number(rec.beginningBalance)}
         endingBalance={Number(rec.endingBalance)}
