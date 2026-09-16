@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ProofreadButton } from '@/components/proofread-button';
 import { add, formatMoney, multiply, subtract } from '@/lib/money';
+import { isSubtractingLine, signUnitCost } from '../lib/line-signs';
 import {
   updateInvoiceFullAction,
   type CreateInvoiceState as UpdateInvoiceState,
@@ -42,6 +43,10 @@ type LineDraft = {
   /** True for a "project credit" line — reduces the taxable subtotal (pre-VAT)
    *  and the project's contract value. */
   isProjectCredit?: boolean;
+  /** Client-only: a credit / deduction line ("Less …"). The operator types a
+   *  plain positive amount and the row SUBTRACTS it. Not persisted — a saved
+   *  line is a deduction because its amount is negative. */
+  isDeduction?: boolean;
 };
 
 const initialState: UpdateInvoiceState = {};
@@ -124,6 +129,7 @@ export function InvoiceEditForm({
       quantity: l.quantity,
       unitCost: l.unitCost,
       isProjectCredit: l.isProjectCredit,
+      isDeduction: !l.isProjectCredit && (Number(l.unitCost) || 0) < 0,
     })),
   );
   const [number, setNumber] = useState(initial.number);
@@ -438,10 +444,10 @@ export function InvoiceEditForm({
                 key={line.rowId}
                 className="grid grid-cols-1 md:grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
               >
-                {line.isProjectCredit ? (
+                {line.isProjectCredit || line.isDeduction ? (
                   <div className="flex h-10 items-center">
                     <span className="inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200">
-                      Project credit
+                      {line.isProjectCredit ? 'Project credit' : 'Deduction'}
                     </span>
                   </div>
                 ) : (
@@ -491,9 +497,20 @@ export function InvoiceEditForm({
                 <Input
                   inputMode="decimal"
                   value={line.unitCost}
-                  onChange={(e) => updateLine(line.rowId, { unitCost: e.target.value })}
+                  onChange={(e) =>
+                    updateLine(line.rowId, {
+                      unitCost: signUnitCost(
+                        e.target.value,
+                        isSubtractingLine(line),
+                      ),
+                    })
+                  }
                 />
-                <div className="flex items-center justify-end h-10 px-2 text-sm tabular-nums">
+                <div
+                  className={`flex items-center justify-end h-10 px-2 text-sm tabular-nums ${
+                    lineTotal < 0 ? 'text-rose-700' : ''
+                  }`}
+                >
                   {formatMoney(lineTotal)}
                 </div>
                 <Button
@@ -528,7 +545,7 @@ export function InvoiceEditForm({
             onClick={() =>
               setLines((prev) => [
                 ...prev,
-                { ...newEmptyLine(), description: 'Less ' },
+                { ...newEmptyLine(), description: 'Less ', isDeduction: true },
               ])
             }
           >

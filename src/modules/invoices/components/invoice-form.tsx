@@ -20,6 +20,7 @@ import {
   computeProgressNumbers,
   resolveProgressSource,
 } from '../lib/progress';
+import { isSubtractingLine, signUnitCost } from '../lib/line-signs';
 import { createInvoiceAction, type CreateInvoiceState } from '../actions';
 import {
   BILLING_TYPE_LABEL,
@@ -45,7 +46,24 @@ type LineDraft = {
   /** True for a "project credit" line — a negative line that reduces both the
    *  taxable subtotal (pre-VAT) and the project's contract value. */
   isProjectCredit?: boolean;
+  /** Client-only: a credit / deduction line ("Less …"). The operator types a
+   *  plain positive amount and the row SUBTRACTS it — the stored unit cost is
+   *  negative. Nothing to persist: a saved line is a deduction because its
+   *  amount is negative, which is how it's read back in. */
+  isDeduction?: boolean;
 };
+
+/** Rehydrate a stored / prefilled line: a negative amount that isn't a project
+ *  credit is a credit / deduction line, so it keeps subtracting when edited. */
+function hydrateLine<T extends { unitCost: string; isProjectCredit?: boolean }>(
+  l: T,
+): T & { rowId: string; isDeduction: boolean } {
+  return {
+    ...l,
+    rowId: crypto.randomUUID(),
+    isDeduction: !l.isProjectCredit && (Number(l.unitCost) || 0) < 0,
+  };
+}
 
 function newEmptyLine(): LineDraft {
   return {
@@ -286,10 +304,7 @@ export function InvoiceForm({
   // Deep-linked from a work order page → open with its lines already in.
   const [lines, setLines] = useState<LineDraft[]>(() =>
     defaultWorkOrder?.prefill && defaultWorkOrder.prefill.lines.length > 0
-      ? defaultWorkOrder.prefill.lines.map((l) => ({
-          ...l,
-          rowId: crypto.randomUUID(),
-        }))
+      ? defaultWorkOrder.prefill.lines.map(hydrateLine)
       : [newEmptyLine()],
   );
   const [workOrderId, setWorkOrderId] = useState(defaultWorkOrder?.id ?? '');
@@ -446,7 +461,7 @@ export function InvoiceForm({
     setApplyCreditAmount(v.applyCreditAmount);
     setLines(
       v.lines.length > 0
-        ? v.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() }))
+        ? v.lines.map(hydrateLine)
         : [newEmptyLine()],
     );
     setResumeAvailableAt(null);
@@ -1176,10 +1191,10 @@ export function InvoiceForm({
                 key={line.rowId}
                 className="grid grid-cols-1 md:grid-cols-[1.6fr_2.5fr_0.7fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
               >
-                {line.isProjectCredit ? (
+                {line.isProjectCredit || line.isDeduction ? (
                   <div className="flex h-10 items-center">
                     <span className="inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200">
-                      Project credit
+                      {line.isProjectCredit ? 'Project credit' : 'Deduction'}
                     </span>
                   </div>
                 ) : (
@@ -1227,9 +1242,20 @@ export function InvoiceForm({
                 <Input
                   inputMode="decimal"
                   value={line.unitCost}
-                  onChange={(e) => updateLine(line.rowId, { unitCost: e.target.value })}
+                  onChange={(e) =>
+                    updateLine(line.rowId, {
+                      unitCost: signUnitCost(
+                        e.target.value,
+                        isSubtractingLine(line),
+                      ),
+                    })
+                  }
                 />
-                <div className="flex items-center justify-end h-10 px-2 text-sm tabular-nums">
+                <div
+                  className={`flex items-center justify-end h-10 px-2 text-sm tabular-nums ${
+                    lineTotal < 0 ? 'text-rose-700' : ''
+                  }`}
+                >
                   {formatMoney(lineTotal)}
                 </div>
                 <Button
@@ -1266,6 +1292,7 @@ export function InvoiceForm({
                 description: 'Less ',
                 quantity: '1',
                 unitCost: '0',
+                isDeduction: true,
               })
             }
           >
