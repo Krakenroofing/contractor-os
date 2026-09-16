@@ -329,12 +329,16 @@ async function listPeriodGrossByEmployee(
   companyId: string,
   periodIds: string[],
   subcontractor: boolean,
-): Promise<Map<string, { name: string; gross: number }[]>> {
-  const out = new Map<string, { name: string; gross: number }[]>();
+): Promise<Map<string, { employeeId: string; name: string; gross: number }[]>> {
+  const out = new Map<
+    string,
+    { employeeId: string; name: string; gross: number }[]
+  >();
   if (periodIds.length === 0) return out;
   const rows = await db
     .select({
       periodId: periodPaystubSnapshots.payPeriodId,
+      employeeId: periodPaystubSnapshots.employeeId,
       name: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
       gross: periodPaystubSnapshots.gross,
     })
@@ -351,7 +355,51 @@ async function listPeriodGrossByEmployee(
     );
   for (const r of rows) {
     const list = out.get(r.periodId) ?? [];
-    list.push({ name: r.name.trim(), gross: Number(r.gross) });
+    list.push({
+      employeeId: r.employeeId,
+      name: r.name.trim(),
+      gross: Number(r.gross),
+    });
+    out.set(r.periodId, list);
+  }
+  return out;
+}
+
+/** Per-employee EMPLOYER NIB inside each pay period. Same idea as the gross
+ *  split above, for the burden category: the NIB line names the person it was
+ *  paid on instead of one anonymous "unassigned share" per week. */
+async function listPeriodEmployerNibByEmployee(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  companyId: string,
+  periodIds: string[],
+): Promise<Map<string, { employeeId: string; name: string; nib: number }[]>> {
+  const out = new Map<
+    string,
+    { employeeId: string; name: string; nib: number }[]
+  >();
+  if (periodIds.length === 0) return out;
+  const rows = await db
+    .select({
+      periodId: periodPaystubSnapshots.payPeriodId,
+      employeeId: periodPaystubSnapshots.employeeId,
+      name: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+      nib: periodPaystubSnapshots.employerNib,
+    })
+    .from(periodPaystubSnapshots)
+    .innerJoin(employees, eq(employees.id, periodPaystubSnapshots.employeeId))
+    .where(
+      and(
+        eq(periodPaystubSnapshots.companyId, companyId),
+        inArray(periodPaystubSnapshots.payPeriodId, periodIds),
+      ),
+    );
+  for (const r of rows) {
+    const list = out.get(r.periodId) ?? [];
+    list.push({
+      employeeId: r.employeeId,
+      name: r.name.trim(),
+      nib: Number(r.nib),
+    });
     out.set(r.periodId, list);
   }
   return out;
@@ -365,13 +413,16 @@ async function sumPostedLaborByPeriodAndWorker(
   db: NonNullable<ReturnType<typeof getDb>>,
   companyId: string,
   periodIds: string[],
-  subcontractor: boolean,
+  kind: 'wages' | 'subcontractor' | 'burden',
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (periodIds.length === 0) return out;
-  const costTypeCond = subcontractor
-    ? eq(jobCostEntries.costType, 'subcontractor')
-    : sql`${jobCostEntries.costType} NOT IN ('subcontractor', 'labor_burden')`;
+  const costTypeCond =
+    kind === 'subcontractor'
+      ? eq(jobCostEntries.costType, 'subcontractor')
+      : kind === 'burden'
+        ? eq(jobCostEntries.costType, 'labor_burden')
+        : sql`${jobCostEntries.costType} NOT IN ('subcontractor', 'labor_burden')`;
   const rows = await db
     .select({
       periodId: jobCostEntries.sourceRefId,
@@ -1170,6 +1221,10 @@ export type ProfitLossAccountEntry = {
   /** Payroll rows: the pay period's Monday, so the drill can deep-link
    *  to /payroll?week=… for that week. */
   payrollWeekStart?: string;
+  /** Payroll rows that belong to ONE person: their employee id, so the drill
+   *  can deep-link to that person's payroll summary (pay + NIB, every week in
+   *  the report's range) instead of a whole week's payroll sheet. */
+  employeeId?: string | null;
   /** Job-cost rows: the project the entry is on, so the drill can
    *  deep-link to the project's financials. */
   projectId?: string | null;
@@ -1349,32 +1404,53 @@ export async function listProfitLossAccountEntries(
           ? await listPeriodGrossByEmployee(db, companyId, periodIds, true)
           : isWages
             ? await listPeriodGrossByEmployee(db, companyId, periodIds, false)
-            : new Map<string, { name: string; gross: number }[]>();
+            : new Map<
+                string,
+                { employeeId: string; name: string; gross: number }[]
+              >();
         const postedByWorker =
           isSubs || isWages
             ? await sumPostedLaborByPeriodAndWorker(
                 db,
                 companyId,
                 periodIds,
-                isSubs,
+                isSubs ? 'subcontractor' : 'wages',
               )
             : new Map<string, number>();
+        // Same treatment for the employer-NIB (burden) residual, so that line
+        // reads as a list of people too rather than one "unassigned share".
+        const nibByEmployee = isBurden
+          ? await listPeriodEmployerNibByEmployee(db, companyId, periodIds)
+          : new Map<
+              string,
+              { employeeId: string; name: string; nib: number }[]
+            >();
+        const postedBurdenByWorker = isBurden
+          ? await sumPostedLaborByPeriodAndWorker(
+              db,
+              companyId,
+              periodIds,
+              'burden',
+            )
+          : new Map<string, number>();
         /** Per-worker rows for an unassigned residual, or null when they
          *  don't reconcile to the period total. */
-        const splitResidual = (
+        const splitBy = (
+          people: { employeeId: string; name: string; amount: number }[],
+          posted: Map<string, number>,
           periodId: string,
           residual: number,
-        ): { name: string; amount: number }[] | null => {
-          const people = grossByEmployee.get(periodId) ?? [];
+        ): { employeeId: string; name: string; amount: number }[] | null => {
           if (people.length === 0) return null;
           const rows = people
             .map((e) => ({
+              employeeId: e.employeeId,
               name: e.name,
               amount:
                 Math.round(
                   Math.max(
                     0,
-                    e.gross - (postedByWorker.get(`${periodId}|${e.name}`) ?? 0),
+                    e.amount - (posted.get(`${periodId}|${e.name}`) ?? 0),
                   ) * 100,
                 ) / 100,
             }))
@@ -1384,6 +1460,28 @@ export async function listProfitLossAccountEntries(
           if (Math.abs(sum - residual) > 0.01) return null;
           return rows;
         };
+        const splitResidual = (periodId: string, residual: number) =>
+          splitBy(
+            (grossByEmployee.get(periodId) ?? []).map((e) => ({
+              employeeId: e.employeeId,
+              name: e.name,
+              amount: e.gross,
+            })),
+            postedByWorker,
+            periodId,
+            residual,
+          );
+        const splitNibResidual = (periodId: string, residual: number) =>
+          splitBy(
+            (nibByEmployee.get(periodId) ?? []).map((e) => ({
+              employeeId: e.employeeId,
+              name: e.name,
+              amount: e.nib,
+            })),
+            postedBurdenByWorker,
+            periodId,
+            residual,
+          );
         for (const p of periods) {
           const posted =
             postedLabor.get(p.id) ?? { wage: 0, subWage: 0, burden: 0 };
@@ -1402,6 +1500,7 @@ export async function listProfitLossAccountEntries(
                     source: 'Payroll',
                     payrollWeekStart: p.startDate,
                     payeeName: s.name,
+                    employeeId: s.employeeId,
                   });
                 }
               } else {
@@ -1429,6 +1528,7 @@ export async function listProfitLossAccountEntries(
                     source: 'Payroll',
                     payrollWeekStart: p.startDate,
                     payeeName: s.name,
+                    employeeId: s.employeeId,
                   });
                 }
               } else {
@@ -1446,13 +1546,28 @@ export async function listProfitLossAccountEntries(
             const residual =
               Math.round(Math.max(0, p.employerNib - posted.burden) * 100) / 100;
             if (residual >= 0.005) {
-              payrollEntries.push({
-                date: p.endDate,
-                description: `Employer NIB — unassigned share (pay period ${label})`,
-                amount: residual,
-                source: 'Payroll',
-                payrollWeekStart: p.startDate,
-              });
+              const split = splitNibResidual(p.id, residual);
+              if (split) {
+                for (const s of split) {
+                  payrollEntries.push({
+                    date: p.endDate,
+                    description: `Employer NIB — ${s.name} (pay period ${label})`,
+                    amount: s.amount,
+                    source: 'Payroll',
+                    payrollWeekStart: p.startDate,
+                    payeeName: s.name,
+                    employeeId: s.employeeId,
+                  });
+                }
+              } else {
+                payrollEntries.push({
+                  date: p.endDate,
+                  description: `Employer NIB — unassigned share (pay period ${label})`,
+                  amount: residual,
+                  source: 'Payroll',
+                  payrollWeekStart: p.startDate,
+                });
+              }
             }
           }
         }
@@ -1470,6 +1585,7 @@ export async function listProfitLossAccountEntries(
             type: paystubAdjustments.type,
             amount: paystubAdjustments.amount,
             description: paystubAdjustments.description,
+            employeeId: paystubAdjustments.employeeId,
             employeeName: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
           })
           .from(paystubAdjustments)
@@ -1503,6 +1619,8 @@ export async function listProfitLossAccountEntries(
             amount: Number(r.amount),
             source: 'Payroll',
             payrollWeekStart: p.startDate,
+            payeeName: r.employeeName.trim(),
+            employeeId: r.employeeId,
           });
         }
       }

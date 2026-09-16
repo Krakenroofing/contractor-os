@@ -96,6 +96,7 @@ export default async function ProfitLossAccountDetailPage({
     {
       payeeName: string;
       vendorId: string | null;
+      employeeId: string | null;
       projectId: string | null;
       projectName: string | null;
       count: number;
@@ -108,11 +109,13 @@ export default async function ProfitLossAccountDetailPage({
     const cur = payeeGroups.get(key) ?? {
       payeeName,
       vendorId: e.vendorId ?? null,
+      employeeId: e.employeeId ?? null,
       projectId: e.projectId ?? null,
       projectName: e.projectName ?? null,
       count: 0,
       amount: 0,
     };
+    cur.employeeId = cur.employeeId ?? e.employeeId ?? null;
     cur.count += 1;
     cur.amount = Math.round((cur.amount + e.amount) * 100) / 100;
     payeeGroups.set(key, cur);
@@ -120,6 +123,23 @@ export default async function ProfitLossAccountDetailPage({
   const payeeRows = Array.from(payeeGroups.values()).sort(
     (a, b) => b.amount - a.amount,
   );
+
+  // Payroll rows belong to a person, not a week. Point them at that person's
+  // payroll summary over the SAME range the drill is showing, so one click
+  // gives pay + NIB withheld for every week in the period, in one place.
+  // Falls back to the pay-period sheet when the row has no single owner.
+  const payrollHref = (
+    employeeId: string | null | undefined,
+    weekStart: string | undefined,
+  ): string | null => {
+    if (employeeId) {
+      const q = new URLSearchParams({ employeeId });
+      if (filters.from) q.set('from', filters.from);
+      if (filters.to) q.set('to', filters.to);
+      return `/reports/payroll-summary?${q.toString()}`;
+    }
+    return weekStart ? `/payroll?week=${weekStart}` : null;
+  };
 
   const backHref = {
     pathname: '/reports/profit-loss' as const,
@@ -130,7 +150,10 @@ export default async function ProfitLossAccountDetailPage({
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    // Full page width, not a 4xl column: the entries table has six fixed-width
+    // columns, so a narrow container squeezed Description into a 3-word ribbon
+    // while two thirds of the screen sat empty.
+    <div className="p-6 space-y-6 max-w-[1600px]">
       <div>
         <Link
           href={backHref}
@@ -182,6 +205,14 @@ export default async function ProfitLossAccountDetailPage({
                           href={`/vendors/${p.vendorId}`}
                           className="text-blue-700 hover:underline"
                           title="View this supplier"
+                        >
+                          {p.payeeName}
+                        </Link>
+                      ) : p.employeeId ? (
+                        <Link
+                          href={payrollHref(p.employeeId, undefined) as never}
+                          className="text-blue-700 hover:underline"
+                          title="See this person's pay and NIB for every week in this range"
                         >
                           {p.payeeName}
                         </Link>
@@ -254,7 +285,7 @@ export default async function ProfitLossAccountDetailPage({
               <TableBody>
                 {entries.map((e, i) => (
                   <TableRow key={`${e.date}-${i}`}>
-                    <TableCell className="tabular-nums text-slate-700">
+                    <TableCell className="tabular-nums text-slate-700 whitespace-nowrap">
                       {e.date}
                     </TableCell>
                     <TableCell className="text-slate-900">
@@ -266,13 +297,20 @@ export default async function ProfitLossAccountDetailPage({
                         >
                           {e.description || '—'}
                         </Link>
-                      ) : e.payrollWeekStart ? (
+                      ) : payrollHref(e.employeeId, e.payrollWeekStart) ? (
                         <Link
                           href={
-                            `/payroll?week=${e.payrollWeekStart}` as never
+                            payrollHref(
+                              e.employeeId,
+                              e.payrollWeekStart,
+                            ) as never
                           }
                           className="text-blue-700 hover:underline"
-                          title="Open this pay period on the payroll page"
+                          title={
+                            e.employeeId
+                              ? "See this person's pay and NIB for every week in this range"
+                              : 'Open this pay period on the payroll page'
+                          }
                         >
                           {e.description || '—'}
                         </Link>
@@ -366,14 +404,21 @@ export default async function ProfitLossAccountDetailPage({
                         >
                           {formatMoney(e.amount)}
                         </Link>
-                      ) : e.payrollWeekStart ? (
+                      ) : payrollHref(e.employeeId, e.payrollWeekStart) ? (
                         <Link
                           href={
-                            `/payroll?week=${e.payrollWeekStart}` as never
+                            payrollHref(
+                              e.employeeId,
+                              e.payrollWeekStart,
+                            ) as never
                           }
                           target="_blank"
                           className="text-blue-700 hover:underline"
-                          title="Open this pay period on the payroll page"
+                          title={
+                            e.employeeId
+                              ? "See this person's pay and NIB for every week in this range"
+                              : 'Open this pay period on the payroll page'
+                          }
                         >
                           {formatMoney(e.amount)}
                         </Link>
