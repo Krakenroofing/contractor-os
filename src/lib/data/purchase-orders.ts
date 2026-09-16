@@ -1,7 +1,7 @@
 // Async data accessor for purchase orders (header + line items).
 
 import 'server-only';
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import {
   purchaseOrderLines,
   purchaseOrders,
@@ -53,6 +53,8 @@ export type CreatePurchaseOrderInput = {
   lines: Array<{
     costCodeId: string;
     inventoryItemId: string | null;
+    /** Line-level job override; null = the PO header's project. */
+    projectId?: string | null;
     description: string;
     unit: string | null;
     quantityOrdered: string;
@@ -122,11 +124,23 @@ export async function listPurchaseOrdersForProject(
 ): Promise<PurchaseOrder[]> {
   if (isDatabaseConfigured()) {
     const db = getDb()!;
+    // Header project OR any line tagged to this project — a split PO
+    // belongs to every job its lines touch. Callers that sum costs must
+    // attribute per line (line.projectId ?? po.projectId), not per PO.
+    const lineMatches = db
+      .select({ id: purchaseOrderLines.purchaseOrderId })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.projectId, projectId));
     return byNaturalNumber(
       await db
         .select()
         .from(purchaseOrders)
-        .where(eq(purchaseOrders.projectId, projectId)),
+        .where(
+          or(
+            eq(purchaseOrders.projectId, projectId),
+            inArray(purchaseOrders.id, lineMatches),
+          ),
+        ),
     );
   }
   return byNaturalNumber(mockListForProject(projectId));
@@ -237,6 +251,7 @@ export async function createPurchaseOrder(
           purchaseOrderId: po.id,
           costCodeId: l.costCodeId,
           inventoryItemId: l.inventoryItemId,
+          projectId: l.projectId ?? null,
           description: l.description,
           unit: l.unit,
           quantityOrdered: l.quantityOrdered,
@@ -326,6 +341,140 @@ export async function setPurchaseOrderVendorInvoiceNumber(
     )
     .returning();
   return rows[0];
+}
+
+export type UpdatePurchaseOrderWithLinesInput = {
+  projectId: string;
+  vendorId: string;
+  issueDate: string | null;
+  expectedDeliveryDate: string | null;
+  notes: string | null;
+  subtotal: string;
+  taxAmount: string;
+  shipping: string;
+  total: string;
+  lines: Array<{
+    /** Existing line's id — its received quantity and receipt history
+     *  survive the edit. Undefined/null = a brand-new line. */
+    id?: string | null;
+    costCodeId: string;
+    inventoryItemId: string | null;
+    projectId?: string | null;
+    description: string;
+    unit: string | null;
+    quantityOrdered: string;
+    unitCost: string;
+    lineTotal: string;
+  }>;
+};
+
+/**
+ * Full PO edit: header fields + line set. Existing lines (by id) are
+ * updated in place so quantity_received and po_receipt_lines stay
+ * attached; new lines insert; lines dropped from the payload delete ONLY
+ * when nothing has been received against them — otherwise the whole edit
+ * is refused so receipt history can never be orphaned.
+ */
+export async function updatePurchaseOrderWithLines(
+  companyId: string,
+  id: string,
+  input: UpdatePurchaseOrderWithLinesInput,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isDatabaseConfigured()) {
+    return { ok: false, error: 'PO editing requires a configured database.' };
+  }
+  const db = getDb()!;
+  const existing = await getPurchaseOrder(companyId, id);
+  if (!existing) return { ok: false, error: 'Purchase order not found.' };
+
+  const currentLines = await getPurchaseOrderLines(id);
+  const currentById = new Map(currentLines.map((l) => [l.id, l]));
+  const keptIds = new Set(
+    input.lines.map((l) => l.id).filter((x): x is string => Boolean(x)),
+  );
+  for (const lineId of keptIds) {
+    if (!currentById.has(lineId)) {
+      return { ok: false, error: 'One of the edited lines is not on this PO.' };
+    }
+  }
+  const removed = currentLines.filter((l) => !keptIds.has(l.id));
+  const blocked = removed.filter((l) => Number(l.quantityReceived) > 0);
+  if (blocked.length > 0) {
+    return {
+      ok: false,
+      error: `Can't remove "${blocked[0].description.slice(0, 60)}" — ${Number(
+        blocked[0].quantityReceived,
+      )} already received against it. Adjust the quantity instead of deleting the line.`,
+    };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(purchaseOrders)
+      .set({
+        projectId: input.projectId,
+        vendorId: input.vendorId,
+        issueDate: input.issueDate,
+        expectedDeliveryDate: input.expectedDeliveryDate,
+        notes: input.notes,
+        subtotal: input.subtotal,
+        taxAmount: input.taxAmount,
+        shipping: input.shipping,
+        total: input.total,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, companyId)),
+      );
+
+    if (removed.length > 0) {
+      await tx.delete(purchaseOrderLines).where(
+        inArray(
+          purchaseOrderLines.id,
+          removed.map((l) => l.id),
+        ),
+      );
+    }
+
+    for (const [i, l] of input.lines.entries()) {
+      if (l.id) {
+        await tx
+          .update(purchaseOrderLines)
+          .set({
+            costCodeId: l.costCodeId,
+            inventoryItemId: l.inventoryItemId,
+            projectId: l.projectId ?? null,
+            description: l.description,
+            unit: l.unit,
+            quantityOrdered: l.quantityOrdered,
+            unitCost: l.unitCost,
+            lineTotal: l.lineTotal,
+            sortOrder: i,
+          })
+          .where(
+            and(
+              eq(purchaseOrderLines.id, l.id),
+              eq(purchaseOrderLines.purchaseOrderId, id),
+            ),
+          );
+      } else {
+        await tx.insert(purchaseOrderLines).values({
+          purchaseOrderId: id,
+          costCodeId: l.costCodeId,
+          inventoryItemId: l.inventoryItemId,
+          projectId: l.projectId ?? null,
+          description: l.description,
+          unit: l.unit,
+          quantityOrdered: l.quantityOrdered,
+          quantityReceived: '0.0000',
+          unitCost: l.unitCost,
+          lineTotal: l.lineTotal,
+          sortOrder: i,
+        });
+      }
+    }
+  });
+  return { ok: true };
 }
 
 export async function updatePurchaseOrderHeader(

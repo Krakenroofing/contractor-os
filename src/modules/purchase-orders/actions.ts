@@ -23,6 +23,7 @@ import {
   renamePurchaseOrder,
   setPurchaseOrderVendorInvoiceNumber,
   updatePurchaseOrderHeader,
+  updatePurchaseOrderWithLines,
 } from '@/lib/data/purchase-orders';
 import {
   createReceipt,
@@ -63,6 +64,7 @@ import { uploadProjectDocument } from '@/lib/storage/project-documents';
 import {
   createPoFromExtractedSchema,
   poReceiptFormSchema,
+  purchaseOrderEditSchema,
   purchaseOrderFormSchema,
 } from './schema';
 
@@ -124,15 +126,21 @@ export async function createPurchaseOrderAction(
     shipping: Number(data.shipping),
   });
 
-  const persistLines = data.lines.map((l, i) => ({
-    costCodeId: l.costCodeId,
-    inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
-    description: l.description,
-    unit: emptyToNull(l.unit ?? null),
-    quantityOrdered: toQuantityString(numericLines[i].quantityOrdered),
-    unitCost: toQuantityString(numericLines[i].unitCost),
-    lineTotal: toMoneyString(multiply(numericLines[i].quantityOrdered, numericLines[i].unitCost)),
-  }));
+  const persistLines = data.lines.map((l, i) => {
+    // A line job equal to the header project is stored as NULL (inherit),
+    // so re-pointing the PO's project later moves those lines with it.
+    const lineProject = emptyToNull(l.projectId ?? null);
+    return {
+      costCodeId: l.costCodeId,
+      inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
+      projectId: lineProject === data.projectId ? null : lineProject,
+      description: l.description,
+      unit: emptyToNull(l.unit ?? null),
+      quantityOrdered: toQuantityString(numericLines[i].quantityOrdered),
+      unitCost: toQuantityString(numericLines[i].unitCost),
+      lineTotal: toMoneyString(multiply(numericLines[i].quantityOrdered, numericLines[i].unitCost)),
+    };
+  });
 
   const companyId = await getActiveCompanyId();
   let createdId: string;
@@ -236,6 +244,124 @@ export async function updatePurchaseOrderHeaderAction(
   revalidatePath(`/purchase-orders/${parsed.data.id}`);
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
   redirect(`/purchase-orders/${parsed.data.id}`);
+}
+
+// ===== Full edit (header + lines) =====
+
+export type UpdatePurchaseOrderState = {
+  errors?: Record<string, string[]>;
+  formError?: string;
+};
+
+/**
+ * Edit everything but the number: vendor, project, dates, tax/shipping,
+ * notes, and the line set — including per-line job overrides, so one PO
+ * can be re-split across jobs or two POs combined into one. Allowed for
+ * draft / issued / partially received POs (committed cost recomputes
+ * live from the lines); received, closed, and void POs are history.
+ */
+export async function updatePurchaseOrderAction(
+  _prev: UpdatePurchaseOrderState,
+  formData: FormData,
+): Promise<UpdatePurchaseOrderState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { formError: 'You do not have permission to edit purchase orders.' };
+  }
+
+  let parsedLines: unknown;
+  try {
+    const linesJson = formData.get('lines');
+    parsedLines = typeof linesJson === 'string' ? JSON.parse(linesJson) : [];
+  } catch {
+    return { formError: 'Could not read line items.' };
+  }
+
+  const parsed = purchaseOrderEditSchema.safeParse({
+    id: formData.get('id'),
+    projectId: formData.get('projectId'),
+    vendorId: formData.get('vendorId'),
+    issueDate: formData.get('issueDate') ?? '',
+    expectedDeliveryDate: formData.get('expectedDeliveryDate') ?? '',
+    taxAmount: formData.get('taxAmount') ?? '0',
+    shipping: formData.get('shipping') ?? '0',
+    notes: formData.get('notes') ?? '',
+    lines: parsedLines,
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+  const data = parsed.data;
+
+  const companyId = await getActiveCompanyId();
+  const existing = await getPurchaseOrder(companyId, data.id);
+  if (!existing) return { formError: 'Purchase order not found.' };
+  if (
+    existing.status === 'received' ||
+    existing.status === 'closed' ||
+    existing.status === 'void'
+  ) {
+    return {
+      formError: `PO is ${existing.status} — fully received, closed, or void orders are history and can't be edited.`,
+    };
+  }
+
+  const numericLines = data.lines.map((l) => ({
+    quantityOrdered: Number(l.quantity),
+    unitCost: Number(l.unitCost),
+  }));
+  const totals = calcPOTotals({
+    lines: numericLines,
+    taxAmount: Number(data.taxAmount),
+    shipping: Number(data.shipping),
+  });
+
+  const result = await updatePurchaseOrderWithLines(companyId, data.id, {
+    projectId: data.projectId,
+    vendorId: data.vendorId,
+    issueDate: emptyToNull(data.issueDate ?? null),
+    expectedDeliveryDate: emptyToNull(data.expectedDeliveryDate ?? null),
+    notes: emptyToNull(data.notes ?? null),
+    subtotal: toMoneyString(totals.subtotal),
+    taxAmount: toMoneyString(totals.taxAmount),
+    shipping: toMoneyString(totals.shipping),
+    total: toMoneyString(totals.total),
+    lines: data.lines.map((l, i) => {
+      const lineProject = emptyToNull(l.projectId ?? null);
+      return {
+        id: emptyToNull(l.id ?? null),
+        costCodeId: l.costCodeId,
+        inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
+        // Equal-to-header stored as NULL (inherit) — see create action.
+        projectId: lineProject === data.projectId ? null : lineProject,
+        description: l.description,
+        unit: emptyToNull(l.unit ?? null),
+        quantityOrdered: toQuantityString(numericLines[i].quantityOrdered),
+        unitCost: toQuantityString(numericLines[i].unitCost),
+        lineTotal: toMoneyString(
+          multiply(numericLines[i].quantityOrdered, numericLines[i].unitCost),
+        ),
+      };
+    }),
+  });
+  if (!result.ok) return { formError: result.error };
+
+  appendActivity(companyId, {
+    entityType: 'purchase_order',
+    entityId: data.id,
+    kind: 'po_edited',
+    summary: `PO edited — ${data.lines.length} line${data.lines.length === 1 ? '' : 's'}, total ${toMoneyString(totals.total)}`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePath('/purchase-orders');
+  revalidatePath(`/purchase-orders/${data.id}`);
+  revalidatePath('/job-costing');
+  if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  if (data.projectId !== existing.projectId)
+    revalidatePath(`/projects/${data.projectId}`);
+  redirect(`/purchase-orders/${data.id}`);
 }
 
 // ===== Rename (number only) =====
@@ -662,7 +788,8 @@ export async function createBillFromPoAction(
       companyId: company.id,
       receiptId: receipt.id,
       sortOrder: idx,
-      projectId: po.projectId,
+      // Split POs: the bill line lands on the LINE's job, not the header's.
+      projectId: line.projectId ?? po.projectId,
       costCodeId: line.costCodeId,
       accountingAccountId: defaultAccountId,
       purchaseOrderLineId: line.id,

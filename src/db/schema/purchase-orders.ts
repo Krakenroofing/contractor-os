@@ -74,6 +74,13 @@ export const purchaseOrderLines = pgTable(
     purchaseOrderId: uuid('purchase_order_id')
       .notNull()
       .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    // Line-level job override: one PO can split a purchase across jobs
+    // (50 rolls to job A, 50 to job B). NULL = the PO header's project.
+    // Committed cost, the cost-code breakdown, and bills created from
+    // the PO all attribute the line to project_id ?? po.projectId.
+    projectId: uuid('project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
     costCodeId: uuid('cost_code_id')
       .notNull()
       .references(() => costCodes.id, { onDelete: 'restrict' }),

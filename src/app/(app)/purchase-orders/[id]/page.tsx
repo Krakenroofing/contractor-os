@@ -58,6 +58,20 @@ export default async function PurchaseOrderDetailPage({
   const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
   const lines = await getPurchaseOrderLines(po.id);
   const codeMap = await loadCostCodeMap(companyId, lines.map((l) => l.costCodeId));
+  // Split-PO lines: resolve names for line-level job overrides so the
+  // table can say which job each overridden line books to.
+  const lineProjectIds = [
+    ...new Set(
+      lines
+        .map((l) => l.projectId)
+        .filter((x): x is string => Boolean(x) && x !== po.projectId),
+    ),
+  ];
+  const lineProjectNames = new Map<string, string>();
+  for (const pid of lineProjectIds) {
+    const p = await getProject(companyId, pid);
+    if (p) lineProjectNames.set(pid, p.name);
+  }
   const landedCost = po.landedCostEntryId
     ? await getLandedCost(companyId, po.landedCostEntryId)
     : undefined;
@@ -110,13 +124,18 @@ export default async function PurchaseOrderDetailPage({
             </Link>
           )}
           <DocumentDownloadButtons type="purchase_order" id={po.id} />
-          {allowCreate && po.status === 'draft' && (
-            <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
-              <Button size="sm" variant="outline">
-                Edit
-              </Button>
-            </Link>
-          )}
+          {/* Editable until fully received / closed / void — committed
+              cost recomputes from the lines, receipts survive by line id. */}
+          {allowCreate &&
+            po.status !== 'received' &&
+            po.status !== 'closed' &&
+            po.status !== 'void' && (
+              <Link href={{ pathname: `/purchase-orders/${po.id}/edit` }}>
+                <Button size="sm" variant="outline">
+                  Edit
+                </Button>
+              </Link>
+            )}
           {canReceive && (
             <Link href={{ pathname: `/purchase-orders/${po.id}/receive` }}>
               <Button size="sm" variant="outline">
@@ -341,7 +360,17 @@ export default async function PurchaseOrderDetailPage({
                       <TableCell className="font-mono text-xs text-slate-700">
                         {code?.code ?? '—'}
                       </TableCell>
-                      <TableCell className="text-slate-900">{l.description}</TableCell>
+                      <TableCell className="text-slate-900">
+                        {l.description}
+                        {l.projectId && l.projectId !== po.projectId && (
+                          <span
+                            className="ml-2 inline-block rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-[10px] text-sky-700"
+                            title="This line books to a different job than the PO's project"
+                          >
+                            → {lineProjectNames.get(l.projectId) ?? 'other job'}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {ordered.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </TableCell>

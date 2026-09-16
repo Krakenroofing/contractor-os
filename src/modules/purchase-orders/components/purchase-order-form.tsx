@@ -39,6 +39,8 @@ type LineDraft = {
   rowId: string;
   inventoryItemId: string;
   costCodeId: string;
+  /** Line-level job override; '' = the PO's project. */
+  projectId: string;
   description: string;
   unit: string;
   quantity: string;
@@ -63,6 +65,7 @@ function newEmptyLine(): LineDraft {
     rowId: crypto.randomUUID(),
     inventoryItemId: '',
     costCodeId: '',
+    projectId: '',
     description: '',
     unit: '',
     quantity: '0',
@@ -80,6 +83,7 @@ export type PurchaseOrderFormDefaults = {
   lines?: Array<{
     inventoryItemId: string;
     costCodeId: string;
+    projectId?: string;
     description: string;
     unit: string;
     quantity: string;
@@ -136,6 +140,7 @@ export function PurchaseOrderForm({
         rowId: crypto.randomUUID(),
         inventoryItemId: l.inventoryItemId,
         costCodeId: l.costCodeId,
+        projectId: l.projectId ?? '',
         description: l.description,
         unit: l.unit,
         quantity: l.quantity,
@@ -222,7 +227,12 @@ export function PurchaseOrderForm({
     setNotes(v.notes);
     setLines(
       v.lines.length > 0
-        ? v.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() }))
+        ? v.lines.map((l) => ({
+            ...l,
+            // Drafts saved before line-level jobs existed lack projectId.
+            projectId: l.projectId ?? '',
+            rowId: crypto.randomUUID(),
+          }))
         : [newEmptyLine()],
     );
     setResumeAvailableAt(null);
@@ -245,6 +255,7 @@ export function PurchaseOrderForm({
       rowId: crypto.randomUUID(),
       inventoryItemId: l.inventoryItemId,
       costCodeId: l.costCodeId,
+      projectId: '',
       description: l.description,
       unit: l.unit,
       quantity: l.quantity,
@@ -280,6 +291,7 @@ export function PurchaseOrderForm({
   const linesPayload = lines.map((l) => ({
     costCodeId: l.costCodeId,
     inventoryItemId: l.inventoryItemId,
+    projectId: l.projectId,
     description: l.description,
     unit: l.unit,
     quantity: l.quantity,
@@ -508,23 +520,43 @@ export function PurchaseOrderForm({
                     });
                   }}
                 />
-                <CostCodePicker
-                  value={line.costCodeId}
-                  options={allCostCodes}
-                  seedDescription={line.description}
-                  onValueChange={(id) => onCostCodeChange(line.rowId, id)}
-                  onCreated={(item) =>
-                    setExtraCostCodes((prev) => [
-                      {
-                        id: item.id,
-                        code: item.code,
-                        description: item.description,
-                        defaultCost: item.defaultCost,
-                      },
-                      ...prev,
-                    ])
-                  }
-                />
+                <div className="space-y-1">
+                  <CostCodePicker
+                    value={line.costCodeId}
+                    options={allCostCodes}
+                    seedDescription={line.description}
+                    onValueChange={(id) => onCostCodeChange(line.rowId, id)}
+                    onCreated={(item) =>
+                      setExtraCostCodes((prev) => [
+                        {
+                          id: item.id,
+                          code: item.code,
+                          description: item.description,
+                          defaultCost: item.defaultCost,
+                        },
+                        ...prev,
+                      ])
+                    }
+                  />
+                  {/* Split-PO job override: this line's cost books to the
+                      selected job instead of the PO's project — one order,
+                      many jobs (50 rolls to A, 50 to B). */}
+                  <select
+                    value={line.projectId}
+                    onChange={(e) =>
+                      updateLine(line.rowId, { projectId: e.target.value })
+                    }
+                    title="Job this line belongs to — leave on the PO's project unless this line is for a different job"
+                    className="w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600"
+                  >
+                    <option value="">Job: PO&#39;s project</option>
+                    {projects.map((pOpt) => (
+                      <option key={pOpt.id} value={pOpt.id}>
+                        {pOpt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <Input
                   value={line.description}
                   onChange={(e) =>

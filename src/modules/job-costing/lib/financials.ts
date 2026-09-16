@@ -115,18 +115,27 @@ export async function computeProjectFinancials(
     (p) => p.status !== 'void',
   );
 
-  const committedCost = projectPOs.reduce(
-    (acc, po) => add(acc, parseMoney(po.total)),
-    0,
-  );
-
+  // Line-aware: a PO's lines can be split across jobs (line.projectId
+  // overrides the header). Only THIS project's lines count here; the
+  // header project also carries the PO's tax + shipping. For an unsplit
+  // PO this sums to po.total exactly, preserving historical figures.
+  let committedCost = 0;
   let actualFromPOs = 0;
   for (const po of projectPOs) {
     const lines = await getPurchaseOrderLines(po.id);
     for (const line of lines) {
+      if ((line.projectId ?? po.projectId) !== projectId) continue;
+      committedCost = add(committedCost, parseMoney(line.lineTotal));
       actualFromPOs = add(
         actualFromPOs,
         multiply(Number(line.quantityReceived), Number(line.unitCost)),
+      );
+    }
+    if (po.projectId === projectId) {
+      committedCost = add(
+        committedCost,
+        parseMoney(po.taxAmount),
+        parseMoney(po.shipping),
       );
     }
   }
@@ -263,6 +272,8 @@ export async function computeProjectCostCodeBreakdown(
   for (const po of projectPOs) {
     const lines = await getPurchaseOrderLines(po.id);
     for (const line of lines) {
+      // Split POs: only this project's lines (line project ?? header).
+      if ((line.projectId ?? po.projectId) !== projectId) continue;
       const agg = ensure(line.costCodeId);
       agg.committed = add(agg.committed, parseMoney(line.lineTotal));
       agg.actual = add(

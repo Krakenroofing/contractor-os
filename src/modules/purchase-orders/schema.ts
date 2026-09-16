@@ -38,11 +38,34 @@ const numericString = z
 export const poLineSchema = z.object({
   costCodeId: z.string().uuid('Pick a cost code'),
   inventoryItemId: z.string().uuid().optional().or(z.literal('')),
+  /** Line-level job override — '' means "the PO's project". Lets one PO
+   *  split a purchase across jobs (50 rolls to A, 50 to B). */
+  projectId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
   quantity: numericString,
   unitCost: numericString,
 });
+
+/** Full-edit variant: existing lines carry their id so received
+ *  quantities and receipt history stay attached through an edit. */
+export const poEditLineSchema = poLineSchema.extend({
+  id: z.string().uuid().optional().or(z.literal('')),
+});
+
+export const purchaseOrderEditSchema = z.object({
+  id: z.string().uuid('Missing or invalid id'),
+  projectId: z.string().uuid('Pick a project'),
+  vendorId: z.string().uuid('Pick a vendor'),
+  issueDate: z.string().optional().or(z.literal('')),
+  expectedDeliveryDate: z.string().optional().or(z.literal('')),
+  taxAmount: numericString,
+  shipping: numericString,
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  lines: z.array(poEditLineSchema).min(1, 'At least one line item is required'),
+});
+
+export type PurchaseOrderEditParsed = z.output<typeof purchaseOrderEditSchema>;
 
 export const purchaseOrderFormSchema = z.object({
   number: z.string().min(1, 'PO number is required').max(50),
