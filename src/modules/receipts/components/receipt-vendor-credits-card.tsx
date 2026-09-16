@@ -1,10 +1,14 @@
 'use client';
 
-// Vendor credits on a bill (receipt): shows what's applied, the remaining
-// due (total − credits — the figure the bank payment should match), and an
-// apply form listing the vendor's open credits.
+// "Paid so far" on a bill (receipt): the bill total, every bank payment
+// matched to it, every vendor credit applied to it, and what's still
+// outstanding — so the two ways a bill gets settled are never confused for
+// each other. The apply form is capped at the OUTSTANDING balance (total −
+// credits − bank money), not at the bill total: a bill already part-paid from
+// the bank can only absorb the difference as credit.
 
 import { useActionState, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,6 +27,16 @@ export type AppliedCreditView = {
   amount: number;
 };
 
+export type BankPaymentView = {
+  matchId: string;
+  importedTransactionId: string;
+  bankAccountId: string;
+  bankAccountName: string | null;
+  transactionDate: string;
+  description: string;
+  amount: number;
+};
+
 export type OpenCreditOption = {
   creditId: string;
   creditDate: string;
@@ -30,27 +44,38 @@ export type OpenCreditOption = {
   available: number;
 };
 
+const round = (n: number) => Math.round(n * 100) / 100;
+
 export function ReceiptVendorCreditsCard({
   receiptId,
   receiptTotal,
   applied,
+  bankPayments,
   openCredits,
   canEdit,
 }: {
   receiptId: string;
   receiptTotal: number;
   applied: AppliedCreditView[];
+  bankPayments: BankPaymentView[];
   openCredits: OpenCreditOption[];
   canEdit: boolean;
 }) {
-  const appliedTotal =
-    Math.round(applied.reduce((s, a) => s + a.amount, 0) * 100) / 100;
-  const remaining = Math.round((receiptTotal - appliedTotal) * 100) / 100;
+  const creditTotal = round(applied.reduce((s, a) => s + a.amount, 0));
+  // Bank money can't settle more than the bill owes after credits — a lump
+  // payment covering several bills still only clears this one's share.
+  const bankTotal = Math.min(
+    round(bankPayments.reduce((s, p) => s + p.amount, 0)),
+    Math.max(0, round(receiptTotal - creditTotal)),
+  );
+  const outstanding = round(
+    Math.max(0, receiptTotal - creditTotal - bankTotal),
+  );
   const [applying, setApplying] = useState(false);
   const [creditId, setCreditId] = useState(openCredits[0]?.creditId ?? '');
   const selected = openCredits.find((c) => c.creditId === creditId);
   const suggested = selected
-    ? Math.min(selected.available, remaining).toFixed(2)
+    ? Math.min(selected.available, outstanding).toFixed(2)
     : '';
   const [state, formAction, pending] = useActionState<
     VendorCreditActionState,
@@ -61,48 +86,102 @@ export function ReceiptVendorCreditsCard({
     return res;
   }, {});
 
-  // Nothing to show: no credits applied and none available to apply.
-  if (applied.length === 0 && openCredits.length === 0) return null;
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Vendor credits</CardTitle>
+        <CardTitle>Paid so far</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {applied.length > 0 && (
-          <ul className="space-y-1.5">
-            {applied.map((a) => (
-              <li
-                key={a.applicationId}
-                className="flex items-center justify-between gap-2 text-sm"
-              >
-                <span className="text-slate-600">
-                  Credit {a.reference ?? a.creditDate}
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className="tabular-nums text-emerald-700">
-                    −{formatMoney(a.amount)}
-                  </span>
-                  {canEdit && (
-                    <UnapplyButton applicationId={a.applicationId} />
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm">
-          <span className="font-medium text-slate-700">
-            Remaining due (bank payment should match)
-          </span>
-          <span className="tabular-nums font-semibold text-slate-900">
-            {formatMoney(remaining)}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-600">Bill total</span>
+          <span className="tabular-nums text-slate-900">
+            {formatMoney(receiptTotal)}
           </span>
         </div>
 
-        {canEdit && openCredits.length > 0 && remaining > 0.005 && (
+        <div className="border-t border-slate-100 pt-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            Paid from the bank
+          </p>
+          {bankPayments.length === 0 ? (
+            <p className="mt-1 text-sm text-slate-400">
+              No bank payment matched to this bill yet.
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-1.5">
+              {bankPayments.map((p) => (
+                <li
+                  key={p.matchId}
+                  className="flex items-start justify-between gap-2 text-sm"
+                >
+                  <Link
+                    href={
+                      `/banking/accounts/${p.bankAccountId}?txn=${p.importedTransactionId}` as never
+                    }
+                    className="text-blue-700 hover:underline"
+                    title="Open this payment in the register"
+                  >
+                    {p.transactionDate}
+                    {p.bankAccountName ? ` · ${p.bankAccountName}` : ''}
+                    {p.description ? ` · ${p.description}` : ''}
+                  </Link>
+                  <span className="tabular-nums whitespace-nowrap text-slate-700">
+                    −{formatMoney(p.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 pt-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            Paid with vendor credit
+          </p>
+          {applied.length === 0 ? (
+            <p className="mt-1 text-sm text-slate-400">
+              No vendor credit applied to this bill.
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-1.5">
+              {applied.map((a) => (
+                <li
+                  key={a.applicationId}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  <span className="text-slate-600">
+                    Credit {a.reference ?? a.creditDate}
+                  </span>
+                  <span className="inline-flex items-center gap-2">
+                    <span className="tabular-nums text-emerald-700">
+                      −{formatMoney(a.amount)}
+                    </span>
+                    {canEdit && (
+                      <UnapplyButton applicationId={a.applicationId} />
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t-2 border-slate-200 pt-2 text-sm">
+          <span className="font-medium text-slate-700">
+            {outstanding > 0.005
+              ? 'Still outstanding'
+              : 'Outstanding — settled in full'}
+          </span>
+          <span
+            className={`tabular-nums font-semibold ${
+              outstanding > 0.005 ? 'text-amber-700' : 'text-emerald-700'
+            }`}
+          >
+            {formatMoney(outstanding)}
+          </span>
+        </div>
+
+        {canEdit && openCredits.length > 0 && outstanding > 0.005 && (
           applying ? (
             <form action={formAction} className="space-y-2">
               <input type="hidden" name="receiptId" value={receiptId} />
@@ -132,6 +211,10 @@ export function ReceiptVendorCreditsCard({
                   key={creditId}
                   defaultValue={suggested}
                 />
+                <p className="text-xs text-slate-500">
+                  At most {formatMoney(outstanding)} — the bill&apos;s
+                  outstanding balance after the bank payments above.
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={pending}>

@@ -29,6 +29,7 @@ import {
 } from '@/lib/data/vendor-credits';
 import { getVendor } from '@/lib/data/vendors';
 import { getReceipt } from '@/lib/data/receipts';
+import { listBankPaymentsForReceipt } from '@/lib/data/transaction-matches';
 import { getAccountingAccount } from '@/lib/data/accounting-accounts';
 // deleteJournalEntriesForSource stays: legacy credits (pre-2026-09-14)
 // posted a Dr AP / Cr category JE that deletion must still clean up.
@@ -226,10 +227,24 @@ export async function applyVendorCreditAction(
   const alreadyApplied = round(
     existing.reduce((s, a) => s + Number(a.amount), 0),
   );
-  const receiptRemaining = round(Number(receipt.total) - alreadyApplied);
+  // A credit can only absorb what the bill still OWES — bank money already
+  // matched to the bill has settled its share, so only the difference is
+  // applicable. Without this, a $2,242.68 bill part-paid $948.33 from the
+  // bank would still accept the full $2,242.68 as credit.
+  const bankPaid = round(
+    (
+      await listBankPaymentsForReceipt(auth.companyId, receipt.id)
+    ).reduce((s, p) => s + p.amount, 0),
+  );
+  const receiptRemaining = round(
+    Math.max(0, Number(receipt.total) - alreadyApplied - bankPaid),
+  );
   if (input.amount > receiptRemaining + 0.005) {
     return {
-      formError: `The bill only has ${receiptRemaining.toFixed(2)} left to offset.`,
+      formError:
+        bankPaid > 0.005
+          ? `The bill only has ${receiptRemaining.toFixed(2)} left to offset — ${bankPaid.toFixed(2)} has already been paid from the bank.`
+          : `The bill only has ${receiptRemaining.toFixed(2)} left to offset.`,
     };
   }
 

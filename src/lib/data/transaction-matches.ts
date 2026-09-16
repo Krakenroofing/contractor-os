@@ -153,6 +153,66 @@ export async function sumReceiptSettlements(
   return out;
 }
 
+/**
+ * The individual bank payments settling ONE bill, with the transaction behind
+ * each so the bill can show where the money came from (date, account, amount)
+ * instead of a single "paid" figure. Same amount convention as
+ * sumReceiptSettlements: matched_amount when set, else the txn's own amount.
+ */
+export async function listBankPaymentsForReceipt(
+  companyId: string,
+  receiptId: string,
+): Promise<
+  Array<{
+    matchId: string;
+    importedTransactionId: string;
+    bankAccountId: string;
+    transactionDate: string;
+    description: string;
+    amount: number;
+  }>
+> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      matchId: transactionMatches.id,
+      importedTransactionId: importedTransactions.id,
+      bankAccountId: importedTransactions.bankAccountId,
+      transactionDate: importedTransactions.transactionDate,
+      description: importedTransactions.description,
+      matchedAmount: transactionMatches.matchedAmount,
+      txnAmount: importedTransactions.amount,
+    })
+    .from(transactionMatches)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, transactionMatches.importedTransactionId),
+    )
+    .where(
+      and(
+        eq(transactionMatches.companyId, companyId),
+        eq(transactionMatches.matchType, 'receipt'),
+        eq(transactionMatches.receiptId, receiptId),
+        isNull(transactionMatches.reversedAt),
+      ),
+    )
+    .orderBy(importedTransactions.transactionDate);
+  return rows
+    .map((r) => ({
+      matchId: r.matchId,
+      importedTransactionId: r.importedTransactionId,
+      bankAccountId: r.bankAccountId,
+      transactionDate: r.transactionDate,
+      description: r.description,
+      amount:
+        r.matchedAmount !== null
+          ? Math.abs(Number(r.matchedAmount))
+          : Math.abs(Number(r.txnAmount)),
+    }))
+    .filter((r) => Number.isFinite(r.amount));
+}
+
 /** Same idea for payroll bills — how much bank money has settled each one. */
 export async function sumPayrollBillSettlements(
   companyId: string,

@@ -41,9 +41,11 @@ import {
   listApplicationsForReceipts,
   listVendorCredits,
 } from '@/lib/data/vendor-credits';
+import { listBankPaymentsForReceipt } from '@/lib/data/transaction-matches';
 import {
   ReceiptVendorCreditsCard,
   type AppliedCreditView,
+  type BankPaymentView,
   type OpenCreditOption,
 } from '@/modules/receipts/components/receipt-vendor-credits-card';
 
@@ -178,6 +180,16 @@ export default async function ReceiptDetailPage({
       available: Math.round((Number(c.amount) - c.appliedTotal) * 100) / 100,
     }))
     .filter((c) => c.available > 0.005);
+
+  // What the bank has actually paid against this bill — the other half of
+  // "what's been paid so far", alongside the credits above.
+  const bankAccountName = new Map(bankAccounts.map((b) => [b.id, b.name]));
+  const bankPaymentViews: BankPaymentView[] = (
+    await listBankPaymentsForReceipt(company.id, receipt.id)
+  ).map((p) => ({
+    ...p,
+    bankAccountName: bankAccountName.get(p.bankAccountId) ?? null,
+  }));
 
   const canEdit = canCreate(role, 'receipts');
   const canSubmit = canCreate(role, 'receipts');
@@ -426,6 +438,7 @@ export default async function ReceiptDetailPage({
             receiptId={receipt.id}
             receiptTotal={Number(receipt.total)}
             applied={appliedCreditViews}
+            bankPayments={bankPaymentViews}
             openCredits={openCreditOptions}
             canEdit={canEdit}
           />
