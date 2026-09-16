@@ -150,6 +150,7 @@ function makeCompany(over: Partial<Company> & Pick<Company, 'id' | 'name' | 'slu
     accountingMethod: 'accrual' as const,
     // Phase M6.3: per-company opt-in for auto-posting clock sessions.
     autoPostClockSessions: false,
+    nibEnabled: true,
     createdAt: now,
     updatedAt: now,
     ...over,

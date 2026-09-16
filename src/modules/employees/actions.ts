@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
@@ -64,7 +64,8 @@ export async function createEmployeeInlineAction(input: {
     return { ok: false, errors: parsed.error.flatten().fieldErrors };
   }
   const data = parsed.data;
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
   try {
     const employee = await createEmployee(companyId, {
       firstName: data.firstName,
@@ -77,7 +78,8 @@ export async function createEmployeeInlineAction(input: {
       hireDate: null,
       terminationDate: null,
       active: data.active,
-      nibExempt: data.nibExempt,
+      // NIB-disabled company (US): quick-added workers are exempt too.
+      nibExempt: company.nibEnabled ? data.nibExempt : true,
       nibStartDate: null,
       isSubcontractor: data.isSubcontractor,
       notes: null,
@@ -144,7 +146,16 @@ export async function createEmployeeAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
   const data = parsed.data;
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
+  // Company doesn't run Bahamas NIB (e.g. the US company): every employee
+  // is NIB-exempt regardless of what the form sent — the form hides the
+  // fields, this makes it true server-side too.
+  if (!company.nibEnabled) {
+    data.nibExempt = true;
+    data.nibNumber = '';
+    data.nibStartDate = '';
+  }
   let createdId: string;
 
   try {
@@ -202,7 +213,14 @@ export async function updateEmployeeAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
   const data = parsed.data;
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
+  // Mirror of the create path: NIB-disabled company forces exemption.
+  if (!company.nibEnabled) {
+    data.nibExempt = true;
+    data.nibNumber = '';
+    data.nibStartDate = '';
+  }
 
   try {
     const updated = await updateEmployee(companyId, id, {

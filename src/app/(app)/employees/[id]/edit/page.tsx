@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { getEmployee } from '@/lib/data/employees';
@@ -19,8 +19,8 @@ export default async function EditEmployeePage({
   const role = await getActiveRole();
   if (!canCreate(role, 'employees')) redirect(`/employees/${id}`);
 
-  const companyId = await getActiveCompanyId();
-  const employee = await getEmployee(companyId, id);
+  const company = await getActiveCompany();
+  const employee = await getEmployee(company.id, id);
   if (!employee) notFound();
 
   return (
@@ -36,6 +36,7 @@ export default async function EditEmployeePage({
       </header>
 
       <EmployeeForm
+        nibApplies={company.nibEnabled}
         mode={{ kind: 'edit', id }}
         initial={{
           id: employee.id,

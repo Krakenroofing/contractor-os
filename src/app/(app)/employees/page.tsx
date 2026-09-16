@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { isDevDemoMode } from '@/lib/auth';
 import { canCreate } from '@/lib/permissions';
@@ -14,7 +14,8 @@ import type { EmploymentType } from '@/modules/employees/schema';
 export const dynamic = 'force-dynamic';
 
 export default async function EmployeesPage() {
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
   const role = await getActiveRole();
   const allowCreate = canCreate(role, 'employees');
 
@@ -60,7 +61,7 @@ export default async function EmployeesPage() {
         )}
       </header>
 
-      <EmployeesListClient employees={rows} allowCreate={allowCreate} />
+      <EmployeesListClient employees={rows} allowCreate={allowCreate} showNib={company.nibEnabled} />
     </div>
   );
 }

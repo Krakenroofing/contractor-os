@@ -60,9 +60,13 @@ type Mode = { kind: 'create' } | { kind: 'edit'; id: string };
 export function EmployeeForm({
   mode = { kind: 'create' },
   initial,
+  nibApplies = true,
 }: {
   mode?: Mode;
   initial?: EmployeeFormInitialValues;
+  /** False for companies that don't run Bahamas NIB (e.g. the US company):
+   *  hides every NIB field; the server forces such employees NIB-exempt. */
+  nibApplies?: boolean;
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -113,19 +117,21 @@ export function EmployeeForm({
           />
         </Field>
 
-        <Field label="NIB number" error={err('nibNumber')}>
-          <Input
-            name="nibNumber"
-            defaultValue={values.nibNumber}
-            placeholder="123-4567"
-            disabled={nibExempt}
-          />
-          {nibExempt && (
-            <p className="text-[11px] text-slate-500 mt-1">
-              Disabled while NIB-exempt is on.
-            </p>
-          )}
-        </Field>
+        {nibApplies && (
+          <Field label="NIB number" error={err('nibNumber')}>
+            <Input
+              name="nibNumber"
+              defaultValue={values.nibNumber}
+              placeholder="123-4567"
+              disabled={nibExempt}
+            />
+            {nibExempt && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Disabled while NIB-exempt is on.
+              </p>
+            )}
+          </Field>
+        )}
 
         <Field label="Phone" error={err('phone')}>
           <Input
@@ -172,7 +178,7 @@ export function EmployeeForm({
                 </option>
               ))}
             </Select>
-            {employmentType === 'contract' && (
+            {employmentType === 'contract' && nibApplies && (
               <p className="text-[11px] text-slate-500 mt-1">
                 Contract workers default to NIB-exempt — adjust below if needed.
               </p>
@@ -213,27 +219,29 @@ export function EmployeeForm({
         </div>
 
         <div className="rounded-md bg-slate-50 border border-slate-200 px-4 py-3 space-y-3">
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              name="nibExempt"
-              checked={nibExempt}
-              onChange={(e) => setNibExempt(e.target.checked)}
-              className="h-4 w-4 mt-0.5 rounded border-slate-300"
-            />
-            <div>
-              <span className="text-sm font-medium text-slate-900">
-                NIB exempt
-              </span>
-              <p className="text-[11px] text-slate-600 mt-0.5">
-                For expats and others not covered by Bahamas NIB. When on, no
-                NIB is deducted from their paycheck, no employer NIB is owed,
-                and they don't appear on the C-10 filing summary.
-              </p>
-            </div>
-          </label>
+          {nibApplies && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="nibExempt"
+                checked={nibExempt}
+                onChange={(e) => setNibExempt(e.target.checked)}
+                className="h-4 w-4 mt-0.5 rounded border-slate-300"
+              />
+              <div>
+                <span className="text-sm font-medium text-slate-900">
+                  NIB exempt
+                </span>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  For expats and others not covered by Bahamas NIB. When on, no
+                  NIB is deducted from their paycheck, no employer NIB is owed,
+                  and they don't appear on the C-10 filing summary.
+                </p>
+              </div>
+            </label>
+          )}
 
-          {!nibExempt && (
+          {nibApplies && !nibExempt && (
             <div className="pl-6">
               <Label>NIB start date (optional)</Label>
               <Input
@@ -273,8 +281,9 @@ export function EmployeeForm({
                 They still run through payroll (hours, rate, pay slips), but
                 their labor cost books to the <b>Subcontractors</b> category —
                 job costs, P&amp;L, and payroll bills — instead of Direct
-                Labor / Payroll Expenses. Checking this also marks them NIB
-                exempt (subcontractors handle their own NIB).
+                Labor / Payroll Expenses.
+                {nibApplies &&
+                  ' Checking this also marks them NIB exempt (subcontractors handle their own NIB).'}
               </p>
             </div>
           </label>

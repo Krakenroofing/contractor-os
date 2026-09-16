@@ -101,6 +101,12 @@ export const companies = pgTable('companies', {
     .notNull()
     .default(false),
 
+  // Whether this company runs Bahamas NIB: TRB yes, Kraken (US company)
+  // no. When false, employee forms drop the NIB fields and every
+  // created/edited employee is forced NIB-exempt, so payroll never
+  // withholds NIB and C-10 outputs stay empty for this company.
+  nibEnabled: boolean('nib_enabled').notNull().default(true),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

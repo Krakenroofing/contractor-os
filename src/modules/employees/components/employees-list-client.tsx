@@ -49,9 +49,13 @@ type FilterKey = 'employmentType' | 'active';
 export function EmployeesListClient({
   employees,
   allowCreate,
+  showNib = true,
 }: {
   employees: EmployeeRow[];
   allowCreate: boolean;
+  /** False for companies that don't run Bahamas NIB — hides the NIB column
+   *  and badges. */
+  showNib?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<FilterKey, Set<string>>>({
@@ -129,7 +133,11 @@ export function EmployeesListClient({
       <ListToolbar
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by name, NIB number, or email…"
+        searchPlaceholder={
+          showNib
+            ? 'Search by name, NIB number, or email…'
+            : 'Search by name or email…'
+        }
         onClear={() => {
           setSearch('');
           setFilters({ employmentType: new Set(), active: new Set() });
@@ -164,14 +172,16 @@ export function EmployeesListClient({
                     onSortChange={setSort}
                   />
                 </TableHead>
-                <TableHead>
-                  <ColumnHeader
-                    label="NIB #"
-                    sortKey="nibNumber"
-                    sort={sort}
-                    onSortChange={setSort}
-                  />
-                </TableHead>
+                {showNib && (
+                  <TableHead>
+                    <ColumnHeader
+                      label="NIB #"
+                      sortKey="nibNumber"
+                      sort={sort}
+                      onSortChange={setSort}
+                    />
+                  </TableHead>
+                )}
                 <TableHead>
                   <ColumnHeader
                     label="Type"
@@ -220,9 +230,11 @@ export function EmployeesListClient({
                   <TableCell className="font-medium text-slate-900">
                     {e.fullName}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-slate-700">
-                    {e.nibNumber ?? '—'}
-                  </TableCell>
+                  {showNib && (
+                    <TableCell className="font-mono text-xs text-slate-700">
+                      {e.nibNumber ?? '—'}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Badge tone={EMPLOYMENT_TYPE_TONE[e.employmentType]}>
                       {EMPLOYMENT_TYPE_LABEL[e.employmentType]}
@@ -248,7 +260,9 @@ export function EmployeesListClient({
                       ) : (
                         <Badge tone="slate">Inactive</Badge>
                       )}
-                      {e.nibExempt && <Badge tone="amber">NIB exempt</Badge>}
+                      {showNib && e.nibExempt && (
+                        <Badge tone="amber">NIB exempt</Badge>
+                      )}
                       {e.isSubcontractor && (
                         <Badge tone="purple">Subcontractor</Badge>
                       )}
