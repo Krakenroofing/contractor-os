@@ -212,7 +212,17 @@ export async function upsertMembership(input: {
       ),
     )
     .limit(1);
-  if (existing.length > 0) return existing[0];
+  if (existing.length > 0) {
+    // Re-invite of someone who already has a membership here (possibly
+    // suspended): the fresh invitation is the source of truth — apply its
+    // role and reactivate.
+    const updated = await db
+      .update(memberships)
+      .set({ role: input.role, status: 'active', updatedAt: new Date() })
+      .where(eq(memberships.id, existing[0].id))
+      .returning();
+    return updated[0];
+  }
   const inserted = await db
     .insert(memberships)
     .values({

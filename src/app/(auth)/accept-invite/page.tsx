@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { isAuthEnabled } from '@/lib/auth';
 import { getInvitationByToken } from '@/lib/data/invitations';
+import { userExistsByEmail } from '@/lib/data/users';
 import { isExpired } from '@/modules/invitations/lib/tokens';
 import { ROLE_LABELS, type Role } from '@/lib/permissions';
 import { getCompany } from '@/lib/data/companies';
@@ -120,6 +121,7 @@ export default async function AcceptInvitePage({
           token={token}
           email={invitation.email}
           companyName={company?.name ?? 'this company'}
+          existingAccount={await userExistsByEmail(invitation.email)}
         />
       </CardContent>
     </Card>

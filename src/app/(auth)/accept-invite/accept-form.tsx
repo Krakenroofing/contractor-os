@@ -17,10 +17,15 @@ export function AcceptInviteForm({
   token,
   email,
   companyName,
+  existingAccount = false,
 }: {
   token: string;
   email: string;
   companyName: string;
+  /** True when this email already has a login — the form asks for the
+   *  EXISTING password (no display name, no confirm) and the server
+   *  attaches the membership to that account. */
+  existingAccount?: boolean;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(
@@ -64,7 +69,7 @@ export function AcceptInviteForm({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setClientError(null);
-    if (password !== confirm) {
+    if (!existingAccount && password !== confirm) {
       setClientError('Passwords do not match.');
       return;
     }
@@ -86,33 +91,49 @@ export function AcceptInviteForm({
         </div>
       )}
 
-      <p className="text-xs text-slate-600">
-        You&apos;re joining <span className="font-medium">{companyName}</span> as{' '}
-        <span className="font-mono">{email}</span>. Set a password below to
-        finish creating your account.
-      </p>
+      {existingAccount ? (
+        <p className="text-xs text-slate-600">
+          <span className="font-mono">{email}</span> already has a KrakenOps
+          Pro account. Enter that account&apos;s password to join{' '}
+          <span className="font-medium">{companyName}</span> — no new account
+          needed.{' '}
+          <a href="/forgot-password" className="underline">
+            Forgot it?
+          </a>
+        </p>
+      ) : (
+        <p className="text-xs text-slate-600">
+          You&apos;re joining <span className="font-medium">{companyName}</span>{' '}
+          as <span className="font-mono">{email}</span>. Set a password below
+          to finish creating your account.
+        </p>
+      )}
+
+      {!existingAccount && (
+        <div className="space-y-1">
+          <Label htmlFor="name">Display name</Label>
+          <Input
+            id="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Alex Roberts"
+            maxLength={200}
+            autoComplete="name"
+          />
+        </div>
+      )}
 
       <div className="space-y-1">
-        <Label htmlFor="name">Display name</Label>
-        <Input
-          id="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Alex Roberts"
-          maxLength={200}
-          autoComplete="name"
-        />
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="password">Password</Label>
+        <Label htmlFor="password">
+          {existingAccount ? 'Your password' : 'Password'}
+        </Label>
         <Input
           id="password"
           type="password"
           required
           minLength={8}
           maxLength={200}
-          autoComplete="new-password"
+          autoComplete={existingAccount ? 'current-password' : 'new-password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -121,25 +142,29 @@ export function AcceptInviteForm({
         )}
       </div>
 
-      <div className="space-y-1">
-        <Label htmlFor="confirm">Confirm password</Label>
-        <Input
-          id="confirm"
-          type="password"
-          required
-          minLength={8}
-          maxLength={200}
-          autoComplete="new-password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-        />
-      </div>
+      {!existingAccount && (
+        <div className="space-y-1">
+          <Label htmlFor="confirm">Confirm password</Label>
+          <Input
+            id="confirm"
+            type="password"
+            required
+            minLength={8}
+            maxLength={200}
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </div>
+      )}
 
       <Button type="submit" className="w-full" disabled={busy}>
         {busy
           ? state.ok
             ? 'Signing you in…'
-            : 'Creating your account…'
+            : existingAccount
+              ? 'Accepting…'
+              : 'Creating your account…'
           : 'Accept invitation'}
       </Button>
     </form>

@@ -3,7 +3,7 @@
 // returns an empty map and the UI falls back to "—".
 
 import 'server-only';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { users, memberships, employees, type User } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 import type { Role } from '@/lib/permissions';
@@ -67,6 +67,20 @@ export async function listCompanyUsersWithLinks(
     role: r.role as Role,
     status: r.status as CompanyUserWithLink['status'],
   }));
+}
+
+/** True when a login already exists for this email (case-insensitive).
+ *  Used by the accept-invite flow to switch to "enter your existing
+ *  password" instead of the create-account form. */
+export async function userExistsByEmail(email: string): Promise<boolean> {
+  if (!isDatabaseConfigured()) return false;
+  const db = getDb()!;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`lower(${users.email}) = lower(${email})`)
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Look up a user's email by id. Used by the owner reset-link action so it
