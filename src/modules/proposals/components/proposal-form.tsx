@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ProofreadButton } from '@/components/proofread-button';
+import { ProjectPicker } from '@/modules/projects/components/project-picker';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { formatMoney } from '@/lib/money';
 import {
   createProposalAction,
@@ -73,6 +75,7 @@ export type ProposalFormSource = {
 export function ProposalForm({
   estimates,
   projects,
+  customers = [],
   defaultNumber,
   initial,
   prefill,
@@ -81,6 +84,9 @@ export function ProposalForm({
 }: {
   estimates: EstimateOption[];
   projects: ProjectOption[];
+  /** Feeds the project picker's "+ Add new project" drawer (which itself
+   *  can create a new customer inline). */
+  customers?: CustomerPickerOption[];
   defaultNumber: string;
   /** When provided, the form runs in edit mode against this proposal id. */
   initial?: ProposalFormInitial;
@@ -170,22 +176,18 @@ export function ProposalForm({
         {standalone && (
           <>
             <Field label="Project" error={err('projectId')} required>
-              <Select
+              <ProjectPicker
                 name="projectId"
                 defaultValue={initial?.projectId ?? ''}
+                projects={projects.map((p) => ({
+                  id: p.id,
+                  name: `${p.name} (${p.customerName})`,
+                }))}
+                customers={customers}
+                allowNone={false}
+                placeholder="Select a project…"
                 required
-              >
-                <option value="" disabled>
-                  {projects.length === 0
-                    ? 'No active projects'
-                    : 'Select a project'}
-                </option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.customerName})
-                  </option>
-                ))}
-              </Select>
+              />
             </Field>
 
             <Field label="Proposal total" error={err('total')} required>

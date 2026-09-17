@@ -6,7 +6,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listEstimates } from '@/lib/data/estimates';
 import { nextProposalNumber } from '@/lib/data/proposals';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { getProject, listProjects } from '@/lib/data/projects';
 import { ProposalPdfUpload } from '@/modules/proposals/components/proposal-pdf-upload';
 import type {
@@ -71,6 +71,7 @@ export default async function ProposalUploadPage() {
       <ProposalPdfUpload
         estimates={estimates}
         projects={projects}
+        customers={(await listCustomers(companyId)).map((c) => ({ id: c.id, name: c.name }))}
         proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
         defaultNumber={await nextProposalNumber(companyId)}
       />

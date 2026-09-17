@@ -22,15 +22,18 @@ import {
   type ProjectOption,
   type ProposalFormPrefill,
 } from './proposal-form';
+import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 
 export function ProposalPdfUpload({
   estimates,
   projects,
+  customers = [],
   defaultNumber,
   proofreadAvailable = false,
 }: {
   estimates: EstimateOption[];
   projects: ProjectOption[];
+  customers?: CustomerPickerOption[];
   defaultNumber: string;
   proofreadAvailable?: boolean;
 }) {
@@ -88,6 +91,7 @@ export function ProposalPdfUpload({
       <ProposalForm
         estimates={estimates}
         projects={projects}
+        customers={customers}
         defaultNumber={defaultNumber}
         prefill={prefill}
         source={state.source}

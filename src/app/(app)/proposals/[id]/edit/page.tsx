@@ -12,7 +12,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listEstimates } from '@/lib/data/estimates';
 import { getProposal } from '@/lib/data/proposals';
-import { getCustomer } from '@/lib/data/customers';
+import { getCustomer, listCustomers } from '@/lib/data/customers';
 import { getProject, listProjects } from '@/lib/data/projects';
 
 export const dynamic = 'force-dynamic';
@@ -97,6 +97,7 @@ export default async function EditProposalPage({
       <ProposalForm
         estimates={estimates}
         projects={projects}
+        customers={(await listCustomers(companyId)).map((c) => ({ id: c.id, name: c.name }))}
         defaultNumber={proposal.number}
         initial={initial}
         proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
