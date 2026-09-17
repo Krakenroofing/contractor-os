@@ -63,11 +63,17 @@ export function ReceiptVendorCreditsCard({
 }) {
   const creditTotal = round(applied.reduce((s, a) => s + a.amount, 0));
   // Bank money can't settle more than the bill owes after credits — a lump
-  // payment covering several bills still only clears this one's share.
-  const bankTotal = Math.min(
-    round(bankPayments.reduce((s, p) => s + p.amount, 0)),
-    Math.max(0, round(receiptTotal - creditTotal)),
-  );
+  // payment covering several bills (or a withdrawal a few cents bigger than
+  // the bill) still only clears this one's share. Attribute the cap PER ROW
+  // so the visible figures foot exactly: each row shows what it settled
+  // here, with a note when the actual withdrawal was larger.
+  let remaining = Math.max(0, round(receiptTotal - creditTotal));
+  const paymentRows = bankPayments.map((p) => {
+    const settled = round(Math.min(p.amount, remaining));
+    remaining = round(remaining - settled);
+    return { ...p, settled, overage: round(p.amount - settled) };
+  });
+  const bankTotal = round(paymentRows.reduce((s, p) => s + p.settled, 0));
   const outstanding = round(
     Math.max(0, receiptTotal - creditTotal - bankTotal),
   );
@@ -109,25 +115,32 @@ export function ReceiptVendorCreditsCard({
             </p>
           ) : (
             <ul className="mt-1 space-y-1.5">
-              {bankPayments.map((p) => (
-                <li
-                  key={p.matchId}
-                  className="flex items-start justify-between gap-2 text-sm"
-                >
-                  <Link
-                    href={
-                      `/banking/accounts/${p.bankAccountId}?txn=${p.importedTransactionId}` as never
-                    }
-                    className="text-blue-700 hover:underline"
-                    title="Open this payment in the register"
-                  >
-                    {p.transactionDate}
-                    {p.bankAccountName ? ` · ${p.bankAccountName}` : ''}
-                    {p.description ? ` · ${p.description}` : ''}
-                  </Link>
-                  <span className="tabular-nums whitespace-nowrap text-slate-700">
-                    −{formatMoney(p.amount)}
-                  </span>
+              {paymentRows.map((p) => (
+                <li key={p.matchId} className="text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={
+                        `/banking/accounts/${p.bankAccountId}?txn=${p.importedTransactionId}` as never
+                      }
+                      className="text-blue-700 hover:underline"
+                      title="Open this payment in the register"
+                    >
+                      {p.transactionDate}
+                      {p.bankAccountName ? ` · ${p.bankAccountName}` : ''}
+                      {p.description ? ` · ${p.description}` : ''}
+                    </Link>
+                    <span className="tabular-nums whitespace-nowrap text-slate-700">
+                      −{formatMoney(p.settled)}
+                    </span>
+                  </div>
+                  {p.overage > 0.005 && (
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      The bank withdrawal was {formatMoney(p.amount)} — only{' '}
+                      {formatMoney(p.settled)} of it settles this bill; the
+                      other {formatMoney(p.overage)} isn&apos;t on this bill
+                      (bank fee, or another bill&apos;s share).
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
