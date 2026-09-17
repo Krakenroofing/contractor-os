@@ -83,6 +83,13 @@ export type ProfitLossReport = {
      *  They post Dr revenue / Cr AP in the GL, so the statement nets them
      *  off income too — one row per revenue category. */
     contraBills: { total: number; accounts: ProfitLossAccountRow[] };
+    /** Bank deposits categorized straight to a revenue account (walk-in /
+     *  cash sales with no invoice). Same effectively-unmatched rule as the
+     *  expense-side bank sources — a deposit MATCHED to an invoice never
+     *  lands here (the invoice already carries that revenue). One row per
+     *  revenue category; negative when refunds out of the account exceed
+     *  deposits in range. */
+    bankDeposits: { total: number; accounts: ProfitLossAccountRow[] };
   };
   cogs: {
     total: number;
@@ -524,6 +531,7 @@ export async function buildProfitLossReport(
       uncategorized: { total: 0, invoiceCount: 0 },
       creditMemos: { total: 0, count: 0 },
       contraBills: { total: 0, accounts: [] },
+      bankDeposits: { total: 0, accounts: [] },
     },
     cogs: { total: 0, accounts: [] },
     opex: { total: 0, accounts: [] },
@@ -1110,10 +1118,105 @@ export async function buildProfitLossReport(
       opexAccounts.push(row);
       opexTotal += row.amount;
     }
-    // asset / liability / equity / vat_tax / income are balance-sheet items.
+    // asset / liability / equity / vat_tax are balance-sheet items; income-
+    // rollup rows are handled by the dedicated income sources (invoices,
+    // contra bills, and the bank-deposit source below) — never here.
   }
   cogsAccounts.sort((a, b) => a.accountName.localeCompare(b.accountName));
   opexAccounts.sort((a, b) => a.accountName.localeCompare(b.accountName));
+
+  // ----- Income side: bank deposits categorized to revenue accounts -----
+  // A walk-in / cash sale deposited and categorized straight to a revenue
+  // category (no invoice). Same effectively-unmatched rule as the expense
+  // bank sources — a deposit MATCHED to an invoice never lands here, the
+  // invoice already carries that revenue. Sign: a credit (deposit) is
+  // positive income; a debit categorized to a revenue account is a refund
+  // out of it. Split lines mirror expense source 2b. Without this the
+  // money posts to the GL's revenue account but vanishes from the
+  // statement.
+  const bankIncomeTxnConds = [
+    eq(importedTransactions.companyId, companyId),
+    eq(importedTransactions.isIgnored, false),
+    effectivelyUnmatched,
+    isNotNull(importedTransactions.accountingAccountId),
+    eq(accountingAccounts.rollupGroup, 'income'),
+  ];
+  if (filters.from)
+    bankIncomeTxnConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    bankIncomeTxnConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const bankIncomeTxnRows = await db
+    .select({
+      accountId: importedTransactions.accountingAccountId,
+      accountName: accountingAccounts.name,
+      total: sql<string>`COALESCE(SUM(${importedTransactions.amount}), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(importedTransactions)
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactions.accountingAccountId),
+    )
+    .where(and(...bankIncomeTxnConds))
+    .groupBy(importedTransactions.accountingAccountId, accountingAccounts.name);
+
+  const bankIncomeSplitConds = [
+    eq(importedTransactionLines.companyId, companyId),
+    eq(importedTransactions.isIgnored, false),
+    effectivelyUnmatched,
+    isNull(importedTransactions.accountingAccountId),
+    isNotNull(importedTransactionLines.accountingAccountId),
+    eq(accountingAccounts.rollupGroup, 'income'),
+  ];
+  if (filters.from)
+    bankIncomeSplitConds.push(gte(importedTransactions.transactionDate, filters.from));
+  if (filters.to)
+    bankIncomeSplitConds.push(lte(importedTransactions.transactionDate, filters.to));
+  const bankIncomeSplitRows = await db
+    .select({
+      accountId: importedTransactionLines.accountingAccountId,
+      accountName: accountingAccounts.name,
+      total: sql<string>`COALESCE(SUM(CASE WHEN ${importedTransactions.amount} > 0 THEN ${importedTransactionLines.amount} ELSE -${importedTransactionLines.amount} END), 0)`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(importedTransactionLines)
+    .innerJoin(
+      importedTransactions,
+      eq(importedTransactions.id, importedTransactionLines.importedTransactionId),
+    )
+    .innerJoin(
+      accountingAccounts,
+      eq(accountingAccounts.id, importedTransactionLines.accountingAccountId),
+    )
+    .where(and(...bankIncomeSplitConds))
+    .groupBy(importedTransactionLines.accountingAccountId, accountingAccounts.name);
+
+  const bankIncomeByAccount = new Map<string, ProfitLossAccountRow>();
+  for (const r of [...bankIncomeTxnRows, ...bankIncomeSplitRows]) {
+    if (!r.accountId) continue;
+    const amount = Math.round(Number(r.total) * 100) / 100;
+    const count = Number(r.count ?? 0);
+    const cur = bankIncomeByAccount.get(r.accountId);
+    if (cur) {
+      cur.amount = Math.round((cur.amount + amount) * 100) / 100;
+      cur.entryCount += count;
+    } else {
+      bankIncomeByAccount.set(r.accountId, {
+        accountId: r.accountId,
+        accountName: r.accountName,
+        rollupGroup: 'income',
+        amount,
+        entryCount: count,
+      });
+    }
+  }
+  const bankIncomeAccounts = [...bankIncomeByAccount.values()]
+    .filter((r) => Math.abs(r.amount) > 0.005)
+    .sort((a, b) => b.amount - a.amount);
+  const bankIncomeTotal =
+    Math.round(bankIncomeAccounts.reduce((s, r) => s + r.amount, 0) * 100) /
+    100;
+  incomeTotal = Math.round((incomeTotal + bankIncomeTotal) * 100) / 100;
 
   // ----- Uncategorized: job_cost_entries with no accountingAccountId -----
   // Surfaced separately so Chris can see what's missing classification.
@@ -1163,6 +1266,7 @@ export async function buildProfitLossReport(
       },
       creditMemos: { total: creditMemoTotal, count: creditMemoCount },
       contraBills: { total: contraBillTotal, accounts: contraBillAccounts },
+      bankDeposits: { total: bankIncomeTotal, accounts: bankIncomeAccounts },
     },
     cogs: { total: cogsTotal, accounts: cogsAccounts },
     opex: { total: opexTotal, accounts: opexAccounts },
@@ -1849,6 +1953,13 @@ export async function listProfitLossAccountEntries(
       : null;
   }
 
+  // The sources above carry EXPENSE-oriented signs (a debit is positive).
+  // On an income-rollup account flip everything so it reads as revenue:
+  // a categorized deposit is positive income, a bill/refund against the
+  // account is negative (contra) — matching the statement's income rows.
+  if (acc.rollupGroup === 'income') {
+    for (const e of entries) e.amount = Math.round(-e.amount * 100) / 100;
+  }
   entries.sort((a, b) => a.date.localeCompare(b.date));
   const total = entries.reduce((s, e) => s + e.amount, 0);
 

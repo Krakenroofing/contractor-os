@@ -232,6 +232,41 @@ export default async function ProfitLossReportPage({
                     </TableCell>
                   </TableRow>
                 )}
+                {report.income.bankDeposits.accounts.map((d) => (
+                  <TableRow key={`bankdep-${d.accountId}`}>
+                    <TableCell className="text-slate-700">
+                      <Link
+                        href={
+                          `/reports/profit-loss/${d.accountId}${revQs.toString() ? `?${revQs.toString()}` : ''}` as never
+                        }
+                        className="underline-offset-2 hover:underline"
+                      >
+                        Bank deposits — {d.accountName}
+                      </Link>
+                      <span className="ml-2 text-xs text-slate-500">
+                        deposits categorized to this revenue account — no
+                        invoice behind them
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-slate-600">
+                      {d.entryCount}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      <Link
+                        href={
+                          `/reports/profit-loss/${d.accountId}${revQs.toString() ? `?${revQs.toString()}` : ''}` as never
+                        }
+                        className={`underline underline-offset-2 ${
+                          d.amount < 0
+                            ? 'text-red-700 hover:text-red-900'
+                            : 'text-blue-700 hover:text-blue-900'
+                        }`}
+                      >
+                        {formatMoney(d.amount)}
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
                 {report.income.creditMemos.total > 0 && (
                   <TableRow>
                     <TableCell className="text-slate-700">
@@ -290,7 +325,8 @@ export default async function ProfitLossReportPage({
                   </TableRow>
                 ))}
                 {(report.income.creditMemos.total > 0 ||
-                  report.income.contraBills.total > 0) && (
+                  report.income.contraBills.total > 0 ||
+                  report.income.bankDeposits.accounts.length > 0) && (
                   <TableRow>
                     <TableCell className="font-medium text-slate-900">
                       Net revenue
