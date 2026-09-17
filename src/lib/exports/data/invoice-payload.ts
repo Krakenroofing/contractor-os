@@ -417,10 +417,11 @@ export async function buildInvoicePayload(
     });
   }
 
-  // showBillToTin gates whether the customer's TIN renders in the bill-to
-  // block. Other customer fields (name, address) always render — they're
-  // not a privacy/policy decision the template should own.
-  const showBillToTin = template ? template.showBillToTin : false;
+  // The customer's TIN renders in the bill-to block whenever it's on file —
+  // same rule as the invoice page and every other document payload
+  // (estimate/proposal/CO/credit memo). The old template showBillToTin
+  // gate silently dropped the TIN from PDFs of template-less invoices
+  // (the flag defaults to false), which is wrong for VAT invoices.
   // showLineItems hides the entire line items table — useful for templates
   // that only show a totals summary (lump-sum draws, retainage releases).
   const showLineItems = template ? template.showLineItems : true;
@@ -738,7 +739,7 @@ export async function buildInvoicePayload(
           city: customer.billingCity,
           state: customer.billingState,
           postalCode: customer.billingPostalCode,
-          tinNumber: showBillToTin ? customer.tinNumber : null,
+          tinNumber: customer.tinNumber,
           attentionLabel: template?.billToAttentionLabel ?? null,
           tinLabel: template?.tinLabel ?? null,
         }
