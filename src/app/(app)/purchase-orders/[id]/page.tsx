@@ -5,14 +5,6 @@ import { BackButton } from '@/components/back-button';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import { CompanyStandardTerms } from '@/components/company-standard-terms';
 import { DocumentBranding } from '@/components/document-branding';
@@ -29,6 +21,7 @@ import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
 import { RenamePoNumber } from '@/modules/purchase-orders/components/rename-po-number';
 import { VendorInvoiceNumberEditor } from '@/modules/purchase-orders/components/vendor-invoice-number-editor';
+import { PoLinesTable } from '@/modules/purchase-orders/components/po-lines-table';
 import { PoReceiptHistory } from '@/modules/purchase-orders/components/po-receipt-history';
 import { ActivityLogCard } from '@/modules/status/components/activity-log-card';
 import { StatusBadge } from '@/modules/status/components/status-badge';
@@ -338,66 +331,27 @@ export default async function PurchaseOrderDetailPage({
               No line items on this purchase order.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cost code</TableHead>
-                  <TableHead>Job</TableHead>
-                  <TableHead>Item description</TableHead>
-                  <TableHead className="text-right">Qty ordered</TableHead>
-                  <TableHead className="text-right">Qty received</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Unit cost</TableHead>
-                  <TableHead className="text-right">Line total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lines.map((l) => {
-                  const code = codeMap.get(l.costCodeId);
-                  const ordered = Number(l.quantityOrdered);
-                  const received = Number(l.quantityReceived);
-                  return (
-                    <TableRow key={l.id}>
-                      <TableCell className="font-mono text-xs text-slate-700">
-                        {code?.code ?? '—'}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {l.projectId && l.projectId !== po.projectId ? (
-                          <span
-                            className="inline-block rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-sky-700"
-                            title="This line books to a different job than the PO's project"
-                          >
-                            {lineProjectNames.get(l.projectId) ?? 'other job'}
-                          </span>
-                        ) : (
-                          <span className="text-slate-600">
-                            {project?.name ?? '—'}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-slate-900">{l.description}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {ordered.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${
-                          received < ordered ? 'text-amber-700' : 'text-emerald-700'
-                        }`}
-                      >
-                        {received.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell className="text-slate-600">{l.unit ?? '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatMoney(l.unitCost)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums font-medium">
-                        {formatMoney(l.lineTotal)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <PoLinesTable
+              lines={lines.map((l) => {
+                const overridden = Boolean(
+                  l.projectId && l.projectId !== po.projectId,
+                );
+                return {
+                  id: l.id,
+                  costCode: codeMap.get(l.costCodeId)?.code ?? '—',
+                  jobName: overridden
+                    ? (lineProjectNames.get(l.projectId!) ?? 'other job')
+                    : (project?.name ?? '—'),
+                  jobOverridden: overridden,
+                  description: l.description,
+                  unit: l.unit,
+                  quantityOrdered: Number(l.quantityOrdered),
+                  quantityReceived: Number(l.quantityReceived),
+                  unitCost: l.unitCost,
+                  lineTotal: l.lineTotal,
+                };
+              })}
+            />
           )}
         </CardContent>
       </Card>

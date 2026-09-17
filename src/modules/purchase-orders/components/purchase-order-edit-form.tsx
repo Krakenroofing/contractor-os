@@ -15,6 +15,12 @@ import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import { ProjectPicker } from '@/modules/projects/components/project-picker';
 import type { CustomerPickerOption } from '@/modules/customers/components/customer-picker';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
+import {
+  SortableHeader,
+  toggleSort,
+  type SortState,
+} from '@/components/ui/sortable-header';
+import { sortLines } from '../line-sort';
 import { calcPOTotals, formatMoney, multiply } from '@/lib/money';
 import {
   updatePurchaseOrderAction,
@@ -84,6 +90,7 @@ export function PurchaseOrderEditForm({
   const [lines, setLines] = useState<LineDraft[]>(() =>
     initial.lines.map((l) => ({ ...l, rowId: crypto.randomUUID() })),
   );
+  const [sort, setSort] = useState<SortState>(null);
 
   const updateLine = (rowId: string, patch: Partial<LineDraft>) => {
     setDirty(true);
@@ -91,10 +98,14 @@ export function PurchaseOrderEditForm({
       prev.map((l) => (l.rowId === rowId ? { ...l, ...patch } : l)),
     );
   };
+  // New lines land at the TOP: on a long PO the "+ Add line" button is
+  // right there and the new row is in view — no scrolling to the bottom
+  // and back. Adding also drops any active sort so the row can't appear
+  // to land somewhere else.
   const addLine = () => {
     setDirty(true);
+    setSort(null);
     setLines((prev) => [
-      ...prev,
       {
         rowId: crypto.randomUUID(),
         id: '',
@@ -107,11 +118,28 @@ export function PurchaseOrderEditForm({
         unitCost: '0',
         quantityReceived: 0,
       },
+      ...prev,
     ]);
   };
   const removeLine = (rowId: string) => {
     setDirty(true);
     setLines((prev) => prev.filter((l) => l.rowId !== rowId));
+  };
+
+  // Sorting reorders the draft rows themselves, so the order on screen is
+  // the order that saves (lines persist in the order they're submitted).
+  const onSort = (key: string) => {
+    const next = toggleSort(sort, key);
+    setSort(next);
+    setDirty(true);
+    setLines((prev) =>
+      sortLines(prev, next, (l) => ({
+        description: l.description,
+        unit: l.unit,
+        quantity: Number(l.quantity) || 0,
+        unitCost: Number(l.unitCost) || 0,
+      })),
+    );
   };
 
   // Shown in the per-line Job column so "same as the PO" names the actual job.
@@ -211,19 +239,52 @@ export function PurchaseOrderEditForm({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label>Line items</Label>
-          <Button type="button" size="sm" variant="outline" onClick={addLine}>
-            + Add line
-          </Button>
+          <Label>Line items ({lines.length})</Label>
+          <div className="flex items-center gap-2">
+            {sort && (
+              <span className="text-xs text-slate-500">
+                Sorted — this order saves.
+              </span>
+            )}
+            <Button type="button" size="sm" variant="outline" onClick={addLine}>
+              + Add line
+            </Button>
+          </div>
         </div>
         <div className="hidden md:grid md:grid-cols-[1.5fr_1.5fr_1.8fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 text-[11px] uppercase tracking-wide text-slate-500">
           <span>Cost code</span>
           <span>Job</span>
-          <span>Description</span>
-          <span>Qty</span>
-          <span>Unit</span>
-          <span>Unit cost</span>
-          <span className="text-right">Line total</span>
+          <SortableHeader
+            label="Description"
+            sortKey="description"
+            sort={sort}
+            onSort={onSort}
+          />
+          <SortableHeader
+            label="Qty"
+            sortKey="quantity"
+            sort={sort}
+            onSort={onSort}
+          />
+          <SortableHeader
+            label="Unit"
+            sortKey="unit"
+            sort={sort}
+            onSort={onSort}
+          />
+          <SortableHeader
+            label="Unit cost"
+            sortKey="unitCost"
+            sort={sort}
+            onSort={onSort}
+          />
+          <SortableHeader
+            label="Line total"
+            sortKey="total"
+            sort={sort}
+            onSort={onSort}
+            align="right"
+          />
           <span />
         </div>
         {lines.map((line) => {

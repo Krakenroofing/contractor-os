@@ -28,6 +28,12 @@ import {
 } from '@/modules/inventory/components/product-picker';
 import { CostCodePicker } from '@/modules/cost-codes/components/cost-code-picker';
 import {
+  SortableHeader,
+  toggleSort,
+  type SortState,
+} from '@/components/ui/sortable-header';
+import { sortLines } from '../line-sort';
+import {
   PoLinesExcelImportDialog,
   type ImportedLine,
 } from './po-lines-excel-import-dialog';
@@ -149,6 +155,7 @@ export function PurchaseOrderForm({
     }
     return [newEmptyLine()];
   });
+  const [sort, setSort] = useState<SortState>(null);
   const [taxAmount, setTaxAmount] = useState(defaults?.taxAmount ?? '0');
   const [shipping, setShipping] = useState(defaults?.shipping ?? '0');
   const [projectId, setProjectId] = useState<string>(defaults?.projectId ?? '');
@@ -303,6 +310,29 @@ export function PurchaseOrderForm({
 
   const updateLine = (rowId: string, patch: Partial<LineDraft>) => {
     setLines((prev) => prev.map((l) => (l.rowId === rowId ? { ...l, ...patch } : l)));
+  };
+
+  // New lines land at the TOP so a long PO doesn't mean scrolling to the
+  // bottom after every "+ Add line"; adding clears any sort so the new row
+  // is visibly first.
+  const addLine = () => {
+    setSort(null);
+    setLines((prev) => [newEmptyLine(), ...prev]);
+  };
+
+  // Sorting reorders the draft rows, so the order on screen is the order
+  // the PO is created with.
+  const onSort = (key: string) => {
+    const next = toggleSort(sort, key);
+    setSort(next);
+    setLines((prev) =>
+      sortLines(prev, next, (l) => ({
+        description: l.description,
+        unit: l.unit,
+        quantity: Number(l.quantity) || 0,
+        unitCost: Number(l.unitCost) || 0,
+      })),
+    );
   };
 
   const onCostCodeChange = (rowId: string, costCodeId: string) => {
@@ -461,7 +491,9 @@ export function PurchaseOrderForm({
       </div>
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
-        <legend className="px-2 text-sm font-medium text-slate-700">Line items</legend>
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Line items ({lines.length})
+        </legend>
 
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
 
@@ -470,11 +502,37 @@ export function PurchaseOrderForm({
             <span>Product</span>
             <span>Cost code</span>
             <span>Job</span>
-            <span>Description</span>
-            <span>Qty</span>
-            <span>Unit</span>
-            <span>Unit cost</span>
-            <span className="text-right">Line total</span>
+            <SortableHeader
+              label="Description"
+              sortKey="description"
+              sort={sort}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Qty"
+              sortKey="quantity"
+              sort={sort}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Unit"
+              sortKey="unit"
+              sort={sort}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Unit cost"
+              sortKey="unitCost"
+              sort={sort}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Line total"
+              sortKey="total"
+              sort={sort}
+              onSort={onSort}
+              align="right"
+            />
             <span />
           </div>
 
@@ -642,7 +700,7 @@ export function PurchaseOrderForm({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setLines((prev) => [...prev, newEmptyLine()])}
+            onClick={addLine}
           >
             + Add line
           </Button>
