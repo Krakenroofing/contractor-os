@@ -342,6 +342,7 @@ export default async function PurchaseOrderDetailPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Cost code</TableHead>
+                  <TableHead>Job</TableHead>
                   <TableHead>Item description</TableHead>
                   <TableHead className="text-right">Qty ordered</TableHead>
                   <TableHead className="text-right">Qty received</TableHead>
@@ -360,17 +361,21 @@ export default async function PurchaseOrderDetailPage({
                       <TableCell className="font-mono text-xs text-slate-700">
                         {code?.code ?? '—'}
                       </TableCell>
-                      <TableCell className="text-slate-900">
-                        {l.description}
-                        {l.projectId && l.projectId !== po.projectId && (
+                      <TableCell className="text-xs">
+                        {l.projectId && l.projectId !== po.projectId ? (
                           <span
-                            className="ml-2 inline-block rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-[10px] text-sky-700"
+                            className="inline-block rounded bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-sky-700"
                             title="This line books to a different job than the PO's project"
                           >
-                            → {lineProjectNames.get(l.projectId) ?? 'other job'}
+                            {lineProjectNames.get(l.projectId) ?? 'other job'}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">
+                            {project?.name ?? '—'}
                           </span>
                         )}
                       </TableCell>
+                      <TableCell className="text-slate-900">{l.description}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {ordered.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </TableCell>

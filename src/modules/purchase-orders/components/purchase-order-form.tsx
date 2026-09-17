@@ -267,6 +267,9 @@ export function PurchaseOrderForm({
     });
   }
 
+  // Shown in the per-line Job column so "same as the PO" names the actual job.
+  const poProjectLabel = projects.find((p) => p.id === projectId)?.label ?? '';
+
   const filteredLandedCosts = projectId
     ? landedCosts.filter((l) => l.projectId === projectId || l.projectId === null)
     : landedCosts;
@@ -463,9 +466,10 @@ export function PurchaseOrderForm({
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
 
         <div className="space-y-2">
-          <div className="hidden md:grid grid-cols-[1.6fr_1.4fr_2fr_0.8fr_0.6fr_0.9fr_1fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+          <div className="hidden md:grid grid-cols-[1.4fr_1.3fr_1.3fr_1.7fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
             <span>Product</span>
             <span>Cost code</span>
+            <span>Job</span>
             <span>Description</span>
             <span>Qty</span>
             <span>Unit</span>
@@ -482,7 +486,7 @@ export function PurchaseOrderForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[1.6fr_1.4fr_2fr_0.8fr_0.6fr_0.9fr_1fr_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[1.4fr_1.3fr_1.3fr_1.7fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 items-start"
               >
                 <ProductPicker
                   value={line.inventoryItemId}
@@ -520,43 +524,43 @@ export function PurchaseOrderForm({
                     });
                   }}
                 />
-                <div className="space-y-1">
-                  <CostCodePicker
-                    value={line.costCodeId}
-                    options={allCostCodes}
-                    seedDescription={line.description}
-                    onValueChange={(id) => onCostCodeChange(line.rowId, id)}
-                    onCreated={(item) =>
-                      setExtraCostCodes((prev) => [
-                        {
-                          id: item.id,
-                          code: item.code,
-                          description: item.description,
-                          defaultCost: item.defaultCost,
-                        },
-                        ...prev,
-                      ])
-                    }
-                  />
-                  {/* Split-PO job override: this line's cost books to the
-                      selected job instead of the PO's project — one order,
-                      many jobs (50 rolls to A, 50 to B). */}
-                  <select
-                    value={line.projectId}
-                    onChange={(e) =>
-                      updateLine(line.rowId, { projectId: e.target.value })
-                    }
-                    title="Job this line belongs to — leave on the PO's project unless this line is for a different job"
-                    className="w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600"
-                  >
-                    <option value="">Job: PO&#39;s project</option>
-                    {projects.map((pOpt) => (
-                      <option key={pOpt.id} value={pOpt.id}>
-                        {pOpt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <CostCodePicker
+                  value={line.costCodeId}
+                  options={allCostCodes}
+                  seedDescription={line.description}
+                  onValueChange={(id) => onCostCodeChange(line.rowId, id)}
+                  onCreated={(item) =>
+                    setExtraCostCodes((prev) => [
+                      {
+                        id: item.id,
+                        code: item.code,
+                        description: item.description,
+                        defaultCost: item.defaultCost,
+                      },
+                      ...prev,
+                    ])
+                  }
+                />
+                {/* Split-PO job override: this line's cost books to the
+                    selected job instead of the PO's project — one order,
+                    many jobs (50 rolls to A, 50 to B). */}
+                <select
+                  value={line.projectId}
+                  onChange={(e) =>
+                    updateLine(line.rowId, { projectId: e.target.value })
+                  }
+                  title="Job this line's cost books to. Left on the PO's own project it follows the PO; pick another job to split this line off."
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                >
+                  <option value="">
+                    {poProjectLabel || "The PO's project"}
+                  </option>
+                  {projects.map((pOpt) => (
+                    <option key={pOpt.id} value={pOpt.id}>
+                      {pOpt.label}
+                    </option>
+                  ))}
+                </select>
                 <Input
                   value={line.description}
                   onChange={(e) =>
