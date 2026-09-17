@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { AppShell } from '@/components/app-shell';
 import { CompanySwitcher } from '@/components/company-switcher';
 import { NavLink } from '@/components/nav-link';
 import { RoleSwitcher } from '@/components/role-switcher';
@@ -9,6 +11,7 @@ import { getCurrentUser, isAuthEnabled, isDevDemoMode } from '@/lib/auth';
 import { getCompany, listCompanies } from '@/lib/data/companies';
 import { listMembershipsForUser } from '@/lib/data/memberships';
 import { canView, type Resource } from '@/lib/permissions';
+import { SIDEBAR_COOKIE } from '@/lib/sidebar-cookie';
 import { touchSession } from '@/lib/data/login-sessions';
 import { ACTIVITY_OWNER_EMAIL } from '@/lib/activity-owner';
 
@@ -125,78 +128,86 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   });
   const settingsAllowed = canView(role, 'settings');
 
-  return (
-    <div className="flex min-h-screen">
-      <aside className="w-64 shrink-0 border-r border-slate-200 bg-white flex flex-col print:hidden">
-        <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between gap-2">
-          <Link href={{ pathname: '/dashboard' }} className="text-base font-semibold text-slate-900">
-            KrakenOps Pro
-          </Link>
-          {/* Demo-mode badge — local development only. Never rendered in
-              production builds (see isDevDemoMode in src/lib/auth). */}
-          {demoMode && (
-            <span
-              className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900"
-              title="Demo mode: env vars missing, running on local mock store"
-            >
-              Demo
-            </span>
-          )}
-        </div>
+  // Sidebar collapse is a per-browser preference kept in a cookie so the
+  // first paint already has the right shell (no expanded-then-collapse flash).
+  const sidebarCollapsed =
+    (await cookies()).get(SIDEBAR_COOKIE)?.value === '1';
 
-        <div className="px-3 py-3 border-b border-slate-200 space-y-3">
-          <CompanySwitcher companies={companies} activeCompanyId={activeCompanyId} />
-          {/* RoleSwitcher is a developer affordance — it lets you preview the
-              UI as a different role. In auth-enabled mode the role comes from
-              the user's membership row, so the switcher would be misleading. */}
-          {!authEnabled && <RoleSwitcher activeRole={role} />}
-        </div>
+  const sidebar = (
+    <>
+      <div className="px-6 pt-1 pb-4 border-b border-slate-200 flex items-center justify-between gap-2">
+        <Link href={{ pathname: '/dashboard' }} className="text-base font-semibold text-slate-900">
+          KrakenOps Pro
+        </Link>
+        {/* Demo-mode badge — local development only. Never rendered in
+            production builds (see isDevDemoMode in src/lib/auth). */}
+        {demoMode && (
+          <span
+            className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900"
+            title="Demo mode: env vars missing, running on local mock store"
+          >
+            Demo
+          </span>
+        )}
+      </div>
 
-        <nav className="p-3 space-y-1 flex-1">
-          {filteredNav.length === 0 && (
-            <p className="px-3 py-2 text-xs text-slate-500">
-              No modules available for this role.
-            </p>
+      <div className="px-3 py-3 border-b border-slate-200 space-y-3">
+        <CompanySwitcher companies={companies} activeCompanyId={activeCompanyId} />
+        {/* RoleSwitcher is a developer affordance — it lets you preview the
+            UI as a different role. In auth-enabled mode the role comes from
+            the user's membership row, so the switcher would be misleading. */}
+        {!authEnabled && <RoleSwitcher activeRole={role} />}
+      </div>
+
+      <nav className="p-3 space-y-1 flex-1">
+        {filteredNav.length === 0 && (
+          <p className="px-3 py-2 text-xs text-slate-500">
+            No modules available for this role.
+          </p>
+        )}
+        {filteredNav.map((item) => (
+          <NavLink key={item.href} href={item.href} label={item.label} />
+        ))}
+      </nav>
+
+      {settingsAllowed && (
+        <nav className="p-3 space-y-1 border-t border-slate-200">
+          <NavLink href="/settings" label="Settings" />
+          {/* Owner-only: sign-in activity. Gated by account, not role —
+              the page itself re-checks, so the link is just visibility. */}
+          {currentUser?.email === ACTIVITY_OWNER_EMAIL && (
+            <NavLink href="/settings/activity" label="Sign-in Activity" />
           )}
-          {filteredNav.map((item) => (
-            <NavLink key={item.href} href={item.href} label={item.label} />
-          ))}
         </nav>
+      )}
 
-        {settingsAllowed && (
-          <nav className="p-3 space-y-1 border-t border-slate-200">
-            <NavLink href="/settings" label="Settings" />
-            {/* Owner-only: sign-in activity. Gated by account, not role —
-                the page itself re-checks, so the link is just visibility. */}
-            {currentUser?.email === ACTIVITY_OWNER_EMAIL && (
-              <NavLink href="/settings/activity" label="Sign-in Activity" />
-            )}
-          </nav>
-        )}
+      {authEnabled && currentUser && (
+        <div className="p-3 border-t border-slate-200">
+          <p className="px-3 py-1 text-xs text-slate-500 truncate">
+            {currentUser.name}
+          </p>
+          {/* POST-form, NOT a <Link>. Sign Out must never be a GET — see
+              src/app/logout/route.ts for the full explanation. The previous
+              <Link href="/logout"> was being prefetched by the browser on
+              sidebar render, which silently called the GET handler, signed
+              the user out, and made every subsequent click redirect to
+              /login. A form's POST is never prefetched. */}
+          <form action="/logout" method="post">
+            <button
+              type="submit"
+              className="block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-md"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
+      )}
+    </>
+  );
 
-        {authEnabled && currentUser && (
-          <div className="p-3 border-t border-slate-200">
-            <p className="px-3 py-1 text-xs text-slate-500 truncate">
-              {currentUser.name}
-            </p>
-            {/* POST-form, NOT a <Link>. Sign Out must never be a GET — see
-                src/app/logout/route.ts for the full explanation. The previous
-                <Link href="/logout"> was being prefetched by the browser on
-                sidebar render, which silently called the GET handler, signed
-                the user out, and made every subsequent click redirect to
-                /login. A form's POST is never prefetched. */}
-            <form action="/logout" method="post">
-              <button
-                type="submit"
-                className="block w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-md"
-              >
-                Sign out
-              </button>
-            </form>
-          </div>
-        )}
-      </aside>
-      <main className="flex-1">{children}</main>
-    </div>
+  return (
+    <AppShell sidebar={sidebar} defaultCollapsed={sidebarCollapsed}>
+      {children}
+    </AppShell>
   );
 }
