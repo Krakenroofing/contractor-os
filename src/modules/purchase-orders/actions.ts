@@ -33,7 +33,6 @@ import {
 import { getVendor } from '@/lib/data/vendors';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { findBillByVendorInvoiceNumber } from '@/lib/data/po-bills';
-import { computeVat, vatQuarterForDate } from '@/modules/receipts/lib/vat';
 import {
   createPoReceipt,
   deletePoReceipt,
@@ -735,27 +734,33 @@ export async function createBillFromPoAction(
   const vendor = await getVendor(company.id, po.vendorId);
   const defaultAccountId = vendor?.defaultAccountingAccountId ?? null;
 
-  const vatRate = company.isVatActive ? Number(company.vatRatePercent) || 0 : 0;
-
-  // Billed amounts are net (partial qty × unit cost); add VAT on top
-  // (vatIncluded=false).
+  // NO VAT on PO-billed lines (2026-09-17, Chris): suppliers like ABC
+  // don't charge Bahamas VAT, so the amount billed per item is exactly
+  // qty × unit price — nothing added on top. Their sales tax rides as
+  // ONE separate line (below) that can be removed/credited later. VAT
+  // stays editable on the bill for the rare local-vendor case.
   const computedLines = selected.map((s) => {
     const line = poLineById.get(s.poLineId)!;
     const net = Math.round(s.amount * 100) / 100;
-    const c = company.isVatActive
-      ? computeVat({
-          subtotal: net,
-          vatRatePercent: vatRate,
-          vatIncluded: false,
-          driver: 'subtotal',
-        })
-      : { subtotal: net, vatAmount: 0, total: net, vatRatePercent: 0 };
-    const qtyNote =
+    // Quantity billed is STRUCTURED on the bill line (editable there);
+    // derive it from the amount when the form didn't send one.
+    const unitCost = Number(line.unitCost);
+    const quantity =
       s.quantity !== undefined && s.quantity > 0
-        ? ` (${s.quantity}${line.unit ? ` ${line.unit}` : ''} @ ${Number(line.unitCost)})`
-        : '';
-    return { line, computed: c, description: `${line.description}${qtyNote}` };
+        ? s.quantity
+        : unitCost > 0
+          ? Math.round((net / unitCost) * 10000) / 10000
+          : null;
+    return { line, net, quantity, unitCost, description: line.description };
   });
+
+  // Optional supplier sales tax, entered on the bill form — becomes its
+  // own line so it's visible, removable, and creditable on its own.
+  const salesTaxRaw = Number(String(formData.get('salesTax') ?? '0'));
+  const salesTax =
+    Number.isFinite(salesTaxRaw) && salesTaxRaw > 0
+      ? Math.round(salesTaxRaw * 100) / 100
+      : 0;
 
   // Dev-demo auth's synthetic user isn't in the users table — stamp only
   // when the id really exists so the FK can't fail.
@@ -770,10 +775,11 @@ export async function createBillFromPoAction(
     bankAccountId: null,
     receiptDate: billDate,
     currency: company.defaultCurrency,
-    vatRatePercent: company.isVatActive ? toPercentString(vatRate) : null,
+    // Rate 0 so nothing recomputes VAT onto the lines; editable later.
+    vatRatePercent: company.isVatActive ? toPercentString(0) : null,
     vatIncluded: false,
-    vatRecoverable: true,
-    vatPeriodQuarter: company.isVatActive ? vatQuarterForDate(billDate) : null,
+    vatRecoverable: false,
+    vatPeriodQuarter: null,
     notes: `Bill from ${po.number}`,
     vendorInvoiceNumber,
     purchaseOrderId: po.id,
@@ -783,7 +789,7 @@ export async function createBillFromPoAction(
     uploadedByUserId: knownUsers.has(user.id) ? user.id : null,
   });
 
-  for (const [idx, { line, computed, description }] of computedLines.entries()) {
+  for (const [idx, { line, net, quantity, unitCost, description }] of computedLines.entries()) {
     await createReceiptLine({
       companyId: company.id,
       receiptId: receipt.id,
@@ -794,10 +800,30 @@ export async function createBillFromPoAction(
       accountingAccountId: defaultAccountId,
       purchaseOrderLineId: line.id,
       description,
-      subtotal: toMoneyString(computed.subtotal),
-      vatAmount: toMoneyString(computed.vatAmount),
-      total: toMoneyString(computed.total),
-      vatRatePercent: company.isVatActive ? toPercentString(vatRate) : null,
+      subtotal: toMoneyString(net),
+      vatAmount: '0',
+      total: toMoneyString(net),
+      quantity: quantity === null ? null : quantity.toFixed(4),
+      unitCost: unitCost > 0 ? unitCost.toFixed(4) : null,
+      vatRatePercent: company.isVatActive ? toPercentString(0) : null,
+      isBillable: false,
+      isReimbursable: false,
+    });
+  }
+  if (salesTax > 0) {
+    await createReceiptLine({
+      companyId: company.id,
+      receiptId: receipt.id,
+      sortOrder: computedLines.length,
+      projectId: null,
+      costCodeId: null,
+      accountingAccountId: defaultAccountId,
+      purchaseOrderLineId: null,
+      description: `Sales tax — ${vendor?.name ?? 'vendor'} invoice ${vendorInvoiceNumber} (remove when credited back)`,
+      subtotal: toMoneyString(salesTax),
+      vatAmount: '0',
+      total: toMoneyString(salesTax),
+      vatRatePercent: company.isVatActive ? toPercentString(0) : null,
       isBillable: false,
       isReimbursable: false,
     });

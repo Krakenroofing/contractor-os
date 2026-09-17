@@ -36,9 +36,15 @@ type LineState = {
 export function PoBillForm({
   poId,
   lines,
+  poTaxAmount,
+  poSubtotal,
 }: {
   poId: string;
   lines: PoBillLine[];
+  /** The PO's sales tax + subtotal — prefill the tax field with the
+   *  selected lines' proportional share. */
+  poTaxAmount: number;
+  poSubtotal: number;
 }) {
   const [state, formAction, pending] = useActionState<
     CreateBillFromPoState,
@@ -84,10 +90,23 @@ export function PoBillForm({
   const selected = JSON.parse(linesJson) as { amount: number }[];
   const selectedTotal = r2(selected.reduce((s, l) => s + l.amount, 0));
 
+  // Supplier sales tax rides as ONE separate line on the bill (visible,
+  // removable when credited back). Prefill = the selected lines' share of
+  // the PO's tax; the operator can override or zero it.
+  const suggestedTax =
+    poTaxAmount > 0 && poSubtotal > 0
+      ? r2(poTaxAmount * Math.min(1, selectedTotal / poSubtotal))
+      : 0;
+  const [taxTouched, setTaxTouched] = useState(false);
+  const [salesTax, setSalesTax] = useState('');
+  const taxValue = taxTouched ? salesTax : suggestedTax > 0 ? suggestedTax.toFixed(2) : '';
+  const taxNum = Number(taxValue) || 0;
+
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="poId" value={poId} />
       <input type="hidden" name="linesJson" value={linesJson} />
+      <input type="hidden" name="salesTax" value={taxValue || '0'} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block text-xs font-medium text-slate-600">
@@ -203,16 +222,43 @@ export function PoBillForm({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-600">
-          {selected.length} line{selected.length === 1 ? '' : 's'} selected —
-          net total{' '}
-          <span className="font-semibold text-slate-900 tabular-nums">
-            {fmt(selectedTotal)}
-          </span>{' '}
-          <span className="text-xs text-slate-500">
-            (VAT is added on the draft; review before posting)
-          </span>
-        </p>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-xs font-medium text-slate-600">
+            Sales tax on this invoice{' '}
+            <span className="font-normal text-slate-400">
+              (their tax — separate line, remove when credited)
+            </span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={taxValue}
+              onChange={(e) => {
+                setTaxTouched(true);
+                setSalesTax(e.target.value);
+              }}
+              className="mt-1 w-32 text-right tabular-nums"
+            />
+          </label>
+          <p className="text-sm text-slate-600 pb-1.5">
+            {selected.length} line{selected.length === 1 ? '' : 's'} — items{' '}
+            <span className="font-semibold text-slate-900 tabular-nums">
+              {fmt(selectedTotal)}
+            </span>
+            {taxNum > 0 && (
+              <>
+                {' '}+ tax{' '}
+                <span className="tabular-nums">{fmt(taxNum)}</span> ={' '}
+                <span className="font-semibold text-slate-900 tabular-nums">
+                  {fmt(r2(selectedTotal + taxNum))}
+                </span>
+              </>
+            )}{' '}
+            <span className="text-xs text-slate-500">
+              (amounts are exactly qty × unit price — no VAT added)
+            </span>
+          </p>
+        </div>
         <Button type="submit" disabled={pending || selected.length === 0}>
           {pending ? 'Creating bill…' : 'Create draft bill'}
         </Button>

@@ -269,6 +269,14 @@ async function replaceReceiptLines(
       subtotal: alreadyPaidOut ? persisted!.subtotal : toMoneyString(computed.subtotal),
       vatAmount: alreadyPaidOut ? persisted!.vatAmount : toMoneyString(computed.vatAmount),
       total: alreadyPaidOut ? persisted!.total : toMoneyString(computed.total),
+      quantity:
+        alreadyPaidOut || line.quantity === null || line.quantity <= 0
+          ? (alreadyPaidOut ? persisted!.quantity : null)
+          : line.quantity.toFixed(4),
+      unitCost:
+        alreadyPaidOut || line.unitCost === null || line.unitCost < 0
+          ? (alreadyPaidOut ? persisted!.unitCost : null)
+          : line.unitCost.toFixed(4),
       vatRatePercent: alreadyPaidOut
         ? persisted!.vatRatePercent
         : line.vatRatePercent === null

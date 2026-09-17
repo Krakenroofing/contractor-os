@@ -88,7 +88,12 @@ export default async function PoBillPage({
               This purchase order has no line items to bill.
             </p>
           ) : (
-            <PoBillForm poId={po.id} lines={lines} />
+            <PoBillForm
+              poId={po.id}
+              lines={lines}
+              poTaxAmount={Number(po.taxAmount)}
+              poSubtotal={Number(po.subtotal)}
+            />
           )}
         </CardContent>
       </Card>

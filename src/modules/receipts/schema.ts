@@ -133,6 +133,10 @@ export const upsertReceiptLineSchema = z.object({
   subtotal: moneyString,
   vatAmount: moneyString,
   total: moneyString,
+  // Quantity billed + unit cost — set on PO-created bill lines (editable;
+  // net = qty × unit cost). Null/blank for plain receipt lines.
+  quantity: percentString,
+  unitCost: percentString,
   vatRatePercent: percentString,
   isBillable: z.coerce.boolean().optional().default(false),
   isReimbursable: z.coerce.boolean().optional().default(false),

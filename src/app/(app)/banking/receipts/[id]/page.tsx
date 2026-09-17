@@ -242,6 +242,8 @@ export default async function ReceiptDetailPage({
     subtotal: Number(l.subtotal),
     vatAmount: Number(l.vatAmount),
     total: Number(l.total),
+    quantity: l.quantity === null ? null : Number(l.quantity),
+    unitCost: l.unitCost === null ? null : Number(l.unitCost),
     vatRatePercent:
       l.vatRatePercent === null ? null : Number(l.vatRatePercent),
     isBillable: l.isBillable,

@@ -278,6 +278,8 @@ export type UpdateReceiptLinePatch = Partial<
     | 'subtotal'
     | 'vatAmount'
     | 'total'
+    | 'quantity'
+    | 'unitCost'
     | 'vatRatePercent'
     | 'isBillable'
     | 'isReimbursable'

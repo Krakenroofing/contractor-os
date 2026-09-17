@@ -53,6 +53,10 @@ export type LineInitial = {
   subtotal: number;
   vatAmount: number;
   total: number;
+  /** Quantity billed + unit cost (PO-created bill lines) — when both are
+   *  set the form derives Net = qty × unit cost and keeps them editable. */
+  quantity?: number | null;
+  unitCost?: number | null;
   vatRatePercent: number | null;
   isBillable: boolean;
   isReimbursable: boolean;
@@ -110,6 +114,8 @@ type LineState = {
   subtotal: string;
   vatAmount: string;
   total: string;
+  quantity: string;
+  unitCost: string;
   vatRatePercent: string;
   isBillable: boolean;
   isReimbursable: boolean;
@@ -136,6 +142,8 @@ function emptyLine(): LineState {
     subtotal: '0.00',
     vatAmount: '0.00',
     total: '0.00',
+    quantity: '',
+    unitCost: '',
     vatRatePercent: '',
     isBillable: false,
     isReimbursable: false,
@@ -156,6 +164,8 @@ function initialToState(line: LineInitial): LineState {
     subtotal: line.subtotal.toFixed(2),
     vatAmount: line.vatAmount.toFixed(2),
     total: line.total.toFixed(2),
+    quantity: line.quantity == null ? '' : String(line.quantity),
+    unitCost: line.unitCost == null ? '' : String(line.unitCost),
     vatRatePercent:
       line.vatRatePercent === null ? '' : line.vatRatePercent.toString(),
     isBillable: line.isBillable,
@@ -340,6 +350,8 @@ export function ReceiptForm(props: ReceiptFormProps) {
           subtotal: l.subtotal || '0',
           vatAmount: l.vatAmount || '0',
           total: l.total || '0',
+          quantity: l.quantity === '' ? null : l.quantity,
+          unitCost: l.unitCost === '' ? null : l.unitCost,
           vatRatePercent: l.vatRatePercent === '' ? null : l.vatRatePercent,
           isBillable: l.isBillable,
           isReimbursable: l.isReimbursable,
@@ -786,6 +798,53 @@ function LineEditor(props: {
           />
         </div>
       </div>
+
+      {/* Qty × unit price: set on bill lines created from a PO (editable
+          — Net re-derives as qty × unit price), usable on any line. Blank
+          = enter Net directly as before. */}
+      {(() => {
+        const derive = (qs: string, us: string) => {
+          const q = Number(qs);
+          const u = Number(us);
+          if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(u) || u < 0) {
+            return null;
+          }
+          return (Math.round(q * u * 100) / 100).toFixed(2);
+        };
+        const patchFor = (qs: string, us: string) => {
+          const net = derive(qs, us);
+          if (net === null) return {};
+          return props.vatActive
+            ? { subtotal: net }
+            : { subtotal: net, total: net };
+        };
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <Label>Qty billed</Label>
+              <RecomputeOnChangeInput
+                value={l.quantity}
+                onChange={(v) =>
+                  props.onChange({ quantity: v, ...patchFor(v, l.unitCost) })
+                }
+                onDirtyBlur={() => props.onRecompute('subtotal')}
+                placeholder="—"
+              />
+            </div>
+            <div>
+              <Label>Unit price</Label>
+              <RecomputeOnChangeInput
+                value={l.unitCost}
+                onChange={(v) =>
+                  props.onChange({ unitCost: v, ...patchFor(l.quantity, v) })
+                }
+                onDirtyBlur={() => props.onRecompute('subtotal')}
+                placeholder="—"
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {props.vatActive ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

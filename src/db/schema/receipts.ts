@@ -194,6 +194,11 @@ export const receiptLines = pgTable(
     total: numeric('total', { precision: 14, scale: 2 })
       .notNull()
       .default('0'),
+    // Quantity billed + unit cost (bills created from POs; editable on the
+    // bill so partial billing tracks by qty — net = quantity × unit cost).
+    // Null on hand-entered lines without quantities.
+    quantity: numeric('quantity', { precision: 14, scale: 4 }),
+    unitCost: numeric('unit_cost', { precision: 14, scale: 4 }),
     // Per-line VAT rate override. Null = inherit the receipt header's rate.
     vatRatePercent: numeric('vat_rate_percent', { precision: 6, scale: 3 }),
 
