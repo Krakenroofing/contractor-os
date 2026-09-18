@@ -154,7 +154,16 @@ export async function listWorkOrders(
     .leftJoin(projects, eq(projects.id, workOrders.projectId))
     .leftJoin(invoices, eq(invoices.id, workOrders.invoiceId))
     .where(and(...conds))
-    .orderBy(desc(workOrders.workDate), desc(workOrders.createdAt));
+    // Presented in WO-number order (numeric-aware so WO-10 follows WO-9,
+    // not WO-1), newest first. Sorting by work_date shuffled the sequence
+    // whenever a call was entered later for an earlier date.
+    .orderBy(desc(workOrders.createdAt));
+  rows.sort((a, b) =>
+    b.wo.number.localeCompare(a.wo.number, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  );
   return rows.map((r) => ({
     ...r.wo,
     employeeName: `${r.firstName} ${r.lastName}`.trim(),
