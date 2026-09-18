@@ -767,6 +767,16 @@ export function OfficeWorkOrderEditor({
                 Create invoice →
               </Button>
             </Link>
+            <Link
+              href={{
+                pathname: '/proposals/new',
+                query: { workOrder: workOrder.id },
+              }}
+            >
+              <Button type="button" size="sm" variant="ghost">
+                Save as proposal →
+              </Button>
+            </Link>
           </div>
           <p className="text-[11px] text-slate-500">
             Bill the client from Invoices (pick this call&apos;s project),

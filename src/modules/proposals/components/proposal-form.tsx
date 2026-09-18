@@ -50,10 +50,13 @@ export type ProposalFormInitial = {
   termsAndConditions: string | null;
 };
 
-/** Extracted-from-PDF defaults for create mode. Everything stays editable. */
+/** Create-mode defaults (extracted from a PDF, or carried over from a
+ *  work order). Everything stays editable. */
 export type ProposalFormPrefill = {
   number?: string | null;
   proposalDate?: string | null;
+  /** Preselects the standalone project picker (e.g. a posted WO's project). */
+  projectId?: string | null;
   total?: string | null;
   scopeOfWork?: string | null;
   inclusions?: string | null;
@@ -178,7 +181,7 @@ export function ProposalForm({
             <Field label="Project" error={err('projectId')} required>
               <ProjectPicker
                 name="projectId"
-                defaultValue={initial?.projectId ?? ''}
+                defaultValue={initial?.projectId ?? prefill?.projectId ?? ''}
                 projects={projects.map((p) => ({
                   id: p.id,
                   name: `${p.name} (${p.customerName})`,
