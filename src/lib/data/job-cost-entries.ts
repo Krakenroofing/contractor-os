@@ -36,6 +36,9 @@ export type CreateJobCostEntryInput = Omit<
 export type UpdateJobCostEntryInput = Partial<
   Pick<
     JobCostEntry,
+    // Moving an entry to another job — reclassifying a posted bill's line
+    // onto the right project without unwinding the posting.
+    | 'projectId'
     | 'costCodeId'
     | 'costType'
     | 'vendorId'

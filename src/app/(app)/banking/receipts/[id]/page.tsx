@@ -33,6 +33,7 @@ import {
   type AttachmentRow,
 } from '@/modules/receipts/components/attachments-list';
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
+import { ReclassifyPanel } from '@/modules/receipts/components/reclassify-panel';
 import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
 import { isOcrConfigured } from '@/lib/ocr/document-ai';
 import { createSignedReceiptUrl } from '@/lib/storage/receipt-files';
@@ -50,6 +51,18 @@ import {
 } from '@/modules/receipts/components/receipt-vendor-credits-card';
 
 export const dynamic = 'force-dynamic';
+
+// Section names for the reclassify panel's category dropdown — same wording
+// the account picker uses, so the two read the same.
+const ROLLUP_GROUP_LABEL: Record<string, string> = {
+  income: 'Income',
+  cogs: 'Cost of Goods Sold',
+  opex: 'Operating Expense',
+  asset: 'Asset',
+  liability: 'Liability',
+  equity: 'Equity',
+  vat_tax: 'VAT / Tax',
+};
 
 // Best-effort duplicate-vs-PO-receipt check. Returns a warning when the
 // receipt's (vendor, amount, date) match an existing job_cost_entries row
@@ -266,7 +279,7 @@ export default async function ReceiptDetailPage({
         </h1>
         <p className="text-sm text-slate-500">
           {receipt.status === 'posted'
-            ? 'Posted to job costs. Unpost to edit any field.'
+            ? 'Posted to job costs. Date, job, cost code and category can still be corrected below; changing an amount needs an Unpost.'
             : receipt.status === 'void'
               ? 'Void receipt.'
               : receipt.status === 'submitted'
@@ -285,7 +298,40 @@ export default async function ReceiptDetailPage({
                   : 'Edit'}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {/* Posted bills: the classification fields are still editable in
+                  place, because none of them move money. Amounts are not —
+                  those change AP and the bank match, so they need an unpost. */}
+              {receipt.status === 'posted' && canApprove && lines.length > 0 && (
+                <ReclassifyPanel
+                  receiptId={receipt.id}
+                  receiptDate={receipt.receiptDate}
+                  lines={lines.map((l) => ({
+                    id: l.id,
+                    description: l.description ?? '',
+                    total: Number(l.total),
+                    projectId: l.projectId ?? '',
+                    costCodeId: l.costCodeId ?? '',
+                    accountingAccountId: l.accountingAccountId ?? '',
+                  }))}
+                  projects={projects.map((p) => ({ id: p.id, label: p.name }))}
+                  costCodes={costCodes.map((c) => ({
+                    id: c.id,
+                    label: `${c.code} — ${c.description}`,
+                  }))}
+                  accountingAccounts={toAccountingAccountOptions(
+                    accountingAccounts.filter(
+                      (a) => a.type !== 'bank' && a.type !== 'credit_card',
+                    ),
+                  )
+                    .filter((a) => !a.isHeader)
+                    .map((a) => ({
+                      id: a.id,
+                      label: a.isSub ? `  ${a.name}` : a.name,
+                      group: ROLLUP_GROUP_LABEL[a.rollupGroup],
+                    }))}
+                />
+              )}
               <ReceiptForm
                 initial={{
                   id: receipt.id,

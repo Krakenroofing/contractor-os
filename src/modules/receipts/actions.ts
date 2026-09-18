@@ -49,6 +49,7 @@ import {
 import {
   createJobCostEntry,
   softDeleteJobCostEntry,
+  updateJobCostEntry,
 } from '@/lib/data/job-cost-entries';
 import {
   upsertReceiptSchema,
@@ -1570,4 +1571,189 @@ export async function bulkExtractMultiReceiptPdfAction(
 
   revalidatePath('/banking/receipts');
   return { results, pageCount: totalPages, ocrEnabled };
+}
+
+// ===== Reclassify a POSTED bill =====
+//
+// Unposting a bill that's already matched to a bank payment means unwinding
+// the whole chain — unmatch, unpost, edit, repost, rematch (Olga,
+// 2026-09-18). The fields she actually needs to correct after the fact don't
+// move any money: the date it lands on, and where each line is classified.
+// Those are safe to change in place, so long as the job-cost entries and the
+// GL are re-derived afterwards. Anything that changes an AMOUNT still needs
+// a real unpost, because the bank match and AP depend on it.
+
+const reclassifyLineSchema = z.object({
+  lineId: z.string().uuid(),
+  projectId: z.string().uuid().nullable().optional(),
+  costCodeId: z.string().uuid().nullable().optional(),
+  accountingAccountId: z.string().uuid().nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+});
+
+export async function reclassifyPostedReceiptAction(input: {
+  id: string;
+  receiptDate: string;
+  lines: Array<z.infer<typeof reclassifyLineSchema>>;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return {
+      ok: false,
+      error: 'Only owners or accounting can reclassify a posted bill.',
+    };
+  }
+  const parsed = z
+    .object({
+      id: z.string().uuid(),
+      receiptDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date.'),
+      lines: z.array(reclassifyLineSchema).max(500),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error:
+        parsed.error.issues[0]?.message ?? 'Could not read the changes.',
+    };
+  }
+
+  const company = await getActiveCompany();
+  const receipt = await getReceipt(company.id, parsed.data.id);
+  if (!receipt) return { ok: false, error: 'Bill not found.' };
+  if (receipt.status !== 'posted') {
+    return {
+      ok: false,
+      error: 'This bill is not posted — use the normal Edit form.',
+    };
+  }
+
+  const existing = await listReceiptLines(company.id, receipt.id);
+  const byId = new Map(existing.map((l) => [l.id, l]));
+  for (const l of parsed.data.lines) {
+    if (!byId.has(l.lineId)) {
+      return { ok: false, error: 'One of the lines is not on this bill.' };
+    }
+    // Same completeness rule Post enforces: a line is either job-costed
+    // (project + cost code) or overhead (accounting category).
+    const hasJob = Boolean(l.projectId && l.costCodeId);
+    if (!hasJob && !l.accountingAccountId) {
+      return {
+        ok: false,
+        error:
+          'Every line needs either a job + cost code, or an accounting category.',
+      };
+    }
+  }
+
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const auditUserId = knownUsers.has(user.id) ? user.id : null;
+  const dateChanged = receipt.receiptDate !== parsed.data.receiptDate;
+  if (dateChanged) {
+    await updateReceipt(company.id, receipt.id, {
+      receiptDate: parsed.data.receiptDate,
+    });
+  }
+
+  const touchedProjects = new Set<string>();
+  for (const patch of parsed.data.lines) {
+    const line = byId.get(patch.lineId)!;
+    const nextProject = patch.projectId ?? null;
+    const nextCostCode = patch.costCodeId ?? null;
+    const nextAccount = patch.accountingAccountId ?? null;
+    const nextDescription = patch.description ?? null;
+
+    await updateReceiptLine(company.id, line.id, {
+      projectId: nextProject,
+      costCodeId: nextCostCode,
+      accountingAccountId: nextAccount,
+      description: nextDescription,
+    });
+    if (line.projectId) touchedProjects.add(line.projectId);
+    if (nextProject) touchedProjects.add(nextProject);
+
+    const wasJobCosted = Boolean(line.postedJobCostEntryId);
+    const isJobCosted = Boolean(nextProject && nextCostCode);
+
+    if (wasJobCosted && !isJobCosted) {
+      // Became overhead — the job-cost entry has to go, the GL picks it up
+      // through the accounting category instead.
+      await softDeleteJobCostEntry(company.id, line.postedJobCostEntryId!);
+      await updateReceiptLine(company.id, line.id, {
+        postedJobCostEntryId: null,
+      });
+    } else if (wasJobCosted && isJobCosted) {
+      await updateJobCostEntry(company.id, line.postedJobCostEntryId!, {
+        projectId: nextProject!,
+        costCodeId: nextCostCode!,
+        accountingAccountId: nextAccount,
+        entryDate: parsed.data.receiptDate,
+        ...(nextDescription
+          ? {
+              description: `Receipt ${parsed.data.receiptDate}: ${nextDescription.slice(0, 200)}`,
+            }
+          : {}),
+      });
+    } else if (!wasJobCosted && isJobCosted) {
+      // Overhead line moved onto a job — post the job cost it never had.
+      const total = Number(line.total);
+      const subtotal = Number(line.subtotal);
+      const postAmount =
+        company.isVatActive && receipt.vatRecoverable ? subtotal : total;
+      const costType =
+        line.costType &&
+        (costTypeValues as readonly string[]).includes(line.costType)
+          ? (line.costType as (typeof costTypeValues)[number])
+          : 'other';
+      const label = (nextDescription ?? receipt.notes ?? '').slice(0, 200);
+      const entry = await createJobCostEntry({
+        companyId: company.id,
+        projectId: nextProject!,
+        costCodeId: nextCostCode!,
+        accountingAccountId: nextAccount,
+        source: 'receipt_import',
+        sourceRefId: receipt.id,
+        costType,
+        entryDate: parsed.data.receiptDate,
+        vendorId: receipt.vendorId,
+        description: label
+          ? `Receipt ${parsed.data.receiptDate}: ${label}`
+          : `Receipt ${parsed.data.receiptDate}`,
+        quantity: '1',
+        unitCost: toMoneyString(postAmount),
+        amount: toMoneyString(postAmount),
+        isBillable: line.isBillable,
+        markupPercent: null,
+        burdenPercent: null,
+        vendorInvoiceNumber: null,
+        attachmentUrl: null,
+        notes: nextDescription ?? receipt.notes,
+        createdByUserId: auditUserId,
+      });
+      await updateReceiptLine(company.id, line.id, {
+        postedJobCostEntryId: entry.id,
+      });
+    } else if (dateChanged && line.postedJobCostEntryId) {
+      await updateJobCostEntry(company.id, line.postedJobCostEntryId, {
+        entryDate: parsed.data.receiptDate,
+      });
+    }
+  }
+
+  // Re-post the GL from the corrected lines (it keys off the receipt, so the
+  // entry is rebuilt with the new date and accounts). Best-effort.
+  try {
+    await syncReceiptGl(company.id, receipt.id);
+  } catch {
+    /* best-effort — Rebuild can resync */
+  }
+
+  for (const projectId of touchedProjects) {
+    revalidatePath(`/job-costing/${projectId}`);
+  }
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  revalidatePath('/reports/profit-loss');
+  return { ok: true };
 }
