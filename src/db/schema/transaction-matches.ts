@@ -16,6 +16,7 @@ import { invoicePayments } from './invoices';
 import { receipts } from './receipts';
 import { jobCostEntries } from './job-costs';
 import { payrollBills } from './payroll-bills';
+import { creditMemos } from './credit-memos';
 
 // One row per match attempt linking an imported_transactions row to:
 //   - an invoice_payment (AR side, money in)
@@ -39,7 +40,7 @@ export const transactionMatches = pgTable(
       .references(() => importedTransactions.id, { onDelete: 'cascade' }),
 
     // 'invoice_payment' | 'receipt' | 'job_cost_entry' | 'transfer'
-    // | 'owner_contribution' | 'owner_draw'
+    // | 'owner_contribution' | 'owner_draw' | 'credit_memo_refund'
     matchType: text('match_type').notNull(),
 
     invoicePaymentId: uuid('invoice_payment_id').references(
@@ -60,6 +61,12 @@ export const transactionMatches = pgTable(
       (): AnyPgColumn => importedTransactions.id,
       { onDelete: 'cascade' },
     ),
+    // The customer refund this withdrawal paid out (credit memo applied as a
+    // cash_refund). Keeps the refund in one lane instead of being categorized
+    // to revenue on top of the memo's own contra.
+    creditMemoId: uuid('credit_memo_id').references(() => creditMemos.id, {
+      onDelete: 'cascade',
+    }),
 
     // How much of the matched record THIS payment covers — set for partial
     // payroll-bill payments. NULL = the full amount (legacy semantics).
@@ -106,6 +113,7 @@ export const MATCH_TYPES = [
   'transfer',
   'owner_contribution',
   'owner_draw',
+  'credit_memo_refund',
 ] as const;
 export type MatchType = (typeof MATCH_TYPES)[number];
 

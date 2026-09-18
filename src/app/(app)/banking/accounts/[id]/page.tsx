@@ -39,7 +39,10 @@ import { listVendors } from '@/lib/data/vendors';
 import { listPaymentMethods } from '@/lib/data/payment-methods';
 import { listCustomers } from '@/lib/data/customers';
 import { listAllJobCostEntriesForCompany } from '@/lib/data/job-cost-entries';
-import { listActiveMatchesForCompany } from '@/lib/data/transaction-matches';
+import {
+  getMatchedRefundCreditMemos,
+  listActiveMatchesForCompany,
+} from '@/lib/data/transaction-matches';
 import { listBankAccounts } from '@/lib/data/bank-accounts';
 import { listBankReconciliations } from '@/lib/data/bank-reconciliations';
 import {
@@ -185,6 +188,9 @@ export default async function BankAccountDetailPage({
   ]);
 
   const transactions = focusTxn ? [focusTxn] : listedTransactions;
+
+  // Credit memos behind any active refund match, for the register's label.
+  const refundCreditMemos = await getMatchedRefundCreditMemos(company.id);
 
   // Statement reconciliation status — the QB-style "R". A transaction cleared
   // inside a COMPLETED bank reconciliation is proven against the statement.
@@ -876,6 +882,14 @@ export default async function BankAccountDetailPage({
                       activeLabel = 'Owner contribution';
                     } else if (activeMatch.matchType === 'owner_draw') {
                       activeLabel = 'Owner draw';
+                    } else if (
+                      activeMatch.matchType === 'credit_memo_refund' &&
+                      activeMatch.creditMemoId
+                    ) {
+                      const cm = refundCreditMemos.get(activeMatch.creditMemoId);
+                      activeLabel = cm
+                        ? `Customer refund: ${cm.number} — ${cm.customerName}`
+                        : 'Customer refund';
                     }
                   }
                   return (

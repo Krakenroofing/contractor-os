@@ -693,6 +693,7 @@ export async function createMatchAtomic(input: {
   receiptId?: string | null;
   jobCostEntryId?: string | null;
   transferPairedTxnId?: string | null;
+  creditMemoId?: string | null;
   confidence: TransactionMatch['confidence'];
   matchedByUserId: string | null;
   notes?: string | null;
@@ -709,6 +710,7 @@ export async function createMatchAtomic(input: {
         receiptId: input.receiptId ?? null,
         jobCostEntryId: input.jobCostEntryId ?? null,
         transferPairedTxnId: input.transferPairedTxnId ?? null,
+        creditMemoId: input.creditMemoId ?? null,
         confidence: input.confidence,
         matchedByUserId: input.matchedByUserId,
         notes: input.notes ?? null,
@@ -914,6 +916,115 @@ export async function countActiveMatchesByType(
     if (r.matchType in out) {
       out[r.matchType as TransactionMatch['matchType']] = r.n;
     }
+  }
+  return out;
+}
+
+export type RefundCreditMemoCandidate = {
+  creditMemoId: string;
+  number: string;
+  issueDate: string;
+  /** Cash-refund portion still waiting on a bank transaction. */
+  refundAmount: number;
+  customerName: string;
+  invoiceNumber: string | null;
+  reason: string;
+  /** Revenue category the refund should come back out of, when the source
+   *  invoice carries one. Used to categorize the matched bank txn. */
+  revenueAccountId: string | null;
+};
+
+/**
+ * Credit memos with a cash refund that no bank transaction has settled yet —
+ * the pick-list behind "Match to customer refund…". A memo already matched to
+ * another transaction is excluded, so a refund can only be paid once.
+ */
+export async function listUnsettledRefundCreditMemos(
+  companyId: string,
+  opts: { query?: string; limit?: number } = {},
+): Promise<RefundCreditMemoCandidate[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const like = opts.query?.trim()
+    ? `%${opts.query.trim().toLowerCase()}%`
+    : null;
+  const rows = await db.execute(sql`
+    SELECT cm.id                AS credit_memo_id,
+           cm.number            AS number,
+           cm.issue_date        AS issue_date,
+           cm.reason            AS reason,
+           c.name               AS customer_name,
+           i.number             AS invoice_number,
+           i.accounting_account_id AS revenue_account_id,
+           COALESCE(SUM(app.amount), 0) AS refund_amount
+      FROM credit_memos cm
+      JOIN customers c ON c.id = cm.customer_id
+      JOIN credit_memo_applications app
+        ON app.credit_memo_id = cm.id AND app.kind = 'cash_refund'
+      LEFT JOIN invoices i ON i.id = cm.invoice_id
+     WHERE cm.company_id = ${companyId}
+       AND cm.voided_at IS NULL
+       AND cm.status NOT IN ('draft', 'void')
+       AND NOT EXISTS (
+         SELECT 1 FROM transaction_matches tm
+          WHERE tm.credit_memo_id = cm.id AND tm.reversed_at IS NULL
+       )
+       ${
+         like
+           ? sql`AND (LOWER(cm.number) LIKE ${like}
+                   OR LOWER(c.name) LIKE ${like}
+                   OR LOWER(COALESCE(i.number, '')) LIKE ${like}
+                   OR LOWER(cm.reason) LIKE ${like})`
+           : sql``
+       }
+     GROUP BY cm.id, cm.number, cm.issue_date, cm.reason, c.name, i.number,
+              i.accounting_account_id
+     HAVING COALESCE(SUM(app.amount), 0) > 0
+     ORDER BY cm.issue_date DESC
+     LIMIT ${opts.limit ?? 50}
+  `);
+  const list = (rows as unknown as { rows?: Record<string, unknown>[] }).rows ??
+    (rows as unknown as Record<string, unknown>[]);
+  return list.map((r) => ({
+    creditMemoId: String(r.credit_memo_id),
+    number: String(r.number),
+    issueDate: String(r.issue_date).slice(0, 10),
+    refundAmount: Math.round(Number(r.refund_amount) * 100) / 100,
+    customerName: String(r.customer_name ?? ''),
+    invoiceNumber: r.invoice_number ? String(r.invoice_number) : null,
+    reason: String(r.reason ?? ''),
+    revenueAccountId: r.revenue_account_id ? String(r.revenue_account_id) : null,
+  }));
+}
+
+/** The credit memo behind an active refund match, for the register label. */
+export async function getMatchedRefundCreditMemos(
+  companyId: string,
+): Promise<Map<string, { number: string; customerName: string; amount: number }>> {
+  const out = new Map<
+    string,
+    { number: string; customerName: string; amount: number }
+  >();
+  if (!isDatabaseConfigured()) return out;
+  const db = getDb()!;
+  const rows = await db.execute(sql`
+    SELECT cm.id, cm.number, cm.amount, c.name AS customer_name
+      FROM credit_memos cm
+      JOIN customers c ON c.id = cm.customer_id
+     WHERE cm.company_id = ${companyId}
+       AND EXISTS (
+         SELECT 1 FROM transaction_matches tm
+          WHERE tm.credit_memo_id = cm.id AND tm.reversed_at IS NULL
+       )
+  `);
+  const list = (rows as unknown as { rows?: Record<string, unknown>[] }).rows ??
+    (rows as unknown as Record<string, unknown>[]);
+  for (const r of list) {
+    out.set(String(r.id), {
+      number: String(r.number),
+      customerName: String(r.customer_name ?? ''),
+      amount: Math.round(Number(r.amount) * 100) / 100,
+    });
   }
   return out;
 }

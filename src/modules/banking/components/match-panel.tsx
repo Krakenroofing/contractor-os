@@ -10,6 +10,8 @@ import {
   transferToAccountAction,
   matchInvoicePaymentsAction,
   matchInvoiceBalancesAction,
+  matchCreditMemoRefundAction,
+  searchCreditMemoRefundsAction,
   matchJobCostEntryAction,
   matchOwnerEquityAction,
   matchReceiptAction,
@@ -42,7 +44,8 @@ export type ActiveMatchInfo = {
     | 'job_cost_entry'
     | 'transfer'
     | 'owner_contribution'
-    | 'owner_draw';
+    | 'owner_draw'
+    | 'credit_memo_refund';
   /** Short human label, e.g. "Invoice #103 — Acme Corp $5,000". Built by the
    *  caller from the matched record so we don't need an extra fetch here. */
   targetLabel: string;
@@ -219,6 +222,39 @@ export function MatchPanel(props: MatchPanelProps) {
     setInvoiceSearched(false);
     setSelected(new Map());
     setErr(null);
+  }
+
+  // ----- Customer refund (credit memo paid out in cash) state -----
+  const [refundMode, setRefundMode] = useState(false);
+  const [refundQuery, setRefundQuery] = useState('');
+  const [refundResults, setRefundResults] = useState<
+    Array<{
+      creditMemoId: string;
+      number: string;
+      issueDate: string;
+      refundAmount: number;
+      customerName: string;
+      invoiceNumber: string | null;
+      reason: string;
+    }>
+  >([]);
+  const [refundSearched, setRefundSearched] = useState(false);
+  const [refundSearching, setRefundSearching] = useState(false);
+
+  function loadRefunds(query: string) {
+    setErr(null);
+    setRefundSearching(true);
+    startTransition(async () => {
+      const res = await searchCreditMemoRefundsAction({ query });
+      setRefundSearching(false);
+      setRefundSearched(true);
+      if (res.error) {
+        setErr(res.error);
+        setRefundResults([]);
+        return;
+      }
+      setRefundResults(res.results ?? []);
+    });
   }
 
   // ----- Batch bill payment (money-out) state -----
@@ -720,6 +756,118 @@ export function MatchPanel(props: MatchPanelProps) {
             {pending ? '…' : 'It’s an inter-account transfer'}
           </Button>
         </div>
+        {err && <p className="text-red-700">{err}</p>}
+      </div>
+    );
+  }
+
+  // ----- Customer refund: settle a credit memo's cash refund -----
+  if (refundMode) {
+    const refundAbs = Math.round(Math.abs(props.amount) * 100) / 100;
+    return (
+      <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
+        <div className="font-medium text-blue-900">
+          Match withdrawal to a customer refund
+        </div>
+        <p className="text-blue-800">
+          Pick the credit memo this money paid out. The refund then counts once
+          — through the credit memo — instead of being categorized to revenue
+          on top of it. Only memos with a cash refund that no other transaction
+          has settled are listed.
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            value={refundQuery}
+            onChange={(e) => setRefundQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                loadRefunds(refundQuery);
+              }
+            }}
+            placeholder="Credit memo #, customer, invoice #…"
+            className="h-8 text-xs"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending}
+            onClick={() => loadRefunds(refundQuery)}
+          >
+            {refundSearching ? 'Searching…' : 'Search'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() => {
+              setRefundMode(false);
+              setRefundQuery('');
+              setRefundResults([]);
+              setRefundSearched(false);
+              setErr(null);
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+        {refundSearched && refundResults.length === 0 && (
+          <p className="text-slate-600">
+            No unsettled cash refunds found. A credit memo needs a cash-refund
+            application (Credit Memos → Refund) before its bank withdrawal can
+            be matched here.
+          </p>
+        )}
+        {refundResults.length > 0 && (
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {refundResults.map((r) => {
+              const exact = Math.abs(r.refundAmount - refundAbs) < 0.005;
+              return (
+                <div
+                  key={r.creditMemoId}
+                  className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1.5"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-900">
+                      {r.number} — {r.customerName}
+                      {exact && (
+                        <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+                          exact
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-slate-500">
+                      {r.issueDate}
+                      {r.invoiceNumber ? ` · invoice ${r.invoiceNumber}` : ''}
+                      {r.reason ? ` · ${r.reason}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="font-semibold tabular-nums text-slate-900">
+                      ${fmtMoney(r.refundAmount)}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() =>
+                        runAndRefresh(() =>
+                          matchCreditMemoRefundAction({
+                            transactionId: props.transactionId,
+                            creditMemoId: r.creditMemoId,
+                          }),
+                        )
+                      }
+                    >
+                      Match
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {err && <p className="text-red-700">{err}</p>}
       </div>
     );
@@ -1385,6 +1533,21 @@ export function MatchPanel(props: MatchPanelProps) {
               }}
             >
               Match to bills…
+            </Button>
+          )}
+          {moneyOut && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => {
+                setErr(null);
+                setRefundMode(true);
+                loadRefunds('');
+              }}
+            >
+              Match to customer refund…
             </Button>
           )}
           {moneyIn && (

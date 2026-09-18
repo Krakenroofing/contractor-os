@@ -72,8 +72,10 @@ import {
   createTransferPairAtomic,
   listActiveMatchesForCompany,
   listActiveMatchesForTxn,
+  listUnsettledRefundCreditMemos,
   reverseMatchAtomic,
   sumPaidByPayrollBills,
+  type RefundCreditMemoCandidate,
 } from '@/lib/data/transaction-matches';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getVendor, listVendors } from '@/lib/data/vendors';
@@ -2913,6 +2915,93 @@ export async function matchOwnerEquityAction(input: {
 
   await syncTxnGlSafe(companyId, txn.id);
   revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  return { ok: true };
+}
+
+// ===== Customer refunds (credit memo paid out in cash) =====
+//
+// A credit memo applied as a cash_refund already nets off P&L revenue. The
+// bank withdrawal that pays it therefore must NOT also be categorized to a
+// revenue account, or the refund lands on the statement twice. Matching the
+// withdrawal to the memo puts it in one lane: the transaction drops out of
+// the bank-deposit income source, and the memo carries the contra alone. The
+// GL still posts Dr revenue / Cr bank, because the memo itself posts no GL.
+
+export async function searchCreditMemoRefundsAction(input: {
+  query?: string;
+}): Promise<{ results?: RefundCreditMemoCandidate[]; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!can(role, 'statement_imports', 'create')) {
+    return { error: 'No permission.' };
+  }
+  const companyId = await getActiveCompanyId();
+  try {
+    const results = await listUnsettledRefundCreditMemos(companyId, {
+      query: input.query,
+    });
+    return { results };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Could not load refunds.',
+    };
+  }
+}
+
+export async function matchCreditMemoRefundAction(input: {
+  transactionId: string;
+  creditMemoId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const loaded = await loadTxnAndUser(input);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+  const { user, companyId, txn } = loaded;
+  if (Number(txn.amount) >= 0) {
+    return { ok: false, error: 'A customer refund must be money-out.' };
+  }
+  const cmId = z.string().uuid().safeParse(input.creditMemoId);
+  if (!cmId.success) return { ok: false, error: 'Invalid credit memo.' };
+
+  const candidates = await listUnsettledRefundCreditMemos(companyId, {
+    limit: 500,
+  });
+  const cm = candidates.find((c) => c.creditMemoId === cmId.data);
+  if (!cm) {
+    return {
+      ok: false,
+      error:
+        'That credit memo no longer has an unsettled cash refund — it may already be matched to another transaction.',
+    };
+  }
+
+  try {
+    await createMatchAtomic({
+      companyId,
+      importedTransactionId: txn.id,
+      matchType: 'credit_memo_refund',
+      creditMemoId: cm.creditMemoId,
+      confidence: 'manual',
+      matchedByUserId: await safeMatchUserId(user.id),
+      notes: `Refund on credit memo ${cm.number}`,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Match failed.',
+    };
+  }
+
+  // The refund comes back out of the revenue it was billed on, so the GL
+  // entry stays Dr revenue / Cr bank. Only fill a category the user hasn't
+  // set themselves — same "don't overwrite human work" rule as elsewhere.
+  if (cm.revenueAccountId && !txn.accountingAccountId) {
+    await updateImportedTransaction(companyId, txn.id, {
+      accountingAccountId: cm.revenueAccountId,
+    });
+  }
+
+  await syncTxnGlSafe(companyId, txn.id);
+  revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+  revalidatePath('/reports/profit-loss');
   return { ok: true };
 }
 
