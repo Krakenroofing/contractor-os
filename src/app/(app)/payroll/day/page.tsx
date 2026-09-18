@@ -27,6 +27,7 @@ import { formatMoney, parseMoney } from '@/lib/money';
 import { mondayOf } from '@/modules/payroll/lib/periods';
 import { DeleteTimeEntryButton } from '@/modules/payroll/components/delete-time-entry-button';
 import { EntryAllocationSelect } from '@/modules/payroll/components/entry-allocation-select';
+import { SplitDayForm } from '@/modules/payroll/components/split-day-form';
 import {
   EMPLOYMENT_TYPE_LABEL,
   EMPLOYMENT_TYPE_TONE,
@@ -114,6 +115,11 @@ export default async function PayrollDayPage({
   const totalHours = dayEntries
     .filter((e) => e.entryType !== 'amount')
     .reduce((sum, e) => sum + parseMoney(e.hours), 0);
+  // Pool the percent-split can re-allocate: hours entries not claimed by
+  // a work order (those cost through the WO lane).
+  const splittableHours = dayEntries
+    .filter((e) => e.entryType === 'hours' && !e.workOrderId)
+    .reduce((sum, e) => sum + parseMoney(e.hours), 0);
   const totalAmount = dayEntries
     .filter((e) => e.entryType === 'amount')
     .reduce((sum, e) => sum + parseMoney(e.amount), 0);
@@ -177,6 +183,15 @@ export default async function PayrollDayPage({
           )}
         </div>
       ) : (
+        <>
+        {allowEdit && !isLocked && splittableHours > 0 && (
+          <SplitDayForm
+            employeeId={employeeId}
+            workDate={workDate}
+            totalHours={splittableHours}
+            projects={projectOptions}
+          />
+        )}
         <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
           <Table>
             <TableHeader>
@@ -294,6 +309,7 @@ export default async function PayrollDayPage({
             </div>
           )}
         </div>
+        </>
       )}
 
     </div>

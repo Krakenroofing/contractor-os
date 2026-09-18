@@ -1771,3 +1771,123 @@ export async function unlockPeriodAction(
   revalidatePath('/payroll');
   return {};
 }
+
+// ---------------------------------------------------------------------------
+// Split a day across jobs by percent — "20% here, 60% there, 20% there".
+// Replaces the employee's hours entries for the day with one entry per
+// job at hours x percent. WO-claimed entries are untouched (that cost
+// rides the work order); flat-amount entries are untouched too. Total
+// hours (and therefore pay) never change — only the allocation.
+// ---------------------------------------------------------------------------
+
+export type SplitDayState = { ok?: boolean; error?: string };
+
+export async function splitDayAcrossJobsAction(input: {
+  employeeId: string;
+  workDate: string;
+  rows: Array<{ projectId: string; percent: number }>;
+}): Promise<SplitDayState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'payroll')) {
+    return { error: 'You do not have permission to edit payroll.' };
+  }
+  const companyId = await getActiveCompanyId();
+
+  if (!idSchema.safeParse(input.employeeId).success) {
+    return { error: 'Invalid employee.' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.workDate)) {
+    return { error: 'Invalid date.' };
+  }
+  const rows = (input.rows ?? []).filter(
+    (r) =>
+      idSchema.safeParse(r.projectId).success &&
+      Number.isFinite(r.percent) &&
+      r.percent > 0,
+  );
+  if (rows.length === 0 || rows.length > 8) {
+    return { error: 'Add between 1 and 8 job rows with a percent each.' };
+  }
+  const pctTotal = rows.reduce((s, r) => s + r.percent, 0);
+  if (Math.abs(pctTotal - 100) > 0.01) {
+    return { error: `Percents must add up to 100 (currently ${pctTotal.toFixed(0)}%).` };
+  }
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.projectId)) {
+      return { error: 'Each job can appear only once in the split.' };
+    }
+    seen.add(r.projectId);
+  }
+
+  const period = await getOrCreatePeriodForDate(companyId, input.workDate);
+  const periodCheck = await assertPeriodEditable(companyId, period.id);
+  if (!periodCheck.ok) {
+    return { error: 'This pay week is locked — reopen it before re-allocating.' };
+  }
+
+  const dayEntries = (
+    await listTimeEntries(companyId, {
+      payPeriodId: period.id,
+      employeeId: input.employeeId,
+    })
+  ).filter((e) => e.workDate === input.workDate);
+  // The splittable pool: hours entries not claimed by a work order.
+  const pool = dayEntries.filter(
+    (e) => e.entryType === 'hours' && !e.workOrderId,
+  );
+  const totalHours =
+    Math.round(pool.reduce((s, e) => s + Number(e.hours), 0) * 100) / 100;
+  if (totalHours <= 0) {
+    return { error: 'No splittable hours on this day.' };
+  }
+
+  // Cost code per job: the project's default labor code, else the
+  // company's. A job with neither still splits — the day view's cost
+  // code picker can fill it in before posting.
+  const company = await getCompany(companyId);
+  const projects = await listProjects(companyId);
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  for (const r of rows) {
+    if (!projectById.has(r.projectId)) {
+      return { error: 'One of the selected jobs was not found.' };
+    }
+  }
+
+  // Replace the pool with the split.
+  for (const e of pool) {
+    await deleteTimeEntry(companyId, e.id);
+  }
+  let allocated = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const last = i === rows.length - 1;
+    const hours = last
+      ? Math.round((totalHours - allocated) * 100) / 100
+      : Math.round(totalHours * (r.percent / 100) * 100) / 100;
+    allocated = Math.round((allocated + hours) * 100) / 100;
+    const project = projectById.get(r.projectId)!;
+    await createTimeEntry(companyId, {
+      employeeId: input.employeeId,
+      payPeriodId: period.id,
+      workDate: input.workDate,
+      entryType: 'hours',
+      hours: hours.toFixed(2),
+      amount: '0',
+      projectId: r.projectId,
+      costCodeId:
+        project.defaultLaborCostCodeId ??
+        company?.defaultLaborCostCodeId ??
+        null,
+      isOverhead: false,
+      isServiceCall: false,
+      workOrderId: null,
+      notes: `Split ${r.percent}% of day`,
+    });
+  }
+
+  revalidatePath('/payroll/day');
+  revalidatePath('/payroll');
+  return { ok: true };
+}
