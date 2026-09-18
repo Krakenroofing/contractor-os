@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SortableTable } from '@/components/ui/sortable-table';
 import { Button } from '@/components/ui/button';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
@@ -141,67 +142,79 @@ export default async function ExpenseReportPage({
                     : '— categorize some transactions or post receipts first.'}
                 </p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Vendor</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Job</TableHead>
-                      <TableHead>Account</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {report.rows.map((r) => (
-                      <TableRow key={r.key}>
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {r.date}
-                        </TableCell>
-                        <TableCell className="max-w-[16rem]">
-                          <a
-                            href={r.href}
-                            className="block truncate text-slate-900 underline-offset-2 hover:underline"
-                            title={r.description}
-                          >
-                            {r.description}
-                          </a>
-                        </TableCell>
-                        <TableCell className="max-w-[10rem] truncate text-xs text-slate-600">
-                          {r.vendorName ?? '—'}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {r.categoryName}
-                        </TableCell>
-                        <TableCell className="max-w-[10rem] truncate text-xs text-slate-600">
-                          {r.projectName ?? '—'}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {r.accountName}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-600">
-                          {r.paymentMethodName ?? '—'}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums font-medium">
-                          <a
-                            href={r.href}
-                            className={`underline underline-offset-2 ${
-                              r.amount < 0
-                                ? 'text-emerald-700 hover:text-emerald-900'
-                                : 'text-blue-700 hover:text-blue-900'
-                            }`}
-                          >
-                            {r.amount < 0
-                              ? `(${formatMoney(-r.amount)})`
-                              : formatMoney(r.amount)}
-                          </a>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <SortableTable
+                  columns={[
+                    { key: 'date', label: 'Date' },
+                    { key: 'description', label: 'Description' },
+                    { key: 'vendor', label: 'Vendor' },
+                    { key: 'category', label: 'Category' },
+                    { key: 'job', label: 'Job' },
+                    { key: 'account', label: 'Account' },
+                    { key: 'method', label: 'Method' },
+                    { key: 'amount', label: 'Amount', align: 'right' },
+                  ]}
+                  defaultSort={{ key: 'date', dir: 'desc' }}
+                  rows={report.rows.map((r) => ({
+                    id: r.key,
+                    sortValues: [
+                      r.date,
+                      r.description,
+                      r.vendorName,
+                      r.categoryName,
+                      r.projectName,
+                      r.accountName,
+                      r.paymentMethodName,
+                      r.amount,
+                    ],
+                    cells: [
+                      <span key="d" className="whitespace-nowrap font-mono text-xs">
+                        {r.date}
+                      </span>,
+                      <a
+                        key="desc"
+                        href={r.href}
+                        className="block max-w-[16rem] truncate text-slate-900 underline-offset-2 hover:underline"
+                        title={r.description}
+                      >
+                        {r.description}
+                      </a>,
+                      <span
+                        key="v"
+                        className="block max-w-[10rem] truncate text-xs text-slate-600"
+                      >
+                        {r.vendorName ?? '—'}
+                      </span>,
+                      <span key="c" className="text-xs text-slate-600">
+                        {r.categoryName}
+                      </span>,
+                      <span
+                        key="j"
+                        className="block max-w-[10rem] truncate text-xs text-slate-600"
+                      >
+                        {r.projectName ?? '—'}
+                      </span>,
+                      <span key="a" className="text-xs text-slate-600">
+                        {r.accountName}
+                      </span>,
+                      <span key="m" className="text-xs text-slate-600">
+                        {r.paymentMethodName ?? '—'}
+                      </span>,
+                      <a
+                        key="amt"
+                        href={r.href}
+                        className={`tabular-nums font-medium underline underline-offset-2 ${
+                          r.amount < 0
+                            ? 'text-emerald-700 hover:text-emerald-900'
+                            : 'text-blue-700 hover:text-blue-900'
+                        }`}
+                      >
+                        {r.amount < 0
+                          ? `(${formatMoney(-r.amount)})`
+                          : formatMoney(r.amount)}
+                      </a>,
+                    ],
+                  }))}
+                />
               )}
             </CardContent>
           </Card>

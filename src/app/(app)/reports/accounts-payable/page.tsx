@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SortableTable } from '@/components/ui/sortable-table';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
@@ -254,98 +255,114 @@ export default async function APReportPage({
               subcontractor payment has been settled.
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Vendor inv #</TableHead>
-                  <TableHead>Vendor</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Issue date</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead>Terms</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Days</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {report.agingRows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="text-xs">
-                      {r.sourceType === 'po' ? (
-                        <Link
-                          href={{ pathname: `/purchase-orders/${r.sourceId}` }}
-                          className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
-                          title="Open this PO — add the vendor's invoice number there"
-                        >
-                          {r.sourceLabel}
-                        </Link>
-                      ) : r.sourceType === 'bill' ? (
-                        <Link
-                          href={{ pathname: `/banking/receipts/${r.sourceId}` }}
-                          className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
-                          title="Open this bill"
-                        >
-                          {r.sourceLabel}
-                        </Link>
-                      ) : r.sourceType === 'payroll' ? (
-                        <Link
-                          href={{ pathname: '/payroll/bills' }}
-                          className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
-                          title="Open the payroll bills page"
-                        >
-                          {r.sourceLabel}
-                        </Link>
-                      ) : (
-                        <Badge tone="amber">Sub</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-slate-600">
-                      {r.vendorInvoiceNumber ?? (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-slate-700">{r.vendorName}</TableCell>
-                    <TableCell className="text-slate-600">
-                      {r.projectName ?? <span className="text-slate-400">—</span>}
-                    </TableCell>
-                    <TableCell className="text-slate-600">{r.issueDate}</TableCell>
-                    <TableCell className="text-slate-600">{r.dueDate}</TableCell>
-                    <TableCell className="text-xs text-slate-500">
-                      {r.termsLabel}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {r.sourceType === 'bill' || r.sourceType === 'payroll' ? (
-                        <Link
-                          href={{
-                            pathname:
-                              r.sourceType === 'bill'
-                                ? `/banking/receipts/${r.sourceId}`
-                                : '/payroll/bills',
-                          }}
-                          className="text-amber-700 underline underline-offset-2 hover:text-amber-900"
-                        >
-                          {formatMoney(r.amount)}
-                        </Link>
-                      ) : (
-                        <span className="text-amber-700">
-                          {formatMoney(r.amount)}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${
-                        r.daysOverdue > 0
-                          ? 'text-red-600 font-medium'
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      {r.daysOverdue}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <SortableTable
+              columns={[
+                { key: 'source', label: 'Source' },
+                { key: 'invoice', label: 'Vendor inv #' },
+                { key: 'vendor', label: 'Vendor' },
+                { key: 'project', label: 'Project' },
+                { key: 'issue', label: 'Issue date' },
+                { key: 'due', label: 'Due' },
+                { key: 'terms', label: 'Terms' },
+                { key: 'amount', label: 'Amount', align: 'right' },
+                { key: 'days', label: 'Days', align: 'right' },
+              ]}
+              defaultSort={{ key: 'days', dir: 'desc' }}
+              rows={report.agingRows.map((r) => ({
+                id: r.id,
+                sortValues: [
+                  r.sourceLabel,
+                  r.vendorInvoiceNumber,
+                  r.vendorName,
+                  r.projectName,
+                  r.issueDate,
+                  r.dueDate,
+                  r.termsLabel,
+                  r.amount,
+                  r.daysOverdue,
+                ],
+                cells: [
+                  <span key="s" className="text-xs">
+                    {r.sourceType === 'po' ? (
+                      <Link
+                        href={{ pathname: `/purchase-orders/${r.sourceId}` }}
+                        className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        title="Open this PO — add the vendor's invoice number there"
+                      >
+                        {r.sourceLabel}
+                      </Link>
+                    ) : r.sourceType === 'bill' ? (
+                      <Link
+                        href={{ pathname: `/banking/receipts/${r.sourceId}` }}
+                        className="font-mono text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        title="Open this bill"
+                      >
+                        {r.sourceLabel}
+                      </Link>
+                    ) : r.sourceType === 'payroll' ? (
+                      <Link
+                        href={{ pathname: '/payroll/bills' }}
+                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                        title="Open the payroll bills page"
+                      >
+                        {r.sourceLabel}
+                      </Link>
+                    ) : (
+                      <Badge tone="amber">Sub</Badge>
+                    )}
+                  </span>,
+                  <span key="i" className="font-mono text-xs text-slate-600">
+                    {r.vendorInvoiceNumber ?? (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </span>,
+                  <span key="v" className="text-slate-700">
+                    {r.vendorName}
+                  </span>,
+                  <span key="p" className="text-slate-600">
+                    {r.projectName ?? <span className="text-slate-400">—</span>}
+                  </span>,
+                  <span key="id" className="text-slate-600">
+                    {r.issueDate}
+                  </span>,
+                  <span key="dd" className="text-slate-600">
+                    {r.dueDate}
+                  </span>,
+                  <span key="t" className="text-xs text-slate-500">
+                    {r.termsLabel}
+                  </span>,
+                  <span key="a" className="tabular-nums font-medium">
+                    {r.sourceType === 'bill' || r.sourceType === 'payroll' ? (
+                      <Link
+                        href={{
+                          pathname:
+                            r.sourceType === 'bill'
+                              ? `/banking/receipts/${r.sourceId}`
+                              : '/payroll/bills',
+                        }}
+                        className="text-amber-700 underline underline-offset-2 hover:text-amber-900"
+                      >
+                        {formatMoney(r.amount)}
+                      </Link>
+                    ) : (
+                      <span className="text-amber-700">
+                        {formatMoney(r.amount)}
+                      </span>
+                    )}
+                  </span>,
+                  <span
+                    key="dv"
+                    className={`tabular-nums ${
+                      r.daysOverdue > 0
+                        ? 'text-red-600 font-medium'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    {r.daysOverdue}
+                  </span>,
+                ],
+              }))}
+            />
           )}
         </CardContent>
       </Card>

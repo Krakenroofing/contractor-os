@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SortableTable } from '@/components/ui/sortable-table';
 import { formatMoney } from '@/lib/money';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
@@ -230,78 +231,110 @@ export default async function VendorDetailPage({
               or create one from a PO.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-28">Date</TableHead>
-                  <TableHead>Vendor inv #</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Credits</TableHead>
-                  <TableHead className="text-right">Paid</TableHead>
-                  <TableHead className="text-right">Outstanding</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {billViews.map(({ b, total, credit, paid, outstanding, isBank, isDraft }) => (
-                  <TableRow key={b.id}>
-                    <TableCell className="tabular-nums text-slate-700">
-                      {b.receiptDate}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-slate-600">
-                      {b.vendorInvoiceNumber ?? (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {b.dueDate ?? <span className="text-slate-300">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(total)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-slate-600">
-                      {credit > 0.005 ? `−${formatMoney(credit)}` : ''}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-slate-600">
-                      {paid > 0.005 ? formatMoney(paid) : ''}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {outstanding > 0.005 ? (
-                        <span className="text-amber-700">
-                          {formatMoney(outstanding)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {isDraft ? (
-                        <Badge tone="slate">Draft — not posted</Badge>
+            <SortableTable
+              columns={[
+                { key: 'date', label: 'Date', className: 'w-28' },
+                { key: 'invoice', label: 'Vendor inv #' },
+                { key: 'due', label: 'Due' },
+                { key: 'total', label: 'Total', align: 'right' },
+                { key: 'credits', label: 'Credits', align: 'right' },
+                { key: 'paid', label: 'Paid', align: 'right' },
+                { key: 'outstanding', label: 'Outstanding', align: 'right' },
+                { key: 'status', label: 'Status' },
+                { key: 'actions', label: '', align: 'right', sortable: false },
+              ]}
+              defaultSort={{ key: 'date', dir: 'desc' }}
+              rows={billViews.map(
+                ({ b, total, credit, paid, outstanding, isBank, isDraft }) => {
+                  const statusLabel = isDraft
+                    ? 'Draft'
+                    : !isBank
+                      ? 'Paid (other)'
+                      : outstanding <= 0.005
+                        ? 'Paid'
+                        : paid + credit > 0.005
+                          ? 'Partial'
+                          : 'Unpaid';
+                  return {
+                    id: b.id,
+                    sortValues: [
+                      b.receiptDate,
+                      b.vendorInvoiceNumber,
+                      b.dueDate,
+                      total,
+                      credit,
+                      paid,
+                      outstanding,
+                      statusLabel,
+                      null,
+                    ],
+                    cells: [
+                      <span key="d" className="tabular-nums text-slate-700">
+                        {b.receiptDate}
+                      </span>,
+                      <span key="i" className="font-mono text-xs text-slate-600">
+                        {b.vendorInvoiceNumber ?? (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </span>,
+                      <span key="u" className="text-slate-600">
+                        {b.dueDate ?? <span className="text-slate-300">—</span>}
+                      </span>,
+                      <span key="t" className="tabular-nums">
+                        {formatMoney(total)}
+                      </span>,
+                      <span key="c" className="tabular-nums text-slate-600">
+                        {credit > 0.005 ? `−${formatMoney(credit)}` : ''}
+                      </span>,
+                      <span key="p" className="tabular-nums text-slate-600">
+                        {paid > 0.005 ? formatMoney(paid) : ''}
+                      </span>,
+                      <span key="o" className="tabular-nums font-medium">
+                        {outstanding > 0.005 ? (
+                          <span className="text-amber-700">
+                            {formatMoney(outstanding)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </span>,
+                      isDraft ? (
+                        <Badge key="s" tone="slate">
+                          Draft — not posted
+                        </Badge>
                       ) : !isBank ? (
-                        <Badge tone="slate">
-                          Paid ({b.paymentSourceType === 'cash' ? 'cash' : b.paymentSourceType === 'credit_card' ? 'card' : 'other'})
+                        <Badge key="s" tone="slate">
+                          Paid (
+                          {b.paymentSourceType === 'cash'
+                            ? 'cash'
+                            : b.paymentSourceType === 'credit_card'
+                              ? 'card'
+                              : 'other'}
+                          )
                         </Badge>
                       ) : outstanding <= 0.005 ? (
-                        <Badge tone="green">Paid</Badge>
+                        <Badge key="s" tone="green">
+                          Paid
+                        </Badge>
                       ) : paid + credit > 0.005 ? (
-                        <Badge tone="amber">Partial</Badge>
+                        <Badge key="s" tone="amber">
+                          Partial
+                        </Badge>
                       ) : (
-                        <Badge tone="red">Unpaid</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/banking/receipts/${b.id}`}>
+                        <Badge key="s" tone="red">
+                          Unpaid
+                        </Badge>
+                      ),
+                      <Link key="a" href={`/banking/receipts/${b.id}`}>
                         <Button size="sm" variant="outline">
                           View
                         </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      </Link>,
+                    ],
+                  };
+                },
+              )}
+            />
           )}
         </CardContent>
       </Card>

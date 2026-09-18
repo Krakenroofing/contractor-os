@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SortableTable } from '@/components/ui/sortable-table';
 import { getActiveCompany } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canView } from '@/lib/permissions';
@@ -176,58 +177,83 @@ export default async function ARReportPage({
           <CardTitle>Open invoices</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Invoice</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Invoice date</TableHead>
-                <TableHead>Due</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Paid</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Days</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {report.agingRows.map((r) => (
-                <TableRow key={r.invoiceId}>
-                  <TableCell className="font-mono text-xs text-slate-700">
-                    <Link href={{ pathname: `/invoices/${r.invoiceId}` }} className="text-blue-700 underline underline-offset-2 hover:text-blue-900">
-                      {r.invoiceNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-slate-600">{r.customerName}</TableCell>
-                  <TableCell className="text-slate-700">{r.projectName}</TableCell>
-                  <TableCell className="text-xs text-slate-600">
-                    {r.changeOrderId ? (
-                      <Badge tone="blue">CO</Badge>
-                    ) : (
-                      <span className="text-slate-500">Base</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-slate-600">{r.invoiceDate}</TableCell>
-                  <TableCell className="text-slate-600">{r.dueDate ?? '—'}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(r.total)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-700">
-                    {formatMoney(r.amountPaid)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium text-amber-700">
-                    {formatMoney(r.balance)}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums ${
-                      r.daysOverdue > 0 ? 'text-red-600 font-medium' : 'text-slate-500'
-                    }`}
-                  >
-                    {r.daysOverdue}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <SortableTable
+            columns={[
+              { key: 'invoice', label: 'Invoice' },
+              { key: 'customer', label: 'Customer' },
+              { key: 'project', label: 'Project' },
+              { key: 'source', label: 'Source' },
+              { key: 'invoiceDate', label: 'Invoice date' },
+              { key: 'due', label: 'Due' },
+              { key: 'total', label: 'Total', align: 'right' },
+              { key: 'paid', label: 'Paid', align: 'right' },
+              { key: 'balance', label: 'Balance', align: 'right' },
+              { key: 'days', label: 'Days', align: 'right' },
+            ]}
+            defaultSort={{ key: 'days', dir: 'desc' }}
+            rows={report.agingRows.map((r) => ({
+              id: r.invoiceId,
+              sortValues: [
+                r.invoiceNumber,
+                r.customerName,
+                r.projectName,
+                r.changeOrderId ? 'CO' : 'Base',
+                r.invoiceDate,
+                r.dueDate,
+                r.total,
+                r.amountPaid,
+                r.balance,
+                r.daysOverdue,
+              ],
+              cells: [
+                <Link
+                  key="i"
+                  href={{ pathname: `/invoices/${r.invoiceId}` }}
+                  className="font-mono text-xs text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                >
+                  {r.invoiceNumber}
+                </Link>,
+                <span key="c" className="text-slate-600">
+                  {r.customerName}
+                </span>,
+                <span key="p" className="text-slate-700">
+                  {r.projectName}
+                </span>,
+                <span key="s" className="text-xs text-slate-600">
+                  {r.changeOrderId ? (
+                    <Badge tone="blue">CO</Badge>
+                  ) : (
+                    <span className="text-slate-500">Base</span>
+                  )}
+                </span>,
+                <span key="d" className="text-slate-600">
+                  {r.invoiceDate}
+                </span>,
+                <span key="u" className="text-slate-600">
+                  {r.dueDate ?? '—'}
+                </span>,
+                <span key="t" className="tabular-nums">
+                  {formatMoney(r.total)}
+                </span>,
+                <span key="pd" className="tabular-nums text-emerald-700">
+                  {formatMoney(r.amountPaid)}
+                </span>,
+                <span key="b" className="tabular-nums font-medium text-amber-700">
+                  {formatMoney(r.balance)}
+                </span>,
+                <span
+                  key="dv"
+                  className={`tabular-nums ${
+                    r.daysOverdue > 0
+                      ? 'text-red-600 font-medium'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  {r.daysOverdue}
+                </span>,
+              ],
+            }))}
+          />
         </CardContent>
       </Card>
     </ReportShell>
