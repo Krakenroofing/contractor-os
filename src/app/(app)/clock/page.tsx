@@ -201,8 +201,24 @@ export default async function ClockReviewPage({
   const projectName = new Map(
     projects.map((p) => [p.id, p.name] as const),
   );
-  // Options for the inline session → project picker in the day grid.
-  const projectOptions = projects.map((p) => ({ id: p.id, label: p.name }));
+  // Options for the inline session → project pickers. listProjects returns
+  // newest-first, which floated the auto-created "Service — … (WO-N)" jobs
+  // to the top of a 131-option dropdown and buried the real jobs — easy to
+  // mis-pick. Offer ACTIVE jobs only, alphabetized; keep any project a
+  // visible punch already references so its row still renders a name.
+  const referencedProjectIds = new Set(
+    [...events, ...openSessions]
+      .map((e) => e.projectId)
+      .filter((id): id is string => !!id),
+  );
+  const projectOptions = projects
+    .filter(
+      (p) =>
+        (p.status !== 'closed' && p.status !== 'lost') ||
+        referencedProjectIds.has(p.id),
+    )
+    .map((p) => ({ id: p.id, label: p.name.trim() }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   // Group events by employee, pair into sessions per employee, then
   // flatten back so the table can render one row per session.
