@@ -109,3 +109,91 @@ test('skipped and zero-gross paystubs are ignored', () => {
   assert.equal(plan.allocations.length, 0);
   assert.equal(plan.bucketCount, 0);
 });
+
+test('crew-hours: flagged salaried with no entries spreads across crew job mix', () => {
+  const paystubs = [
+    stub({
+      employeeId: 'crew1',
+      gross: 1000,
+      payRate: 25,
+      nib: { gross: 0, insurableWage: 0, employee: 0, employer: 66.5, total: 0 },
+    }),
+    stub({
+      employeeId: 'sup1',
+      employeeName: 'Supervisor',
+      employmentType: 'salaried',
+      gross: 3600,
+      payRate: 3600,
+      nib: { gross: 0, insurableWage: 0, employee: 0, employer: 53.87, total: 0 },
+    }),
+  ];
+  const entries = [
+    // Crew: 30h on (pA,cX), 10h on (pB,cY) → 75% / 25% split.
+    entry({ employeeId: 'crew1', hours: '30', projectId: 'pA', costCodeId: 'cX' }),
+    entry({ employeeId: 'crew1', hours: '10', projectId: 'pB', costCodeId: 'cY' }),
+  ];
+  const plan = computeLaborPostingPlan(paystubs, entries, {
+    crewHoursEmployeeIds: new Set(['sup1']),
+  });
+  const sup = plan.allocations.find((a) => a.employeeId === 'sup1')!;
+  assert.equal(sup.viaCrewHours, true);
+  assert.equal(sup.buckets.length, 2);
+  const byProject = new Map(sup.buckets.map((b) => [b.projectId, b]));
+  assert.equal(byProject.get('pA')!.wage, 2700); // 75% of 3600
+  assert.equal(byProject.get('pB')!.wage, 900); // 25%
+  assert.equal(byProject.get('pA')!.burden, 40.4); // 75% of 53.87
+  assert.equal(sup.postedWage, 3600);
+  assert.equal(sup.unpostedWage, 0);
+});
+
+test('crew-hours: flagged employee with own entries keeps them (entries win)', () => {
+  const paystubs = [
+    stub({ employeeId: 'crew1', gross: 1000, payRate: 25 }),
+    stub({ employeeId: 'sup1', employmentType: 'salaried', gross: 1200, payRate: 1200 }),
+  ];
+  const entries = [
+    entry({ employeeId: 'crew1', hours: '40', projectId: 'pA', costCodeId: 'cX' }),
+    entry({ employeeId: 'sup1', hours: '8', projectId: 'pB', costCodeId: 'cY' }),
+  ];
+  const plan = computeLaborPostingPlan(paystubs, entries, {
+    crewHoursEmployeeIds: new Set(['sup1']),
+  });
+  const sup = plan.allocations.find((a) => a.employeeId === 'sup1')!;
+  assert.equal(sup.viaCrewHours ?? false, false);
+  assert.equal(sup.buckets.length, 1);
+  assert.equal(sup.buckets[0].projectId, 'pB');
+});
+
+test('crew-hours: no crew signal at all leaves flagged pay unposted', () => {
+  const paystubs = [
+    stub({ employeeId: 'sup1', employmentType: 'salaried', gross: 1200, payRate: 1200 }),
+  ];
+  const plan = computeLaborPostingPlan(paystubs, [], {
+    crewHoursEmployeeIds: new Set(['sup1']),
+  });
+  const sup = plan.allocations.find((a) => a.employeeId === 'sup1')!;
+  assert.equal(sup.viaCrewHours ?? false, false);
+  assert.equal(sup.unpostedWage, 1200);
+});
+
+test('crew-hours: flagged employees never feed the weight pool', () => {
+  // Two flagged supervisors + one crew guy: both supervisors follow the
+  // crew's single job, not each other.
+  const paystubs = [
+    stub({ employeeId: 'crew1', gross: 500, payRate: 25 }),
+    stub({ employeeId: 'sup1', employmentType: 'salaried', gross: 1000, payRate: 1000 }),
+    stub({ employeeId: 'sup2', employmentType: 'salaried', gross: 2000, payRate: 2000 }),
+  ];
+  const entries = [
+    entry({ employeeId: 'crew1', hours: '20', projectId: 'pA', costCodeId: 'cX' }),
+  ];
+  const plan = computeLaborPostingPlan(paystubs, entries, {
+    crewHoursEmployeeIds: new Set(['sup1', 'sup2']),
+  });
+  for (const id of ['sup1', 'sup2']) {
+    const a = plan.allocations.find((x) => x.employeeId === id)!;
+    assert.equal(a.buckets.length, 1);
+    assert.equal(a.buckets[0].projectId, 'pA');
+    assert.equal(a.unpostedWage, 0);
+  }
+});

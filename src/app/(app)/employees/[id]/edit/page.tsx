@@ -53,6 +53,7 @@ export default async function EditEmployeePage({
           nibExempt: employee.nibExempt,
           nibStartDate: employee.nibStartDate ?? '',
           isSubcontractor: employee.isSubcontractor,
+          allocateByCrewHours: employee.allocateByCrewHours,
           notes: employee.notes ?? '',
         }}
       />

@@ -35,6 +35,7 @@ export type EmployeeFormInitialValues = {
   nibExempt: boolean;
   nibStartDate: string;
   isSubcontractor: boolean;
+  allocateByCrewHours: boolean;
   notes: string;
 };
 
@@ -52,6 +53,7 @@ const blankInitial: EmployeeFormInitialValues = {
   nibExempt: false,
   nibStartDate: '',
   isSubcontractor: false,
+  allocateByCrewHours: false,
   notes: '',
 };
 
@@ -284,6 +286,28 @@ export function EmployeeForm({
                 Labor / Payroll Expenses.
                 {nibApplies &&
                   ' Checking this also marks them NIB exempt (subcontractors handle their own NIB).'}
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="allocateByCrewHours"
+              defaultChecked={values.allocateByCrewHours}
+              className="h-4 w-4 mt-0.5 rounded border-slate-300"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-900">
+                Spread pay across jobs by crew hours
+              </span>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                For salaried supervision / support who don&apos;t punch the
+                clock. When they log no time of their own in a pay week,
+                their pay (and NIB burden) is job-costed across the jobs the
+                crew worked that week, weighted by crew wages — instead of
+                sitting in overhead. If they do log time, their own entries
+                win.
               </p>
             </div>
           </label>

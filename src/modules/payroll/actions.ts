@@ -1091,7 +1091,11 @@ async function postLaborForPeriodCore(
     snapshots,
     adjustments,
   );
-  const plan = computeLaborPostingPlan(paystubs, entries);
+  const plan = computeLaborPostingPlan(paystubs, entries, {
+    crewHoursEmployeeIds: new Set(
+      employees.filter((e) => e.allocateByCrewHours).map((e) => e.id),
+    ),
+  });
   if (plan.bucketCount === 0) {
     return {
       error:

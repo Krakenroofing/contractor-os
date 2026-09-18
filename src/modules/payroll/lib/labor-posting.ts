@@ -30,6 +30,9 @@ export type EmployeeLaborAllocation = {
   /** Portion of unpostedWage attributable to service-call time — the
    *  work-order lane carries that job cost, so it's expected here. */
   serviceCallWage: number;
+  /** True when this pay was spread across the company's crew job mix
+   *  (salaried supervision/support with no time entries of their own). */
+  viaCrewHours?: boolean;
 };
 
 export type LaborPostingPlan = {
@@ -53,6 +56,14 @@ function entryValue(e: TimeEntry, payRate: number): number {
 export function computeLaborPostingPlan(
   paystubs: EmployeePaystub[],
   entries: TimeEntry[],
+  opts: {
+    /** Employees whose pay, when they logged no time of their own, is
+     *  spread across the jobs the rest of the crew worked this period
+     *  (weighted by the crew's posted wage per project/cost-code bucket).
+     *  For salaried supervision/support who never punch — their cost
+     *  follows where the work actually happened. */
+    crewHoursEmployeeIds?: Set<string>;
+  } = {},
 ): LaborPostingPlan {
   const entriesByEmployee = new Map<string, TimeEntry[]>();
   for (const e of entries) {
@@ -135,6 +146,54 @@ export function computeLaborPostingPlan(
       unpostedWage: round2(p.gross - postedWage),
       serviceCallWage,
     });
+  }
+
+  // Pass 2 — crew-hours allocation. Employees flagged for it who logged
+  // NO postable time (and no service-call time — the WO lane covers that)
+  // get their gross + burden spread across the company's crew job mix
+  // for the period, weighted by the wage the crew posted per bucket.
+  const crewIds = opts.crewHoursEmployeeIds;
+  if (crewIds && crewIds.size > 0) {
+    const weights = new Map<
+      string,
+      { projectId: string; costCodeId: string; value: number }
+    >();
+    let weightTotal = 0;
+    for (const a of allocations) {
+      if (crewIds.has(a.employeeId)) continue; // crew mix only
+      for (const b of a.buckets) {
+        const key = `${b.projectId}:${b.costCodeId}`;
+        const cur =
+          weights.get(key) ??
+          { projectId: b.projectId, costCodeId: b.costCodeId, value: 0 };
+        cur.value += b.wage;
+        weights.set(key, cur);
+        weightTotal += b.wage;
+      }
+    }
+    if (weightTotal > 0) {
+      for (const a of allocations) {
+        if (!crewIds.has(a.employeeId)) continue;
+        if (a.buckets.length > 0 || a.serviceCallWage > 0) continue;
+        let postedWage = 0;
+        for (const w of weights.values()) {
+          const frac = w.value / weightTotal;
+          const wage = round2(a.gross * frac);
+          const burden = round2(a.employerBurden * frac);
+          if (wage <= 0 && burden <= 0) continue;
+          a.buckets.push({
+            projectId: w.projectId,
+            costCodeId: w.costCodeId,
+            wage,
+            burden,
+          });
+          postedWage += wage;
+        }
+        a.postedWage = round2(postedWage);
+        a.unpostedWage = round2(a.gross - a.postedWage);
+        a.viaCrewHours = a.buckets.length > 0;
+      }
+    }
   }
 
   let totalWagePosted = 0;

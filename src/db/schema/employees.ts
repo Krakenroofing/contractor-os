@@ -49,6 +49,13 @@ export const employees = pgTable(
     // the Subcontractors COGS category (job-cost posting, P&L payroll
     // source, payroll-bill GL) instead of Direct Labor / Payroll Expenses.
     isSubcontractor: boolean('is_subcontractor').notNull().default(false),
+    // Salaried supervision/support who never punch: when true and they
+    // logged no time of their own, the labor-posting engine spreads their
+    // pay across the jobs the crew worked that period (weighted by posted
+    // crew wages) instead of leaving it unposted in overhead.
+    allocateByCrewHours: boolean('allocate_by_crew_hours')
+      .notNull()
+      .default(false),
     notes: text('notes'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

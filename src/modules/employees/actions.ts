@@ -82,6 +82,7 @@ export async function createEmployeeInlineAction(input: {
       nibExempt: company.nibEnabled ? data.nibExempt : true,
       nibStartDate: null,
       isSubcontractor: data.isSubcontractor,
+      allocateByCrewHours: data.allocateByCrewHours,
       notes: null,
     });
     revalidatePath('/employees');
@@ -127,6 +128,9 @@ function readForm(formData: FormData) {
     isSubcontractor:
       formData.get('isSubcontractor') === 'on' ||
       formData.get('isSubcontractor') === 'true',
+    allocateByCrewHours:
+      formData.get('allocateByCrewHours') === 'on' ||
+      formData.get('allocateByCrewHours') === 'true',
     notes: formData.get('notes') ?? '',
   };
 }
@@ -178,6 +182,7 @@ export async function createEmployeeAction(
         ? null
         : emptyToNull(data.nibStartDate ?? null),
       isSubcontractor: data.isSubcontractor,
+      allocateByCrewHours: data.allocateByCrewHours,
       notes: emptyToNull(data.notes ?? null),
     });
     createdId = employee.id;
@@ -239,6 +244,7 @@ export async function updateEmployeeAction(
         ? null
         : emptyToNull(data.nibStartDate ?? null),
       isSubcontractor: data.isSubcontractor,
+      allocateByCrewHours: data.allocateByCrewHours,
       notes: emptyToNull(data.notes ?? null),
     });
     if (!updated) {

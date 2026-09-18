@@ -105,6 +105,7 @@ export const employeeFormSchema = z.object({
   // NIB. Blank = covered from the start.
   nibStartDate: optionalDate,
   isSubcontractor: z.coerce.boolean().default(false),
+  allocateByCrewHours: z.coerce.boolean().default(false),
   notes: z.string().max(2000).optional().or(z.literal('')),
 });
 
