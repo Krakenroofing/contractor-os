@@ -438,7 +438,13 @@ export function PurchaseOrderForm({
           />
         </Field>
 
-        <Field label="Project" error={err('projectId')} required>
+        {/* The header project is the DEFAULT job, not the only one — each line
+            can be pointed at a different job in its own Job column. */}
+        <Field
+          label="Project (default job for the lines)"
+          error={err('projectId')}
+          required
+        >
           <ProjectPicker
             name="projectId"
             required
@@ -498,7 +504,7 @@ export function PurchaseOrderForm({
         {err('lines') && <p className="text-xs text-red-600">{err('lines')}</p>}
 
         <div className="space-y-2">
-          <div className="hidden md:grid grid-cols-[1.4fr_1.3fr_1.3fr_1.7fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 px-1 text-xs font-medium text-slate-500">
+          <div className="hidden md:grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 px-1 text-xs font-medium text-slate-500">
             <span>Product</span>
             <span>Cost code</span>
             <span>Job</span>
@@ -544,7 +550,7 @@ export function PurchaseOrderForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[1.4fr_1.3fr_1.3fr_1.7fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 items-start"
               >
                 <ProductPicker
                   value={line.inventoryItemId}
@@ -608,7 +614,7 @@ export function PurchaseOrderForm({
                     updateLine(line.rowId, { projectId: e.target.value })
                   }
                   title="Job this line's cost books to. Left on the PO's own project it follows the PO; pick another job to split this line off."
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                  className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
                 >
                   <option value="">
                     {poProjectLabel || "The PO's project"}

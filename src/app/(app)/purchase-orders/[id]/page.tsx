@@ -178,6 +178,17 @@ export default async function PurchaseOrderDetailPage({
               </>
             )}
           </div>
+          {/* One PO can be split across jobs line by line. When it is, name
+              the other jobs here so the split isn't buried in the table. */}
+          {lineProjectIds.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Also billed to{' '}
+              {lineProjectIds
+                .map((pid) => lineProjectNames.get(pid) ?? 'another job')
+                .join(', ')}{' '}
+              — set per line in the Job column.
+            </p>
+          )}
           <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
             <span className="text-xs uppercase tracking-wide text-slate-500">
               Vendor invoice #

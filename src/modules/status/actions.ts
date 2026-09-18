@@ -100,6 +100,34 @@ export async function transitionStatusAction(
 
   const companyId = await getActiveCompanyId();
 
+  // Voiding a PO retires an order that shouldn't have been raised. Real cost
+  // already booked against it has to be unwound first, or the void would
+  // silently orphan received quantities and vendor bills.
+  if (entityRaw === 'purchase_order' && action === 'mark_void') {
+    const [{ listPoReceiptsForPO }, { listReceipts }] = await Promise.all([
+      import('@/lib/data/po-receipts'),
+      import('@/lib/data/receipts'),
+    ]);
+    const poReceipts = await listPoReceiptsForPO(entityId);
+    if (poReceipts.length > 0) {
+      return {
+        formError: `This PO has ${poReceipts.length} shipment${
+          poReceipts.length === 1 ? '' : 's'
+        } received against it. Delete those receipts first (Receive shipment → history), then void the PO.`,
+      };
+    }
+    const bills = (await listReceipts(companyId, { limit: 2000 })).filter(
+      (r) => r.purchaseOrderId === entityId && r.status !== 'void',
+    );
+    if (bills.length > 0) {
+      return {
+        formError: `This PO already has ${bills.length} bill${
+          bills.length === 1 ? '' : 's'
+        } created from it. Void or delete the bill first, then void the PO.`,
+      };
+    }
+  }
+
   // Mark-Paid on an invoice carries an optional paid-date so VAT / cash
   // reports bucket the synthetic payment into the right quarter. Validate
   // it lightly; fall through to "today" inside the data layer if missing.

@@ -221,6 +221,29 @@ export function PoBillForm({
         </table>
       </div>
 
+      {/* The vendor only invoices what actually shipped, so the invoice IS
+          the receiving document. Ticking this records the shipment in one
+          step; untick it when a vendor bills ahead of delivery. */}
+      <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        <input
+          type="checkbox"
+          name="markReceived"
+          value="1"
+          defaultChecked
+          className="mt-0.5 h-4 w-4 rounded border-slate-300"
+        />
+        <span>
+          Mark these quantities received
+          <span className="block text-xs text-slate-500">
+            The vendor bills what they shipped, so the invoice doubles as the
+            packing slip. A shipment is recorded for the quantities above (never
+            more than what&apos;s still outstanding on each line) and the PO
+            advances to partially received / received. Untick if this invoice
+            is for goods that haven&apos;t arrived.
+          </span>
+        </span>
+      </label>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-end gap-4">
           <label className="block text-xs font-medium text-slate-600">

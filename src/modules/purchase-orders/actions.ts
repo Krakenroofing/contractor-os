@@ -830,12 +830,60 @@ export async function createBillFromPoAction(
   }
   await recalcReceiptHeaderTotals(company.id, receipt.id);
 
+  // The vendor only invoices what actually shipped, so the invoice doubles as
+  // the receiving document (Olga, 2026-09-18). Record the shipment for the
+  // billed quantities — capped at what's still outstanding on each line so a
+  // re-bill can't over-receive. Best-effort: the bill is already written, and
+  // a receiving hiccup must not cost her the bill.
+  let receivedLines = 0;
+  if (String(formData.get('markReceived') ?? '') === '1') {
+    const toReceive = computedLines
+      .map(({ line, net, quantity, unitCost }) => {
+        const billedQty =
+          quantity !== null && quantity > 0
+            ? quantity
+            : unitCost > 0
+              ? Math.round((net / unitCost) * 10000) / 10000
+              : 0;
+        const outstanding =
+          Math.round(
+            (Number(line.quantityOrdered) - Number(line.quantityReceived)) *
+              10000,
+          ) / 10000;
+        const qty = Math.min(billedQty, Math.max(0, outstanding));
+        return { poLineId: line.id, quantityReceived: qty };
+      })
+      .filter((l) => l.quantityReceived > 0);
+    if (toReceive.length > 0) {
+      try {
+        // Stock lands in the default location, same as the receive form's
+        // fallback — inventory movements need one to be meaningful.
+        const defaultLocation = await getDefaultLocation(company.id);
+        await createPoReceipt(company.id, po.id, {
+          // Noon local so the row sits inside the billed day in any timezone.
+          receivedAt: new Date(`${billDate}T12:00:00`),
+          receivedByUserId: knownUsers.has(user.id) ? user.id : null,
+          notes: `Received with vendor invoice ${vendorInvoiceNumber}`,
+          locationId: defaultLocation?.id ?? null,
+          lines: toReceive,
+        });
+        receivedLines = toReceive.length;
+      } catch {
+        /* best-effort — a draft/closed PO simply doesn't auto-receive */
+      }
+    }
+  }
+
   appendActivity(company.id, {
     entityType: 'purchase_order',
     entityId: po.id,
     kind: 'po_bill_created',
     summary: `Draft bill (vendor inv #${vendorInvoiceNumber}) created from ${po.number} — ${selected.length} of ${poLines.length} line${
       poLines.length === 1 ? '' : 's'
+    }${
+      receivedLines > 0
+        ? `; ${receivedLines} line${receivedLines === 1 ? '' : 's'} marked received`
+        : ''
     }; review and post in Banking → Receipts`,
     actorRole: ROLE_LABELS[role],
   });

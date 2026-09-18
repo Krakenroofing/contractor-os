@@ -251,7 +251,7 @@ export function PurchaseOrderEditForm({
             </Button>
           </div>
         </div>
-        <div className="hidden md:grid md:grid-cols-[1.5fr_1.5fr_1.8fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 text-[11px] uppercase tracking-wide text-slate-500">
+        <div className="hidden md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.8fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 text-[11px] uppercase tracking-wide text-slate-500">
           <span>Cost code</span>
           <span>Job</span>
           <SortableHeader
@@ -296,7 +296,7 @@ export function PurchaseOrderEditForm({
           return (
             <div
               key={line.rowId}
-              className="grid grid-cols-1 md:grid-cols-[1.5fr_1.5fr_1.8fr_0.7fr_0.55fr_0.85fr_0.95fr_auto] gap-2 items-start"
+              className="grid grid-cols-1 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.8fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 items-start"
             >
               <CostCodePicker
                 value={line.costCodeId}
@@ -311,7 +311,7 @@ export function PurchaseOrderEditForm({
                   updateLine(line.rowId, { projectId: e.target.value })
                 }
                 title="Job this line's cost books to. Left on the PO's own project it follows the PO; pick another job to split this line off."
-                className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
               >
                 <option value="">
                   {poProjectLabel || "The PO's project"}

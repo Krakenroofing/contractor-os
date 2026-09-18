@@ -324,9 +324,11 @@ const CO_TRANSITIONS: TransitionMap = {
   void: [],
 };
 
-// PO void only from `draft` — once a PO is issued it may have receipts /
-// inventory implications which require deliberate reversal. Draft POs are
-// safe to void since no commitment has actually been made yet.
+// Voiding a PO is the way to retire one that shouldn't have been raised — a
+// duplicate, or an order superseded by another PO. Available until the goods
+// are in: `draft`, `issued`, and `partially_received`. The action refuses at
+// the server when receipts or bills already exist against the PO, since those
+// are real cost and have to be unwound first.
 const VOID_PO_TRANSITION = {
   action: 'mark_void',
   label: 'Void',
@@ -346,8 +348,12 @@ const PO_TRANSITIONS: TransitionMap = {
       to: 'partially_received',
     },
     { action: 'mark_received', label: 'Mark received', to: 'received' },
+    VOID_PO_TRANSITION,
   ],
-  partially_received: [{ action: 'mark_received', label: 'Mark received', to: 'received' }],
+  partially_received: [
+    { action: 'mark_received', label: 'Mark received', to: 'received' },
+    VOID_PO_TRANSITION,
+  ],
   received: [{ action: 'close', label: 'Close PO', to: 'closed' }],
   closed: [],
   void: [],
