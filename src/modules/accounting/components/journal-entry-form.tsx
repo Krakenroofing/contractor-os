@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import {
   postManualJournalEntryAction,
   updateManualJournalEntryAction,
 } from '../gl-actions';
+import { uploadJournalAttachments } from '../lib/journal-attachment-upload';
 
 export type JournalAccountOption = { id: string; label: string; group: string };
 type Line = { accountId: string; debit: string; credit: string; description: string };
@@ -89,6 +90,10 @@ export function JournalEntryForm({
       : [emptyLine(), emptyLine()],
   );
   const [error, setError] = useState<string | null>(null);
+  // Working papers picked while writing the entry. Storage needs an entry id,
+  // so the files ride along in memory and upload the moment the post succeeds.
+  const [staged, setStaged] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const grouped = useMemo(
     () =>
@@ -154,10 +159,25 @@ export function JournalEntryForm({
         setError(res.error);
         return;
       }
+      if (staged.length > 0) {
+        const problems = await uploadJournalAttachments(res.id, staged);
+        if (problems.length > 0) {
+          // The entry is posted — don't strand the user on the form. Land them
+          // on the entry with the upload problem spelled out, so they can retry
+          // the file from the entry's own attachments block.
+          setStaged([]);
+          setError(
+            `Entry saved, but the files did not attach: ${problems.join(' ')}`,
+          );
+          router.push(`/accounting/journal?entry=${res.id}` as never);
+          router.refresh();
+          return;
+        }
+      }
       router.push(
         (initial
           ? `/accounting/journal?entry=${initial.entryId}`
-          : '/accounting/journal') as never,
+          : `/accounting/journal?entry=${res.id}`) as never,
       );
       router.refresh();
     });
@@ -286,6 +306,56 @@ export function JournalEntryForm({
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div className="rounded-md border border-slate-200 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Supporting documents
+          </span>
+          {staged.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700"
+            >
+              📎 <span className="max-w-48 truncate">{f.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${f.name}`}
+                className="text-slate-400 hover:text-slate-700"
+                onClick={() =>
+                  setStaged((prev) => prev.filter((_, idx) => idx !== i))
+                }
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          >
+            📎 Attach files
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              if (picked.length)
+                setStaged((prev) => [...prev, ...picked].slice(0, 10));
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+          />
+        </div>
+        <p className="mt-1 text-xs text-slate-400">
+          {initial
+            ? 'Files added here upload when you save; files already on the entry are managed from the journal.'
+            : 'Attach the spreadsheet, screenshot, or statement behind this adjustment — they upload with the entry.'}
+        </p>
       </div>
 
       <div className="flex items-center gap-3">

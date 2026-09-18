@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
   journalEntries,
+  journalEntryAttachments,
   journalLines,
   type JournalEntry,
   type JournalLine,
@@ -197,6 +198,65 @@ export async function updateManualJournalEntry(
     );
   });
   return { id: entryId };
+}
+
+/**
+ * Delete a MANUAL journal entry outright — for a mistyped or test entry that
+ * has no business being in the audit trail at all. Same guardrails as the
+ * editor: system entries are rebuilt from their sources, and anything in a
+ * reversal pair stays put (reverse, don't delete, once it has history).
+ * Returns the attachment storage paths so the caller can drop the blobs.
+ */
+export async function deleteManualJournalEntry(
+  companyId: string,
+  entryId: string,
+): Promise<{ storagePaths: string[] } | { error: string }> {
+  if (!isDatabaseConfigured()) {
+    return { error: 'General ledger requires a configured database.' };
+  }
+  const db = getDb()!;
+  const [entry] = await db
+    .select()
+    .from(journalEntries)
+    .where(
+      and(
+        eq(journalEntries.id, entryId),
+        eq(journalEntries.companyId, companyId),
+      ),
+    )
+    .limit(1);
+  if (!entry) return { error: 'Journal entry not found.' };
+  if (entry.sourceType !== 'manual') {
+    return {
+      error:
+        'Only manual journal entries can be deleted — this one is posted automatically from its source record.',
+    };
+  }
+  if (entry.reversedByEntryId || entry.reversesEntryId) {
+    return {
+      error:
+        'This entry is part of a reversal pair — the reversal already cancels it, so it stays in the ledger.',
+    };
+  }
+
+  const attachments = await db
+    .select({ storagePath: journalEntryAttachments.storagePath })
+    .from(journalEntryAttachments)
+    .where(
+      and(
+        eq(journalEntryAttachments.companyId, companyId),
+        eq(journalEntryAttachments.journalEntryId, entryId),
+      ),
+    );
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(journalEntryAttachments)
+      .where(eq(journalEntryAttachments.journalEntryId, entryId));
+    await tx.delete(journalLines).where(eq(journalLines.journalEntryId, entryId));
+    await tx.delete(journalEntries).where(eq(journalEntries.id, entryId));
+  });
+  return { storagePaths: attachments.map((a) => a.storagePath) };
 }
 
 /**

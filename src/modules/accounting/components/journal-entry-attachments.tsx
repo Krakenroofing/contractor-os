@@ -7,11 +7,8 @@
 
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  attachJournalEntryFilesAction,
-  createJournalAttachmentUploadUrlsAction,
-  deleteJournalEntryAttachmentAction,
-} from '../gl-actions';
+import { deleteJournalEntryAttachmentAction } from '../gl-actions';
+import { uploadJournalAttachments } from '../lib/journal-attachment-upload';
 
 export type JournalAttachmentView = {
   id: string;
@@ -45,58 +42,7 @@ export function JournalEntryAttachments({
     const files = Array.from(list).slice(0, 10);
     setError(null);
     startTransition(async () => {
-      const grants = await createJournalAttachmentUploadUrlsAction(
-        entryId,
-        files.map((f) => ({
-          fileName: f.name,
-          mimeType: f.type || 'application/octet-stream',
-          byteSize: f.size,
-        })),
-      );
-      if (grants.formError) {
-        setError(grants.formError);
-        return;
-      }
-      const refs: Array<{
-        storagePath: string;
-        fileName: string;
-        mimeType: string;
-        byteSize: number;
-      }> = [];
-      const problems: string[] = [];
-      for (const f of files) {
-        const grant = grants.uploads?.find((u) => u.fileName === f.name);
-        if (!grant || !grant.signedUrl || !grant.storagePath) {
-          problems.push(`${f.name}: ${grant?.error ?? 'no upload URL.'}`);
-          continue;
-        }
-        try {
-          const res = await fetch(grant.signedUrl, {
-            method: 'PUT',
-            headers: {
-              'content-type': f.type || 'application/octet-stream',
-            },
-            body: f,
-          });
-          if (!res.ok) {
-            problems.push(`${f.name}: upload failed (${res.status}).`);
-            continue;
-          }
-          refs.push({
-            storagePath: grant.storagePath,
-            fileName: f.name,
-            mimeType: f.type || 'application/octet-stream',
-            byteSize: f.size,
-          });
-        } catch {
-          problems.push(`${f.name}: upload failed.`);
-        }
-      }
-      if (refs.length > 0) {
-        const attach = await attachJournalEntryFilesAction(entryId, refs);
-        if (!attach.ok) problems.push(attach.error ?? 'Could not attach.');
-        else if (attach.failures) problems.push(...attach.failures);
-      }
+      const problems = await uploadJournalAttachments(entryId, files);
       if (problems.length > 0) setError(problems.join(' '));
       if (fileInputRef.current) fileInputRef.current.value = '';
       router.refresh();

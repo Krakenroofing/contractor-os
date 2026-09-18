@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate, canView } from '@/lib/permissions';
 import {
+  deleteManualJournalEntry,
   postJournalEntry,
   reverseJournalEntry,
   updateManualJournalEntry,
@@ -153,6 +154,29 @@ export async function updateManualJournalEntryAction(input: {
   revalidatePath('/accounting/journal');
   revalidatePath('/reports/trial-balance');
   return { ok: true, id: res.id };
+}
+
+/** Delete a MANUAL journal entry and its attachments outright. For test or
+ *  mistyped entries — anything with real history should be reversed. */
+export async function deleteManualJournalEntryAction(
+  entryId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'settings')) {
+    return { ok: false, error: 'You do not have permission to delete journal entries.' };
+  }
+  const id = z.string().uuid().safeParse(entryId);
+  if (!id.success) return { ok: false, error: 'Invalid entry.' };
+  const companyId = await getActiveCompanyId();
+  const res = await deleteManualJournalEntry(companyId, id.data);
+  if ('error' in res) return { ok: false, error: res.error };
+  for (const path of res.storagePaths) {
+    await deleteJournalAttachmentBlob(path);
+  }
+  revalidatePath('/accounting/journal');
+  revalidatePath('/reports/trial-balance');
+  return { ok: true };
 }
 
 export type RebuildGlState = {

@@ -14,6 +14,7 @@ import {
 import { listJournalEntryAttachments } from '@/lib/data/journal-entry-attachments';
 import { createSignedJournalAttachmentUrl } from '@/lib/storage/journal-entry-attachments';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
+import { DeleteEntryButton } from '@/modules/accounting/components/delete-entry-button';
 import { RebuildGlButton } from '@/modules/accounting/components/rebuild-gl-button';
 import {
   JournalEntryAttachments,
@@ -194,6 +195,15 @@ export default async function JournalPage({
                       {canEdit && !reversed && !isReversal && (
                         <ReverseEntryButton entryId={e.id} />
                       )}
+                      {canEdit &&
+                        e.sourceType === 'manual' &&
+                        !reversed &&
+                        !isReversal && (
+                          <DeleteEntryButton
+                            entryId={e.id}
+                            label={`${e.entryDate} · ${e.memo ?? 'no memo'}`}
+                          />
+                        )}
                     </div>
                   </div>
                   <table className="w-full text-xs">
