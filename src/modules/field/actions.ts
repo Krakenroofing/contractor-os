@@ -234,3 +234,104 @@ export async function punchOutAction(
   revalidatePath('/clock');
   return { ok: true };
 }
+
+/**
+ * "Switch job" while staying on the clock: closes the current session
+ * (out-punch carries the job worked so far) and immediately opens a new
+ * one on the chosen job — one tap instead of clock-out + clock-in. The
+ * new session starts 1s after the close so pairing order is stable.
+ * Auto-post (when enabled) fires for the closed session exactly like a
+ * normal clock-out.
+ */
+export async function switchJobAction(
+  _prev: PunchState,
+  formData: FormData,
+): Promise<PunchState> {
+  const pre = await commonPreflight();
+  if (!pre.ok) return { formError: pre.error };
+
+  const rawProjectId = (formData.get('projectId') ?? '').toString();
+  const isServiceCall = rawProjectId === SERVICE_CALL_VALUE;
+
+  const parsed = punchSchema.safeParse({
+    projectId: isServiceCall ? '' : rawProjectId,
+    costCodeId: formData.get('costCodeId') ?? '',
+    notes: '',
+    gpsLat: formData.get('gpsLat') ?? '',
+    gpsLng: formData.get('gpsLng') ?? '',
+    gpsAccuracyM: formData.get('gpsAccuracyM') ?? '',
+  });
+  if (!parsed.success) {
+    return { formError: 'Invalid punch data. Please reload and try again.' };
+  }
+  if (!isServiceCall && !parsed.data.projectId) {
+    return { formError: 'Pick the job you are switching to.' };
+  }
+
+  const last = await getLatestClockEvent(pre.employeeId);
+  if (!last || last.kind !== 'in') {
+    return {
+      formError:
+        "You're not currently clocked in — use \"Clock in\" to start on the new job.",
+    };
+  }
+
+  const now = new Date();
+  const gps = {
+    gpsLat: normGps(parsed.data.gpsLat),
+    gpsLng: normGps(parsed.data.gpsLng),
+    gpsAccuracyM: normGps(parsed.data.gpsAccuracyM),
+  };
+
+  // Close the running session on ITS job (what was worked until now).
+  const outEvent = await recordClockEvent({
+    companyId: pre.companyId,
+    employeeId: pre.employeeId,
+    projectId: last.projectId,
+    costCodeId: last.costCodeId,
+    isServiceCall: last.isServiceCall,
+    kind: 'out',
+    occurredAt: now,
+    ...gps,
+    notes: null,
+  });
+
+  // Open the new session on the chosen job.
+  await recordClockEvent({
+    companyId: pre.companyId,
+    employeeId: pre.employeeId,
+    projectId: isServiceCall ? null : (parsed.data.projectId ?? null),
+    costCodeId: isServiceCall ? null : (parsed.data.costCodeId ?? null),
+    isServiceCall,
+    kind: 'in',
+    occurredAt: new Date(now.getTime() + 1000),
+    ...gps,
+    notes: null,
+  });
+
+  // Auto-post the CLOSED session when the company has the bridge on —
+  // identical semantics to a normal clock-out.
+  try {
+    const company = await getCompany(pre.companyId);
+    if (company?.autoPostClockSessions) {
+      const user = await getCurrentUser();
+      if (user) {
+        await markPunchesReviewed(
+          pre.companyId,
+          [last.id, outEvent.id],
+          user.id,
+        );
+        await postSessionsToTimeEntries(pre.companyId, [
+          { in: last, out: outEvent },
+        ]);
+      }
+    }
+  } catch {
+    /* best-effort — the punches recorded fine */
+  }
+
+  revalidatePath('/field');
+  revalidatePath('/field/clock');
+  revalidatePath('/clock');
+  return { ok: true };
+}

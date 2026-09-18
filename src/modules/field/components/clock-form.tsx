@@ -24,6 +24,7 @@ import { Select } from '@/components/ui/select';
 import {
   punchInAction,
   punchOutAction,
+  switchJobAction,
   type PunchState,
 } from '../actions';
 import { SERVICE_CALL_VALUE } from '../constants';
@@ -39,6 +40,13 @@ type Props = {
 export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   const action = isClockedIn ? punchOutAction : punchInAction;
   const [state, formAction, pending] = useActionState(action, initial);
+  // "Switch job" shares the same form fields (project pick + GPS) but
+  // dispatches its own action: close the running session, open a new one
+  // on the chosen job — no separate clock-out/clock-in dance.
+  const [switchState, switchFormAction, switchPending] = useActionState(
+    switchJobAction,
+    initial,
+  );
 
   const formRef = useRef<HTMLFormElement>(null);
   const [gpsStatus, setGpsStatus] = useState<
@@ -140,9 +148,9 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
       action={formAction}
       className="rounded-xl border border-slate-200 bg-white px-5 py-5 space-y-4"
     >
-      {state.formError && (
+      {(state.formError || switchState.formError) && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-          {state.formError}
+          {state.formError || switchState.formError}
         </div>
       )}
 
@@ -157,7 +165,8 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
         // project forward; picking a job overrides it for the out punch.
         <div className="space-y-1">
           <Label htmlFor="projectId" className="text-xs">
-            Project (carry forward if blank)
+            Project — leave blank to stay on the same job; pick one to
+            switch or to correct the clock-out
           </Label>
           <Select
             name="projectId"
@@ -277,6 +286,20 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               ? 'Clock out'
               : 'Clock in'}
         </Button>
+
+        {isClockedIn && (
+          // Moving to another job mid-day: one tap closes this session on
+          // the job worked so far and opens a new one on the job picked
+          // above — hours land on both jobs correctly, no double punching.
+          <Button
+            type="submit"
+            formAction={switchFormAction}
+            disabled={switchPending || pending}
+            className="w-full h-12 text-base font-semibold bg-sky-600 hover:bg-sky-700 text-white"
+          >
+            {switchPending ? 'Switching…' : 'Switch job (stay on the clock)'}
+          </Button>
+        )}
 
         {/* GPS hint — small, secondary. Never blocks the punch. */}
         <div className="text-center min-h-[16px]">

@@ -451,8 +451,19 @@ export default async function ClockReviewPage({
                       {durationLabel(r.sinceMs)}
                     </TableCell>
                     <TableCell className="text-slate-700 text-xs">
-                      {r.projectLabel ?? (
-                        <span className="text-slate-400">— overhead —</span>
+                      {canEditPunches ? (
+                        // Editable while still on the clock — assign or fix
+                        // the job mid-shift instead of waiting for clock-out.
+                        <SessionProjectSelect
+                          inId={r.event.id}
+                          outId={null}
+                          projectId={r.event.projectId}
+                          projects={projectOptions}
+                        />
+                      ) : (
+                        r.projectLabel ?? (
+                          <span className="text-slate-400">— overhead —</span>
+                        )
                       )}
                     </TableCell>
                     <TableCell className="text-slate-500 text-xs">
