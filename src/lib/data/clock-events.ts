@@ -39,6 +39,8 @@ export type CreateClockEventInput = {
   /** "Service / leak call" punch — no job exists yet; the work order
    *  posted later carries the cost. Mutually exclusive with projectId. */
   isServiceCall?: boolean;
+  /** Crew-named job that doesn't exist in the system yet. */
+  pendingJobName?: string | null;
   kind: ClockEventKind;
   occurredAt: Date;
   gpsLat: string | null;
@@ -64,6 +66,7 @@ export async function recordClockEvent(
       projectId: input.projectId,
       costCodeId: input.costCodeId,
       isServiceCall: input.isServiceCall ?? false,
+      pendingJobName: input.pendingJobName ?? null,
       kind: input.kind,
       occurredAt: input.occurredAt,
       gpsLat: input.gpsLat,
@@ -167,6 +170,7 @@ export async function listOpenSessionsForCompany(
     project_id: string | null;
     cost_code_id: string | null;
     is_service_call: boolean;
+    pending_job_name: string | null;
     kind: string;
     occurred_at: Date;
     gps_lat: string | null;
@@ -194,6 +198,7 @@ export async function listOpenSessionsForCompany(
       projectId: r.project_id,
       costCodeId: r.cost_code_id,
       isServiceCall: r.is_service_call,
+      pendingJobName: r.pending_job_name,
       kind: r.kind,
       occurredAt: new Date(r.occurred_at),
       gpsLat: r.gps_lat,
@@ -225,6 +230,7 @@ export type UpdateClockEventInput = {
   occurredAt?: Date;
   projectId?: string | null;
   costCodeId?: string | null;
+  pendingJobName?: string | null;
   notes?: string | null;
 };
 
@@ -257,6 +263,9 @@ export async function updateClockEvent(
       ...(patch.occurredAt !== undefined ? { occurredAt: patch.occurredAt } : {}),
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
       ...(patch.costCodeId !== undefined ? { costCodeId: patch.costCodeId } : {}),
+      ...(patch.pendingJobName !== undefined
+        ? { pendingJobName: patch.pendingJobName }
+        : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
       reviewedAt: null,
       reviewedBy: null,
@@ -654,13 +663,22 @@ export async function postSessionsToTimeEntries(
             // "Service / leak call" punches flag the entry so the office
             // matches them to a work order instead of assigning a job.
             isServiceCall: sessionServiceCall(s),
+            // Crew-named job awaiting creation: carry it so the office can
+            // back-fill project_id when the real project exists.
+            pendingJobName:
+              sessionProjectId(s) == null
+                ? (s.in.pendingJobName ?? s.out.pendingJobName ?? null)
+                : null,
             workOrderId: null,
             // Overhead punches are a deliberate choice (job-mode punch-ins
             // REQUIRE a project), and some workers are genuinely shop/
             // overhead — keep the flag. The timesheet renders these as
             // "overhead" (not "job ✓") so a field crew parking jobsite
             // hours on Overhead is visible at a glance.
-            isOverhead: sessionProjectId(s) == null && !sessionServiceCall(s),
+            isOverhead:
+              sessionProjectId(s) == null &&
+              !sessionServiceCall(s) &&
+              !(s.in.pendingJobName ?? s.out.pendingJobName),
             notes,
           })
           .returning({ id: timeEntries.id });
@@ -713,4 +731,107 @@ export function pairClockSessions(
   }
   if (openIn) sessions.push({ in: openIn, out: null });
   return sessions;
+}
+
+export type PendingJobSummary = {
+  name: string;
+  punchCount: number;
+  entryHours: number;
+  employees: string[];
+};
+
+/**
+ * Distinct crew-named pending jobs still awaiting a real project —
+ * aggregated across un-resolved clock events and posted time entries.
+ * Powers the office "create this job" panel on /clock.
+ */
+export async function listPendingJobs(
+  companyId: string,
+): Promise<PendingJobSummary[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  const rows = await db.execute<{
+    name: string;
+    punch_count: string;
+    entry_hours: string | null;
+    employees: string[] | null;
+  }>(sql`
+    WITH punches AS (
+      SELECT ce.pending_job_name AS name,
+             count(*) AS punch_count,
+             array_agg(DISTINCT e.first_name || ' ' || e.last_name) AS employees
+      FROM clock_events ce
+      JOIN employees e ON e.id = ce.employee_id
+      WHERE ce.company_id = ${companyId}
+        AND ce.pending_job_name IS NOT NULL
+        AND ce.project_id IS NULL
+      GROUP BY ce.pending_job_name
+    ),
+    entries AS (
+      SELECT pending_job_name AS name, sum(hours) AS entry_hours
+      FROM time_entries
+      WHERE company_id = ${companyId}
+        AND pending_job_name IS NOT NULL
+        AND project_id IS NULL
+      GROUP BY pending_job_name
+    )
+    SELECT coalesce(p.name, en.name) AS name,
+           coalesce(p.punch_count, 0)::text AS punch_count,
+           en.entry_hours::text AS entry_hours,
+           p.employees
+    FROM punches p
+    FULL OUTER JOIN entries en ON en.name = p.name
+    ORDER BY 1
+  `);
+  return rows.map((r) => ({
+    name: r.name,
+    punchCount: Number(r.punch_count),
+    entryHours: Number(r.entry_hours ?? 0),
+    employees: r.employees ?? [],
+  }));
+}
+
+/**
+ * Resolve a crew-named pending job to a real project: back-fills
+ * project_id (and a default labor cost code where missing) on every
+ * matching clock event and time entry, clearing the pending name.
+ * Returns how many of each were updated.
+ */
+export async function resolvePendingJob(
+  companyId: string,
+  pendingName: string,
+  projectId: string,
+  costCodeId: string | null,
+): Promise<{ punches: number; entries: number }> {
+  if (!isDatabaseConfigured()) return { punches: 0, entries: 0 };
+  const db = getDb()!;
+  const punchRows = await db
+    .update(clockEvents)
+    .set({ projectId, pendingJobName: null })
+    .where(
+      and(
+        eq(clockEvents.companyId, companyId),
+        eq(clockEvents.pendingJobName, pendingName),
+        isNull(clockEvents.projectId),
+      ),
+    )
+    .returning({ id: clockEvents.id });
+  const entryRows = await db
+    .update(timeEntries)
+    .set({
+      projectId,
+      pendingJobName: null,
+      isOverhead: false,
+      ...(costCodeId ? { costCodeId: sql`coalesce(${timeEntries.costCodeId}, ${costCodeId})` } : {}),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(timeEntries.companyId, companyId),
+        eq(timeEntries.pendingJobName, pendingName),
+        isNull(timeEntries.projectId),
+      ),
+    )
+    .returning({ id: timeEntries.id });
+  return { punches: punchRows.length, entries: entryRows.length };
 }

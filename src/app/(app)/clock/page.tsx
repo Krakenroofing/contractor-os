@@ -35,6 +35,7 @@ import { listProjects } from '@/lib/data/projects';
 import {
   listClockEventsForCompanyRange,
   listOpenSessionsForCompany,
+  listPendingJobs,
   listPostableSessions,
   pairClockSessions,
 } from '@/lib/data/clock-events';
@@ -47,6 +48,8 @@ import {
 } from '@/lib/tz';
 import { DeletePunchButton } from '@/modules/clock-events/components/delete-punch-button';
 import { SessionProjectSelect } from '@/modules/clock-events/components/session-project-select';
+import { PendingJobsPanel } from '@/modules/clock-events/components/pending-jobs-panel';
+import { listCustomers } from '@/lib/data/customers';
 import { LunchPunchControl } from '@/modules/clock-events/components/lunch-punch-control';
 import { listLunchOverridesForDate } from '@/lib/data/timesheet-lunch';
 import { effectiveLunchMinutes } from '@/modules/payroll/lib/lunch';
@@ -176,6 +179,8 @@ export default async function ClockReviewPage({
     openSessions,
     postableSessions,
     lunchOverrides,
+    pendingJobs,
+    customers,
   ] = await Promise.all([
     getCompany(companyId),
     listEmployees(companyId),
@@ -184,6 +189,8 @@ export default async function ClockReviewPage({
     listOpenSessionsForCompany(companyId),
     listPostableSessions(companyId),
     listLunchOverridesForDate(companyId, date),
+    listPendingJobs(companyId),
+    listCustomers(companyId),
   ]);
   const postableCount = postableSessions.length;
   const autoPostOn = Boolean(company?.autoPostClockSessions);
@@ -398,6 +405,14 @@ export default async function ClockReviewPage({
         </Card>
       )}
 
+      {canEditPunches && (
+        <PendingJobsPanel
+          pending={pendingJobs}
+          projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+          customers={customers.map((c) => ({ id: c.id, name: c.name }))}
+        />
+      )}
+
       {/* On the clock now */}
       <Card>
         <CardHeader>
@@ -451,6 +466,11 @@ export default async function ClockReviewPage({
                       {durationLabel(r.sinceMs)}
                     </TableCell>
                     <TableCell className="text-slate-700 text-xs">
+                      {r.event.pendingJobName && (
+                        <p className="text-sky-700 font-medium mb-1">
+                          🆕 {r.event.pendingJobName}
+                        </p>
+                      )}
                       {canEditPunches ? (
                         // Editable while still on the clock — assign or fix
                         // the job mid-shift instead of waiting for clock-out.

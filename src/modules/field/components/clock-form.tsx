@@ -27,7 +27,7 @@ import {
   switchJobAction,
   type PunchState,
 } from '../actions';
-import { SERVICE_CALL_VALUE } from '../constants';
+import { NEW_JOB_VALUE, SERVICE_CALL_VALUE } from '../constants';
 
 const initial: PunchState = {};
 
@@ -65,6 +65,9 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   // yard / general path. Only surfaced when not already clocked in —
   // clock-out always carries the open session's project forward.
   const [mode, setMode] = useState<'job' | 'overhead'>('job');
+  // Tracks the picker so the "new job name" box appears when the crew
+  // picks "New job (not in the list)".
+  const [pickedJob, setPickedJob] = useState<string>('');
 
   const stopWatch = useCallback(() => {
     watchRef.current?.stop();
@@ -172,11 +175,15 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
             name="projectId"
             id="projectId"
             defaultValue={defaultProjectId ?? ''}
-            pinnedValues={[SERVICE_CALL_VALUE]}
+            pinnedValues={[SERVICE_CALL_VALUE, NEW_JOB_VALUE]}
+            onChange={(e) => setPickedJob(e.target.value)}
           >
             <option value="">— Same job (carry forward) —</option>
             <option value={SERVICE_CALL_VALUE}>
               🔧 Service / leak call (no job yet)
+            </option>
+            <option value={NEW_JOB_VALUE}>
+              🆕 New job (not in the list — type its name)
             </option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -184,6 +191,15 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               </option>
             ))}
           </Select>
+          {pickedJob === NEW_JOB_VALUE && (
+            <Input
+              name="newJobName"
+              maxLength={200}
+              required
+              placeholder="Job name or address, e.g. Mrs. Johnson — Coral Harbour"
+              className="text-base md:text-sm h-12 md:h-10 mt-1"
+            />
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -225,11 +241,15 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
                 id="projectId"
                 defaultValue={defaultProjectId ?? ''}
                 required
-                pinnedValues={[SERVICE_CALL_VALUE]}
+                pinnedValues={[SERVICE_CALL_VALUE, NEW_JOB_VALUE]}
+                onChange={(e) => setPickedJob(e.target.value)}
               >
                 <option value="">— Pick a job —</option>
                 <option value={SERVICE_CALL_VALUE}>
                   🔧 Service / leak call (no job yet)
+                </option>
+                <option value={NEW_JOB_VALUE}>
+                  🆕 New job (not in the list — type its name)
                 </option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -237,6 +257,15 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
                   </option>
                 ))}
               </Select>
+              {pickedJob === NEW_JOB_VALUE && (
+                <Input
+                  name="newJobName"
+                  maxLength={200}
+                  required
+                  placeholder="Job name or address, e.g. Mrs. Johnson — Coral Harbour"
+                  className="text-base md:text-sm h-12 md:h-10 mt-1"
+                />
+              )}
             </div>
           ) : (
             <div className="space-y-1">

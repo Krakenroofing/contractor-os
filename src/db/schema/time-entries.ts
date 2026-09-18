@@ -65,6 +65,9 @@ export const timeEntries = pgTable(
     // the hours; unlike overhead, the cost is expected to reach a job
     // via the WORK ORDER lane (source 'work_order').
     isServiceCall: boolean('is_service_call').notNull().default(false),
+    // Carried from the clock punch: crew-named job awaiting creation by the
+    // office. Resolution back-fills project_id and clears this.
+    pendingJobName: text('pending_job_name'),
     // Set when a posted work order claimed these hours (same employee +
     // work date). Marks the service-call loop closed: the WO carries the
     // job cost, the timesheet shows the link instead of prompting.

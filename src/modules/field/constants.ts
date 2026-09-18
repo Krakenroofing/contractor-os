@@ -8,3 +8,11 @@
  * async functions.
  */
 export const SERVICE_CALL_VALUE = '__service_call__';
+
+/**
+ * Sentinel for "New job (not in the list)" — the crew types the job's
+ * name/address and punches onto it. The punch stores pending_job_name;
+ * the office later creates/links the real project, which back-fills
+ * project_id on the punches and posted hours.
+ */
+export const NEW_JOB_VALUE = '__new_job__';

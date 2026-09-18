@@ -18,8 +18,10 @@ import {
   recordSessionClockOut,
   unmarkPunchesReviewed,
   updateClockEvent,
+  resolvePendingJob,
 } from '@/lib/data/clock-events';
-import { updateCompany } from '@/lib/data/companies';
+import { getCompany, updateCompany } from '@/lib/data/companies';
+import { getProject } from '@/lib/data/projects';
 import { parseDateTimeLocalInTZ } from '@/lib/tz';
 
 export type EditPunchState = {
@@ -224,7 +226,8 @@ export async function setSessionProjectAction(
   const ids = outId ? [inId, outId] : [inId];
   try {
     for (const id of ids) {
-      await updateClockEvent(companyId, id, { projectId });
+      // Assigning a real job resolves any crew-named pending job on the punch.
+      await updateClockEvent(companyId, id, { projectId, pendingJobName: null });
     }
   } catch (err) {
     if (err instanceof PunchAlreadyPostedError) throw err;
@@ -319,4 +322,43 @@ export async function unmarkSessionReviewedAction(
   const companyId = await getActiveCompanyId();
   await unmarkPunchesReviewed(companyId, punchIds);
   revalidatePath('/clock');
+}
+
+// ---------------------------------------------------------------------------
+// Crew-named pending jobs: the office creates/picks the real project and
+// this back-fills project_id on every matching punch and posted hour.
+// ---------------------------------------------------------------------------
+
+export type ResolvePendingJobState = { ok?: boolean; error?: string };
+
+export async function resolvePendingJobAction(input: {
+  pendingName: string;
+  projectId: string;
+}): Promise<ResolvePendingJobState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'clock_events')) {
+    return { error: 'You do not have permission to edit punches.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const name = (input.pendingName ?? '').trim();
+  if (!name) return { error: 'Missing pending job name.' };
+  if (!z.string().uuid().safeParse(input.projectId).success) {
+    return { error: 'Pick the project these hours belong to.' };
+  }
+  const project = await getProject(companyId, input.projectId);
+  if (!project) return { error: 'Project not found in this company.' };
+
+  const company = await getCompany(companyId);
+  const costCodeId =
+    project.defaultLaborCostCodeId ?? company?.defaultLaborCostCodeId ?? null;
+
+  const res = await resolvePendingJob(companyId, name, project.id, costCodeId);
+  revalidatePath('/clock');
+  revalidatePath('/payroll');
+  revalidatePath('/payroll/day');
+  if (res.punches === 0 && res.entries === 0) {
+    return { error: 'Nothing matched that pending job — it may already be resolved.' };
+  }
+  return { ok: true };
 }

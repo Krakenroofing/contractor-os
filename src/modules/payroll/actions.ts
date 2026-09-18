@@ -172,6 +172,7 @@ export async function saveTimesheetCell(input: {
       isOverhead: false,
       isServiceCall: false,
       workOrderId: null,
+      pendingJobName: null,
       notes: null,
     });
   }
@@ -353,6 +354,7 @@ export async function createTimeEntryAction(
         isOverhead: resolved.isOverhead,
         isServiceCall: resolved.isServiceCall,
         workOrderId: null,
+      pendingJobName: null,
         notes,
       });
     }
@@ -426,6 +428,7 @@ export async function updateTimeEntryAction(
       // Re-marking as service call (or assigning a job) releases any
       // work-order claim; the WO's own posting is untouched.
       workOrderId: null,
+      pendingJobName: null,
       notes: emptyToNull(data.notes ?? null),
     });
   } catch (err) {
@@ -537,6 +540,7 @@ export async function addPieceWorkEntryAction(
     isOverhead: false,
     isServiceCall: false,
     workOrderId: null,
+    pendingJobName: null,
     notes: d.notes ?? null,
   });
   revalidatePath('/payroll');
@@ -1883,6 +1887,7 @@ export async function splitDayAcrossJobsAction(input: {
       isOverhead: false,
       isServiceCall: false,
       workOrderId: null,
+      pendingJobName: null,
       notes: `Split ${r.percent}% of day`,
     });
   }

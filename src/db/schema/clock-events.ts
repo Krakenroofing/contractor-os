@@ -42,6 +42,9 @@ export const clockEvents = pgTable(
     // order). Distinct from overhead so these hours prompt WO matching
     // instead of reading as yard time.
     isServiceCall: boolean('is_service_call').notNull().default(false),
+    // Free-text job named by the crew when the real project doesn't exist
+    // yet ('Mrs. Johnson roof'). Cleared when the office assigns a project.
+    pendingJobName: text('pending_job_name'),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
     // Phone-reported GPS. Nullable because (a) older phones may not
     // resolve a fix in time, (b) the user may decline location

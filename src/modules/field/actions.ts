@@ -28,7 +28,7 @@ import {
 } from '@/lib/data/clock-events';
 import { getCompany } from '@/lib/data/companies';
 import { formatTimeInTZ } from '@/lib/tz';
-import { SERVICE_CALL_VALUE } from './constants';
+import { NEW_JOB_VALUE, SERVICE_CALL_VALUE } from './constants';
 
 export type PunchState = {
   ok?: boolean;
@@ -97,9 +97,11 @@ export async function punchInAction(
   // uuid — strip it before validation and carry it as a flag instead.
   const rawProjectId = (formData.get('projectId') ?? '').toString();
   const isServiceCall = rawProjectId === SERVICE_CALL_VALUE;
+  const isNewJob = rawProjectId === NEW_JOB_VALUE;
+  const newJobName = (formData.get('newJobName') ?? '').toString().trim().slice(0, 200);
 
   const parsed = punchSchema.safeParse({
-    projectId: isServiceCall ? '' : rawProjectId,
+    projectId: isServiceCall || isNewJob ? '' : rawProjectId,
     costCodeId: formData.get('costCodeId') ?? '',
     notes: formData.get('notes') ?? '',
     gpsLat: formData.get('gpsLat') ?? '',
@@ -119,7 +121,12 @@ export async function punchInAction(
   // renders its required flag on a hidden input, which browsers skip
   // during constraint validation.
   const isOverhead = formData.get('mode') === 'overhead';
-  if (!isOverhead && !isServiceCall && !parsed.data.projectId) {
+  if (isNewJob && !newJobName) {
+    return {
+      formError: 'Type the new job\'s name or address so the office can create it.',
+    };
+  }
+  if (!isOverhead && !isServiceCall && !isNewJob && !parsed.data.projectId) {
     return {
       formError:
         'Pick the job you’re working on (or "Service / leak call" if the job isn\'t created yet), or switch to Overhead for yard / general time.',
@@ -141,6 +148,7 @@ export async function punchInAction(
     projectId: parsed.data.projectId ?? null,
     costCodeId: parsed.data.costCodeId ?? null,
     isServiceCall,
+    pendingJobName: isNewJob ? newJobName : null,
     kind: 'in',
     occurredAt: new Date(),
     gpsLat: normGps(parsed.data.gpsLat),
@@ -197,6 +205,10 @@ export async function punchOutAction(
     projectId: isServiceCall ? null : (parsed.data.projectId ?? last.projectId),
     costCodeId: isServiceCall ? null : (parsed.data.costCodeId ?? last.costCodeId),
     isServiceCall: isServiceCall || (last.isServiceCall && !parsed.data.projectId),
+    // A crew-named pending job carries through to the out punch unless a
+    // real job was picked at clock-out.
+    pendingJobName:
+      isServiceCall || parsed.data.projectId ? null : last.pendingJobName,
     kind: 'out',
     occurredAt: new Date(),
     gpsLat: normGps(parsed.data.gpsLat),
@@ -252,9 +264,14 @@ export async function switchJobAction(
 
   const rawProjectId = (formData.get('projectId') ?? '').toString();
   const isServiceCall = rawProjectId === SERVICE_CALL_VALUE;
+  const isNewJob = rawProjectId === NEW_JOB_VALUE;
+  const newJobName = (formData.get('newJobName') ?? '')
+    .toString()
+    .trim()
+    .slice(0, 200);
 
   const parsed = punchSchema.safeParse({
-    projectId: isServiceCall ? '' : rawProjectId,
+    projectId: isServiceCall || isNewJob ? '' : rawProjectId,
     costCodeId: formData.get('costCodeId') ?? '',
     notes: '',
     gpsLat: formData.get('gpsLat') ?? '',
@@ -264,7 +281,12 @@ export async function switchJobAction(
   if (!parsed.success) {
     return { formError: 'Invalid punch data. Please reload and try again.' };
   }
-  if (!isServiceCall && !parsed.data.projectId) {
+  if (isNewJob && !newJobName) {
+    return {
+      formError: 'Type the new job\'s name or address so the office can create it.',
+    };
+  }
+  if (!isServiceCall && !isNewJob && !parsed.data.projectId) {
     return { formError: 'Pick the job you are switching to.' };
   }
 
@@ -290,6 +312,7 @@ export async function switchJobAction(
     projectId: last.projectId,
     costCodeId: last.costCodeId,
     isServiceCall: last.isServiceCall,
+    pendingJobName: last.pendingJobName,
     kind: 'out',
     occurredAt: now,
     ...gps,
@@ -300,9 +323,10 @@ export async function switchJobAction(
   await recordClockEvent({
     companyId: pre.companyId,
     employeeId: pre.employeeId,
-    projectId: isServiceCall ? null : (parsed.data.projectId ?? null),
-    costCodeId: isServiceCall ? null : (parsed.data.costCodeId ?? null),
+    projectId: isServiceCall || isNewJob ? null : (parsed.data.projectId ?? null),
+    costCodeId: isServiceCall || isNewJob ? null : (parsed.data.costCodeId ?? null),
     isServiceCall,
+    pendingJobName: isNewJob ? newJobName : null,
     kind: 'in',
     occurredAt: new Date(now.getTime() + 1000),
     ...gps,
