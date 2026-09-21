@@ -125,6 +125,21 @@ export function PurchaseOrderEditForm({
     setDirty(true);
     setLines((prev) => prev.filter((l) => l.rowId !== rowId));
   };
+  // Manual reorder — line up the rows with the supplier's own PO for easy
+  // side-by-side comparison. Clears the sort indicator (the hand-made
+  // order IS the order now) and persists as sort_order on save.
+  const moveLine = (rowId: string, dir: -1 | 1) => {
+    setDirty(true);
+    setSort(null);
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.rowId === rowId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
 
   // Sorting reorders the draft rows themselves, so the order on screen is
   // the order that saves (lines persist in the order they're submitted).
@@ -287,7 +302,7 @@ export function PurchaseOrderEditForm({
           />
           <span />
         </div>
-        {lines.map((line) => {
+        {lines.map((line, idx) => {
           const lineTotal = multiply(
             Number(line.quantity) || 0,
             Number(line.unitCost) || 0,
@@ -358,20 +373,40 @@ export function PurchaseOrderEditForm({
               <div className="flex items-center justify-end h-10 px-2 text-sm tabular-nums text-slate-900">
                 {formatMoney(lineTotal)}
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={hasReceipts}
-                title={
-                  hasReceipts
-                    ? 'Quantities were received against this line — adjust the qty instead of deleting.'
-                    : undefined
-                }
-                onClick={() => removeLine(line.rowId)}
-              >
-                ×
-              </Button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  disabled={idx === 0}
+                  onClick={() => moveLine(line.rowId, -1)}
+                  title="Move this line up"
+                  className="h-8 w-6 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  disabled={idx === lines.length - 1}
+                  onClick={() => moveLine(line.rowId, 1)}
+                  title="Move this line down"
+                  className="h-8 w-6 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  ↓
+                </button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={hasReceipts}
+                  title={
+                    hasReceipts
+                      ? 'Quantities were received against this line — adjust the qty instead of deleting.'
+                      : undefined
+                  }
+                  onClick={() => removeLine(line.rowId)}
+                >
+                  ×
+                </Button>
+              </div>
             </div>
           );
         })}

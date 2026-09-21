@@ -320,6 +320,21 @@ export function PurchaseOrderForm({
     setLines((prev) => [newEmptyLine(), ...prev]);
   };
 
+  // Manual reorder — line the rows up with the supplier's own PO for easy
+  // side-by-side comparison. Clears the sort indicator (the hand-made
+  // order IS the order) and persists as sort_order on create.
+  const moveLine = (rowId: string, dir: -1 | 1) => {
+    setSort(null);
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.rowId === rowId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+
   // Sorting reorders the draft rows, so the order on screen is the order
   // the PO is created with.
   const onSort = (key: string) => {
@@ -684,18 +699,41 @@ export function PurchaseOrderForm({
                 <div className="flex items-center justify-end h-10 px-2 text-sm tabular-nums text-slate-900">
                   {formatMoney(lineTotal)}
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    setLines((prev) => prev.filter((l) => l.rowId !== line.rowId))
-                  }
-                  disabled={lines.length === 1}
-                  aria-label="Remove line"
-                >
-                  ✕
-                </Button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    disabled={lines.findIndex((x) => x.rowId === line.rowId) === 0}
+                    onClick={() => moveLine(line.rowId, -1)}
+                    title="Move this line up"
+                    className="h-8 w-6 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      lines.findIndex((x) => x.rowId === line.rowId) ===
+                      lines.length - 1
+                    }
+                    onClick={() => moveLine(line.rowId, 1)}
+                    title="Move this line down"
+                    className="h-8 w-6 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    ↓
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setLines((prev) => prev.filter((l) => l.rowId !== line.rowId))
+                    }
+                    disabled={lines.length === 1}
+                    aria-label="Remove line"
+                  >
+                    ✕
+                  </Button>
+                </div>
               </div>
             );
           })}
