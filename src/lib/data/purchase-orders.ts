@@ -274,6 +274,134 @@ export async function createPurchaseOrder(
  * receipt / closed lifecycle) are NOT touched here. Edit only allowed
  * while the PO is still `draft`; the action layer enforces that.
  */
+export type CloseShortResult =
+  | {
+      ok: true;
+      /** Lines whose un-received remainder was cancelled. */
+      trimmed: Array<{
+        description: string;
+        orderedBefore: number;
+        received: number;
+        cancelledValue: number;
+      }>;
+      cancelledValue: number;
+      taxBefore: number;
+      taxAfter: number;
+      newTotal: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * "Cancel remaining & close": the supplier won't ship the rest, so trim
+ * every line's ordered quantity down to what was actually received
+ * (cancelling the remainder), scale the PO's tax to the surviving
+ * subtotal, and close the PO. Closed POs drop out of AP committed and
+ * open-commitment math — the cancelled remainder stops being money the
+ * company expects to spend. History lives in the activity log.
+ */
+export async function closePurchaseOrderShort(
+  companyId: string,
+  poId: string,
+): Promise<CloseShortResult> {
+  if (!isDatabaseConfigured()) {
+    return { ok: false, error: 'Requires a configured database.' };
+  }
+  const db = getDb()!;
+  const po = await getPurchaseOrder(companyId, poId);
+  if (!po) return { ok: false, error: 'Purchase order not found.' };
+  if (
+    po.status !== 'issued' &&
+    po.status !== 'partially_received' &&
+    po.status !== 'received'
+  ) {
+    return {
+      ok: false,
+      error: `PO is ${po.status} — only ordered / partially received / received POs can be closed short.`,
+    };
+  }
+
+  const lines = await getPurchaseOrderLines(poId);
+  const anyReceived = lines.some((l) => Number(l.quantityReceived) > 0);
+  if (!anyReceived) {
+    return {
+      ok: false,
+      error:
+        'Nothing has been received on this PO — if the whole order is cancelled, Void it instead (status panel).',
+    };
+  }
+
+  const trimmed: Array<{
+    description: string;
+    orderedBefore: number;
+    received: number;
+    cancelledValue: number;
+  }> = [];
+  let newSubtotal = 0;
+  const lineUpdates: Array<{ id: string; qty: number; lineTotal: number }> = [];
+  for (const l of lines) {
+    const ordered = Number(l.quantityOrdered);
+    const received = Number(l.quantityReceived);
+    const unitCost = Number(l.unitCost);
+    const keptQty = Math.min(ordered, received);
+    const keptTotal = Math.round(keptQty * unitCost * 100) / 100;
+    newSubtotal += keptTotal;
+    if (received < ordered - 0.00005) {
+      trimmed.push({
+        description: l.description,
+        orderedBefore: ordered,
+        received,
+        cancelledValue:
+          Math.round((ordered - received) * unitCost * 100) / 100,
+      });
+      lineUpdates.push({ id: l.id, qty: keptQty, lineTotal: keptTotal });
+    }
+  }
+  newSubtotal = Math.round(newSubtotal * 100) / 100;
+
+  const oldSubtotal = Number(po.subtotal);
+  const taxBefore = Number(po.taxAmount);
+  // Tax follows the goods: scale it to the surviving subtotal (the vendor
+  // only taxes what ships). No trim = tax unchanged.
+  const taxAfter =
+    trimmed.length > 0 && oldSubtotal > 0
+      ? Math.round(taxBefore * (newSubtotal / oldSubtotal) * 100) / 100
+      : taxBefore;
+  const shipping = Number(po.shipping);
+  const newTotal = Math.round((newSubtotal + taxAfter + shipping) * 100) / 100;
+
+  await db.transaction(async (tx) => {
+    for (const u of lineUpdates) {
+      await tx
+        .update(purchaseOrderLines)
+        .set({
+          quantityOrdered: u.qty.toFixed(4),
+          lineTotal: u.lineTotal.toFixed(2),
+        })
+        .where(eq(purchaseOrderLines.id, u.id));
+    }
+    await tx
+      .update(purchaseOrders)
+      .set({
+        subtotal: newSubtotal.toFixed(2),
+        taxAmount: taxAfter.toFixed(2),
+        total: newTotal.toFixed(2),
+        status: 'closed',
+        closedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(purchaseOrders.id, poId),
+          eq(purchaseOrders.companyId, companyId),
+        ),
+      );
+  });
+
+  const cancelledValue =
+    Math.round(trimmed.reduce((s, t) => s + t.cancelledValue, 0) * 100) / 100;
+  return { ok: true, trimmed, cancelledValue, taxBefore, taxAfter, newTotal };
+}
+
 export type UpdatePurchaseOrderHeaderInput = {
   issueDate: string | null;
   expectedDeliveryDate: string | null;

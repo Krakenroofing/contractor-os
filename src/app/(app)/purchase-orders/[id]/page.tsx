@@ -19,6 +19,7 @@ import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
+import { CancelRemainingButton } from '@/modules/purchase-orders/components/cancel-remaining-button';
 import { RenamePoNumber } from '@/modules/purchase-orders/components/rename-po-number';
 import { VendorInvoiceNumberEditor } from '@/modules/purchase-orders/components/vendor-invoice-number-editor';
 import { PoLinesTable } from '@/modules/purchase-orders/components/po-lines-table';
@@ -136,6 +137,27 @@ export default async function PurchaseOrderDetailPage({
               </Button>
             </Link>
           )}
+          {/* Close short: the supplier won't ship the rest. Trims lines to
+              what arrived + closes, so the remainder stops being committed
+              cost. Void covers the nothing-arrived case. */}
+          {allowCreate &&
+            (po.status === 'issued' ||
+              po.status === 'partially_received' ||
+              po.status === 'received') && (
+              <CancelRemainingButton
+                poId={po.id}
+                remainingValue={lines.reduce(
+                  (s, l) =>
+                    s +
+                    Math.max(
+                      0,
+                      (Number(l.quantityOrdered) - Number(l.quantityReceived)) *
+                        Number(l.unitCost),
+                    ),
+                  0,
+                )}
+              />
+            )}
           {allowCreate && po.status !== 'void' && (
             <Link
               href={{ pathname: '/purchase-orders/new', query: { cloneFrom: po.id } }}

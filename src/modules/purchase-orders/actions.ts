@@ -16,6 +16,7 @@ import {
   toQuantityString,
 } from '@/lib/money';
 import {
+  closePurchaseOrderShort,
   createPurchaseOrder,
   DuplicatePONumberError,
   getPurchaseOrder,
@@ -361,6 +362,57 @@ export async function updatePurchaseOrderAction(
   if (data.projectId !== existing.projectId)
     revalidatePath(`/projects/${data.projectId}`);
   redirect(`/purchase-orders/${data.id}`);
+}
+
+// ===== Cancel remaining & close (close short) =====
+
+export type CancelRemainingState = { ok?: boolean; error?: string };
+
+/**
+ * The supplier won't ship the rest: trim un-received quantities to what
+ * arrived, scale tax to the surviving goods, close the PO. The cancelled
+ * remainder stops counting as committed cost everywhere.
+ */
+export async function cancelRemainingPoAction(
+  poId: string,
+): Promise<CancelRemainingState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { error: 'You do not have permission to close purchase orders.' };
+  }
+  const id = z.string().uuid().safeParse(poId);
+  if (!id.success) return { error: 'Missing purchase order id.' };
+  const companyId = await getActiveCompanyId();
+  const existing = await getPurchaseOrder(companyId, id.data);
+  if (!existing) return { error: 'Purchase order not found.' };
+
+  const result = await closePurchaseOrderShort(companyId, id.data);
+  if (!result.ok) return { error: result.error };
+
+  const trims = result.trimmed
+    .map(
+      (t) =>
+        `${t.description.slice(0, 40)}: ${t.orderedBefore} → ${t.received} (−$${t.cancelledValue.toFixed(2)})`,
+    )
+    .join('; ');
+  appendActivity(companyId, {
+    entityType: 'purchase_order',
+    entityId: id.data,
+    kind: 'po_closed_short',
+    summary:
+      result.trimmed.length > 0
+        ? `Remaining items cancelled & PO closed — $${result.cancelledValue.toFixed(2)} of goods cancelled (${trims}); tax ${result.taxBefore.toFixed(2)} → ${result.taxAfter.toFixed(2)}; new total $${result.newTotal.toFixed(2)}`
+        : `PO closed — everything ordered was received; nothing further expected from the vendor.`,
+    actorRole: ROLE_LABELS[role],
+  });
+
+  revalidatePath('/purchase-orders');
+  revalidatePath(`/purchase-orders/${id.data}`);
+  revalidatePath('/job-costing');
+  revalidatePath('/reports/accounts-payable');
+  if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  return { ok: true };
 }
 
 // ===== Rename (number only) =====

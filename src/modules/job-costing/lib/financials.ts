@@ -121,7 +121,13 @@ export async function computeProjectFinancials(
   // PO this sums to po.total exactly, preserving historical figures.
   let committedCost = 0;
   let actualFromPOs = 0;
+  let openCommitments = 0;
   for (const po of projectPOs) {
+    // Only ACTIVE POs carry an open commitment — a closed PO's remainder
+    // was cancelled ("close short"), a received one has nothing left to
+    // arrive. Committed/actual still count them (money was spent).
+    const isActive =
+      po.status === 'issued' || po.status === 'partially_received';
     const lines = await getPurchaseOrderLines(po.id);
     for (const line of lines) {
       if ((line.projectId ?? po.projectId) !== projectId) continue;
@@ -130,6 +136,21 @@ export async function computeProjectFinancials(
         actualFromPOs,
         multiply(Number(line.quantityReceived), Number(line.unitCost)),
       );
+      if (isActive) {
+        openCommitments = add(
+          openCommitments,
+          Math.max(
+            0,
+            multiply(
+              Math.max(
+                0,
+                Number(line.quantityOrdered) - Number(line.quantityReceived),
+              ),
+              Number(line.unitCost),
+            ),
+          ),
+        );
+      }
     }
     if (po.projectId === projectId) {
       committedCost = add(
@@ -181,10 +202,11 @@ export async function computeProjectFinancials(
     landedCostSurcharge,
   );
 
-  // Phase 3: open commitments = PO money ordered but not yet received.
-  // Floored at 0 because over-receipts on a PO could otherwise make this
-  // negative (rare but possible).
-  const openCommitments = Math.max(0, subtract(committedCost, actualFromPOs));
+  // Open commitments were summed per line above: un-received remainder on
+  // ACTIVE (ordered / partially received) POs only. A closed-short or
+  // fully received PO contributes nothing — its remainder was cancelled
+  // or already arrived. (Previously committed − received, which left a
+  // phantom "open" tax slice on every completed PO.)
 
   // Phase 2: Projected Final Cost = Actual To Date + Cost to Complete.
   // Cost to Complete is summed from job_cost_forecasts. When no forecasts
