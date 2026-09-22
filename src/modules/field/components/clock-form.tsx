@@ -60,11 +60,15 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
   // tighter reading, but also refresh a stale one as the worker moves.
   const bestRef = useRef<{ accuracy: number; ts: number } | null>(null);
 
-  // Job vs. overhead is an explicit choice when clocking in. Defaults to
-  // "job" so the common case is one tap; "overhead" is the deliberate
-  // yard / general path. Only surfaced when not already clocked in —
-  // clock-out always carries the open session's project forward.
+  // Job vs. yard is an explicit choice when clocking in. Defaults to
+  // "job" so the common case is one tap; "overhead" (shown as "Yard") is
+  // the deliberate general path. Only surfaced when not already clocked
+  // in — clock-out always carries the open session's project forward.
   const [mode, setMode] = useState<'job' | 'overhead'>('job');
+  // Yard gate: before a Yard punch is allowed, the worker must answer
+  // "are you doing a task for a specific project?" — job-bound time keeps
+  // leaking into overhead when this is one careless tap.
+  const [yardConfirmed, setYardConfirmed] = useState(false);
   // Tracks the picker so the "new job name" box appears when the crew
   // picks "New job (not in the list)".
   const [pickedJob, setPickedJob] = useState<string>('');
@@ -212,15 +216,20 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
               <button
                 key={m}
                 type="button"
-                onClick={() => setMode(m)}
+                onClick={() => {
+                  setMode(m);
+                  // Re-ask the yard question on every fresh visit to the
+                  // Yard tab — the answer is per-punch, not per-session.
+                  if (m === 'overhead') setYardConfirmed(false);
+                }}
                 className={
-                  'h-10 rounded-md text-sm font-medium capitalize transition ' +
+                  'h-10 rounded-md text-sm font-medium transition ' +
                   (mode === m
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-500 hover:text-slate-700')
                 }
               >
-                {m}
+                {m === 'job' ? 'Job' : 'Yard'}
               </button>
             ))}
           </div>
@@ -269,12 +278,44 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
             </div>
           ) : (
             <div className="space-y-1">
-              <Label className="text-xs">Overhead</Label>
+              <Label className="text-xs">Yard</Label>
               {/* Empty projectId → stored as null (overhead) server-side. */}
               <input type="hidden" name="projectId" value="" />
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-                Yard / general — not on a specific job.
-              </div>
+              {!yardConfirmed ? (
+                // The gate: Yard is only for general time. A task done FOR
+                // a job (pickup, loading, prep) belongs on that job, so the
+                // worker must answer before the punch button unlocks.
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 space-y-2">
+                  <p className="text-sm font-semibold text-amber-900">
+                    Are you doing a task for a specific job?
+                  </p>
+                  <p className="text-xs leading-5 text-amber-800">
+                    Picking up materials, loading, or prepping for a job
+                    counts as that job&apos;s time — select the job, not
+                    Yard.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMode('job')}
+                      className="h-11 rounded-md bg-white border border-amber-300 text-sm font-semibold text-amber-900"
+                    >
+                      Yes — take me to pick the job
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setYardConfirmed(true)}
+                      className="h-11 rounded-md bg-amber-600 text-sm font-semibold text-white"
+                    >
+                      No — general yard work only
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                  Yard / general — not on a specific job.
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -299,7 +340,12 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
             accidentally clock IN when they meant OUT. */}
         <Button
           type="submit"
-          disabled={pending}
+          disabled={
+            pending ||
+            // Yard punches stay locked until the "specific job?" question
+            // is answered — the punch must be a deliberate yard choice.
+            (!isClockedIn && mode === 'overhead' && !yardConfirmed)
+          }
           className={
             'w-full h-16 text-lg font-semibold ' +
             (isClockedIn

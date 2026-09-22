@@ -129,7 +129,7 @@ export async function punchInAction(
   if (!isOverhead && !isServiceCall && !isNewJob && !parsed.data.projectId) {
     return {
       formError:
-        'Pick the job you’re working on (or "Service / leak call" if the job isn\'t created yet), or switch to Overhead for yard / general time.',
+        'Pick the job you’re working on (or "Service / leak call" if the job isn\'t created yet), or switch to Yard for general time.',
     };
   }
 
