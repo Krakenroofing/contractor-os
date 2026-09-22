@@ -211,12 +211,25 @@ export default async function VendorDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            Bills ({billViews.length}) —{' '}
-            <span className="text-amber-700">
-              {formatMoney(totalOutstanding)} outstanding
-            </span>
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>
+              Bills ({billViews.length}) —{' '}
+              <span className="text-amber-700">
+                {formatMoney(totalOutstanding)} outstanding
+              </span>
+            </CardTitle>
+            {billViews.length > 0 && (
+              <Link href={{ pathname: `/vendors/${vendor.id}/invoices` }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title="One row per vendor invoice: PO, items, tax charged, and the credits that reference it"
+                >
+                  Invoice review →
+                </Button>
+              </Link>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {billViews.length === 0 ? (
