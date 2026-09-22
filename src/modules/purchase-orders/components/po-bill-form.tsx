@@ -60,13 +60,17 @@ export function PoBillForm({
   const [rows, setRows] = useState<Record<string, LineState>>(() => {
     const init: Record<string, LineState> = {};
     for (const l of lines) {
+      // Signed on purpose: a PO credit line (negative total) bills as a
+      // negative amount, so "remaining" can be below zero and still count.
       const remaining = r2(l.lineTotal - l.billedAmount);
       const qty =
-        l.unitCost > 0 ? Math.round((remaining / l.unitCost) * 10000) / 10000 : 0;
+        l.unitCost !== 0
+          ? Math.round((remaining / l.unitCost) * 10000) / 10000
+          : 0;
       init[l.id] = {
-        checked: remaining > 0.004,
-        quantity: qty > 0 ? String(qty) : '',
-        amount: remaining > 0.004 ? remaining.toFixed(2) : '0.00',
+        checked: Math.abs(remaining) > 0.004,
+        quantity: qty !== 0 ? String(qty) : '',
+        amount: Math.abs(remaining) > 0.004 ? remaining.toFixed(2) : '0.00',
       };
     }
     return init;
@@ -82,12 +86,12 @@ export function PoBillForm({
       const s = rows[l.id];
       if (!s?.checked) continue;
       const amount = Number(s.amount);
-      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (!Number.isFinite(amount) || amount === 0) continue;
       const quantity = Number(s.quantity);
       out.push({
         poLineId: l.id,
         amount: r2(amount),
-        ...(Number.isFinite(quantity) && quantity > 0 ? { quantity } : {}),
+        ...(Number.isFinite(quantity) && quantity !== 0 ? { quantity } : {}),
       });
     }
     return JSON.stringify(out);
@@ -100,12 +104,12 @@ export function PoBillForm({
   // removable when credited back). Prefill = the selected lines' share of
   // the PO's tax; the operator can override or zero it.
   const suggestedTax =
-    poTaxAmount > 0 && poSubtotal > 0
-      ? r2(poTaxAmount * Math.min(1, selectedTotal / poSubtotal))
+    poTaxAmount !== 0 && poSubtotal !== 0
+      ? r2(poTaxAmount * Math.min(1, Math.abs(selectedTotal / poSubtotal)))
       : 0;
   const [taxTouched, setTaxTouched] = useState(false);
   const [salesTax, setSalesTax] = useState('');
-  const taxValue = taxTouched ? salesTax : suggestedTax > 0 ? suggestedTax.toFixed(2) : '';
+  const taxValue = taxTouched ? salesTax : suggestedTax !== 0 ? suggestedTax.toFixed(2) : '';
   const taxNum = Number(taxValue) || 0;
 
   // Shipping / handling (pallet surcharges, loading charges, freight) —
@@ -116,7 +120,7 @@ export function PoBillForm({
   const [shippingCharge, setShippingCharge] = useState('');
   const shipValue = shipTouched
     ? shippingCharge
-    : suggestedShipping > 0
+    : suggestedShipping !== 0
       ? suggestedShipping.toFixed(2)
       : '';
   const shipNum = Number(shipValue) || 0;
@@ -183,11 +187,11 @@ export function PoBillForm({
                     <span className="block truncate" title={l.description}>
                       {l.description}
                     </span>
-                    {l.billedAmount > 0 && (
+                    {l.billedAmount !== 0 && (
                       <span
-                        className={`text-[11px] ${remaining <= 0.004 ? 'text-emerald-700' : 'text-amber-700'}`}
+                        className={`text-[11px] ${Math.abs(remaining) <= 0.004 ? 'text-emerald-700' : 'text-amber-700'}`}
                       >
-                        {remaining <= 0.004
+                        {Math.abs(remaining) <= 0.004
                           ? 'Fully billed'
                           : `${fmt(remaining)} left to bill`}
                       </span>
@@ -201,13 +205,12 @@ export function PoBillForm({
                     {fmt(l.unitCost)}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                    {l.billedAmount > 0 ? fmt(l.billedAmount) : '—'}
+                    {l.billedAmount !== 0 ? fmt(l.billedAmount) : '—'}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Input
                       type="number"
                       step="0.0001"
-                      min="0"
                       value={s.quantity}
                       disabled={!s.checked}
                       onChange={(e) => {
@@ -215,7 +218,7 @@ export function PoBillForm({
                         setRow(l.id, {
                           quantity: e.target.value,
                           amount:
-                            Number.isFinite(q) && l.unitCost > 0
+                            Number.isFinite(q) && l.unitCost !== 0
                               ? r2(q * l.unitCost).toFixed(2)
                               : s.amount,
                         });
@@ -227,7 +230,6 @@ export function PoBillForm({
                     <Input
                       type="number"
                       step="0.01"
-                      min="0"
                       value={s.amount}
                       disabled={!s.checked}
                       onChange={(e) => setRow(l.id, { amount: e.target.value })}
@@ -274,7 +276,6 @@ export function PoBillForm({
             <Input
               type="number"
               step="0.01"
-              min="0"
               value={taxValue}
               onChange={(e) => {
                 setTaxTouched(true);
@@ -291,7 +292,6 @@ export function PoBillForm({
             <Input
               type="number"
               step="0.01"
-              min="0"
               value={shipValue}
               onChange={(e) => {
                 setShipTouched(true);
@@ -305,17 +305,17 @@ export function PoBillForm({
             <span className="font-semibold text-slate-900 tabular-nums">
               {fmt(selectedTotal)}
             </span>
-            {shipNum > 0 && (
+            {shipNum !== 0 && (
               <>
                 {' '}+ shipping <span className="tabular-nums">{fmt(shipNum)}</span>
               </>
             )}
-            {taxNum > 0 && (
+            {taxNum !== 0 && (
               <>
                 {' '}+ tax <span className="tabular-nums">{fmt(taxNum)}</span>
               </>
             )}
-            {(taxNum > 0 || shipNum > 0) && (
+            {(taxNum !== 0 || shipNum !== 0) && (
               <>
                 {' '}={' '}
                 <span className="font-semibold text-slate-900 tabular-nums">

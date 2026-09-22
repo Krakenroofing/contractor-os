@@ -765,10 +765,16 @@ export type CreateBillFromPoState = {
   formError?: string;
 };
 
+// Signed amounts (Chris, 2026-09-22): supplier invoices carry credit and
+// return lines, so a billed amount/quantity may be negative — only zero is
+// meaningless. Receiving stays positive-only further down.
 const billLineSchema = z.object({
   poLineId: z.string().uuid(),
-  amount: z.coerce.number().finite().positive(),
-  quantity: z.coerce.number().finite().nonnegative().optional(),
+  amount: z.coerce
+    .number()
+    .finite()
+    .refine((v) => v !== 0, 'Amount cannot be zero'),
+  quantity: z.coerce.number().finite().optional(),
 });
 
 export async function createBillFromPoAction(
@@ -878,9 +884,9 @@ export async function createBillFromPoAction(
     // derive it from the amount when the form didn't send one.
     const unitCost = Number(line.unitCost);
     const quantity =
-      s.quantity !== undefined && s.quantity > 0
+      s.quantity !== undefined && s.quantity !== 0
         ? s.quantity
-        : unitCost > 0
+        : unitCost !== 0
           ? Math.round((net / unitCost) * 10000) / 10000
           : null;
     return { line, net, quantity, unitCost, description: line.description };
@@ -888,21 +894,21 @@ export async function createBillFromPoAction(
 
   // Optional supplier sales tax, entered on the bill form — becomes its
   // own line so it's visible, removable, and creditable on its own.
+  // Signed: a negative tax here books ABC's sales-tax credit memos as the
+  // credit they are, same line, same category.
   const salesTaxRaw = Number(String(formData.get('salesTax') ?? '0'));
-  const salesTax =
-    Number.isFinite(salesTaxRaw) && salesTaxRaw > 0
-      ? Math.round(salesTaxRaw * 100) / 100
-      : 0;
+  const salesTax = Number.isFinite(salesTaxRaw)
+    ? Math.round(salesTaxRaw * 100) / 100
+    : 0;
 
   // Shipping / handling (freight, pallet surcharges, loading fees) — its
   // own line, categorized to the company's shipping/freight account so
   // the charge lands where Olga books freight instead of the vendor's
   // default materials category.
   const shippingRaw = Number(String(formData.get('shippingCharge') ?? '0'));
-  const shippingCharge =
-    Number.isFinite(shippingRaw) && shippingRaw > 0
-      ? Math.round(shippingRaw * 100) / 100
-      : 0;
+  const shippingCharge = Number.isFinite(shippingRaw)
+    ? Math.round(shippingRaw * 100) / 100
+    : 0;
   // Category resolution matches how Olga already books these by hand
   // (PO-13's bill): shipping → "Flat Rack Shipping", tax →
   // "Nonrecoverable Sales Tax". Name lookups with sensible fallbacks;
@@ -910,7 +916,7 @@ export async function createBillFromPoAction(
   // panel names it).
   let shippingAccountId: string | null = null;
   let taxAccountId: string | null = null;
-  if (shippingCharge > 0 || salesTax > 0) {
+  if (shippingCharge !== 0 || salesTax !== 0) {
     const accounts = await listAccountingAccounts(company.id);
     const active = accounts.filter((a) => !a.isArchived);
     const byName = (needle: string) =>
@@ -976,7 +982,7 @@ export async function createBillFromPoAction(
       isReimbursable: false,
     });
   }
-  if (salesTax > 0) {
+  if (salesTax !== 0) {
     await createReceiptLine({
       companyId: company.id,
       receiptId: receipt.id,
@@ -994,11 +1000,11 @@ export async function createBillFromPoAction(
       isReimbursable: false,
     });
   }
-  if (shippingCharge > 0) {
+  if (shippingCharge !== 0) {
     await createReceiptLine({
       companyId: company.id,
       receiptId: receipt.id,
-      sortOrder: computedLines.length + (salesTax > 0 ? 1 : 0),
+      sortOrder: computedLines.length + (salesTax !== 0 ? 1 : 0),
       projectId: null,
       costCodeId: null,
       accountingAccountId: shippingAccountId,

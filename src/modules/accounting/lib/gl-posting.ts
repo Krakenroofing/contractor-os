@@ -378,6 +378,24 @@ export async function postReceiptToGl(
   if (receipt.status !== 'posted') return false;
   const recoverable = receipt.vatRecoverable;
   const jlines: JournalLineInput[] = [];
+  // Sign-aware (2026-09-22): supplier invoices carry credit/return lines
+  // and tax credit memos, so a line can be negative — it CREDITS its
+  // expense account (contra) and nets the A/P side down. The old version
+  // silently dropped negative lines while still netting them into A/P,
+  // which would have posted an unbalanced entry.
+  const pushSigned = (
+    accountId: string,
+    amount: number,
+    projectId?: string | null,
+  ) => {
+    const a = round2(amount);
+    if (a === 0) return;
+    jlines.push(
+      a > 0
+        ? { accountId, debit: a, credit: 0, projectId }
+        : { accountId, debit: 0, credit: round2(-a), projectId },
+    );
+  };
   let totalVat = 0;
   let apCredit = 0;
   for (const l of lines) {
@@ -386,31 +404,28 @@ export async function postReceiptToGl(
     apCredit = round2(apCredit + round2(Number(l.total)));
     totalVat = round2(totalVat + vat);
     const expenseDr = recoverable ? net : round2(net + vat);
-    if (expenseDr > 0) {
-      jlines.push({
-        accountId: l.accountingAccountId ?? accounts.uncatExpense,
-        debit: expenseDr,
-        credit: 0,
-        projectId: l.projectId,
-      });
-    }
+    pushSigned(l.accountingAccountId ?? accounts.uncatExpense, expenseDr, l.projectId);
   }
-  if (recoverable && totalVat > 0) {
-    jlines.push({ accountId: accounts.vatInput, debit: totalVat, credit: 0 });
+  if (recoverable && totalVat !== 0) {
+    pushSigned(accounts.vatInput, totalVat);
   }
-  if (apCredit <= 0 || jlines.length === 0) return false;
+  if (jlines.length === 0) return false;
   // Credit side: a cash receipt is paid on the spot — no bank/CC statement
   // line will ever clear it — so it credits Cash on Hand, not A/P. Bank- and
   // card-paid receipts stay on A/P; the matched bank/CC line clears it later.
+  // A NEGATIVE total (credit bill) debits the same account instead — the
+  // vendor owes us. A net-zero bill posts only its expense movements.
   const creditAccount =
     receipt.paymentSourceType === 'cash'
       ? accounts.cashOnHand
       : accounts.accountsPayable;
-  jlines.push({
-    accountId: creditAccount,
-    debit: 0,
-    credit: apCredit,
-  });
+  if (apCredit !== 0) {
+    jlines.push(
+      apCredit > 0
+        ? { accountId: creditAccount, debit: 0, credit: apCredit }
+        : { accountId: creditAccount, debit: round2(-apCredit), credit: 0 },
+    );
+  }
   await postJournalEntry(companyId, {
     entryDate: receipt.receiptDate,
     memo: `Receipt — ${receipt.receiptDate}`,

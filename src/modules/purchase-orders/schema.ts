@@ -29,10 +29,14 @@ export const STATUS_TONE: Record<POStatus, 'slate' | 'blue' | 'amber' | 'green' 
   void: 'red',
 };
 
-const numericString = z
+// Signed amounts everywhere money appears on a PO (Chris, 2026-09-22):
+// supplier invoices carry credit lines, returns, and tax credit memos, so
+// quantity, unit cost, tax, and shipping all accept negatives. Physical
+// receiving (below) stays non-negative — you can't receive -10 rolls.
+const signedNumericString = z
   .string()
-  .refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)) && Number(v) >= 0, {
-    message: 'Must be a non-negative number',
+  .refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)), {
+    message: 'Must be a number',
   });
 
 export const poLineSchema = z.object({
@@ -43,8 +47,8 @@ export const poLineSchema = z.object({
   projectId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
-  quantity: numericString,
-  unitCost: numericString,
+  quantity: signedNumericString,
+  unitCost: signedNumericString,
 });
 
 /** Full-edit variant: existing lines carry their id so received
@@ -59,8 +63,8 @@ export const purchaseOrderEditSchema = z.object({
   vendorId: z.string().uuid('Pick a vendor'),
   issueDate: z.string().optional().or(z.literal('')),
   expectedDeliveryDate: z.string().optional().or(z.literal('')),
-  taxAmount: numericString,
-  shipping: numericString,
+  taxAmount: signedNumericString,
+  shipping: signedNumericString,
   notes: z.string().max(2000).optional().or(z.literal('')),
   lines: z.array(poEditLineSchema).min(1, 'At least one line item is required'),
 });
@@ -75,8 +79,8 @@ export const purchaseOrderFormSchema = z.object({
   status: z.enum(poStatusValues).default('draft'),
   issueDate: z.string().optional().or(z.literal('')),
   expectedDeliveryDate: z.string().optional().or(z.literal('')),
-  taxAmount: numericString,
-  shipping: numericString,
+  taxAmount: signedNumericString,
+  shipping: signedNumericString,
   notes: z.string().max(2000).optional().or(z.literal('')),
   lines: z.array(poLineSchema).min(1, 'At least one line item is required'),
 });
@@ -116,8 +120,8 @@ export const extractedPoLineSchema = z.object({
   costCodeId: z.string().uuid('Pick a cost code'),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
-  quantity: numericString,
-  unitCost: numericString,
+  quantity: signedNumericString,
+  unitCost: signedNumericString,
 });
 
 export const createPoFromExtractedSchema = z.object({
@@ -127,8 +131,8 @@ export const createPoFromExtractedSchema = z.object({
   projectId: z.string().uuid('Pick a project'),
   issueDate: z.string().optional().or(z.literal('')),
   expectedDeliveryDate: z.string().optional().or(z.literal('')),
-  taxAmount: numericString,
-  shipping: numericString,
+  taxAmount: signedNumericString,
+  shipping: signedNumericString,
   notes: z.string().max(2000).optional().or(z.literal('')),
   lines: z.array(extractedPoLineSchema).min(1, 'At least one line item is required'),
 

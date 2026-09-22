@@ -842,7 +842,9 @@ function LineEditor(props: {
         const derive = (qs: string, us: string) => {
           const q = Number(qs);
           const u = Number(us);
-          if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(u) || u < 0) {
+          // Signed: credit/return lines carry a negative qty or price and
+          // derive a negative Net. Only a zero qty falls back to typed Net.
+          if (!Number.isFinite(q) || q === 0 || !Number.isFinite(u)) {
             return null;
           }
           return (Math.round(q * u * 100) / 100).toFixed(2);
