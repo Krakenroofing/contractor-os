@@ -399,6 +399,12 @@ export default async function VendorDetailPage({
             (a) => a.type !== 'bank' && a.type !== 'credit_card',
           ),
         )}
+        openBills={billViews
+          .filter((v) => v.outstanding > 0.005)
+          .map((v) => ({
+            id: v.b.id,
+            label: `${v.b.vendorInvoiceNumber ?? v.b.receiptDate} — ${formatMoney(v.outstanding)} due`,
+          }))}
         canEdit={canManageCredits}
       />
 

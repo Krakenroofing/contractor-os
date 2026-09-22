@@ -39,6 +39,8 @@ import { getUserNamesByIds } from '@/lib/data/users';
 export type VendorCreditActionState = {
   formError?: string;
   ok?: boolean;
+  /** Saved fine, but the same-step bill application only partly landed. */
+  warning?: string;
 };
 
 const idSchema = z.string().uuid();
@@ -82,6 +84,10 @@ export async function createVendorCreditAction(
       accountingAccountId: idSchema,
       reference: z.string().trim().max(120).optional().or(z.literal('')),
       notes: z.string().trim().max(2000).optional().or(z.literal('')),
+      // Optional: the bill (vendor invoice) this credit nets against —
+      // applied in the same step so the two stay linked instead of the
+      // invoice number living only in the reference text.
+      applyReceiptId: idSchema.optional().or(z.literal('')),
     })
     .safeParse({
       vendorId: formData.get('vendorId'),
@@ -90,6 +96,7 @@ export async function createVendorCreditAction(
       accountingAccountId: formData.get('accountingAccountId'),
       reference: formData.get('reference') ?? '',
       notes: formData.get('notes') ?? '',
+      applyReceiptId: formData.get('applyReceiptId') ?? '',
     });
   if (!parsed.success) {
     return {
@@ -109,6 +116,7 @@ export async function createVendorCreditAction(
   );
   if (!category) return { formError: 'Accounting category not found.' };
 
+  let applyWarning: string | undefined;
   try {
     const credit = await createVendorCredit({
       companyId: auth.companyId,
@@ -126,6 +134,49 @@ export async function createVendorCreditAction(
     // bills in the AP lane (bill netting, register credit lines pinned to
     // AP). The category field stays as a reference only. Same pattern as
     // customer credit memos, which also post no GL.
+
+    // Same-step application to the bill the credit corrects. Capped at
+    // what the bill still owes; a shortfall leaves the rest of the credit
+    // open rather than failing the create.
+    if (input.applyReceiptId) {
+      const receipt = await getReceipt(auth.companyId, input.applyReceiptId);
+      if (receipt && receipt.status !== 'void' && receipt.vendorId === input.vendorId) {
+        const round = (n: number) => Math.round(n * 100) / 100;
+        const existing = await listApplicationsForReceipts(auth.companyId, [
+          receipt.id,
+        ]);
+        const alreadyApplied = round(
+          existing.reduce((s, a) => s + Number(a.amount), 0),
+        );
+        const bankPaid = round(
+          (
+            await listBankPaymentsForReceipt(auth.companyId, receipt.id)
+          ).reduce((s, p) => s + p.amount, 0),
+        );
+        const remaining = round(
+          Math.max(0, Number(receipt.total) - alreadyApplied - bankPaid),
+        );
+        const applyAmount = round(Math.min(input.amount, remaining));
+        if (applyAmount > 0.005) {
+          await createVendorCreditApplication({
+            companyId: auth.companyId,
+            creditId: credit.id,
+            receiptId: receipt.id,
+            amount: toMoneyString(applyAmount),
+          });
+          revalidatePath(`/banking/receipts/${receipt.id}`);
+          if (applyAmount < input.amount - 0.005) {
+            applyWarning = `Applied ${applyAmount.toFixed(2)} to the bill (all it still owed) — the remaining ${(input.amount - applyAmount).toFixed(2)} stays as an open credit.`;
+          }
+        } else {
+          applyWarning =
+            'The chosen bill has nothing left to offset — the credit was saved as open instead.';
+        }
+      } else {
+        applyWarning =
+          'Credit saved, but the chosen bill could not be applied (not found or different vendor).';
+      }
+    }
   } catch (err) {
     if (err instanceof VendorCreditsNotAvailableInDemoError) {
       return { formError: err.message };
@@ -139,7 +190,7 @@ export async function createVendorCreditAction(
   void company;
   revalidatePath(`/vendors/${input.vendorId}`);
   revalidatePath('/reports/profit-loss', 'layout');
-  return { ok: true };
+  return { ok: true, warning: applyWarning };
 }
 
 export async function deleteVendorCreditAction(

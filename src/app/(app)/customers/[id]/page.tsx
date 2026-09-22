@@ -471,6 +471,15 @@ export default async function CustomerDetailPage({
                   invoiceNumber: null,
                   suggestDeductCO: false,
                 }}
+                invoiceOptions={invoiceSummaries.flatMap((row) =>
+                  row.invoices
+                    .filter((i) => i.status !== 'void')
+                    .map((i) => ({
+                      id: i.id,
+                      number: i.number,
+                      detail: `${row.project.name} · ${formatMoney(Number(i.total))}`,
+                    })),
+                )}
                 triggerLabel="Issue credit memo"
               />
             )}

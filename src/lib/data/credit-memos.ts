@@ -205,7 +205,11 @@ export async function listCreditMemosForInvoice(
 ): Promise<CreditMemo[]> {
   if (!isDatabaseConfigured()) return [];
   const db = getDb()!;
-  return await db
+  // Two ways a credit relates to an invoice: issued against it (header
+  // invoice_id), or an open credit later APPLIED to it (application row).
+  // The invoice page shows both, so the relationship reads the same no
+  // matter which path the operator took.
+  const viaHeader = await db
     .select()
     .from(creditMemos)
     .where(
@@ -214,8 +218,27 @@ export async function listCreditMemosForInvoice(
         eq(creditMemos.invoiceId, invoiceId),
         ne(creditMemos.status, 'void'),
       ),
+    );
+  const viaApplication = await db
+    .select({ cm: creditMemos })
+    .from(creditMemoApplications)
+    .innerJoin(
+      creditMemos,
+      eq(creditMemos.id, creditMemoApplications.creditMemoId),
     )
-    .orderBy(desc(creditMemos.issueDate));
+    .where(
+      and(
+        eq(creditMemoApplications.companyId, companyId),
+        eq(creditMemoApplications.invoiceId, invoiceId),
+        ne(creditMemos.status, 'void'),
+      ),
+    );
+  const byId = new Map<string, CreditMemo>();
+  for (const cm of viaHeader) byId.set(cm.id, cm);
+  for (const { cm } of viaApplication) byId.set(cm.id, cm);
+  return [...byId.values()].sort((a, b) =>
+    String(b.issueDate).localeCompare(String(a.issueDate)),
+  );
 }
 
 /**

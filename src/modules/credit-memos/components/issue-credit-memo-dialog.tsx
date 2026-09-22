@@ -47,12 +47,24 @@ function todayLocalISO(): string {
   return `${y}-${m}-${day}`;
 }
 
+export type CreditMemoInvoiceOption = {
+  id: string;
+  number: string;
+  /** Extra context after the number (project, status, amount). */
+  detail?: string;
+};
+
 export function IssueCreditMemoDialog({
   scope,
+  invoiceOptions,
   triggerLabel = 'Issue credit memo',
   triggerVariant = 'outline',
 }: {
   scope: IssueCreditMemoScope;
+  /** The customer's invoices, offered as a picker when the dialog isn't
+   *  opened FROM an invoice — so the credit ties to the invoice it
+   *  corrects instead of its number living in the memo text. */
+  invoiceOptions?: CreditMemoInvoiceOption[];
   triggerLabel?: string;
   triggerVariant?: 'outline' | 'default' | 'ghost';
 }) {
@@ -69,6 +81,14 @@ export function IssueCreditMemoDialog({
   const [mode, setMode] = useState<'apply_to_invoice' | 'refund_cash' | 'open'>(
     scope.invoiceId ? 'apply_to_invoice' : 'open',
   );
+  // The invoice the credit relates to: fixed when the dialog was opened
+  // from an invoice page, pickable otherwise.
+  const [invoiceId, setInvoiceId] = useState(scope.invoiceId ?? '');
+  const pickable = !scope.invoiceId && (invoiceOptions?.length ?? 0) > 0;
+  const chosenNumber =
+    scope.invoiceNumber ??
+    invoiceOptions?.find((o) => o.id === invoiceId)?.number ??
+    null;
 
   // After a successful save, leave the dialog visible long enough to show
   // the deduct-CO suggestion if applicable. Closes when the user
@@ -168,7 +188,7 @@ export function IssueCreditMemoDialog({
 
             <input type="hidden" name="customerId" value={scope.customerId} />
             <input type="hidden" name="projectId" value={scope.projectId ?? ''} />
-            <input type="hidden" name="invoiceId" value={scope.invoiceId ?? ''} />
+            <input type="hidden" name="invoiceId" value={invoiceId} />
 
             <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-700 space-y-0.5">
               <div>
@@ -188,6 +208,36 @@ export function IssueCreditMemoDialog({
                 </div>
               )}
             </div>
+
+            {pickable && (
+              <div className="space-y-1.5">
+                <Label>Invoice this credit relates to (optional)</Label>
+                <Select
+                  value={invoiceId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setInvoiceId(next);
+                    // Picking an invoice usually means "net it against that
+                    // invoice" — pre-select the mode, still changeable.
+                    if (next && mode === 'open') setMode('apply_to_invoice');
+                    if (!next && mode === 'apply_to_invoice') setMode('open');
+                  }}
+                >
+                  <option value="">— No specific invoice —</option>
+                  {invoiceOptions!.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.number}
+                      {o.detail ? ` — ${o.detail}` : ''}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Ties the credit to the invoice it corrects, so the invoice
+                  page and reports show them together — no need to type the
+                  invoice number into the memo.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -252,9 +302,10 @@ export function IssueCreditMemoDialog({
                   setMode(e.target.value as typeof mode)
                 }
               >
-                {scope.invoiceId && (
+                {invoiceId && (
                   <option value="apply_to_invoice">
-                    Apply to this invoice (reduces what they owe)
+                    Apply to {chosenNumber ? `invoice ${chosenNumber}` : 'this invoice'}{' '}
+                    (reduces what they owe)
                   </option>
                 )}
                 <option value="refund_cash">
@@ -264,9 +315,9 @@ export function IssueCreditMemoDialog({
                   Leave as open credit (applies to future invoices)
                 </option>
               </Select>
-              {!scope.invoiceId && mode === 'apply_to_invoice' && (
+              {!invoiceId && mode === 'apply_to_invoice' && (
                 <p className="text-xs text-amber-700">
-                  No invoice in scope — pick a different mode.
+                  No invoice selected — pick one above, or a different mode.
                 </p>
               )}
             </div>

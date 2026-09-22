@@ -1194,6 +1194,13 @@ export default async function ProjectDetailPage({
                   invoiceNumber: null,
                   suggestDeductCO: true,
                 }}
+                invoiceOptions={invoices
+                  .filter((i) => i.status !== 'void')
+                  .map((i) => ({
+                    id: i.id,
+                    number: i.number,
+                    detail: `${formatMoney(Number(i.total))} · ${i.status}`,
+                  }))}
                 triggerLabel="Issue credit memo"
               />
             )}

@@ -42,11 +42,16 @@ export function VendorCreditsCard({
   vendorId,
   credits,
   accountOptions,
+  openBills,
   canEdit,
 }: {
   vendorId: string;
   credits: VendorCreditView[];
   accountOptions: AccountingAccountOption[];
+  /** The vendor's bills with money still due — offered so a new credit can
+   *  be matched to the invoice it credits in the same step, instead of the
+   *  invoice number living only in the reference text. */
+  openBills?: Array<{ id: string; label: string }>;
   canEdit: boolean;
 }) {
   const [adding, setAdding] = useState(false);
@@ -86,6 +91,11 @@ export function VendorCreditsCard({
         </div>
       </CardHeader>
       <CardContent className={credits.length === 0 && !adding ? '' : 'space-y-4'}>
+        {state.warning && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {state.warning}
+          </p>
+        )}
         {adding && (
           <form action={formAction} className="flex flex-wrap items-end gap-3">
             <input type="hidden" name="vendorId" value={vendorId} />
@@ -126,6 +136,28 @@ export function VendorCreditsCard({
                 className="w-40"
               />
             </div>
+            {(openBills?.length ?? 0) > 0 && (
+              <div className="space-y-1.5 w-72">
+                <Label htmlFor="vc-bill">Apply to bill (optional)</Label>
+                <select
+                  id="vc-bill"
+                  name="applyReceiptId"
+                  defaultValue=""
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  <option value="">— Not yet / no specific bill —</option>
+                  {openBills!.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  Nets the credit against that vendor invoice right away (up
+                  to what it still owes), so the two stay linked.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5 w-64">
               <Label htmlFor="vc-notes">Notes (optional)</Label>
               <Input id="vc-notes" name="notes" placeholder="What it's for" />
