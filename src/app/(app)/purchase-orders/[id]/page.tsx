@@ -110,12 +110,28 @@ export default async function PurchaseOrderDetailPage({
           projectName={project?.name}
         />
         <div className="flex items-center gap-2">
-          {allowBill && po.status !== 'void' && (
-            <Link href={{ pathname: `/purchase-orders/${po.id}/bill` }}>
-              <Button size="sm" variant="outline">
-                Create bill
-              </Button>
-            </Link>
+          {/* Bills only from issued orders — a draft PO billed before issue
+              skips auto-receiving (createPoReceipt refuses drafts), leaving
+              quantities at 0 while the bill posts. Issue first, then bill. */}
+          {allowBill &&
+            (po.status === 'issued' ||
+              po.status === 'partially_received' ||
+              po.status === 'received') && (
+              <Link href={{ pathname: `/purchase-orders/${po.id}/bill` }}>
+                <Button size="sm" variant="outline">
+                  Create bill
+                </Button>
+              </Link>
+            )}
+          {allowBill && po.status === 'draft' && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title="Issue this PO first — bills can only be created from issued orders."
+            >
+              Create bill
+            </Button>
           )}
           <DocumentDownloadButtons type="purchase_order" id={po.id} />
           {/* Editable until fully received / closed / void — committed

@@ -34,6 +34,15 @@ export default async function PoBillPage({
 
   const po = await getPurchaseOrder(company.id, id);
   if (!po) notFound();
+  // Only issued orders can be billed — a draft PO billed before issue
+  // skips auto-receiving and leaves quantities at 0 (see createBillFromPoAction).
+  if (
+    po.status !== 'issued' &&
+    po.status !== 'partially_received' &&
+    po.status !== 'received'
+  ) {
+    redirect(`/purchase-orders/${po.id}`);
+  }
 
   const [poLines, billed, bills, vendor] = await Promise.all([
     getPurchaseOrderLines(po.id),

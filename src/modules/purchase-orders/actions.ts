@@ -759,6 +759,20 @@ export async function createBillFromPoAction(
   if (po.status === 'void') {
     return { formError: 'This purchase order is void — nothing to bill.' };
   }
+  // Draft POs can't be billed: auto-receive refuses drafts, so the bill
+  // would post while received quantities silently stay 0 (the O'Brian /
+  // PO-Turn 001 glitch). Issue the order first.
+  if (po.status === 'draft') {
+    return {
+      formError:
+        'This PO is still a draft — issue it first. Bills can only be created from issued orders.',
+    };
+  }
+  if (po.status === 'closed') {
+    return {
+      formError: 'This PO is closed — reopen or create a standalone bill instead.',
+    };
+  }
 
   const poLines = await getPurchaseOrderLines(po.id);
   const poLineById = new Map(poLines.map((l) => [l.id, l]));
