@@ -13,6 +13,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { loadCostCodeMap } from '@/lib/data/cost-codes';
+import { listInventoryItems } from '@/lib/data/inventory-items';
 import { getLandedCost } from '@/lib/data/landed-costs';
 import { getPurchaseOrder, getPurchaseOrderLines } from '@/lib/data/purchase-orders';
 import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
@@ -70,6 +71,24 @@ export default async function PurchaseOrderDetailPage({
     ? await getLandedCost(companyId, po.landedCostEntryId)
     : undefined;
   const receipts = await listPoReceiptsForPO(po.id);
+
+  // Product links are editable inline in ANY status but void — the item
+  // catalog often gets organized after orders were received, and the Edit
+  // form is (rightly) unavailable by then. Linking backfills stock.
+  const canLinkProducts = allowCreate && po.status !== 'void';
+  const inventoryItems = await listInventoryItems(companyId);
+  const itemNameById = new Map(inventoryItems.map((p) => [p.id, p.name]));
+  const products = canLinkProducts
+    ? inventoryItems.map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        sku: p.sku,
+        unit: p.unit,
+        defaultCost: Number(p.defaultCost),
+        defaultCostCodeId: p.defaultCostCodeId ?? null,
+      }))
+    : [];
 
   // Receiving is meaningful for any non-draft, non-closed, non-void PO.
   // Per the Phase 6.1 decisions, the button stays visible even when the PO
@@ -398,8 +417,15 @@ export default async function PurchaseOrderDetailPage({
                   quantityReceived: Number(l.quantityReceived),
                   unitCost: l.unitCost,
                   lineTotal: l.lineTotal,
+                  inventoryItemId: l.inventoryItemId ?? '',
+                  inventoryItemName: l.inventoryItemId
+                    ? (itemNameById.get(l.inventoryItemId) ?? null)
+                    : null,
                 };
               })}
+              poId={po.id}
+              products={products}
+              canEditProducts={canLinkProducts}
             />
           )}
         </CardContent>

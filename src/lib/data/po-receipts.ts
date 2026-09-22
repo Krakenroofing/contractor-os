@@ -234,6 +234,152 @@ export async function createPoReceipt(
 }
 
 /**
+ * Link (or unlink) an inventory item on a PO line AFTER the fact — received
+ * POs included, because the catalog often gets organized long after the
+ * order shipped. Classification only: quantities, costs, and status never
+ * change here.
+ *
+ * The stock ledger is kept consistent with the link: movements written by
+ * this line's past receipts are reversed (they belong to the old item),
+ * and when a new item is set, 'received' movements are written for every
+ * already-received shipment of the line — so linking an item makes its
+ * received quantity show up on hand retroactively.
+ */
+export async function setPoLineInventoryItem(
+  companyId: string,
+  poId: string,
+  lineId: string,
+  inventoryItemId: string | null,
+  actorUserId: string | null,
+): Promise<{ backfilledQty: number; reversedMovements: number }> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const poRows = await tx
+      .select({ id: purchaseOrders.id, status: purchaseOrders.status })
+      .from(purchaseOrders)
+      .where(
+        and(eq(purchaseOrders.id, poId), eq(purchaseOrders.companyId, companyId)),
+      )
+      .limit(1);
+    if (!poRows[0]) throw new Error('Purchase order not found in active company.');
+    if (poRows[0].status === 'void')
+      throw new Error('This PO is void — nothing to classify.');
+
+    const lineRows = await tx
+      .select()
+      .from(purchaseOrderLines)
+      .where(
+        and(
+          eq(purchaseOrderLines.id, lineId),
+          eq(purchaseOrderLines.purchaseOrderId, poId),
+        ),
+      )
+      .limit(1);
+    const line = lineRows[0];
+    if (!line) throw new Error('Line not found on this PO.');
+    if ((line.inventoryItemId ?? null) === inventoryItemId)
+      return { backfilledQty: 0, reversedMovements: 0 };
+
+    // This line's past shipments, with each receipt's date + location so
+    // backfilled movements land where/when the goods actually arrived.
+    const shipments = await tx
+      .select({
+        receiptLineId: poReceiptLines.id,
+        quantityReceived: poReceiptLines.quantityReceived,
+        receivedAt: poReceipts.receivedAt,
+        locationId: poReceipts.locationId,
+      })
+      .from(poReceiptLines)
+      .innerJoin(poReceipts, eq(poReceipts.id, poReceiptLines.receiptId))
+      .where(eq(poReceiptLines.poLineId, lineId));
+
+    // Reverse any movements the old item link produced (same pattern as
+    // deletePoReceipt: +qty original + -qty reversal sums to zero).
+    let reversedMovements = 0;
+    if (shipments.length > 0) {
+      const originals = await tx
+        .select()
+        .from(inventoryMovements)
+        .where(
+          inArray(
+            inventoryMovements.poReceiptLineId,
+            shipments.map((s) => s.receiptLineId),
+          ),
+        );
+      // Skip originals a prior relink already reversed — reversing them
+      // twice would drive the item's on-hand negative.
+      const alreadyReversed = new Set(
+        originals.length > 0
+          ? (
+              await tx
+                .select({ reversalOfId: inventoryMovements.reversalOfId })
+                .from(inventoryMovements)
+                .where(
+                  inArray(
+                    inventoryMovements.reversalOfId,
+                    originals.map((m) => m.id),
+                  ),
+                )
+            ).map((r) => r.reversalOfId)
+          : [],
+      );
+      const nonReversed = originals.filter(
+        (m) => !m.quantity.startsWith('-') && !alreadyReversed.has(m.id),
+      );
+      if (nonReversed.length > 0) {
+        await tx.insert(inventoryMovements).values(
+          nonReversed.map((m) => ({
+            companyId: m.companyId,
+            inventoryItemId: m.inventoryItemId,
+            quantity: `-${m.quantity}`,
+            movementType: m.movementType,
+            occurredAt: new Date(),
+            createdByUserId: actorUserId,
+            notes: 'Reversal — product link on the PO line changed',
+            poReceiptLineId: null,
+            projectId: null,
+            reversalOfId: m.id,
+            locationId: m.locationId,
+          })),
+        );
+        reversedMovements = nonReversed.length;
+      }
+    }
+
+    await tx
+      .update(purchaseOrderLines)
+      .set({ inventoryItemId })
+      .where(eq(purchaseOrderLines.id, lineId));
+
+    // Backfill 'received' movements for the new item across past shipments.
+    let backfilledQty = 0;
+    if (inventoryItemId && shipments.length > 0) {
+      const rows = shipments
+        .filter((s) => Number(s.quantityReceived) > 0)
+        .map((s) => {
+          backfilledQty += Number(s.quantityReceived);
+          return {
+            companyId,
+            inventoryItemId,
+            quantity: s.quantityReceived,
+            movementType: 'received' as const,
+            occurredAt: s.receivedAt,
+            createdByUserId: actorUserId,
+            notes: 'Backfill — product linked to the PO line after receiving',
+            poReceiptLineId: s.receiptLineId,
+            projectId: null,
+            reversalOfId: null,
+            locationId: s.locationId,
+          };
+        });
+      if (rows.length > 0) await tx.insert(inventoryMovements).values(rows);
+    }
+
+    return { backfilledQty, reversedMovements };
+  });
+}
+
+/**
  * List all receipts on a PO, newest first, each with its line breakdown.
  */
 export async function listPoReceiptsForPO(

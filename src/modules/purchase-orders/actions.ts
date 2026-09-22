@@ -37,6 +37,7 @@ import { findBillByVendorInvoiceNumber } from '@/lib/data/po-bills';
 import {
   createPoReceipt,
   deletePoReceipt,
+  setPoLineInventoryItem,
 } from '@/lib/data/po-receipts';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getDefaultLocation } from '@/lib/data/inventory-locations';
@@ -413,6 +414,70 @@ export async function cancelRemainingPoAction(
   revalidatePath('/job-costing');
   revalidatePath('/reports/accounts-payable');
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  return { ok: true };
+}
+
+// ===== Link a product to a PO line (any status but void) =====
+
+export type SetPoLineProductState = { ok?: boolean; error?: string };
+
+/**
+ * Set/clear the inventory item on a single PO line, received POs included —
+ * the catalog often gets organized after the fact. Classification only
+ * (no quantities or money), and already-received shipments get their stock
+ * movements backfilled to the newly linked item.
+ */
+export async function setPoLineProductAction(input: {
+  poId: string;
+  lineId: string;
+  inventoryItemId: string | null;
+}): Promise<SetPoLineProductState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'purchase_orders')) {
+    return { error: 'You do not have permission to edit purchase orders.' };
+  }
+  const parsed = z
+    .object({
+      poId: z.string().uuid(),
+      lineId: z.string().uuid(),
+      inventoryItemId: z.string().uuid().nullable(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { error: 'Invalid product link.' };
+
+  const companyId = await getActiveCompanyId();
+  const knownUsers = await getUserNamesByIds([user.id]);
+  try {
+    const res = await setPoLineInventoryItem(
+      companyId,
+      parsed.data.poId,
+      parsed.data.lineId,
+      parsed.data.inventoryItemId,
+      knownUsers.has(user.id) ? user.id : null,
+    );
+    if (res.backfilledQty > 0 || res.reversedMovements > 0) {
+      appendActivity(companyId, {
+        entityType: 'purchase_order',
+        entityId: parsed.data.poId,
+        kind: 'po_line_product_linked',
+        summary: parsed.data.inventoryItemId
+          ? `Product linked on a line — ${res.backfilledQty.toLocaleString()} already-received units backfilled into inventory${
+              res.reversedMovements > 0
+                ? `; ${res.reversedMovements} old stock movement${res.reversedMovements === 1 ? '' : 's'} reversed`
+                : ''
+            }`
+          : `Product unlinked on a line — ${res.reversedMovements} stock movement${res.reversedMovements === 1 ? '' : 's'} reversed`,
+        actorRole: ROLE_LABELS[role],
+      });
+    }
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Failed to link the product.',
+    };
+  }
+  revalidatePath(`/purchase-orders/${parsed.data.poId}`);
+  revalidatePath('/inventory');
   return { ok: true };
 }
 

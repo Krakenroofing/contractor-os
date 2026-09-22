@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/table';
 import { formatMoney } from '@/lib/money';
 import { sortLines } from '../line-sort';
+import type { ProductPickerOption } from '@/modules/inventory/components/product-picker';
+import { PoLineProductEditor } from './po-line-product-editor';
 
 export type PoLineRow = {
   id: string;
@@ -35,9 +37,22 @@ export type PoLineRow = {
   quantityReceived: number;
   unitCost: string;
   lineTotal: string;
+  inventoryItemId: string;
+  inventoryItemName: string | null;
 };
 
-export function PoLinesTable({ lines }: { lines: PoLineRow[] }) {
+export function PoLinesTable({
+  lines,
+  poId,
+  products,
+  canEditProducts,
+}: {
+  lines: PoLineRow[];
+  poId: string;
+  /** Catalog for the inline product link; empty + !canEditProducts hides the column's editor. */
+  products: ProductPickerOption[];
+  canEditProducts: boolean;
+}) {
   const [sort, setSort] = useState<SortState>(null);
   const onSort = (key: string) => setSort((prev) => toggleSort(prev, key));
 
@@ -77,6 +92,7 @@ export function PoLinesTable({ lines }: { lines: PoLineRow[] }) {
                 onSort={onSort}
               />
             </TableHead>
+            <TableHead>Product</TableHead>
             <TableHead className="text-right">
               <SortableHeader
                 label="Qty ordered"
@@ -134,6 +150,22 @@ export function PoLinesTable({ lines }: { lines: PoLineRow[] }) {
                 )}
               </TableCell>
               <TableCell className="text-slate-900">{l.description}</TableCell>
+              <TableCell className="text-xs">
+                {canEditProducts ? (
+                  <PoLineProductEditor
+                    poId={poId}
+                    lineId={l.id}
+                    itemId={l.inventoryItemId}
+                    itemName={l.inventoryItemName}
+                    description={l.description}
+                    products={products}
+                  />
+                ) : (
+                  <span className="text-slate-600">
+                    {l.inventoryItemName ?? '—'}
+                  </span>
+                )}
+              </TableCell>
               <TableCell className="text-right tabular-nums">
                 {qty(l.quantityOrdered)}
               </TableCell>
