@@ -38,6 +38,8 @@ export function PoBillForm({
   lines,
   poTaxAmount,
   poSubtotal,
+  poShipping,
+  priorBillCount,
 }: {
   poId: string;
   lines: PoBillLine[];
@@ -45,6 +47,10 @@ export function PoBillForm({
    *  selected lines' proportional share. */
   poTaxAmount: number;
   poSubtotal: number;
+  /** The PO's shipping/handling charge, and whether earlier bills exist
+   *  (shipping is billed once — prefilled only on the FIRST bill). */
+  poShipping: number;
+  priorBillCount: number;
 }) {
   const [state, formAction, pending] = useActionState<
     CreateBillFromPoState,
@@ -102,11 +108,25 @@ export function PoBillForm({
   const taxValue = taxTouched ? salesTax : suggestedTax > 0 ? suggestedTax.toFixed(2) : '';
   const taxNum = Number(taxValue) || 0;
 
+  // Shipping / handling (pallet surcharges, loading charges, freight) —
+  // its own line on the bill, categorized to the shipping/freight
+  // account. Usually invoiced once, so prefill only on the first bill.
+  const suggestedShipping = priorBillCount === 0 ? r2(poShipping) : 0;
+  const [shipTouched, setShipTouched] = useState(false);
+  const [shippingCharge, setShippingCharge] = useState('');
+  const shipValue = shipTouched
+    ? shippingCharge
+    : suggestedShipping > 0
+      ? suggestedShipping.toFixed(2)
+      : '';
+  const shipNum = Number(shipValue) || 0;
+
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="poId" value={poId} />
       <input type="hidden" name="linesJson" value={linesJson} />
       <input type="hidden" name="salesTax" value={taxValue || '0'} />
+      <input type="hidden" name="shippingCharge" value={shipValue || '0'} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block text-xs font-medium text-slate-600">
@@ -263,17 +283,43 @@ export function PoBillForm({
               className="mt-1 w-32 text-right tabular-nums"
             />
           </label>
+          <label className="block text-xs font-medium text-slate-600">
+            Shipping / charges{' '}
+            <span className="font-normal text-slate-400">
+              (freight, pallet + loading fees)
+            </span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={shipValue}
+              onChange={(e) => {
+                setShipTouched(true);
+                setShippingCharge(e.target.value);
+              }}
+              className="mt-1 w-32 text-right tabular-nums"
+            />
+          </label>
           <p className="text-sm text-slate-600 pb-1.5">
             {selected.length} line{selected.length === 1 ? '' : 's'} — items{' '}
             <span className="font-semibold text-slate-900 tabular-nums">
               {fmt(selectedTotal)}
             </span>
+            {shipNum > 0 && (
+              <>
+                {' '}+ shipping <span className="tabular-nums">{fmt(shipNum)}</span>
+              </>
+            )}
             {taxNum > 0 && (
               <>
-                {' '}+ tax{' '}
-                <span className="tabular-nums">{fmt(taxNum)}</span> ={' '}
+                {' '}+ tax <span className="tabular-nums">{fmt(taxNum)}</span>
+              </>
+            )}
+            {(taxNum > 0 || shipNum > 0) && (
+              <>
+                {' '}={' '}
                 <span className="font-semibold text-slate-900 tabular-nums">
-                  {fmt(r2(selectedTotal + taxNum))}
+                  {fmt(r2(selectedTotal + taxNum + shipNum))}
                 </span>
               </>
             )}{' '}

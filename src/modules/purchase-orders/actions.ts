@@ -38,6 +38,7 @@ import {
   createPoReceipt,
   deletePoReceipt,
 } from '@/lib/data/po-receipts';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getDefaultLocation } from '@/lib/data/inventory-locations';
 import { createProjectDocument } from '@/lib/data/project-documents';
 import { getProject } from '@/lib/data/projects';
@@ -814,6 +815,40 @@ export async function createBillFromPoAction(
       ? Math.round(salesTaxRaw * 100) / 100
       : 0;
 
+  // Shipping / handling (freight, pallet surcharges, loading fees) — its
+  // own line, categorized to the company's shipping/freight account so
+  // the charge lands where Olga books freight instead of the vendor's
+  // default materials category.
+  const shippingRaw = Number(String(formData.get('shippingCharge') ?? '0'));
+  const shippingCharge =
+    Number.isFinite(shippingRaw) && shippingRaw > 0
+      ? Math.round(shippingRaw * 100) / 100
+      : 0;
+  // Category resolution matches how Olga already books these by hand
+  // (PO-13's bill): shipping → "Flat Rack Shipping", tax →
+  // "Nonrecoverable Sales Tax". Name lookups with sensible fallbacks;
+  // null leaves the line uncategorized for her to pick (the post-blocker
+  // panel names it).
+  let shippingAccountId: string | null = null;
+  let taxAccountId: string | null = null;
+  if (shippingCharge > 0 || salesTax > 0) {
+    const accounts = await listAccountingAccounts(company.id);
+    const active = accounts.filter((a) => !a.isArchived);
+    const byName = (needle: string) =>
+      active.find((a) => a.name.trim().toLowerCase() === needle);
+    const containing = (needle: string) =>
+      active.find((a) => a.name.toLowerCase().includes(needle));
+    shippingAccountId =
+      (byName('flat rack shipping') ??
+        byName('shipping & freight') ??
+        byName('freight') ??
+        containing('shipping') ??
+        containing('freight'))?.id ?? null;
+    taxAccountId =
+      (byName('nonrecoverable sales tax') ??
+        containing('sales tax'))?.id ?? null;
+  }
+
   // Dev-demo auth's synthetic user isn't in the users table — stamp only
   // when the id really exists so the FK can't fail.
   const knownUsers = await getUserNamesByIds([user.id]);
@@ -869,12 +904,30 @@ export async function createBillFromPoAction(
       sortOrder: computedLines.length,
       projectId: null,
       costCodeId: null,
-      accountingAccountId: defaultAccountId,
+      accountingAccountId: taxAccountId ?? defaultAccountId,
       purchaseOrderLineId: null,
       description: `Sales tax — ${vendor?.name ?? 'vendor'} invoice ${vendorInvoiceNumber} (remove when credited back)`,
       subtotal: toMoneyString(salesTax),
       vatAmount: '0',
       total: toMoneyString(salesTax),
+      vatRatePercent: company.isVatActive ? toPercentString(0) : null,
+      isBillable: false,
+      isReimbursable: false,
+    });
+  }
+  if (shippingCharge > 0) {
+    await createReceiptLine({
+      companyId: company.id,
+      receiptId: receipt.id,
+      sortOrder: computedLines.length + (salesTax > 0 ? 1 : 0),
+      projectId: null,
+      costCodeId: null,
+      accountingAccountId: shippingAccountId,
+      purchaseOrderLineId: null,
+      description: `Shipping & handling — ${vendor?.name ?? 'vendor'} invoice ${vendorInvoiceNumber}`,
+      subtotal: toMoneyString(shippingCharge),
+      vatAmount: '0',
+      total: toMoneyString(shippingCharge),
       vatRatePercent: company.isVatActive ? toPercentString(0) : null,
       isBillable: false,
       isReimbursable: false,
