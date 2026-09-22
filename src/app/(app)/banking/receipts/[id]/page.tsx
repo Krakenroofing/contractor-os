@@ -490,6 +490,12 @@ export default async function ReceiptDetailPage({
             openCredits={openCreditOptions}
             canEdit={canEdit}
           />
+
+          {/* Slot the receipt form portals its Save button into — sticky, so
+              the save stays in reach while scrolling a long line list. */}
+          {canEdit && (
+            <div id="receipt-form-side-save" className="mt-6 sticky top-6" />
+          )}
         </div>
       </div>
     </div>

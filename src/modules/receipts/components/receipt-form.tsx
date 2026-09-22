@@ -1,6 +1,14 @@
 'use client';
 
-import { useActionState, useMemo, useRef, useState, useTransition } from 'react';
+import {
+  useActionState,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -271,6 +279,14 @@ export function ReceiptForm(props: ReceiptFormProps) {
     {},
   );
 
+  // The receipt detail page renders an empty slot in its right column; when
+  // it exists, a second Save button is portaled there so saving doesn't
+  // require scrolling past every line. Pages without the slot are unaffected.
+  const [sideSaveSlot, setSideSaveSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSideSaveSlot(document.getElementById('receipt-form-side-save'));
+  }, []);
+
   const router = useRouter();
   const [savingDefaults, startSavingDefaults] = useTransition();
   const [savedDefaultsAt, setSavedDefaultsAt] = useState<number | null>(null);
@@ -361,8 +377,16 @@ export function ReceiptForm(props: ReceiptFormProps) {
     [lines],
   );
 
+  const saveLabel = pending
+    ? 'Saving…'
+    : i?.id
+      ? 'Save draft'
+      : isBill
+        ? 'Create bill'
+        : 'Create receipt';
+
   return (
-    <form action={action} className="space-y-6">
+    <form id="receipt-form" action={action} className="space-y-6">
       {i?.id && <input type="hidden" name="id" value={i.id} />}
       <input type="hidden" name="lines" value={linesJson} />
 
@@ -640,18 +664,30 @@ export function ReceiptForm(props: ReceiptFormProps) {
 
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={pending}>
-          {pending
-            ? 'Saving…'
-            : i?.id
-              ? 'Save draft'
-              : isBill
-                ? 'Create bill'
-                : 'Create receipt'}
+          {saveLabel}
         </Button>
         {state.formError && (
           <p className="text-xs text-red-600">{state.formError}</p>
         )}
       </div>
+
+      {sideSaveSlot &&
+        createPortal(
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <Button
+              type="submit"
+              form="receipt-form"
+              disabled={pending}
+              className="w-full"
+            >
+              {saveLabel}
+            </Button>
+            {state.formError && (
+              <p className="mt-2 text-xs text-red-600">{state.formError}</p>
+            )}
+          </div>,
+          sideSaveSlot,
+        )}
     </form>
   );
 }
