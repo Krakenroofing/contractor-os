@@ -17,6 +17,7 @@ import { listInventoryItems } from '@/lib/data/inventory-items';
 import { getLandedCost } from '@/lib/data/landed-costs';
 import { getPurchaseOrder, getPurchaseOrderLines } from '@/lib/data/purchase-orders';
 import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
+import { listBillsForPo } from '@/lib/data/po-bills';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
@@ -71,6 +72,10 @@ export default async function PurchaseOrderDetailPage({
     ? await getLandedCost(companyId, po.landedCostEntryId)
     : undefined;
   const receipts = await listPoReceiptsForPO(po.id);
+  // Vendor invoices billed from this PO — several per PO is normal
+  // (partial shipments each arrive with their own ABC invoice).
+  const bills = await listBillsForPo(companyId, po.id);
+  const billedTotal = bills.reduce((s, b) => s + Number(b.total), 0);
 
   // Product links are editable inline in ANY status but void — the item
   // catalog often gets organized after orders were received, and the Edit
@@ -430,6 +435,79 @@ export default async function PurchaseOrderDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Vendor invoices billed from this PO — the AP side of the order.
+          Several per PO is normal: partial shipments each arrive with
+          their own vendor invoice. */}
+      {bills.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Invoices ({bills.length})</CardTitle>
+              <span className="text-sm text-slate-600">
+                Billed so far:{' '}
+                <span
+                  className={`font-medium tabular-nums ${
+                    Math.abs(billedTotal - total) <= 0.01
+                      ? 'text-emerald-700'
+                      : billedTotal > total + 0.01
+                        ? 'text-red-600'
+                        : 'text-amber-700'
+                  }`}
+                >
+                  {formatMoney(billedTotal)}
+                </span>{' '}
+                of {formatMoney(total)}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-2">Bill date</th>
+                  <th className="px-4 py-2">Vendor invoice #</th>
+                  <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bills.map((b) => (
+                  <tr key={b.id} className="border-b border-slate-100">
+                    <td className="px-4 py-2 font-mono text-xs">
+                      {b.receiptDate}
+                    </td>
+                    <td className="px-4 py-2">
+                      <Link
+                        href={{ pathname: `/banking/receipts/${b.id}` }}
+                        className="text-blue-700 hover:underline"
+                      >
+                        {b.vendorInvoiceNumber ?? '(no number)'}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2">
+                      <span
+                        className={`inline-block rounded px-1.5 py-0.5 text-xs border ${
+                          b.status === 'posted'
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : b.status === 'void'
+                              ? 'bg-red-50 border-red-200 text-red-700'
+                              : 'bg-slate-50 border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {formatMoney(Number(b.total))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       {(receipts.length > 0 || canReceive) && (
         <Card>

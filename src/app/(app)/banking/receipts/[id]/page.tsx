@@ -38,6 +38,7 @@ import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
 import { isOcrConfigured } from '@/lib/ocr/document-ai';
 import { createSignedReceiptUrl } from '@/lib/storage/receipt-files';
 import { toMoneyString } from '@/lib/money';
+import { getPurchaseOrder } from '@/lib/data/purchase-orders';
 import {
   listApplicationsForReceipts,
   listVendorCredits,
@@ -121,6 +122,11 @@ export default async function ReceiptDetailPage({
   if (!receipt) notFound();
 
   const currentUser = await requireAuth();
+  // Bills created from a purchase order link back to it — the PO page
+  // shows the same relationship from the other side (its Invoices card).
+  const sourcePo = receipt.purchaseOrderId
+    ? await getPurchaseOrder(company.id, receipt.purchaseOrderId)
+    : undefined;
   const [
     lines,
     attachments,
@@ -286,6 +292,16 @@ export default async function ReceiptDetailPage({
                 ? 'Submitted for review. Waiting for an approver.'
                 : 'Draft. Attach a photo and Submit / Post when ready.'}
         </p>
+        {sourcePo && (
+          <p className="mt-1 text-sm">
+            <Link
+              href={{ pathname: `/purchase-orders/${sourcePo.id}` }}
+              className="text-blue-700 hover:underline"
+            >
+              Created from {sourcePo.number} →
+            </Link>
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
