@@ -259,6 +259,10 @@ export function MatchPanel(props: MatchPanelProps) {
 
   // ----- Batch bill payment (money-out) state -----
   const [billMode, setBillMode] = useState(false);
+  // Top-up: reopen the bill picker on an ALREADY matched payment to add a
+  // forgotten bill — the server sums prior matches, so this just allocates
+  // the rest. (Chris, 2026-09-23.)
+  const [addingMore, setAddingMore] = useState(false);
   const [billQuery, setBillQuery] = useState('');
   const [billDateFrom, setBillDateFrom] = useState('');
   const [billDateTo, setBillDateTo] = useState('');
@@ -285,7 +289,14 @@ export function MatchPanel(props: MatchPanelProps) {
   >(new Map());
   const [feeAccountId, setFeeAccountId] = useState('');
 
-  const billAbs = Math.round(Math.abs(props.amount) * 100) / 100;
+  // What this payment can still cover: the withdrawal minus bills already
+  // matched to it (zero when unmatched, so the normal flow is unchanged).
+  const alreadyMatchedSum = Math.round(
+    (props.billMatches ?? []).reduce((s, b) => s + b.amount, 0) * 100,
+  ) / 100;
+  const billAbs = Math.round(
+    (Math.abs(props.amount) - alreadyMatchedSum) * 100,
+  ) / 100;
   const billSelectedSum = Array.from(billSelected.values()).reduce(
     (s, v) => s + v.amount,
     0,
@@ -406,11 +417,13 @@ export function MatchPanel(props: MatchPanelProps) {
         setErr(res.error ?? 'Match failed.');
         return;
       }
+      resetBillMode();
       router.refresh();
     });
   }
 
   function resetBillMode() {
+    setAddingMore(false);
     setBillMode(false);
     setBillQuery('');
     setBillDateFrom('');
@@ -519,7 +532,7 @@ export function MatchPanel(props: MatchPanelProps) {
   }
 
   // ----- Reconciled state -----
-  if (props.active) {
+  if (props.active && !addingMore) {
     const matchedReceiptId =
       props.active.matchType === 'receipt' ? props.active.receiptId : null;
     const bills = props.billMatches ?? [];
@@ -581,6 +594,22 @@ export function MatchPanel(props: MatchPanelProps) {
                   }}
                 />
               </label>
+            )}
+            {props.canEdit && props.amount < 0 && bills.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                title="Forgot one? Add another bill to this same payment — no need to unmatch."
+                onClick={() => {
+                  setErr(null);
+                  setAddingMore(true);
+                  setBillMode(true);
+                }}
+              >
+                + Add bill
+              </Button>
             )}
             {props.canEdit && (
               <Button
@@ -1023,16 +1052,27 @@ export function MatchPanel(props: MatchPanelProps) {
     return (
       <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs space-y-2">
         <div className="font-medium text-blue-900">
-          Pay bills from this withdrawal
+          {addingMore
+            ? 'Add more bills to this payment'
+            : 'Pay bills from this withdrawal'}
         </div>
         <p className="text-blue-800">
-          One payment can settle several bills. Tick bills until the remaining
-          balance is $0; any shortfall can be booked as a bank/transaction fee.
+          {addingMore
+            ? 'The bills already matched stay as they are — pick the one(s) this payment also covered.'
+            : 'One payment can settle several bills. Tick bills until the remaining balance is $0; any shortfall can be booked as a bank/transaction fee.'}
         </p>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded bg-white px-2 py-1.5">
+          {alreadyMatchedSum > 0.005 && (
+            <span className="text-slate-600">
+              Already matched{' '}
+              <span className="font-semibold tabular-nums text-slate-900">
+                ${fmtMoney(alreadyMatchedSum)}
+              </span>
+            </span>
+          )}
           <span className="text-slate-600">
-            Payment{' '}
+            {alreadyMatchedSum > 0.005 ? 'Left on payment' : 'Payment'}{' '}
             <span className="font-semibold tabular-nums text-slate-900">
               ${fmtMoney(billAbs)}
             </span>
