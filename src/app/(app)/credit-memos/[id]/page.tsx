@@ -22,7 +22,7 @@ import {
   listApplicationsForCreditMemo,
 } from '@/lib/data/credit-memos';
 import { getCustomer } from '@/lib/data/customers';
-import { getProject } from '@/lib/data/projects';
+import { getProject, listProjects } from '@/lib/data/projects';
 import { getInvoice, listInvoicesForProject } from '@/lib/data/invoices';
 import { DocumentDownloadButtons } from '@/components/document-download-buttons';
 import { CreditMemoDetailActions } from '@/modules/credit-memos/components/credit-memo-detail-actions';
@@ -68,11 +68,21 @@ export default async function CreditMemoDetailPage({
     : null;
   const applications = await listApplicationsForCreditMemo(companyId, cm.id);
 
-  // Invoices the operator can pick from when applying remaining balance.
-  // Scope: customer's invoices (any project) that are non-void.
-  const customerInvoices = project
-    ? (await listInvoicesForProject(project.id)).filter((i) => i.status !== 'void')
-    : [];
+  // Invoices the operator can pick from (applying balance, or re-linking
+  // via Edit details). Scope: ALL the customer's invoices across their
+  // projects — a customer-level credit has no project of its own, and a
+  // credit can relate to an invoice on a sibling project.
+  const customerProjects = (await listProjects(companyId)).filter(
+    (p) => p.customerId === cm.customerId,
+  );
+  const customerInvoices = (
+    await Promise.all(
+      customerProjects.map((p) => listInvoicesForProject(p.id)),
+    )
+  )
+    .flat()
+    .filter((i) => i.status !== 'void')
+    .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
   const amount = Number(cm.amount);
   const applied = Number(cm.appliedAmount);
@@ -254,6 +264,15 @@ export default async function CreditMemoDetailPage({
             number: i.number,
           }))}
           canVoid={applications.length === 0 && open === amount}
+          current={{
+            issueDate: cm.issueDate,
+            amount,
+            appliedAmount: applied,
+            reason: cm.reason,
+            notes: cm.notes,
+            invoiceId: cm.invoiceId,
+            hasDeductCO: Boolean(cm.changeOrderId),
+          }}
         />
       )}
     </div>

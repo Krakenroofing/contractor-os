@@ -8,6 +8,7 @@ import { useActionState, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -25,6 +26,7 @@ import {
 import {
   createVendorCreditAction,
   deleteVendorCreditAction,
+  updateVendorCreditAction,
   type VendorCreditActionState,
 } from '../credit-actions';
 
@@ -34,6 +36,7 @@ export type VendorCreditView = {
   amount: number;
   appliedTotal: number;
   categoryName: string;
+  accountingAccountId: string;
   reference: string | null;
   notes: string | null;
 };
@@ -55,6 +58,7 @@ export function VendorCreditsCard({
   canEdit: boolean;
 }) {
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState('');
   const [state, formAction, pending] = useActionState<
     VendorCreditActionState,
@@ -139,22 +143,20 @@ export function VendorCreditsCard({
             {(openBills?.length ?? 0) > 0 && (
               <div className="space-y-1.5 w-72">
                 <Label htmlFor="vc-bill">Apply to bill (optional)</Label>
-                <select
-                  id="vc-bill"
-                  name="applyReceiptId"
-                  defaultValue=""
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                >
+                {/* Searchable combobox — type the vendor's invoice number
+                    and the bill pops up instead of scrolling the list. */}
+                <Select id="vc-bill" name="applyReceiptId" defaultValue="">
                   <option value="">— Not yet / no specific bill —</option>
                   {openBills!.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.label}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <p className="text-[11px] text-slate-500">
-                  Nets the credit against that vendor invoice right away (up
-                  to what it still owes), so the two stay linked.
+                  Type the invoice number to find it. Nets the credit against
+                  that vendor invoice right away (up to what it still owes),
+                  so the two stay linked.
                 </p>
               </div>
             )}
@@ -200,6 +202,16 @@ export function VendorCreditsCard({
               {credits.map((c) => {
                 const available =
                   Math.round((c.amount - c.appliedTotal) * 100) / 100;
+                if (editingId === c.id) {
+                  return (
+                    <EditCreditRow
+                      key={c.id}
+                      credit={c}
+                      accountOptions={accountOptions}
+                      onClose={() => setEditingId(null)}
+                    />
+                  );
+                }
                 return (
                   <TableRow key={c.id}>
                     <TableCell className="tabular-nums text-slate-700">
@@ -228,9 +240,20 @@ export function VendorCreditsCard({
                       {formatMoney(available)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {canEdit && c.appliedTotal < 0.005 && (
-                        <DeleteCreditButton creditId={c.id} />
-                      )}
+                      <span className="inline-flex items-center gap-2">
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(c.id)}
+                            className="text-xs text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {canEdit && c.appliedTotal < 0.005 && (
+                          <DeleteCreditButton creditId={c.id} />
+                        )}
+                      </span>
                     </TableCell>
                   </TableRow>
                 );
@@ -240,6 +263,100 @@ export function VendorCreditsCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Inline edit for one credit row: date, amount (never below what's already
+// applied), category, reference, notes. Reference is where the vendor's
+// credit-memo # AND the original invoice # live — the invoice-review page
+// matches on it.
+function EditCreditRow({
+  credit,
+  accountOptions,
+  onClose,
+}: {
+  credit: VendorCreditView;
+  accountOptions: AccountingAccountOption[];
+  onClose: () => void;
+}) {
+  const [categoryId, setCategoryId] = useState(credit.accountingAccountId);
+  const [state, formAction, pending] = useActionState<
+    VendorCreditActionState,
+    FormData
+  >(async (prev, fd) => {
+    const res = await updateVendorCreditAction(prev, fd);
+    if (res.ok) onClose();
+    return res;
+  }, {});
+  return (
+    <TableRow>
+      <TableCell colSpan={7}>
+        <form action={formAction} className="flex flex-wrap items-end gap-3 py-1">
+          <input type="hidden" name="creditId" value={credit.id} />
+          <div className="space-y-1">
+            <Label className="text-xs">Credit date</Label>
+            <Input
+              name="creditDate"
+              type="date"
+              defaultValue={credit.creditDate}
+              required
+              className="w-40 h-9"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">
+              Amount
+              {credit.appliedTotal > 0.005
+                ? ` (min ${credit.appliedTotal.toFixed(2)} applied)`
+                : ''}
+            </Label>
+            <Input
+              name="amount"
+              inputMode="decimal"
+              defaultValue={credit.amount.toFixed(2)}
+              required
+              className="w-28 h-9"
+            />
+          </div>
+          <div className="space-y-1 w-60">
+            <Label className="text-xs">Category (reference)</Label>
+            <AccountingAccountPicker
+              name="accountingAccountId"
+              value={categoryId}
+              onChange={setCategoryId}
+              accounts={accountOptions}
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Reference</Label>
+            <Input
+              name="reference"
+              defaultValue={credit.reference ?? ''}
+              placeholder="Credit memo # / invoice #"
+              className="w-44 h-9"
+            />
+          </div>
+          <div className="space-y-1 w-56">
+            <Label className="text-xs">Notes</Label>
+            <Input
+              name="notes"
+              defaultValue={credit.notes ?? ''}
+              className="h-9"
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? 'Saving…' : 'Save'}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          {state.formError && (
+            <p className="w-full text-xs text-red-600">{state.formError}</p>
+          )}
+        </form>
+      </TableCell>
+    </TableRow>
   );
 }
 

@@ -13,6 +13,7 @@ import {
   applyCreditToInvoiceAction,
   refundCreditMemoAction,
   unapplyCreditMemoApplicationAction,
+  updateCreditMemoAction,
   voidCreditMemoAction,
   type ApplyCreditState,
 } from '../actions';
@@ -31,6 +32,19 @@ type ManageProps = {
   openBalance: number;
   customerInvoices: Array<{ id: string; number: string }>;
   canVoid: boolean;
+  /** Current values for the Edit tab. */
+  current?: CreditMemoCurrent;
+};
+
+export type CreditMemoCurrent = {
+  issueDate: string;
+  amount: number;
+  appliedAmount: number;
+  reason: string;
+  notes: string | null;
+  invoiceId: string | null;
+  /** Amount locked: the credit booked a matching deduct CO. */
+  hasDeductCO: boolean;
 };
 
 export function CreditMemoDetailActions(props: UnapplyProps | ManageProps) {
@@ -43,6 +57,7 @@ export function CreditMemoDetailActions(props: UnapplyProps | ManageProps) {
       openBalance={props.openBalance}
       customerInvoices={props.customerInvoices}
       canVoid={props.canVoid}
+      current={props.current}
     />
   );
 }
@@ -83,17 +98,31 @@ function ManagePanel({
   openBalance,
   customerInvoices,
   canVoid,
+  current,
 }: {
   creditMemoId: string;
   openBalance: number;
   customerInvoices: Array<{ id: string; number: string }>;
   canVoid: boolean;
+  current?: CreditMemoCurrent;
 }) {
-  const [tab, setTab] = useState<'apply' | 'refund' | 'void' | null>(null);
+  const [tab, setTab] = useState<'apply' | 'refund' | 'void' | 'edit' | null>(
+    null,
+  );
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
       <h3 className="text-sm font-semibold text-slate-900">Manage this credit</h3>
       <div className="flex items-center gap-2">
+        {current && (
+          <Button
+            type="button"
+            size="sm"
+            variant={tab === 'edit' ? 'default' : 'outline'}
+            onClick={() => setTab(tab === 'edit' ? null : 'edit')}
+          >
+            Edit details
+          </Button>
+        )}
         {openBalance > 0 && customerInvoices.length > 0 && (
           <Button
             type="button"
@@ -126,6 +155,13 @@ function ManagePanel({
         )}
       </div>
 
+      {tab === 'edit' && current && (
+        <EditForm
+          creditMemoId={creditMemoId}
+          current={current}
+          customerInvoices={customerInvoices}
+        />
+      )}
       {tab === 'apply' && (
         <ApplyForm
           creditMemoId={creditMemoId}
@@ -138,6 +174,94 @@ function ManagePanel({
       )}
       {tab === 'void' && <VoidForm creditMemoId={creditMemoId} />}
     </div>
+  );
+}
+
+function EditForm({
+  creditMemoId,
+  current,
+  customerInvoices,
+}: {
+  creditMemoId: string;
+  current: CreditMemoCurrent;
+  customerInvoices: Array<{ id: string; number: string }>;
+}) {
+  const [state, formAction, pending] = useActionState(
+    updateCreditMemoAction,
+    initial,
+  );
+  const [invoiceId, setInvoiceId] = useState(current.invoiceId ?? '');
+  return (
+    <form action={formAction} className="space-y-3 border-t border-slate-200 pt-3">
+      {state.formError && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+          {state.formError}
+        </div>
+      )}
+      {state.ok && (
+        <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+          ✓ Saved.
+        </div>
+      )}
+      <input type="hidden" name="creditMemoId" value={creditMemoId} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Issue date" error={state.errors?.issueDate?.[0]}>
+          <Input
+            name="issueDate"
+            type="date"
+            defaultValue={current.issueDate}
+            required
+          />
+        </Field>
+        <Field
+          label={
+            current.hasDeductCO
+              ? 'Amount (locked — deduct CO)'
+              : current.appliedAmount > 0.005
+                ? `Amount (min ${current.appliedAmount.toFixed(2)} applied)`
+                : 'Amount'
+          }
+          error={state.errors?.amount?.[0]}
+        >
+          <Input
+            name="amount"
+            type="number"
+            step="0.01"
+            defaultValue={current.amount.toFixed(2)}
+            readOnly={current.hasDeductCO}
+            title={
+              current.hasDeductCO
+                ? 'This credit booked a matching deduct change order — void both and reissue to change the amount.'
+                : undefined
+            }
+            required
+          />
+        </Field>
+        <Field label="Invoice this credit relates to" error={state.errors?.invoiceId?.[0]}>
+          <Select
+            name="invoiceId"
+            value={invoiceId}
+            onChange={(e) => setInvoiceId(e.target.value)}
+          >
+            <option value="">— No specific invoice —</option>
+            {customerInvoices.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.number}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Reason" error={state.errors?.reason?.[0]}>
+        <Input name="reason" defaultValue={current.reason} maxLength={500} required />
+      </Field>
+      <Field label="Notes (optional)">
+        <Input name="notes" defaultValue={current.notes ?? ''} maxLength={2000} />
+      </Field>
+      <Button type="submit" disabled={pending}>
+        {pending ? 'Saving…' : 'Save changes'}
+      </Button>
+    </form>
   );
 }
 

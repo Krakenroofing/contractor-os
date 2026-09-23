@@ -10,8 +10,10 @@ import { canCreate } from '@/lib/permissions';
 import {
   applyCreditMemoToInvoice,
   createCreditMemo,
+  getCreditMemo,
   refundCreditMemo,
   unapplyCreditMemoApplication,
+  updateCreditMemo,
   voidCreditMemo,
 } from '@/lib/data/credit-memos';
 import { createDeductChangeOrderForRefund } from '@/lib/data/change-orders';
@@ -179,6 +181,77 @@ export async function issueCreditMemoAction(
   if (projectId) revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/customers/${data.customerId}`);
   return { okCreditId: createdId, deductCONumber, deductCOId };
+}
+
+// ---------- Edit details ----------
+
+const editSchema = z.object({
+  creditMemoId: z.string().uuid('Invalid credit memo id'),
+  issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date'),
+  amount: z
+    .string()
+    .refine(
+      (v) => Number.isFinite(Number(v)) && Number(v) > 0,
+      'Amount must be positive',
+    ),
+  reason: z.string().min(1, 'Reason is required').max(500),
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  invoiceId: z.string().uuid().optional().or(z.literal('')),
+});
+
+export async function updateCreditMemoAction(
+  _prev: ApplyCreditState,
+  formData: FormData,
+): Promise<ApplyCreditState> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { formError: 'No permission to edit credit memos.' };
+  }
+  const parsed = editSchema.safeParse({
+    creditMemoId: formData.get('creditMemoId'),
+    issueDate: formData.get('issueDate'),
+    amount: formData.get('amount'),
+    reason: formData.get('reason'),
+    notes: formData.get('notes') ?? '',
+    invoiceId: formData.get('invoiceId') ?? '',
+  });
+  if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+  const companyId = await getActiveCompanyId();
+  const existing = await getCreditMemo(companyId, parsed.data.creditMemoId);
+  if (!existing) return { formError: 'Credit memo not found.' };
+  // A refund credit that booked a deduct CO keeps its amount — the CO
+  // reduced the contract by the matching net, and editing one side alone
+  // would silently unbalance "still billable".
+  if (
+    existing.changeOrderId &&
+    Number(parsed.data.amount).toFixed(2) !== Number(existing.amount).toFixed(2)
+  ) {
+    return {
+      formError:
+        'This credit booked a deduct change order for its amount — void both and reissue instead of changing the amount.',
+    };
+  }
+  try {
+    await updateCreditMemo(companyId, parsed.data.creditMemoId, {
+      issueDate: parsed.data.issueDate,
+      amount: Number(parsed.data.amount),
+      reason: parsed.data.reason,
+      notes: parsed.data.notes?.trim() || null,
+      invoiceId: parsed.data.invoiceId || null,
+    });
+  } catch (err) {
+    return {
+      formError: err instanceof Error ? err.message : 'Could not save changes.',
+    };
+  }
+  revalidatePath(`/credit-memos/${parsed.data.creditMemoId}`);
+  revalidatePath('/invoices');
+  revalidatePath('/customers');
+  revalidatePath('/reports/accounts-receivable');
+  if (existing.invoiceId) revalidatePath(`/invoices/${existing.invoiceId}`);
+  if (parsed.data.invoiceId) revalidatePath(`/invoices/${parsed.data.invoiceId}`);
+  return { ok: true };
 }
 
 // ---------- Apply to an existing invoice (later) ----------

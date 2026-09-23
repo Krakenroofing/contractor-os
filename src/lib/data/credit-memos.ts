@@ -145,6 +145,74 @@ export async function createCreditMemo(
   return row;
 }
 
+/**
+ * Edit a credit memo's details after issuance (Chris, 2026-09-23). Amount
+ * can grow or shrink but never below what's already been applied /
+ * refunded — those application rows moved real balances. Status is
+ * recomputed from applied vs the new amount so a raised amount reopens a
+ * fully-consumed credit as partially_applied.
+ */
+export async function updateCreditMemo(
+  companyId: string,
+  id: string,
+  patch: {
+    issueDate?: string;
+    amount?: number;
+    reason?: string;
+    notes?: string | null;
+    invoiceId?: string | null;
+  },
+): Promise<CreditMemo> {
+  const db = requireDb();
+  return await db.transaction(async (tx) => {
+    const [cm] = await tx
+      .select()
+      .from(creditMemos)
+      .where(and(eq(creditMemos.id, id), eq(creditMemos.companyId, companyId)))
+      .limit(1);
+    if (!cm) throw new Error('Credit memo not found.');
+    if (cm.status === 'void') throw new Error('This credit memo is void.');
+
+    const applied = Number(cm.appliedAmount);
+    const set: Record<string, unknown> = { updatedAt: new Date() };
+    if (patch.issueDate !== undefined) set.issueDate = patch.issueDate;
+    if (patch.reason !== undefined) set.reason = patch.reason;
+    if (patch.notes !== undefined) set.notes = patch.notes;
+    if (patch.invoiceId !== undefined) set.invoiceId = patch.invoiceId;
+    if (patch.amount !== undefined) {
+      if (!(patch.amount > 0)) {
+        throw new Error('Credit memo amount must be positive.');
+      }
+      if (patch.amount < applied - 0.005) {
+        throw new Error(
+          `Amount can't go below the ${applied.toFixed(2)} already applied — unapply first.`,
+        );
+      }
+      set.amount = patch.amount.toFixed(2);
+      // Same status rules the application writers use.
+      if (applied <= 0.005) {
+        set.status = 'issued';
+      } else if (applied + 0.005 >= patch.amount) {
+        const apps = await tx
+          .select({ kind: creditMemoApplications.kind })
+          .from(creditMemoApplications)
+          .where(eq(creditMemoApplications.creditMemoId, id));
+        set.status = apps.every((a) => a.kind === 'cash_refund')
+          ? 'refunded'
+          : 'applied';
+      } else {
+        set.status = 'partially_applied';
+      }
+    }
+    const [row] = await tx
+      .update(creditMemos)
+      .set(set)
+      .where(eq(creditMemos.id, id))
+      .returning();
+    return row;
+  });
+}
+
 export async function getCreditMemo(
   companyId: string,
   id: string,

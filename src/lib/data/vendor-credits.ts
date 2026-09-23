@@ -106,6 +106,33 @@ export async function createVendorCredit(input: {
   return row;
 }
 
+/** Edit a credit's details. Caller enforces amount ≥ applied total. */
+export async function updateVendorCredit(
+  companyId: string,
+  id: string,
+  patch: {
+    creditDate?: string;
+    amount?: string;
+    accountingAccountId?: string;
+    reference?: string | null;
+    notes?: string | null;
+  },
+): Promise<VendorCredit | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(vendorCredits)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(
+      and(
+        eq(vendorCredits.id, id),
+        eq(vendorCredits.companyId, companyId),
+        isNull(vendorCredits.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
 export async function softDeleteVendorCredit(
   companyId: string,
   id: string,

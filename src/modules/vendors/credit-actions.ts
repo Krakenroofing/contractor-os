@@ -25,6 +25,7 @@ import {
   getVendorCreditApplication,
   listApplicationsForReceipts,
   softDeleteVendorCredit,
+  updateVendorCredit,
   VendorCreditsNotAvailableInDemoError,
 } from '@/lib/data/vendor-credits';
 import { getVendor } from '@/lib/data/vendors';
@@ -191,6 +192,74 @@ export async function createVendorCreditAction(
   revalidatePath(`/vendors/${input.vendorId}`);
   revalidatePath('/reports/profit-loss', 'layout');
   return { ok: true, warning: applyWarning };
+}
+
+export async function updateVendorCreditAction(
+  _prev: VendorCreditActionState,
+  formData: FormData,
+): Promise<VendorCreditActionState> {
+  const auth = await requirePermission();
+  if ('error' in auth) return { formError: auth.error };
+
+  const parsed = z
+    .object({
+      creditId: idSchema,
+      creditDate: dateSchema,
+      amount: moneySchema.refine((v) => v > 0, {
+        message: 'Amount must be greater than zero',
+      }),
+      accountingAccountId: idSchema,
+      reference: z.string().trim().max(120).optional().or(z.literal('')),
+      notes: z.string().trim().max(2000).optional().or(z.literal('')),
+    })
+    .safeParse({
+      creditId: formData.get('creditId'),
+      creditDate: formData.get('creditDate'),
+      amount: formData.get('amount'),
+      accountingAccountId: formData.get('accountingAccountId'),
+      reference: formData.get('reference') ?? '',
+      notes: formData.get('notes') ?? '',
+    });
+  if (!parsed.success) {
+    return {
+      formError:
+        parsed.error.issues[0]?.message ?? 'Fill in the date, amount, and category.',
+    };
+  }
+  const input = parsed.data;
+
+  const credit = await getVendorCredit(auth.companyId, input.creditId);
+  if (!credit) return { formError: 'Credit not found.' };
+  // Applications moved real bill balances — the credit can't shrink below
+  // what's already consumed.
+  if (input.amount < credit.appliedTotal - 0.005) {
+    return {
+      formError: `Amount can't go below the ${credit.appliedTotal.toFixed(2)} already applied to bills — unapply first (from the bill's page).`,
+    };
+  }
+  const category = await getAccountingAccount(
+    auth.companyId,
+    input.accountingAccountId,
+  );
+  if (!category) return { formError: 'Accounting category not found.' };
+
+  try {
+    await updateVendorCredit(auth.companyId, input.creditId, {
+      creditDate: input.creditDate,
+      amount: toMoneyString(input.amount),
+      accountingAccountId: input.accountingAccountId,
+      reference: input.reference || null,
+      notes: input.notes || null,
+    });
+  } catch (err) {
+    return {
+      formError:
+        err instanceof Error ? err.message : 'Could not save the credit.',
+    };
+  }
+  revalidatePath(`/vendors/${credit.vendorId}`);
+  revalidatePath('/reports/profit-loss', 'layout');
+  return { ok: true };
 }
 
 export async function deleteVendorCreditAction(

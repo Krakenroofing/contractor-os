@@ -73,6 +73,7 @@ export default async function VendorDetailPage({
     amount: Number(c.amount),
     appliedTotal: c.appliedTotal,
     categoryName: accountNameById.get(c.accountingAccountId) ?? '—',
+    accountingAccountId: c.accountingAccountId,
     reference: c.reference,
     notes: c.notes,
   }));
