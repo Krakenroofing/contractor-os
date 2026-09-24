@@ -12,6 +12,7 @@
 // on location.
 
 import { useActionState, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   watchPosition,
   type GeoFix,
@@ -38,6 +39,7 @@ type Props = {
 };
 
 export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
+  const router = useRouter();
   const action = isClockedIn ? punchOutAction : punchInAction;
   const [state, formAction, pending] = useActionState(action, initial);
   // "Switch job" shares the same form fields (project pick + GPS) but
@@ -47,6 +49,21 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
     switchJobAction,
     initial,
   );
+
+  // Loud confirmation after a successful switch. The only feedback used to
+  // be the status banner quietly re-rendering — on a slow connection that
+  // lag read as "nothing happened", so the crew re-tapped (which sliced
+  // same-job micro-sessions into the day) and reported switching "not
+  // allowed". The flash + an explicit refresh make success unmistakable.
+  const [switchedFlash, setSwitchedFlash] = useState(false);
+  useEffect(() => {
+    if (switchState.ok) {
+      setSwitchedFlash(true);
+      router.refresh();
+      const t = setTimeout(() => setSwitchedFlash(false), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [switchState, router]);
 
   const formRef = useRef<HTMLFormElement>(null);
   const [gpsStatus, setGpsStatus] = useState<
@@ -158,6 +175,12 @@ export function ClockForm({ isClockedIn, projects, defaultProjectId }: Props) {
       {(state.formError || switchState.formError) && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
           {state.formError || switchState.formError}
+        </div>
+      )}
+      {switchedFlash && (
+        <div className="rounded-md bg-emerald-50 border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-800">
+          ✓ Switched — you&apos;re on the new job now. Hours up to the switch
+          stay on the old job.
         </div>
       )}
 

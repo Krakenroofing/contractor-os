@@ -298,6 +298,22 @@ export async function switchJobAction(
     };
   }
 
+  // Switching to the job you're ALREADY on is a re-tap, not a switch —
+  // usually a worker pressing again because the first tap's confirmation
+  // hadn't rendered yet on a slow connection. Without this guard each
+  // re-tap sliced a 15-second same-job micro-session into the day.
+  if (
+    !isServiceCall &&
+    !isNewJob &&
+    parsed.data.projectId &&
+    parsed.data.projectId === last.projectId
+  ) {
+    return {
+      formError:
+        "You're already clocked in on that job — pick the job you're moving to.",
+    };
+  }
+
   const now = new Date();
   const gps = {
     gpsLat: normGps(parsed.data.gpsLat),
