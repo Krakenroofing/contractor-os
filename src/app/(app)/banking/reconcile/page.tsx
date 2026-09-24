@@ -73,6 +73,30 @@ export default async function BankReconcilePage({
   const history = await listBankReconciliations(company.id);
   const accountById = new Map(accounts.map((a) => [a.id, a]));
 
+  // Default view: ONE row per account — its most recent reconciliation —
+  // plus any in-progress one that isn't the newest (Resume must stay
+  // reachable). ?history=all shows the full list.
+  const showAll = sp.history === 'all';
+  const sorted = [...history].sort((a, b) =>
+    String(b.statementDate).localeCompare(String(a.statementDate)),
+  );
+  const latestRows: typeof history = [];
+  const seenAccounts = new Set<string>();
+  for (const r of sorted) {
+    if (!seenAccounts.has(r.bankAccountId)) {
+      seenAccounts.add(r.bankAccountId);
+      latestRows.push(r);
+    } else if (r.status !== 'completed') {
+      latestRows.push(r);
+    }
+  }
+  latestRows.sort((a, b) =>
+    (accountById.get(a.bankAccountId)?.name ?? '').localeCompare(
+      accountById.get(b.bankAccountId)?.name ?? '',
+    ),
+  );
+  const displayRows = showAll ? history : latestRows;
+
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
@@ -115,7 +139,24 @@ export default async function BankReconcilePage({
 
       <Card>
         <CardHeader>
-          <CardTitle>History</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>
+              {showAll ? 'History — all reconciliations' : 'Latest per account'}
+            </CardTitle>
+            {history.length > latestRows.length && (
+              <Link
+                href={{
+                  pathname: '/banking/reconcile',
+                  query: showAll ? {} : { history: 'all' },
+                }}
+                className="text-xs text-blue-700 underline underline-offset-2 hover:text-blue-900"
+              >
+                {showAll
+                  ? 'Show latest per account'
+                  : `Show full history (${history.length})`}
+              </Link>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           {history.length === 0 ? (
@@ -141,7 +182,7 @@ export default async function BankReconcilePage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {history.map((r) => {
+                {displayRows.map((r) => {
                   const account = accountById.get(r.bankAccountId);
                   // A card reads as a liability: positive = owed.
                   const isCard = account?.type === 'credit_card';
