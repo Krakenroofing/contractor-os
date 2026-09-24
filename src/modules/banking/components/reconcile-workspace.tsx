@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   AccountingAccountPicker,
   type AccountingAccountOption,
@@ -757,14 +758,13 @@ function AddTxnForm({
           </div>
           <div className="space-y-1.5 w-56">
             <Label htmlFor="add-vendor">Payee / vendor (optional)</Label>
-            <Select id="add-vendor" name="vendorId" defaultValue="">
-              <option value="">— none —</option>
-              {vendorOptions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </Select>
+            <VendorPicker
+              id="add-vendor"
+              name="vendorId"
+              defaultValue=""
+              vendors={vendorOptions.map((v) => ({ id: v.id, name: v.label }))}
+              noneLabel="— none —"
+            />
           </div>
           <div className="space-y-1.5 w-56">
             <Label htmlFor="add-project">Job / project (optional)</Label>

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
+import { VendorPicker } from '@/modules/vendors/components/vendor-picker';
 import {
   AccountingAccountPicker,
   type AccountingAccountOption,
@@ -197,19 +198,14 @@ export function RegisterAddTransaction({
               </div>
               <div className="space-y-1.5 w-52">
                 <Label htmlFor="reg-vendor">Payee / vendor (optional)</Label>
-                <Select
+                <VendorPicker
                   id="reg-vendor"
                   name="vendorId"
                   value={vendorId}
-                  onChange={(e) => setVendorId(e.target.value)}
-                >
-                  <option value="">— none —</option>
-                  {vendorOptions.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label}
-                    </option>
-                  ))}
-                </Select>
+                  vendors={vendorOptions.map((v) => ({ id: v.id, name: v.label }))}
+                  onChange={(id) => setVendorId(id)}
+                  noneLabel="— none —"
+                />
               </div>
               <div className="space-y-1.5 w-52">
                 <Label htmlFor="reg-project">Job / project (optional)</Label>

@@ -69,6 +69,9 @@ export function VendorPicker({
   const [localOptions, setLocalOptions] = useState<VendorPickerOption[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [internal, setInternal] = useState(defaultValue);
+  // Whatever was typed in the dropdown's filter when "+ Add new vendor…" was
+  // clicked — that's the vendor they wanted, so seed the create form with it.
+  const [typedName, setTypedName] = useState('');
 
   const isControlled = value !== undefined;
   const current = isControlled ? value : internal;
@@ -93,10 +96,15 @@ export function VendorPicker({
         required={required}
         disabled={disabled}
         className={className}
+        // Keep "+ Add new vendor…" visible even when the typeahead filter
+        // matches nothing — "No matches" is exactly when you want to add one.
+        pinnedValues={[ADD_NEW]}
         onChange={(e) => {
           const next = e.target.value;
           if (next === ADD_NEW) {
-            // Don't change the selection; just open the create drawer.
+            // Don't change the selection; open the create drawer seeded
+            // with whatever was typed in the search box.
+            setTypedName(e.query?.trim() ?? '');
             setDrawerOpen(true);
             return;
           }
@@ -120,6 +128,7 @@ export function VendorPicker({
 
       <QuickAddVendorDrawer
         open={drawerOpen}
+        initialName={typedName}
         onClose={() => setDrawerOpen(false)}
         onCreated={(v: InlineVendor) => {
           const opt: VendorPickerOption = {
