@@ -92,11 +92,13 @@ export default async function BankReconcileWorkspacePage({
         endingBalance={Number(rec.endingBalance)}
         completed={rec.status === 'completed'}
         rows={rows}
-        accountOptions={toAccountingAccountOptions(
-          categories.filter(
-            (a) => a.type !== 'bank' && a.type !== 'credit_card',
-          ),
-        )}
+        accountOptions={
+          // Same option list the register uses — INCLUDING bank/card ledger
+          // accounts as the "⇄ transfer" group, so a missing transfer added
+          // here can be categorized to its other account (categories must
+          // read the same from every register-context screen).
+          toAccountingAccountOptions(categories)
+        }
         vendorOptions={vendors.map((v) => ({ id: v.id, label: v.name }))}
         projectOptions={projects.map((p) => ({ id: p.id, label: p.name }))}
       />

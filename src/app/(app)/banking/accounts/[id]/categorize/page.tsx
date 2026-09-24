@@ -65,9 +65,10 @@ export default async function BulkCategorizePage({
       currency: t.currency,
     }));
 
-  const categories = toAccountingAccountOptions(
-    accounts.filter((a) => a.type !== 'bank' && a.type !== 'credit_card'),
-  );
+  // Full list including bank/card ledger accounts as the "⇄ transfer" group
+  // — same options as the register, so categories read identically from
+  // every register-context screen.
+  const categories = toAccountingAccountOptions(accounts);
   const projectOptions = projects.map((p) => ({ id: p.id, name: p.name }));
   const customerOptions = customers.map((c) => ({ id: c.id, name: c.name }));
   const costCodeOptions = costCodes.map((c) => ({
