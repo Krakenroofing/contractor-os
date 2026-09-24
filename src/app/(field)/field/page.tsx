@@ -114,6 +114,15 @@ export default async function FieldHomePage() {
         disabled={!employee}
       />
 
+      {/* Snap a receipt — photo of a paper receipt becomes a draft in the
+          office queue for coding. Needs only the signed-in account (the
+          role carries receipts:create), not an employee link. */}
+      <ActionCard
+        title="Snap a receipt"
+        subtitle="Photo goes to the office to code &amp; assign"
+        href="/field/receipts"
+      />
+
       {/* Note for office — a quick line (and optional photo) to flag anything
           for the office to handle. Doesn't need an employee link — anyone
           signed in can send one. Lands in the office dashboard inbox. */}

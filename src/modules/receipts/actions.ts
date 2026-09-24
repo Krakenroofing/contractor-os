@@ -1145,6 +1145,9 @@ export type ScanReceiptResult =
 
 export async function createReceiptFromScanAction(input: {
   ref: unknown;
+  /** Optional note from the uploader (field crew: "Danny's house —
+   *  screws"). Lands on the draft's notes so the office can code it. */
+  note?: string;
 }): Promise<ScanReceiptResult> {
   const user = await requireAuth();
   const role = await getActiveRole();
@@ -1222,6 +1225,10 @@ export async function createReceiptFromScanAction(input: {
       subtotal: '0',
       vatAmount: '0',
       total: '0',
+      notes:
+        typeof input.note === 'string' && input.note.trim()
+          ? input.note.trim().slice(0, 500)
+          : null,
       uploadedByUserId,
     });
 
