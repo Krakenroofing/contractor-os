@@ -67,6 +67,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
         'Every expense line in one list — filter by bank/card account, categories, job, vendor, and payment method.',
     },
     {
+      href: '/reports/grir',
+      label: 'GR/IR Open Items',
+      description:
+        'Goods received vs vendor bills per PO line — received-not-billed and billed-not-received, tied to the GR/IR clearing account.',
+    },
+    {
       href: '/reports/document-numbers',
       label: 'Document Number Audit',
       description:

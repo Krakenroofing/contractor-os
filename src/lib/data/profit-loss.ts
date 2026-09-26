@@ -666,6 +666,7 @@ export async function buildProfitLossReport(
     eq(receipts.status, 'posted'),
     isNull(receipts.deletedAt),
     isNull(receiptLines.postedJobCostEntryId),
+    isNull(receiptLines.grirClearedAmount),
     eq(accountingAccounts.rollupGroup, 'income'),
   ];
   if (filters.from) contraBillConds.push(gte(receipts.receiptDate, filters.from));
@@ -850,6 +851,9 @@ export async function buildProfitLossReport(
     eq(receipts.status, 'posted'),
     isNull(receipts.deletedAt),
     isNull(receiptLines.postedJobCostEntryId),
+    // GR/IR bill lines: the goods receipt's job cost carries the amount
+    // (source 1) and any price variance has its own job-cost entry.
+    isNull(receiptLines.grirClearedAmount),
     isNotNull(receiptLines.accountingAccountId),
   ];
   if (filters.from) receiptConds.push(gte(receipts.receiptDate, filters.from));
@@ -1794,6 +1798,7 @@ export async function listProfitLossAccountEntries(
     eq(receipts.status, 'posted'),
     isNull(receipts.deletedAt),
     isNull(receiptLines.postedJobCostEntryId),
+    isNull(receiptLines.grirClearedAmount),
     eq(receiptLines.accountingAccountId, accountId),
   ];
   if (filters.from) receiptConds.push(gte(receipts.receiptDate, filters.from));

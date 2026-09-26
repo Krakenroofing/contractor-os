@@ -8,6 +8,7 @@ import {
   date,
   index,
   uniqueIndex,
+  boolean,
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { projects } from './projects';
@@ -52,6 +53,9 @@ export const purchaseOrders = pgTable(
     // for this PO (any status — invoices land long after issue). Shown on
     // the AP aging report so commitments tie to vendor paperwork.
     vendorInvoiceNumber: text('vendor_invoice_number'),
+    // GR/IR rules apply (set by DB trigger at insert from the company's
+    // cutover date; never changes afterwards).
+    grir: boolean('grir').notNull().default(false),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -134,6 +138,8 @@ export const poReceiptLines = pgTable('po_receipt_lines', {
   quantityReceived: numeric('quantity_received', { precision: 14, scale: 4 })
     .notNull()
     .default('0'),
+  // PO unit price when the goods arrived — the GR/IR valuation.
+  unitCost: numeric('unit_cost', { precision: 14, scale: 4 }),
 });
 
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;

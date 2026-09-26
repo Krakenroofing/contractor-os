@@ -32,6 +32,19 @@ export const accountingSettingsFormSchema = z.object({
   // Company-wide fallback labor cost code for clock-posted hours with no code.
   // Empty = no fallback (uncoded clocked hours stay overhead).
   defaultLaborCostCodeId: z.string().optional().or(z.literal('')),
+  // GR/IR cutover (empty = off) + 3-way match tolerances.
+  grirCutoverDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date')
+    .optional()
+    .or(z.literal('')),
+  matchQtyTolerancePct: percentString,
+  matchPriceTolerancePct: percentString,
+  matchPriceToleranceAmount: z
+    .string()
+    .refine((v) => v.trim() !== '' && Number(v) >= 0, {
+      message: 'Must be zero or more',
+    }),
 });
 
 export type AccountingSettingsFormParsed = z.output<

@@ -2464,6 +2464,9 @@ export type BillSearchResult = {
 /** Open bills — posted vendor receipts AND payroll bills — not yet matched,
  *  for the batch bill-payment picker. Money-out transactions only.
  *  dateFrom/dateTo bound the BILL date (receipt date / payroll bill date). */
+const PAYMENT_BLOCKED_ERROR =
+  'That bill is blocked for payment — its quantities or prices don’t match the PO / goods received. Release it on the bill first.';
+
 export async function searchBillsForMatchAction(input: {
   transactionId: string;
   query?: string;
@@ -2521,6 +2524,8 @@ export async function searchBillsForMatchAction(input: {
     // Cash receipts are paid on the spot (credited Cash on Hand, not A/P), so
     // there's no bank payment to match — keep them out of the bills picker.
     if (r.paymentSourceType === 'cash') continue;
+    // 3-way-match exception: not payable until an approver releases it.
+    if (r.paymentBlocked) continue;
     const vendorName = r.vendorId
       ? (vendorById.get(r.vendorId)?.name ?? '—')
       : '—';
@@ -2641,6 +2646,9 @@ export async function matchBillsAction(input: {
     if (r.status !== 'posted') {
       return { ok: false, error: 'Only posted bills can be matched.' };
     }
+    if (r.paymentBlocked) {
+      return { ok: false, error: PAYMENT_BLOCKED_ERROR };
+    }
     newSum += Number(r.total) - (creditByReceipt.get(id) ?? 0);
   }
   const paidSoFar = await sumPaidByPayrollBills(
@@ -2754,6 +2762,9 @@ export async function matchReceiptAction(input: {
   if (!receipt) return { ok: false, error: 'Receipt not found.' };
   if (receipt.status !== 'posted') {
     return { ok: false, error: 'Only posted receipts can be matched.' };
+  }
+  if (receipt.paymentBlocked) {
+    return { ok: false, error: PAYMENT_BLOCKED_ERROR };
   }
   if (Number(txn.amount) >= 0) {
     return {
@@ -3284,6 +3295,7 @@ export async function bulkAutoMatchExactAction(input: {
       const cand = postedReceipts.find(
         (r) =>
           !takenReceipt.has(r.id) &&
+          !r.paymentBlocked &&
           r.receiptDate === txn.transactionDate &&
           Math.round(
             Math.abs(Number(r.total) - (bulkCredits.get(r.id) ?? 0)) * 100,

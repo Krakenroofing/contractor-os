@@ -170,6 +170,10 @@ export type UpdateReceiptPatch = Partial<
     | 'isBillable'
     | 'isReimbursable'
     | 'notes'
+    | 'paymentBlocked'
+    | 'paymentBlockReason'
+    | 'paymentBlockReleasedAt'
+    | 'paymentBlockReleasedByUserId'
   >
 >;
 
@@ -289,6 +293,7 @@ export type UpdateReceiptLinePatch = Partial<
     | 'paidByUserId'
     | 'reimbursementPayoutId'
     | 'postedJobCostEntryId'
+    | 'grirClearedAmount'
   >
 >;
 

@@ -174,6 +174,25 @@ export async function listJobCostEntriesBySource(
     );
 }
 
+/** Every live entry of one source type (e.g. all GR/IR goods receipts). */
+export async function listJobCostEntriesForSourceType(
+  companyId: string,
+  source: JobCostEntry['source'],
+): Promise<JobCostEntry[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb()!;
+  return db
+    .select()
+    .from(jobCostEntries)
+    .where(
+      and(
+        eq(jobCostEntries.companyId, companyId),
+        eq(jobCostEntries.source, source),
+        isNull(jobCostEntries.deletedAt),
+      ),
+    );
+}
+
 /** Soft-delete every live entry for a source ref (idempotent re-post / unpost).
  *  Returns how many rows were reversed. */
 /** Soft-delete ONE employee's manual labor allocations for a period.

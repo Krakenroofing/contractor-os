@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq, inArray, isNull, ne, sql, desc } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, sql, desc } from 'drizzle-orm';
 import { receiptLines, receipts, purchaseOrderLines } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
@@ -42,6 +42,57 @@ export async function sumBilledByPoLine(
     if (r.poLineId) map.set(r.poLineId, Number(r.total));
   }
   return map;
+}
+
+/** Job-costed amount already posted by bills, per PO line — what those
+ *  bills' job-cost entries carry (posted, non-deleted bills only). */
+export async function sumPostedJobCostedByPoLine(
+  companyId: string,
+  poLineIds: string[],
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!isDatabaseConfigured() || poLineIds.length === 0) return map;
+  const db = getDb()!;
+  const rows = await db
+    .select({
+      poLineId: receiptLines.purchaseOrderLineId,
+      total: sql<string>`COALESCE(SUM(${receiptLines.subtotal}), 0)`,
+    })
+    .from(receiptLines)
+    .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
+    .where(
+      and(
+        eq(receiptLines.companyId, companyId),
+        inArray(receiptLines.purchaseOrderLineId, poLineIds),
+        isNull(receiptLines.deletedAt),
+        isNull(receipts.deletedAt),
+        eq(receipts.status, 'posted'),
+        isNotNull(receiptLines.postedJobCostEntryId),
+      ),
+    )
+    .groupBy(receiptLines.purchaseOrderLineId);
+  for (const r of rows) {
+    if (r.poLineId) map.set(r.poLineId, Number(r.total));
+  }
+  return map;
+}
+
+/**
+ * Actual cost a PO line contributes to job costing on top of job-cost
+ * entries. GR/IR POs: nothing — goods receipts and bills post job-cost
+ * entries themselves. Legacy POs: received value not yet covered by a
+ * posted bill's job cost (received-not-billed), so a line that's both
+ * received and billed counts once.
+ */
+export function poLineActualBeyondJobCost(
+  po: { grir: boolean },
+  line: { id: string; quantityReceived: string; unitCost: string },
+  postedBilled: Map<string, number>,
+): number {
+  if (po.grir) return 0;
+  const received =
+    Math.round(Number(line.quantityReceived) * Number(line.unitCost) * 100) / 100;
+  return Math.max(0, Math.round((received - (postedBilled.get(line.id) ?? 0)) * 100) / 100);
 }
 
 export type PoBillRow = {

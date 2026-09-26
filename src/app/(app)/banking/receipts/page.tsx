@@ -452,6 +452,14 @@ export default async function ReceiptsPage({
                         >
                           {RECEIPT_STATUS_LABEL[r.status]}
                         </span>
+                        {r.status === 'posted' && r.paymentBlocked && (
+                          <span
+                            className="ml-1 inline-block rounded bg-red-100 px-1.5 py-0.5 text-red-800"
+                            title={r.paymentBlockReason ?? undefined}
+                          >
+                            ⛔ Payment blocked
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

@@ -20,6 +20,10 @@ import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { getEstimateLineItems, listEstimatesForProject } from '@/lib/data/estimates';
 import { getPurchaseOrderLines, listPurchaseOrdersForProject } from '@/lib/data/purchase-orders';
 import { listLandedCostsForProject } from '@/lib/data/landed-costs';
+import {
+  poLineActualBeyondJobCost,
+  sumPostedJobCostedByPoLine,
+} from '@/lib/data/po-bills';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject, listProjects } from '@/lib/data/projects';
 import { getActiveCompanyId } from '@/lib/active-company';
@@ -129,12 +133,20 @@ export async function computeProjectFinancials(
     const isActive =
       po.status === 'issued' || po.status === 'partially_received';
     const lines = await getPurchaseOrderLines(po.id);
+    const postedBilled = isDatabaseConfigured()
+      ? await sumPostedJobCostedByPoLine(
+          companyId,
+          lines.map((l) => l.id),
+        )
+      : new Map<string, number>();
     for (const line of lines) {
       if ((line.projectId ?? po.projectId) !== projectId) continue;
       committedCost = add(committedCost, parseMoney(line.lineTotal));
+      // Received goods count once: via job-cost entries (GR/IR receipts,
+      // posted bills) plus any legacy received-not-billed value.
       actualFromPOs = add(
         actualFromPOs,
-        multiply(Number(line.quantityReceived), Number(line.unitCost)),
+        poLineActualBeyondJobCost(po, line, postedBilled),
       );
       if (isActive) {
         openCommitments = add(
@@ -293,6 +305,12 @@ export async function computeProjectCostCodeBreakdown(
   );
   for (const po of projectPOs) {
     const lines = await getPurchaseOrderLines(po.id);
+    const postedBilled = isDatabaseConfigured()
+      ? await sumPostedJobCostedByPoLine(
+          companyId,
+          lines.map((l) => l.id),
+        )
+      : new Map<string, number>();
     for (const line of lines) {
       // Split POs: only this project's lines (line project ?? header).
       if ((line.projectId ?? po.projectId) !== projectId) continue;
@@ -300,7 +318,7 @@ export async function computeProjectCostCodeBreakdown(
       agg.committed = add(agg.committed, parseMoney(line.lineTotal));
       agg.actual = add(
         agg.actual,
-        multiply(Number(line.quantityReceived), Number(line.unitCost)),
+        poLineActualBeyondJobCost(po, line, postedBilled),
       );
     }
   }

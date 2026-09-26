@@ -104,6 +104,7 @@ export default async function PoBillPage({
               poSubtotal={Number(po.subtotal)}
               poShipping={Number(po.shipping)}
               priorBillCount={bills.length}
+              grir={po.grir}
             />
           )}
         </CardContent>

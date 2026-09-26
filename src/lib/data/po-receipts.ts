@@ -14,25 +14,31 @@
 //   - all lines met or exceeded      → received
 //   - nothing received yet           → issued (unchanged)
 //
-// Receipts do NOT post to job_cost_entries. The vendor bill / receipt
-// already handles cost posting; physical receiving is tracked separately
-// so on-hand quantity (Phase 6.2 ledger) can flow from a different signal
-// than cost recognition.
+// Cost recognition depends on the PO (roadmap P3, GR/IR):
+//   - GR/IR POs (dated on/after the company's cutover): each received line
+//     posts a job_cost_entries row (source 'po_receipt', valued at the PO
+//     price) — the GL side is Dr expense / Cr GR/IR clearing, derived from
+//     those rows. The vendor bill later clears GR/IR.
+//   - Legacy POs: receiving posts no cost; the vendor bill carries it.
 
 import 'server-only';
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   inventoryMovements,
+  jobCostEntries,
   poReceipts,
   poReceiptLines,
   purchaseOrderLines,
   purchaseOrders,
+  vendors,
   type PurchaseOrder,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
 export type CreatePoReceiptInput = {
   receivedAt: Date;
+  /** The receiving day (YYYY-MM-DD) — the goods-receipt posting date. */
+  receivedDate: string;
   receivedByUserId: string | null;
   notes: string | null;
   // Phase 6.4: which physical location received this shipment. All
@@ -55,6 +61,7 @@ export type PoReceiptWithLines = {
     id: string;
     poLineId: string;
     quantityReceived: string;
+    unitCost: string | null;
   }>;
 };
 
@@ -98,7 +105,11 @@ export async function createPoReceipt(
   companyId: string,
   poId: string,
   input: CreatePoReceiptInput,
-): Promise<{ id: string; resultingStatus: PurchaseOrder['status'] }> {
+): Promise<{
+  id: string;
+  resultingStatus: PurchaseOrder['status'];
+  grir: boolean;
+}> {
   const db = requireDb();
 
   return await db.transaction(async (tx) => {
@@ -107,7 +118,14 @@ export async function createPoReceipt(
     // from issued / partially_received / received, never from draft / closed
     // / void.
     const poRows = await tx
-      .select({ id: purchaseOrders.id, status: purchaseOrders.status })
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+        grir: purchaseOrders.grir,
+        number: purchaseOrders.number,
+        projectId: purchaseOrders.projectId,
+        vendorId: purchaseOrders.vendorId,
+      })
       .from(purchaseOrders)
       .where(
         and(eq(purchaseOrders.id, poId), eq(purchaseOrders.companyId, companyId)),
@@ -142,6 +160,22 @@ export async function createPoReceipt(
     const nonZeroLines = input.lines.filter((l) => l.quantityReceived > 0);
 
     if (nonZeroLines.length > 0) {
+      const poLineRows = await tx
+        .select()
+        .from(purchaseOrderLines)
+        .where(
+          and(
+            eq(purchaseOrderLines.purchaseOrderId, poId),
+            inArray(
+              purchaseOrderLines.id,
+              nonZeroLines.map((l) => l.poLineId),
+            ),
+          ),
+        );
+      const poLineById = new Map(poLineRows.map((l) => [l.id, l]));
+      if (poLineById.size !== new Set(nonZeroLines.map((l) => l.poLineId)).size) {
+        throw new Error('A received line is not on this purchase order.');
+      }
       const insertedReceiptLines = await tx
         .insert(poReceiptLines)
         .values(
@@ -149,9 +183,45 @@ export async function createPoReceipt(
             receiptId,
             poLineId: l.poLineId,
             quantityReceived: l.quantityReceived.toFixed(4),
+            unitCost: poLineById.get(l.poLineId)!.unitCost,
           })),
         )
         .returning({ id: poReceiptLines.id, poLineId: poReceiptLines.poLineId });
+
+      // GR/IR: the goods receipt recognizes the cost, valued at PO price.
+      if (po.grir) {
+        const [vendor] = await tx
+          .select({ accountId: vendors.defaultAccountingAccountId })
+          .from(vendors)
+          .where(eq(vendors.id, po.vendorId))
+          .limit(1);
+        const rows = nonZeroLines
+          .map((l) => {
+            const pl = poLineById.get(l.poLineId)!;
+            const unitCost = Number(pl.unitCost);
+            const amount = Math.round(l.quantityReceived * unitCost * 100) / 100;
+            return { l, pl, unitCost, amount };
+          })
+          .filter((r) => r.amount !== 0)
+          .map(({ l, pl, unitCost, amount }) => ({
+            companyId,
+            projectId: pl.projectId ?? po.projectId,
+            costCodeId: pl.costCodeId,
+            accountingAccountId: vendor?.accountId ?? null,
+            source: 'po_receipt' as const,
+            sourceRefId: receiptId,
+            costType: 'materials' as const,
+            entryDate: input.receivedDate,
+            vendorId: po.vendorId,
+            description: `Goods receipt ${po.number}: ${pl.description}`.slice(0, 500),
+            quantity: l.quantityReceived.toFixed(4),
+            unitCost: unitCost.toFixed(4),
+            amount: amount.toFixed(2),
+            isBillable: false,
+            createdByUserId: input.receivedByUserId,
+          }));
+        if (rows.length > 0) await tx.insert(jobCostEntries).values(rows);
+      }
 
       // Bump per-line quantity_received in one statement each. Small N
       // (lines per PO), so the per-row update is fine.
@@ -229,7 +299,7 @@ export async function createPoReceipt(
         .where(eq(purchaseOrders.id, poId));
     }
 
-    return { id: receiptId, resultingStatus: newStatus };
+    return { id: receiptId, resultingStatus: newStatus, grir: po.grir };
   });
 }
 
@@ -411,8 +481,125 @@ export async function listPoReceiptsForPO(
         id: l.id,
         poLineId: l.poLineId,
         quantityReceived: l.quantityReceived,
+        unitCost: l.unitCost,
       })),
   }));
+}
+
+/** Credit balance of the GR/IR clearing account in the GL — what the open
+ *  items below should add up to. Null when the account doesn't exist yet. */
+export async function grirGlBalance(companyId: string): Promise<number | null> {
+  const db = requireDb();
+  const rows = await db.execute(sql`
+    SELECT COUNT(a.id)::int AS n,
+           COALESCE(SUM(jl.credit - jl.debit), 0)::float8 AS balance
+      FROM accounting_accounts a
+      LEFT JOIN journal_lines jl ON jl.account_id = a.id
+     WHERE a.company_id = ${companyId}
+       AND lower(trim(a.name)) = 'gr/ir clearing'
+  `);
+  const r = (rows as unknown as Array<{ n: number; balance: number }>)[0];
+  if (!r || Number(r.n) === 0) return null;
+  return Math.round(Number(r.balance) * 100) / 100;
+}
+
+/** GR/IR open items per PO line — received value (at the goods-receipt
+ *  price) vs the value bills have cleared, for every GR/IR PO. Positive
+ *  open = received, not yet billed; negative = billed, not yet received.
+ *  The open total ties to the GR/IR clearing account balance. */
+export type GrirOpenItem = {
+  purchaseOrderId: string;
+  poNumber: string;
+  vendorId: string;
+  projectId: string;
+  poLineId: string;
+  description: string;
+  quantityOrdered: number;
+  quantityReceived: number;
+  quantityBilled: number;
+  receivedValue: number;
+  clearedValue: number;
+  open: number;
+  lastReceivedAt: Date | null;
+};
+
+export async function listGrirOpenItems(
+  companyId: string,
+  opts: { includeSettled?: boolean } = {},
+): Promise<GrirOpenItem[]> {
+  const db = requireDb();
+  const rows = await db.execute<{
+    purchase_order_id: string;
+    po_number: string;
+    vendor_id: string;
+    project_id: string;
+    po_line_id: string;
+    description: string;
+    quantity_ordered: string;
+    received_qty: string;
+    received_value: string;
+    last_received_at: Date | null;
+    billed_qty: string;
+    cleared_value: string;
+  }>(sql`
+    WITH rec AS (
+      SELECT rl.po_line_id,
+             SUM(rl.quantity_received) AS qty,
+             SUM(ROUND(rl.quantity_received * COALESCE(rl.unit_cost, pl.unit_cost), 2)) AS value,
+             MAX(r.received_at) AS last_at
+        FROM po_receipt_lines rl
+        JOIN po_receipts r ON r.id = rl.receipt_id
+        JOIN purchase_order_lines pl ON pl.id = rl.po_line_id
+       GROUP BY rl.po_line_id
+    ), bil AS (
+      SELECT l.purchase_order_line_id AS po_line_id,
+             SUM(COALESCE(l.quantity, 0)) AS qty,
+             SUM(l.grir_cleared_amount) AS value
+        FROM receipt_lines l
+        JOIN receipts b ON b.id = l.receipt_id
+       WHERE b.company_id = ${companyId}
+         AND b.status = 'posted' AND b.deleted_at IS NULL
+         AND l.deleted_at IS NULL
+         AND l.grir_cleared_amount IS NOT NULL
+       GROUP BY l.purchase_order_line_id
+    )
+    SELECT po.id AS purchase_order_id, po.number AS po_number,
+           po.vendor_id, COALESCE(pl.project_id, po.project_id) AS project_id,
+           pl.id AS po_line_id, pl.description, pl.quantity_ordered,
+           COALESCE(rec.qty, 0) AS received_qty,
+           COALESCE(rec.value, 0) AS received_value,
+           rec.last_at AS last_received_at,
+           COALESCE(bil.qty, 0) AS billed_qty,
+           COALESCE(bil.value, 0) AS cleared_value
+      FROM purchase_orders po
+      JOIN purchase_order_lines pl ON pl.purchase_order_id = po.id
+      LEFT JOIN rec ON rec.po_line_id = pl.id
+      LEFT JOIN bil ON bil.po_line_id = pl.id
+     WHERE po.company_id = ${companyId}
+       AND po.grir
+       AND (rec.po_line_id IS NOT NULL OR bil.po_line_id IS NOT NULL)
+     ORDER BY po.number, pl.sort_order
+  `);
+  const list = (rows as unknown as Array<Record<string, unknown>>).map((r) => {
+    const receivedValue = Number(r.received_value);
+    const clearedValue = Number(r.cleared_value);
+    return {
+      purchaseOrderId: String(r.purchase_order_id),
+      poNumber: String(r.po_number),
+      vendorId: String(r.vendor_id),
+      projectId: String(r.project_id),
+      poLineId: String(r.po_line_id),
+      description: String(r.description),
+      quantityOrdered: Number(r.quantity_ordered),
+      quantityReceived: Number(r.received_qty),
+      quantityBilled: Number(r.billed_qty),
+      receivedValue,
+      clearedValue,
+      open: Math.round((receivedValue - clearedValue) * 100) / 100,
+      lastReceivedAt: (r.last_received_at as Date | null) ?? null,
+    };
+  });
+  return opts.includeSettled ? list : list.filter((i) => i.open !== 0);
 }
 
 /**
@@ -496,6 +683,21 @@ export async function deletePoReceipt(
         );
       }
     }
+
+    // GR/IR: the goods receipt's cost goes with it (the caller re-syncs the
+    // GL, which clears the matching Dr expense / Cr GR/IR entry).
+    const now = new Date();
+    await tx
+      .update(jobCostEntries)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(jobCostEntries.companyId, companyId),
+          eq(jobCostEntries.source, 'po_receipt'),
+          eq(jobCostEntries.sourceRefId, receiptId),
+          isNull(jobCostEntries.deletedAt),
+        ),
+      );
 
     // Cascading delete on receipt_lines via FK ON DELETE CASCADE; the
     // inventory_movements.po_receipt_line_id FK is SET NULL so originals

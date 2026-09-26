@@ -37,6 +37,11 @@ import {
   postJournalEntry,
   type JournalLineInput,
 } from '@/lib/data/general-ledger';
+import {
+  listJobCostEntriesBySource,
+  listJobCostEntriesForSourceType,
+} from '@/lib/data/job-cost-entries';
+import type { JobCostEntry } from '@/db/schema';
 
 // Phase 3.2: translate invoices + payments into balanced journal entries.
 //
@@ -68,6 +73,9 @@ export type GlSystemAccounts = {
    *  (no bank line will ever clear it, so it can't go to A/P). */
   cashOnHand: string;
   vatInput: string;
+  /** GR/IR clearing (liability): credited by goods receipts at PO price,
+   *  debited by the bills that clear them. */
+  grirClearing: string;
   // Payroll bill posting (QB-style).
   payrollExpense: string;
   nibExpense: string;
@@ -181,6 +189,13 @@ export async function resolveGlSystemAccounts(
     parentId: null,
   });
 
+  const grirClearing = await ensure(() => byName('GR/IR Clearing'), {
+    name: 'GR/IR Clearing',
+    type: 'liability',
+    rollupGroup: 'liability',
+    parentId: null,
+  });
+
   // Payroll-bill accounts (QB-style). Auto-created on first use.
   const payrollExpense = await ensure(() => byName('Payroll Expenses'), {
     name: 'Payroll Expenses',
@@ -244,6 +259,7 @@ export async function resolveGlSystemAccounts(
     accountsPayable,
     cashOnHand,
     vatInput,
+    grirClearing,
     payrollExpense,
     nibExpense,
     nibPayableEmployee,
@@ -404,7 +420,16 @@ export async function postReceiptToGl(
     apCredit = round2(apCredit + round2(Number(l.total)));
     totalVat = round2(totalVat + vat);
     const expenseDr = recoverable ? net : round2(net + vat);
-    pushSigned(l.accountingAccountId ?? accounts.uncatExpense, expenseDr, l.projectId);
+    // GR/IR line: the goods receipt already expensed billed qty × PO price
+    // (Cr GR/IR); this bill clears that and only the difference is cost.
+    const grir =
+      l.grirClearedAmount === null ? 0 : round2(Number(l.grirClearedAmount));
+    pushSigned(accounts.grirClearing, grir);
+    pushSigned(
+      l.accountingAccountId ?? accounts.uncatExpense,
+      round2(expenseDr - grir),
+      l.projectId,
+    );
   }
   if (recoverable && totalVat !== 0) {
     pushSigned(accounts.vatInput, totalVat);
@@ -434,6 +459,64 @@ export async function postReceiptToGl(
     lines: jlines,
   });
   return true;
+}
+
+/**
+ * (Re)post one GR/IR goods receipt: Dr expense per received line (with its
+ * project) / Cr GR/IR clearing, derived from the receipt's 'po_receipt'
+ * job-cost entries so the ledger and job costing can't disagree. No
+ * entries (receipt undone, legacy PO) → the journal entry is cleared.
+ */
+export async function postGoodsReceiptToGl(
+  companyId: string,
+  poReceiptId: string,
+  entries: JobCostEntry[],
+  accounts: GlSystemAccounts,
+): Promise<boolean> {
+  await deleteJournalEntriesForSource(companyId, 'goods_receipt', poReceiptId);
+  const live = entries.filter((e) => !e.deletedAt && Number(e.amount) !== 0);
+  if (live.length === 0) return false;
+  const jlines: JournalLineInput[] = [];
+  let total = 0;
+  for (const e of live) {
+    const a = round2(Number(e.amount));
+    total = round2(total + a);
+    const accountId = e.accountingAccountId ?? accounts.uncatExpense;
+    jlines.push(
+      a > 0
+        ? { accountId, debit: a, credit: 0, projectId: e.projectId }
+        : { accountId, debit: 0, credit: round2(-a), projectId: e.projectId },
+    );
+  }
+  if (total !== 0) {
+    jlines.push(
+      total > 0
+        ? { accountId: accounts.grirClearing, debit: 0, credit: total }
+        : { accountId: accounts.grirClearing, debit: round2(-total), credit: 0 },
+    );
+  }
+  const memo = live[0].description?.split(':')[0] ?? 'Goods receipt';
+  await postJournalEntry(companyId, {
+    entryDate: live[0].entryDate,
+    memo,
+    sourceType: 'goods_receipt',
+    sourceId: poReceiptId,
+    lines: jlines,
+  });
+  return true;
+}
+
+export async function syncGoodsReceiptGl(
+  companyId: string,
+  poReceiptId: string,
+): Promise<void> {
+  const entries = await listJobCostEntriesBySource(
+    companyId,
+    'po_receipt',
+    poReceiptId,
+  );
+  const accounts = await resolveGlSystemAccounts(companyId);
+  await postGoodsReceiptToGl(companyId, poReceiptId, entries, accounts);
 }
 
 /** Opening balance for a bank/credit-card account: Dr Cash / Cr Opening
@@ -657,6 +740,26 @@ export async function rebuildGlFromInvoicesAndPayments(
           `Receipt ${r.id.slice(0, 8)}: ${err instanceof Error ? err.message : 'failed'}`,
         );
       }
+    }
+  }
+
+  // ----- GR/IR goods receipts: Dr expense / Cr GR/IR clearing -----
+  const grEntries = (
+    await listJobCostEntriesForSourceType(companyId, 'po_receipt')
+  ).filter((e) => e.sourceRefId);
+  const grByReceipt = new Map<string, JobCostEntry[]>();
+  for (const e of grEntries) {
+    const arr = grByReceipt.get(e.sourceRefId!) ?? [];
+    arr.push(e);
+    grByReceipt.set(e.sourceRefId!, arr);
+  }
+  for (const [poReceiptId, entries] of grByReceipt) {
+    try {
+      await postGoodsReceiptToGl(companyId, poReceiptId, entries, accounts);
+    } catch (err) {
+      failures.push(
+        `Goods receipt ${poReceiptId.slice(0, 8)}: ${err instanceof Error ? err.message : 'failed'}`,
+      );
     }
   }
 

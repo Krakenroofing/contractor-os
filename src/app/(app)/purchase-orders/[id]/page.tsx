@@ -267,7 +267,17 @@ export default async function PurchaseOrderDetailPage({
             )}
           </div>
         </div>
-        <StatusBadge entityType="purchase_order" status={po.status} />
+        <div className="flex items-center gap-2">
+          {po.grir && (
+            <span
+              className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800"
+              title="Goods receipts book the cost (Dr expense / Cr GR/IR); bills are 3-way matched and clear GR/IR."
+            >
+              GR/IR
+            </span>
+          )}
+          <StatusBadge entityType="purchase_order" status={po.status} />
+        </div>
       </div>
 
       <StatusPanel

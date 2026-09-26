@@ -37,8 +37,14 @@ import { findBillByVendorInvoiceNumber } from '@/lib/data/po-bills';
 import {
   createPoReceipt,
   deletePoReceipt,
+  listPoReceiptsForPO,
   setPoLineInventoryItem,
 } from '@/lib/data/po-receipts';
+import {
+  closedPeriodMessageFor,
+  periodClosedMessage,
+} from '@/lib/data/accounting-periods';
+import { syncGoodsReceiptGl } from '@/modules/accounting/lib/gl-posting';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getDefaultLocation } from '@/lib/data/inventory-locations';
 import { createProjectDocument } from '@/lib/data/project-documents';
@@ -665,19 +671,42 @@ export async function recordPoReceiptAction(
     locationId = def.id;
   }
 
+  // GR/IR POs post cost at receiving — the day must be in an open period.
+  if (po.grir) {
+    const closedMsg = await closedPeriodMessageFor(
+      companyId,
+      [parsed.data.receivedDate],
+      'This goods receipt',
+    );
+    if (closedMsg) return { formError: closedMsg };
+  }
+
   let resultingStatus: string;
+  let goodsReceiptId: string;
   try {
     const result = await createPoReceipt(companyId, po.id, {
       receivedAt,
+      receivedDate: parsed.data.receivedDate,
       receivedByUserId: user.id,
       notes: parsed.data.notes?.trim() || null,
       locationId,
       lines,
     });
     resultingStatus = result.resultingStatus;
+    goodsReceiptId = result.id;
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const message =
+      periodClosedMessage(err) ??
+      (err instanceof Error ? err.message : 'Unknown error');
     return { formError: `Failed to record receipt: ${message}` };
+  }
+  if (po.grir) {
+    try {
+      await syncGoodsReceiptGl(companyId, goodsReceiptId);
+    } catch {
+      /* best-effort — Rebuild GL resyncs */
+    }
+    revalidatePath('/job-costing');
   }
 
   const totalQty = lines.reduce((acc, l) => acc + l.quantityReceived, 0);
@@ -730,8 +759,28 @@ export async function deletePoReceiptAction(
     return { formError: 'Purchase order not found.' };
   }
 
+  if (po.grir) {
+    const receipts = await listPoReceiptsForPO(po.id);
+    const target = receipts.find((r) => r.id === parsed.data.receiptId);
+    if (target) {
+      const closedMsg = await closedPeriodMessageFor(
+        companyId,
+        [target.receivedAt.toISOString().slice(0, 10)],
+        'This goods receipt',
+      );
+      if (closedMsg) return { formError: closedMsg };
+    }
+  }
+
   try {
     const result = await deletePoReceipt(companyId, parsed.data.receiptId);
+    if (po.grir) {
+      try {
+        await syncGoodsReceiptGl(companyId, parsed.data.receiptId);
+      } catch {
+        /* best-effort */
+      }
+    }
     appendActivity(companyId, {
       entityType: 'purchase_order',
       entityId: po.id,
@@ -740,7 +789,9 @@ export async function deletePoReceiptAction(
       actorRole: ROLE_LABELS[role],
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const message =
+      periodClosedMessage(err) ??
+      (err instanceof Error ? err.message : 'Unknown error');
     return { formError: `Failed to undo receipt: ${message}` };
   }
 
@@ -1025,8 +1076,10 @@ export async function createBillFromPoAction(
   // billed quantities — capped at what's still outstanding on each line so a
   // re-bill can't over-receive. Best-effort: the bill is already written, and
   // a receiving hiccup must not cost her the bill.
+  // GR/IR POs never auto-receive: receiving is its own document (and its
+  // own cost posting); the bill is matched against it instead.
   let receivedLines = 0;
-  if (String(formData.get('markReceived') ?? '') === '1') {
+  if (!po.grir && String(formData.get('markReceived') ?? '') === '1') {
     const toReceive = computedLines
       .map(({ line, net, quantity, unitCost }) => {
         const billedQty =
@@ -1052,6 +1105,7 @@ export async function createBillFromPoAction(
         await createPoReceipt(company.id, po.id, {
           // Noon local so the row sits inside the billed day in any timezone.
           receivedAt: new Date(`${billDate}T12:00:00`),
+          receivedDate: billDate,
           receivedByUserId: knownUsers.has(user.id) ? user.id : null,
           notes: `Received with vendor invoice ${vendorInvoiceNumber}`,
           locationId: defaultLocation?.id ?? null,

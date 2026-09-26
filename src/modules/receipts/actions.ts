@@ -70,6 +70,7 @@ import {
   periodClosedMessage,
 } from '@/lib/data/accounting-periods';
 import { listBankPaymentsForReceipt } from '@/lib/data/transaction-matches';
+import { analyzeBillMatch, tolerancesOf } from '@/lib/data/three-way-match';
 import {
   extractReceipt,
   isOcrConfigured,
@@ -751,7 +752,9 @@ export async function postReceiptAction(input: {
   // overhead lines (no project/cost code) never create one and post to the GL
   // only. Idempotent return once everything that should post has posted.
   const isSettled = (l: (typeof lines)[number]) =>
-    !!l.postedJobCostEntryId || !(l.projectId && l.costCodeId);
+    !!l.postedJobCostEntryId ||
+    l.grirClearedAmount !== null ||
+    !(l.projectId && l.costCodeId);
   if (receipt.status === 'posted' && lines.every(isSettled)) {
     return { ok: true }; // idempotent — already posted
   }
@@ -795,6 +798,25 @@ export async function postReceiptAction(input: {
     };
   }
 
+  // GR/IR: lines billed against a received-goods PO clear GR/IR at the PO
+  // price; the goods receipt already carried that cost.
+  const match = await analyzeBillMatch(
+    company.id,
+    receipt,
+    lines,
+    tolerancesOf(company),
+  );
+  const grirByLine = new Map(match.lines.map((m) => [m.receiptLineId, m]));
+  const grirMissingJob = lines
+    .map((l, i) => ({ l, i }))
+    .filter(({ l }) => grirByLine.has(l.id) && !(l.projectId && l.costCodeId));
+  if (grirMissingJob.length > 0) {
+    return {
+      ok: false,
+      error: `Line ${grirMissingJob.map((x) => x.i + 1).join(', ')}: billed against a PO line — keep the PO line’s project and cost code.`,
+    };
+  }
+
   for (const line of lines) {
     if (line.postedJobCostEntryId) continue; // line already posted
     // Overhead line (no project/cost code): no job-cost entry — it posts to
@@ -804,6 +826,43 @@ export async function postReceiptAction(input: {
 
     const total = Number(line.total);
     const subtotal = Number(line.subtotal);
+    const grirLine = grirByLine.get(line.id);
+    if (grirLine) {
+      if (line.grirClearedAmount !== null) continue; // already cleared
+      await updateReceiptLine(company.id, line.id, {
+        grirClearedAmount: toMoneyString(grirLine.grirAmount),
+      });
+      // Only a price difference is new cost; it lands on the same job.
+      if (grirLine.priceVariance !== 0) {
+        const entry = await createJobCostEntry({
+          companyId: company.id,
+          projectId: line.projectId,
+          costCodeId: line.costCodeId,
+          accountingAccountId: line.accountingAccountId ?? null,
+          source: 'receipt_import',
+          sourceRefId: receipt.id,
+          costType: 'materials',
+          entryDate: receipt.receiptDate,
+          vendorId: receipt.vendorId,
+          description: `Price variance vs ${match.poNumber}: ${(line.description ?? '').slice(0, 180)}`,
+          quantity: '1',
+          unitCost: toMoneyString(grirLine.priceVariance),
+          amount: toMoneyString(grirLine.priceVariance),
+          isBillable: line.isBillable,
+          markupPercent: null,
+          burdenPercent: null,
+          vendorInvoiceNumber: receipt.vendorInvoiceNumber,
+          attachmentUrl: null,
+          notes: null,
+          createdByUserId: auditUserId,
+        });
+        await updateReceiptLine(company.id, line.id, {
+          postedJobCostEntryId: entry.id,
+        });
+      }
+      revalidatePath(`/job-costing/${line.projectId}`);
+      continue;
+    }
     const postAmount =
       company.isVatActive && receipt.vatRecoverable ? subtotal : total;
 
@@ -863,6 +922,13 @@ export async function postReceiptAction(input: {
     approvedByUserId: auditUserId,
     // Clear any prior rejection note — it shouldn't linger on a posted record.
     rejectionReason: null,
+    // 3-way match outside tolerance → posted (AP is real) but blocked for
+    // payment until an approver releases it.
+    paymentBlocked: match.issues.length > 0,
+    paymentBlockReason:
+      match.issues.length > 0 ? match.issues.join('\n').slice(0, 2000) : null,
+    paymentBlockReleasedAt: null,
+    paymentBlockReleasedByUserId: null,
   });
 
   // Post the receipt to the GL (Dr expense + VAT Input / Cr AP). Best-effort.
@@ -975,6 +1041,67 @@ export async function voidAndCorrectReceiptAction(input: {
     revalidatePath(`/purchase-orders/${receipt.purchaseOrderId}`);
   }
   return { ok: true, newId: result.newId };
+}
+
+/** Approver override: pay a bill despite its 3-way-match exceptions. The
+ *  reason stays on the bill with who released it and when. */
+export async function releasePaymentBlockAction(input: {
+  id: string;
+  note?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can release a payment block.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const receipt = await getReceipt(companyId, input.id);
+  if (!receipt) return { ok: false, error: 'Bill not found.' };
+  if (!receipt.paymentBlocked) return { ok: true };
+  const knownUsers = await getUserNamesByIds([user.id]);
+  const note = (input.note ?? '').trim().slice(0, 500);
+  await updateReceipt(companyId, receipt.id, {
+    paymentBlocked: false,
+    paymentBlockReason: `${receipt.paymentBlockReason ?? ''}${note ? `\nReleased: ${note}` : '\nReleased by approver.'}`.trim(),
+    paymentBlockReleasedAt: new Date(),
+    paymentBlockReleasedByUserId: knownUsers.has(user.id) ? user.id : null,
+  });
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  return { ok: true };
+}
+
+/** Re-run the 3-way match on a posted, blocked bill — e.g. after the rest
+ *  of the goods were received — and lift the block when it now passes. */
+export async function recheckPaymentBlockAction(input: {
+  id: string;
+}): Promise<{ ok: boolean; error?: string; stillBlocked?: boolean }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can re-check a bill.' };
+  }
+  const company = await getActiveCompany();
+  const receipt = await getReceipt(company.id, input.id);
+  if (!receipt) return { ok: false, error: 'Bill not found.' };
+  if (receipt.status !== 'posted') {
+    return { ok: false, error: 'Only posted bills carry a payment block.' };
+  }
+  const lines = await listReceiptLines(company.id, receipt.id);
+  const match = await analyzeBillMatch(
+    company.id,
+    receipt,
+    lines,
+    tolerancesOf(company),
+  );
+  const blocked = match.issues.length > 0;
+  await updateReceipt(company.id, receipt.id, {
+    paymentBlocked: blocked,
+    paymentBlockReason: blocked ? match.issues.join('\n').slice(0, 2000) : null,
+  });
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  return { ok: true, stillBlocked: blocked };
 }
 
 export async function voidReceiptAction(input: {
@@ -1728,6 +1855,20 @@ export async function reclassifyPostedReceiptAction(input: {
           'Every line needs either a job + cost code, or an accounting category.',
       };
     }
+    // A GR/IR line's cost was recognized by the goods receipt, on the PO
+    // line's job and cost code — the bill can't move it.
+    const e = byId.get(l.lineId)!;
+    if (
+      e.grirClearedAmount !== null &&
+      ((l.projectId ?? null) !== (e.projectId ?? null) ||
+        (l.costCodeId ?? null) !== (e.costCodeId ?? null))
+    ) {
+      return {
+        ok: false,
+        error:
+          'A line billed against a received PO line keeps the PO line’s job and cost code (the goods receipt carries that cost). Change it on the PO’s goods receipt instead.',
+      };
+    }
   }
 
   const knownUsers = await getUserNamesByIds([user.id]);
@@ -1798,7 +1939,7 @@ export async function reclassifyPostedReceiptAction(input: {
             }
           : {}),
       });
-    } else if (!wasJobCosted && isJobCosted) {
+    } else if (!wasJobCosted && isJobCosted && line.grirClearedAmount === null) {
       // Overhead line moved onto a job — post the job cost it never had.
       const total = Number(line.total);
       const subtotal = Number(line.subtotal);

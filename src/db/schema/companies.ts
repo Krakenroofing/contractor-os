@@ -6,6 +6,7 @@ import {
   integer,
   numeric,
   boolean,
+  date,
 } from 'drizzle-orm/pg-core';
 import { accountingMethodEnum } from './_enums';
 
@@ -106,6 +107,31 @@ export const companies = pgTable('companies', {
   // created/edited employee is forced NIB-exempt, so payroll never
   // withholds NIB and C-10 outputs stay empty for this company.
   nibEnabled: boolean('nib_enabled').notNull().default(true),
+
+  // GR/IR + 3-way match (roadmap P3). POs dated on/after the cutover
+  // recognize cost at goods receipt; their bills clear GR/IR. Null = off.
+  // Tolerances: a bill line whose billed qty exceeds received by more than
+  // the qty % — or whose unit price differs from the PO by more than the
+  // price % AND the $ amount — blocks the bill for payment.
+  grirCutoverDate: date('grir_cutover_date'),
+  matchQtyTolerancePct: numeric('match_qty_tolerance_pct', {
+    precision: 6,
+    scale: 3,
+  })
+    .notNull()
+    .default('0'),
+  matchPriceTolerancePct: numeric('match_price_tolerance_pct', {
+    precision: 6,
+    scale: 3,
+  })
+    .notNull()
+    .default('2'),
+  matchPriceToleranceAmount: numeric('match_price_tolerance_amount', {
+    precision: 14,
+    scale: 2,
+  })
+    .notNull()
+    .default('5'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

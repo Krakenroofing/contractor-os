@@ -40,7 +40,10 @@ export function PoBillForm({
   poSubtotal,
   poShipping,
   priorBillCount,
+  grir = false,
 }: {
+  /** The PO uses GR/IR — no receive-with-bill shortcut. */
+  grir?: boolean;
   poId: string;
   lines: PoBillLine[];
   /** The PO's sales tax + subtotal — prefill the tax field with the
@@ -243,9 +246,19 @@ export function PoBillForm({
         </table>
       </div>
 
-      {/* The vendor only invoices what actually shipped, so the invoice IS
-          the receiving document. Ticking this records the shipment in one
-          step; untick it when a vendor bills ahead of delivery. */}
+      {/* GR/IR orders: receiving is its own step (it books the cost); the
+          bill is 3-way matched against it. Legacy orders keep the shortcut:
+          the vendor invoices what shipped, so the invoice can double as the
+          receiving document. */}
+      {grir ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          This order uses goods receipts (GR/IR). Record what arrived with{' '}
+          <span className="font-medium">Receive</span> on the PO — the bill is
+          then matched against it on quantity and price. A bill for more than
+          was received, or at a different price, posts but is blocked for
+          payment until released.
+        </div>
+      ) : (
       <label className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
         <input
           type="checkbox"
@@ -265,6 +278,7 @@ export function PoBillForm({
           </span>
         </span>
       </label>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-end gap-4">

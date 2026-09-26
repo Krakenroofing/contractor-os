@@ -124,6 +124,17 @@ export const receipts = pgTable(
     }),
     rejectionReason: text('rejection_reason'),
 
+    // 3-way match (roadmap P3): a posted bill outside tolerance vs its PO /
+    // goods receipts can't be matched to a payment until released.
+    paymentBlocked: boolean('payment_blocked').notNull().default(false),
+    paymentBlockReason: text('payment_block_reason'),
+    paymentBlockReleasedAt: timestamp('payment_block_released_at', {
+      withTimezone: true,
+    }),
+    paymentBlockReleasedByUserId: uuid(
+      'payment_block_released_by_user_id',
+    ).references(() => users.id, { onDelete: 'set null' }),
+
     isBillable: boolean('is_billable').notNull().default(false),
     isReimbursable: boolean('is_reimbursable').notNull().default(false),
     notes: text('notes'),
@@ -184,6 +195,14 @@ export const receiptLines = pgTable(
     // how much of each line has been billed. FK constraint in the SQL
     // migration (ON DELETE SET NULL).
     purchaseOrderLineId: uuid('purchase_order_line_id'),
+    // GR/IR PO lines: the part of this line that cleared GR/IR at posting
+    // (billed qty × PO price). The goods receipt already carried that cost;
+    // only the remainder (price variance) posts as cost here. NULL = an
+    // ordinary line.
+    grirClearedAmount: numeric('grir_cleared_amount', {
+      precision: 14,
+      scale: 2,
+    }),
 
     subtotal: numeric('subtotal', { precision: 14, scale: 2 })
       .notNull()

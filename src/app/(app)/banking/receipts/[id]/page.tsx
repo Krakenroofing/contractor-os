@@ -33,6 +33,8 @@ import {
   type AttachmentRow,
 } from '@/modules/receipts/components/attachments-list';
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
+import { ThreeWayMatchPanel } from '@/modules/receipts/components/three-way-match-panel';
+import { analyzeBillMatch, tolerancesOf } from '@/lib/data/three-way-match';
 import { ReclassifyPanel } from '@/modules/receipts/components/reclassify-panel';
 import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
 import { isOcrConfigured } from '@/lib/ocr/document-ai';
@@ -76,10 +78,14 @@ async function checkDuplicatePoReceipt(
     total: string;
     subtotal: string;
     receiptDate: string;
+    purchaseOrderId: string | null;
   },
 ): Promise<string | null> {
   if (!isDatabaseConfigured()) return null;
   if (!receipt.vendorId) return null;
+  // Bills raised from a PO clear that PO's goods receipts by design (GR/IR);
+  // the 3-way match panel covers them instead.
+  if (receipt.purchaseOrderId) return null;
   const db = getDb()!;
   const amountKeys = [
     toMoneyString(Number(receipt.total)),
@@ -153,6 +159,7 @@ export default async function ReceiptDetailPage({
       total: receipt.total,
       subtotal: receipt.subtotal,
       receiptDate: receipt.receiptDate,
+      purchaseOrderId: receipt.purchaseOrderId,
     }),
   ]);
   const paymentMethodOptions = (await listPaymentMethods(company.id)).map(
@@ -209,6 +216,14 @@ export default async function ReceiptDetailPage({
     ...p,
     bankAccountName: bankAccountName.get(p.bankAccountId) ?? null,
   }));
+
+  // 3-way match vs the PO and its goods receipts (GR/IR POs only).
+  const billMatch = await analyzeBillMatch(
+    company.id,
+    receipt,
+    lines,
+    tolerancesOf(company),
+  );
 
   const canEdit = canCreate(role, 'receipts');
   const canSubmit = canCreate(role, 'receipts');
@@ -482,11 +497,19 @@ export default async function ReceiptDetailPage({
                     // hit the P&L directly. The old copy called everything a
                     // "job cost entry", which read as a bug when an overhead
                     // receipt showed no job cost anywhere.
-                    const jobLines = lines.filter(
-                      (l) => l.postedJobCostEntryId,
+                    const grirLines = lines.filter(
+                      (l) => l.grirClearedAmount !== null,
                     ).length;
-                    const overhead = lines.length - jobLines;
+                    const jobLines = lines.filter(
+                      (l) =>
+                        l.postedJobCostEntryId && l.grirClearedAmount === null,
+                    ).length;
+                    const overhead = lines.length - jobLines - grirLines;
                     const parts: string[] = [];
+                    if (grirLines > 0)
+                      parts.push(
+                        `${grirLines} line${grirLines === 1 ? '' : 's'} cleared against goods received (GR/IR)`,
+                      );
                     if (jobLines > 0)
                       parts.push(
                         `${jobLines} job-cost ${jobLines === 1 ? 'entry' : 'entries'}`,
@@ -501,6 +524,24 @@ export default async function ReceiptDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {billMatch.applies && (
+            <ThreeWayMatchPanel
+              receiptId={receipt.id}
+              poNumber={billMatch.poNumber}
+              status={receipt.status}
+              lines={billMatch.lines}
+              issues={billMatch.issues}
+              paymentBlocked={receipt.paymentBlocked}
+              blockReason={receipt.paymentBlockReason}
+              releasedAt={
+                receipt.paymentBlockReleasedAt
+                  ? receipt.paymentBlockReleasedAt.toISOString().slice(0, 10)
+                  : null
+              }
+              canApprove={canApprove}
+            />
+          )}
 
           <ReceiptVendorCreditsCard
             receiptId={receipt.id}

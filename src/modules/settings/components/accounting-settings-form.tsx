@@ -229,6 +229,63 @@ export function AccountingSettingsForm({
         </Field>
       </fieldset>
 
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Purchasing — goods receipts &amp; 3-way match
+        </legend>
+        <p className="text-xs text-slate-500">
+          Purchase orders dated on or after the cutover book their cost when
+          goods are <span className="font-medium">received</span> (Dr expense
+          / Cr GR/IR clearing). The vendor bill clears GR/IR and is matched
+          against the PO price and the quantity received; a bill outside the
+          tolerances posts but is blocked for payment until released. Older
+          POs keep the old rule (the bill books the cost). Leave the date blank
+          to turn this off for new POs.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Field label="GR/IR cutover date" error={err('grirCutoverDate')}>
+            <Input
+              name="grirCutoverDate"
+              type="date"
+              defaultValue={company.grirCutoverDate ?? ''}
+            />
+          </Field>
+          <Field
+            label="Qty tolerance %"
+            error={err('matchQtyTolerancePct')}
+            hint="Billed may exceed received by this much."
+          >
+            <Input
+              name="matchQtyTolerancePct"
+              inputMode="decimal"
+              defaultValue={company.matchQtyTolerancePct}
+            />
+          </Field>
+          <Field
+            label="Price tolerance %"
+            error={err('matchPriceTolerancePct')}
+            hint="Unit price vs PO."
+          >
+            <Input
+              name="matchPriceTolerancePct"
+              inputMode="decimal"
+              defaultValue={company.matchPriceTolerancePct}
+            />
+          </Field>
+          <Field
+            label="…and more than $"
+            error={err('matchPriceToleranceAmount')}
+            hint="Per line — small rounding never blocks."
+          >
+            <Input
+              name="matchPriceToleranceAmount"
+              inputMode="decimal"
+              defaultValue={company.matchPriceToleranceAmount}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save accounting settings'}

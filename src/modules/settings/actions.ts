@@ -139,6 +139,10 @@ export async function updateAccountingSettingsAction(
     laborCogsAccountId: formData.get('laborCogsAccountId') ?? '',
     laborBurdenAccountId: formData.get('laborBurdenAccountId') ?? '',
     defaultLaborCostCodeId: formData.get('defaultLaborCostCodeId') ?? '',
+    grirCutoverDate: formData.get('grirCutoverDate') ?? '',
+    matchQtyTolerancePct: formData.get('matchQtyTolerancePct') ?? '0',
+    matchPriceTolerancePct: formData.get('matchPriceTolerancePct') ?? '2',
+    matchPriceToleranceAmount: formData.get('matchPriceToleranceAmount') ?? '5',
   });
 
   if (!parsed.success) {
@@ -158,6 +162,10 @@ export async function updateAccountingSettingsAction(
     laborCogsAccountId: emptyToNull(data.laborCogsAccountId ?? null),
     laborBurdenAccountId: emptyToNull(data.laborBurdenAccountId ?? null),
     defaultLaborCostCodeId: emptyToNull(data.defaultLaborCostCodeId ?? null),
+    grirCutoverDate: emptyToNull(data.grirCutoverDate ?? null),
+    matchQtyTolerancePct: Number(data.matchQtyTolerancePct).toFixed(3),
+    matchPriceTolerancePct: Number(data.matchPriceTolerancePct).toFixed(3),
+    matchPriceToleranceAmount: Number(data.matchPriceToleranceAmount).toFixed(2),
   });
 
   if (!updated) {
