@@ -22,6 +22,7 @@ export type ProductFormInitialValues = {
   unit: string;
   defaultCost: string;
   defaultCostCodeId: string;
+  supplierVendorId?: string;
   isTaxable: 'yes' | 'no';
   qbGlAccountText: string;
   notes: string;
@@ -34,6 +35,7 @@ const blankInitial: ProductFormInitialValues = {
   unit: '',
   defaultCost: '0',
   defaultCostCodeId: '',
+  supplierVendorId: '',
   isTaxable: 'yes',
   qbGlAccountText: '',
   notes: '',
@@ -45,10 +47,15 @@ export function ProductForm({
   mode = { kind: 'create' },
   initial,
   costCodes = [],
+  vendors = [],
+  derivedSupplierName = null,
 }: {
   mode?: Mode;
   initial?: ProductFormInitialValues;
   costCodes?: Option[];
+  vendors?: Option[];
+  /** Supplier the list shows when none is set by hand (from the latest PO). */
+  derivedSupplierName?: string | null;
 }) {
   const values = initial ?? blankInitial;
   const isEdit = mode.kind === 'edit';
@@ -106,6 +113,21 @@ export function ProductForm({
             {costCodes.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Supplier" error={err('supplierVendorId')}>
+          <Select name="supplierVendorId" defaultValue={values.supplierVendorId ?? ''}>
+            <option value="">
+              {derivedSupplierName
+                ? `Automatic — ${derivedSupplierName} (latest PO)`
+                : 'Automatic — from the latest PO'}
+            </option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
               </option>
             ))}
           </Select>

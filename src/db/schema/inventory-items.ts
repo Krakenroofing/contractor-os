@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { costCodes } from './cost-codes';
+import { vendors } from './vendors';
 
 export const inventoryItems = pgTable(
   'inventory_items',
@@ -26,6 +27,11 @@ export const inventoryItems = pgTable(
       .notNull()
       .default('0'),
     defaultCostCodeId: uuid('default_cost_code_id').references(() => costCodes.id, {
+      onDelete: 'set null',
+    }),
+    // Usual supplier, set by hand. Null = the inventory list derives it from
+    // the latest PO the product was received on.
+    supplierVendorId: uuid('supplier_vendor_id').references(() => vendors.id, {
       onDelete: 'set null',
     }),
     isTaxable: boolean('is_taxable').notNull().default(true),

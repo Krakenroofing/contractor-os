@@ -6,7 +6,7 @@
 // issuance to jobs are not part of this table.
 
 import 'server-only';
-import { and, asc, eq, ilike, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { inventoryItems, type InventoryItem, type NewInventoryItem } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
 
@@ -17,6 +17,8 @@ export type CreateInventoryItemInput = {
   unit: string | null;
   defaultCost: string;
   defaultCostCodeId: string | null;
+  /** Hand-set supplier; omitted = leave as is (null clears it). */
+  supplierVendorId?: string | null;
   isTaxable: boolean;
   qbGlAccountText: string | null;
   notes: string | null;
@@ -29,6 +31,44 @@ function requireDb() {
     throw new Error('inventory_items requires a configured database — demo mode is not supported yet.');
   }
   return getDb()!;
+}
+
+/**
+ * Supplier each product last came from: the vendor of the most recent PO it
+ * was received on, else the most recent PO it was ordered on. Feeds the
+ * inventory list's Supplier column when none is set by hand.
+ */
+export async function derivedSuppliersByItem(
+  companyId: string,
+): Promise<Map<string, { vendorId: string; vendorName: string; poNumber: string }>> {
+  const out = new Map<string, { vendorId: string; vendorName: string; poNumber: string }>();
+  if (!isDatabaseConfigured()) return out;
+  const rows = await getDb()!.execute(sql`
+    SELECT DISTINCT ON (pl.inventory_item_id)
+           pl.inventory_item_id, po.vendor_id, v.name AS vendor_name, po.number
+      FROM purchase_order_lines pl
+      JOIN purchase_orders po ON po.id = pl.purchase_order_id
+      JOIN vendors v ON v.id = po.vendor_id
+      LEFT JOIN LATERAL (
+        SELECT MAX(r.received_at) AS last_received
+          FROM po_receipt_lines rl JOIN po_receipts r ON r.id = rl.receipt_id
+         WHERE rl.po_line_id = pl.id
+      ) rec ON true
+     WHERE po.company_id = ${companyId}
+       AND po.status <> 'void'
+       AND pl.inventory_item_id IS NOT NULL
+     ORDER BY pl.inventory_item_id,
+              (rec.last_received IS NULL),
+              rec.last_received DESC NULLS LAST,
+              COALESCE(po.issue_date, po.created_at::date) DESC`);
+  for (const r of rows as unknown as Array<Record<string, string>>) {
+    out.set(r.inventory_item_id, {
+      vendorId: r.vendor_id,
+      vendorName: r.vendor_name,
+      poNumber: r.number,
+    });
+  }
+  return out;
 }
 
 export async function listInventoryItems(

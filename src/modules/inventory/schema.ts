@@ -15,6 +15,7 @@ export const inventoryItemFormSchema = z.object({
   unit: z.string().max(20).optional().or(z.literal('')),
   defaultCost: numericString,
   defaultCostCodeId: z.string().uuid().optional().or(z.literal('')),
+  supplierVendorId: z.string().uuid().optional().or(z.literal('')),
   isTaxable: z.enum(['yes', 'no']).default('yes'),
   qbGlAccountText: optionalText,
   notes: z.string().max(2000).optional().or(z.literal('')),

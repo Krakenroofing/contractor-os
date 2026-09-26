@@ -5,7 +5,11 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { getInventoryItem } from '@/lib/data/inventory-items';
+import {
+  derivedSuppliersByItem,
+  getInventoryItem,
+} from '@/lib/data/inventory-items';
+import { listVendors } from '@/lib/data/vendors';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { ProductForm } from '@/modules/inventory/components/product-form';
 
@@ -20,9 +24,11 @@ export default async function EditProductPage({
   const role = await getActiveRole();
   if (!canCreate(role, 'inventory')) redirect('/inventory');
   const companyId = await getActiveCompanyId();
-  const [item, costCodes] = await Promise.all([
+  const [item, costCodes, vendors, derived] = await Promise.all([
     getInventoryItem(companyId, id),
     listCostCodes(companyId),
+    listVendors(companyId),
+    derivedSuppliersByItem(companyId),
   ]);
   if (!item) notFound();
 
@@ -53,6 +59,7 @@ export default async function EditProductPage({
           unit: item.unit ?? '',
           defaultCost: Number(item.defaultCost).toString(),
           defaultCostCodeId: item.defaultCostCodeId ?? '',
+          supplierVendorId: item.supplierVendorId ?? '',
           isTaxable: item.isTaxable ? 'yes' : 'no',
           qbGlAccountText: item.qbGlAccountText ?? '',
           notes: item.notes ?? '',
@@ -61,6 +68,10 @@ export default async function EditProductPage({
           id: c.id,
           label: `${c.code} — ${c.description}`,
         }))}
+        vendors={vendors
+          .map((v) => ({ id: v.id, label: v.name }))
+          .sort((a, b) => a.label.localeCompare(b.label))}
+        derivedSupplierName={derived.get(item.id)?.vendorName ?? null}
       />
     </div>
   );

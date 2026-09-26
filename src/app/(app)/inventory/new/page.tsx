@@ -5,6 +5,7 @@ import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
+import { listVendors } from '@/lib/data/vendors';
 import { ProductForm } from '@/modules/inventory/components/product-form';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,10 @@ export default async function NewProductPage() {
   const role = await getActiveRole();
   if (!canCreate(role, 'inventory')) redirect('/inventory');
   const companyId = await getActiveCompanyId();
-  const costCodes = await listCostCodes(companyId);
+  const [costCodes, vendors] = await Promise.all([
+    listCostCodes(companyId),
+    listVendors(companyId),
+  ]);
   return (
     <div className="p-8 max-w-3xl space-y-6">
       <Link href="/inventory">
@@ -33,6 +37,9 @@ export default async function NewProductPage() {
           id: c.id,
           label: `${c.code} — ${c.description}`,
         }))}
+        vendors={vendors
+          .map((v) => ({ id: v.id, label: v.name }))
+          .sort((a, b) => a.label.localeCompare(b.label))}
       />
     </div>
   );

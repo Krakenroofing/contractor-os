@@ -45,6 +45,7 @@ function readForm(formData: FormData) {
     unit: formData.get('unit') ?? '',
     defaultCost: (formData.get('defaultCost') as string | null) ?? '0',
     defaultCostCodeId: formData.get('defaultCostCodeId') ?? '',
+    supplierVendorId: formData.get('supplierVendorId') ?? '',
     isTaxable: (formData.get('isTaxable') as string | null) ?? 'yes',
     qbGlAccountText: formData.get('qbGlAccountText') ?? '',
     notes: formData.get('notes') ?? '',
@@ -62,6 +63,7 @@ function toCreateInput(
     defaultCost:
       data.defaultCost.trim() === '' ? '0' : Number(data.defaultCost).toFixed(4),
     defaultCostCodeId: emptyToNull(data.defaultCostCodeId ?? null),
+    supplierVendorId: emptyToNull(data.supplierVendorId ?? null),
     isTaxable: data.isTaxable === 'yes',
     qbGlAccountText: emptyToNull(data.qbGlAccountText ?? null),
     notes: emptyToNull(data.notes ?? null),

@@ -3,7 +3,11 @@ import { Button } from '@/components/ui/button';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
-import { listInventoryItems } from '@/lib/data/inventory-items';
+import {
+  derivedSuppliersByItem,
+  listInventoryItems,
+} from '@/lib/data/inventory-items';
+import { listVendors } from '@/lib/data/vendors';
 import { getOnHandMap } from '@/lib/data/inventory-movements';
 import { ProductsListClient } from '@/modules/inventory/components/products-list-client';
 import { CategoryCostCodesCard } from '@/modules/inventory/components/category-cost-codes-card';
@@ -21,7 +25,25 @@ export default async function InventoryPage() {
     companyId,
     items.map((i) => i.id),
   );
+  const [derived, vendors] = await Promise.all([
+    derivedSuppliersByItem(companyId),
+    listVendors(companyId),
+  ]);
+  const vendorName = new Map(vendors.map((v) => [v.id, v.name]));
   const rows = items.map((p) => ({
+    ...(p.supplierVendorId && vendorName.has(p.supplierVendorId)
+      ? {
+          supplierName: vendorName.get(p.supplierVendorId)!,
+          supplierSource: 'set' as const,
+          supplierPoNumber: null,
+        }
+      : derived.has(p.id)
+        ? {
+            supplierName: derived.get(p.id)!.vendorName,
+            supplierSource: 'po' as const,
+            supplierPoNumber: derived.get(p.id)!.poNumber,
+          }
+        : { supplierName: null, supplierSource: null, supplierPoNumber: null }),
     id: p.id,
     name: p.name,
     category: p.category,
