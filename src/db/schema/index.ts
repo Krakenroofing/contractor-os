@@ -23,6 +23,7 @@ export * from './project-documents';
 export * from './job-cost-forecasts';
 export * from './accounting-accounts';
 export * from './general-ledger';
+export * from './accounting-periods';
 export * from './bank-accounts';
 export * from './bank-reconciliations';
 export * from './vendor-credits';

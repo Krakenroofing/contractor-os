@@ -94,6 +94,11 @@ export default async function JournalPage({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canEdit && <RebuildGlButton />}
+          {(role === 'owner' || role === 'accounting') && (
+            <Link href={{ pathname: '/settings/accounting/periods' }}>
+              <Button variant="outline">🔒 Posting periods</Button>
+            </Link>
+          )}
           <Link href={{ pathname: '/reports/balance-sheet' }}>
             <Button variant="outline">Balance Sheet</Button>
           </Link>

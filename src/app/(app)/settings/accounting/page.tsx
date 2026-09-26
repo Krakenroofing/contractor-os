@@ -52,6 +52,25 @@ export default async function AccountingSettingsPage() {
       </header>
 
       <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              Posting periods
+            </p>
+            <p className="text-xs text-slate-500">
+              Close a month so nothing dated in it can be posted or changed.
+              Corrections go into an open period.
+            </p>
+          </div>
+          <Link href={'/settings/accounting/periods' as never}>
+            <Button variant="outline" size="sm">
+              Manage periods →
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="p-6">
           <AccountingSettingsForm
             company={company}

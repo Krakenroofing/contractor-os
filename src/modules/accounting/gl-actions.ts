@@ -20,6 +20,7 @@ import {
   getJournalEntryAttachment,
 } from '@/lib/data/journal-entry-attachments';
 import { getUserNamesByIds } from '@/lib/data/users';
+import { guardPeriod } from '@/lib/period-guard';
 import {
   ALLOWED_JOURNAL_ATTACHMENT_MIME,
   JOURNAL_ENTRY_ATTACHMENTS_BUCKET,
@@ -140,16 +141,20 @@ export async function updateManualJournalEntryAction(input: {
     };
   }
   const companyId = await getActiveCompanyId();
-  const res = await updateManualJournalEntry(companyId, entryId.data, {
-    entryDate: parsed.data.entryDate,
-    memo: parsed.data.memo ?? null,
-    lines: parsed.data.lines.map((l) => ({
-      accountId: l.accountId,
-      debit: l.debit,
-      credit: l.credit,
-      description: l.description ?? null,
-    })),
-  });
+  const res = await guardPeriod(
+    () =>
+      updateManualJournalEntry(companyId, entryId.data, {
+        entryDate: parsed.data.entryDate,
+        memo: parsed.data.memo ?? null,
+        lines: parsed.data.lines.map((l) => ({
+          accountId: l.accountId,
+          debit: l.debit,
+          credit: l.credit,
+          description: l.description ?? null,
+        })),
+      }),
+    (msg) => ({ error: msg }),
+  );
   if ('error' in res) return { ok: false, error: res.error };
   revalidatePath('/accounting/journal');
   revalidatePath('/reports/trial-balance');
@@ -169,7 +174,12 @@ export async function deleteManualJournalEntryAction(
   const id = z.string().uuid().safeParse(entryId);
   if (!id.success) return { ok: false, error: 'Invalid entry.' };
   const companyId = await getActiveCompanyId();
-  const res = await deleteManualJournalEntry(companyId, id.data);
+  const res = await guardPeriod(
+    () => deleteManualJournalEntry(companyId, id.data),
+    (msg) => ({
+      error: `${msg} Reverse the entry instead — the reversal posts in an open period.`,
+    }),
+  );
   if ('error' in res) return { ok: false, error: res.error };
   for (const path of res.storagePaths) {
     await deleteJournalAttachmentBlob(path);
@@ -448,10 +458,21 @@ export async function reverseJournalEntryAction(input: {
   const id = z.string().uuid().safeParse(input.entryId);
   if (!id.success) return { ok: false, error: 'Invalid entry.' };
   const companyId = await getActiveCompanyId();
-  const res = await reverseJournalEntry(companyId, id.data, {
-    entryDate: input.entryDate,
-    createdByUserId: user.id,
-  });
+  const guarded = await guardPeriod(
+    async () => ({
+      res: await reverseJournalEntry(companyId, id.data, {
+        entryDate: input.entryDate,
+        createdByUserId: user.id,
+      }),
+      error: null as string | null,
+    }),
+    (msg) => ({
+      res: null,
+      error: `${msg} Date the reversal in an open period.`,
+    }),
+  );
+  if (guarded.error) return { ok: false, error: guarded.error };
+  const res = guarded.res;
   if (!res) return { ok: false, error: 'Entry not found or already reversed.' };
   revalidatePath('/accounting/journal');
   revalidatePath('/reports/trial-balance');

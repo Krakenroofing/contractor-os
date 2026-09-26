@@ -60,6 +60,7 @@ import {
 import { computeVat, vatQuarterForDate } from './lib/vat';
 import { listVendors } from '@/lib/data/vendors';
 import { getUserNamesByIds } from '@/lib/data/users';
+import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
 import {
   extractReceipt,
   isOcrConfigured,
@@ -743,6 +744,17 @@ export async function postReceiptAction(input: {
   if (lines.length === 0) {
     return { ok: false, error: 'Add at least one line before posting.' };
   }
+  const closedMsg = await closedPeriodMessageFor(
+    company.id,
+    [String(receipt.receiptDate)],
+    'This bill',
+  );
+  if (closedMsg) {
+    return {
+      ok: false,
+      error: `${closedMsg} (Change the bill date to the day it's being recorded, then post.)`,
+    };
+  }
 
   const missing: number[] = [];
   const reimbursableMissingPayee: number[] = [];
@@ -868,6 +880,12 @@ export async function unpostReceiptAction(input: {
   if (receipt.status !== 'posted') {
     return { ok: false, error: 'Receipt is not posted.' };
   }
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(receipt.receiptDate)],
+    'This bill',
+  );
+  if (closedMsg) return { ok: false, error: closedMsg };
   const lines = await listReceiptLines(companyId, receipt.id);
 
   for (const line of lines) {
@@ -1657,6 +1675,26 @@ export async function reclassifyPostedReceiptAction(input: {
   const knownUsers = await getUserNamesByIds([user.id]);
   const auditUserId = knownUsers.has(user.id) ? user.id : null;
   const dateChanged = receipt.receiptDate !== parsed.data.receiptDate;
+  // Reclassifying is allowed in OPEN periods only (standing decision
+  // 2026-09-26). Description-only edits move nothing and stay allowed.
+  const glChange =
+    dateChanged ||
+    parsed.data.lines.some((l) => {
+      const e = byId.get(l.lineId)!;
+      return (
+        (l.projectId ?? null) !== (e.projectId ?? null) ||
+        (l.costCodeId ?? null) !== (e.costCodeId ?? null) ||
+        (l.accountingAccountId ?? null) !== (e.accountingAccountId ?? null)
+      );
+    });
+  if (glChange) {
+    const closedMsg = await closedPeriodMessageFor(
+      company.id,
+      [String(receipt.receiptDate), parsed.data.receiptDate],
+      'This bill',
+    );
+    if (closedMsg) return { ok: false, error: closedMsg };
+  }
   if (dateChanged) {
     await updateReceipt(company.id, receipt.id, {
       receiptDate: parsed.data.receiptDate,

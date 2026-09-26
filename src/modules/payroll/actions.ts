@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
+import { guardPeriod } from '@/lib/period-guard';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
@@ -758,10 +760,17 @@ export async function setPeriodStatusAction(input: {
   const parsed = setStatusSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: 'Invalid input.' };
   const companyId = await getActiveCompanyId();
-  const updated = await updatePayPeriod(companyId, parsed.data.payPeriodId, {
-    status: parsed.data.status,
-  });
-  if (!updated) return { ok: false, error: 'Period not found.' };
+  const res = await guardPeriod(
+    async () => ({
+      updated: await updatePayPeriod(companyId, parsed.data.payPeriodId, {
+        status: parsed.data.status,
+      }),
+      error: null as string | null,
+    }),
+    (msg) => ({ updated: undefined, error: msg }),
+  );
+  if (res.error) return { ok: false, error: res.error };
+  if (!res.updated) return { ok: false, error: 'Period not found.' };
   revalidatePath('/payroll');
   return { ok: true };
 }
@@ -902,6 +911,14 @@ export async function lockPeriodAction(
     revalidatePath('/payroll');
     return {};
   }
+  // Before the snapshots are written, so a closed accounting month can't
+  // leave an open week carrying stray snapshots.
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(period.endDate)],
+    'This payroll week',
+  );
+  if (closedMsg) return { formError: closedMsg };
 
   // Compute paystubs live ONE LAST TIME using the current rates +
   // entries + overrides + adjustments, then freeze them.
@@ -1763,6 +1780,14 @@ export async function unlockPeriodAction(
     revalidatePath('/payroll');
     return {};
   }
+  // Checked BEFORE the snapshots are deleted — a trigger rejection after
+  // that point would leave a locked week with no pay-slip snapshots.
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(period.endDate)],
+    'This payroll week',
+  );
+  if (closedMsg) return { formError: closedMsg };
 
   try {
     await deletePaystubSnapshotsForPeriod(companyId, payPeriodId);

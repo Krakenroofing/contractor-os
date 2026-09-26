@@ -112,6 +112,12 @@ import {
   toTxnForMatching,
 } from './lib/rules';
 import { computeVatSplit } from './lib/vat-split';
+import {
+  closedPeriodMessageFor,
+  listClosedMonths,
+  monthStartOf,
+} from '@/lib/data/accounting-periods';
+import { guardPeriod } from '@/lib/period-guard';
 
 export type BankingActionState = {
   formError?: string;
@@ -518,10 +524,34 @@ export async function commitImportAction(
     };
   }
 
+  // Rows dated in a closed period are left out (reported as row errors on
+  // the batch) — a statement that straddles a closed month still imports
+  // everything from the open side.
+  const closedMonths = await listClosedMonths(company.id);
+  const openDrafts = preview.drafts.filter(
+    (d) => !closedMonths.has(monthStartOf(d.transactionDate)),
+  );
+  const closedDrafts = preview.drafts.length - openDrafts.length;
+  if (openDrafts.length === 0) {
+    return {
+      formError: `Every row in this file is dated in a closed period — nothing was imported. Ask the owner to reopen the month if these lines are genuinely missing from the books.`,
+    };
+  }
+  const importErrors =
+    closedDrafts > 0
+      ? [
+          ...preview.errors,
+          {
+            rowIndex: -1,
+            reason: `${closedDrafts} row${closedDrafts === 1 ? '' : 's'} dated in a closed period ${closedDrafts === 1 ? 'was' : 'were'} skipped.`,
+          },
+        ]
+      : preview.errors;
+
   await commitImport({
     batch,
-    drafts: preview.drafts,
-    errors: preview.errors,
+    drafts: openDrafts,
+    errors: importErrors,
     defaultCurrency: company.defaultCurrency,
   });
 
@@ -615,6 +645,33 @@ export async function updateImportedTransactionAction(
   // its bankAccountId (to revalidate the right page).
   const txn = await getImportedTransaction(companyId, parsed.data.id);
   if (!txn) return { formError: 'Transaction not found.' };
+
+  // Closed month: review flag, notes, payee and payment method stay
+  // editable (reconciling a closed statement still works); anything that
+  // would move the GL — category, job, split lines, ignore — does not.
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(txn.transactionDate)],
+    'This bank transaction',
+  );
+  const existingLines = closedMsg
+    ? await listLinesForTransactionIds(companyId, [txn.id])
+    : [];
+  if (closedMsg && (commonPatch.isIgnored ?? false) !== Boolean(txn.isIgnored)) {
+    return { formError: closedMsg };
+  }
+  const saveNonGlOnly = async (): Promise<BankingActionState> => {
+    await updateImportedTransaction(companyId, parsed.data.id, commonPatch);
+    revalidatePath(`/banking/accounts/${txn.bankAccountId}`);
+    return { ok: true };
+  };
+  const lineKey = (l: {
+    accountingAccountId: string | null;
+    projectId: string | null;
+    costCodeId: string | null;
+    amount: string | number;
+  }) =>
+    `${l.accountingAccountId ?? ''}|${l.projectId ?? ''}|${l.costCodeId ?? ''}|${Number(l.amount).toFixed(2)}`;
 
   if (isSplit) {
     let rawLines: unknown;
@@ -779,6 +836,12 @@ export async function updateImportedTransactionAction(
       vendorCreditId: l.vendorCreditId ?? null,
       amount: toMoneyString(l.amount),
     }));
+    if (closedMsg) {
+      const before = existingLines.map(lineKey).sort().join('\n');
+      const after = lineInputs.map(lineKey).sort().join('\n');
+      if (before !== after) return { formError: closedMsg };
+      return saveNonGlOnly();
+    }
     await replaceImportedTransactionLines(companyId, parsed.data.id, lineInputs);
     await replaceTransactionCreditApplications(
       companyId,
@@ -802,6 +865,16 @@ export async function updateImportedTransactionAction(
       !parsed.data.accountingAccountId
     ) {
       return { formError: REVIEW_NEEDS_CATEGORY_ERROR };
+    }
+    if (closedMsg) {
+      const same =
+        existingLines.length === 0 &&
+        (txn.accountingAccountId ?? null) ===
+          (parsed.data.accountingAccountId ?? null) &&
+        (txn.projectId ?? null) === (parsed.data.projectId ?? null) &&
+        (txn.costCodeId ?? null) === (parsed.data.costCodeId ?? null);
+      if (!same) return { formError: closedMsg };
+      return saveNonGlOnly();
     }
     await replaceImportedTransactionLines(companyId, parsed.data.id, []);
     // Dropping the split also releases any vendor credit it was consuming.
@@ -843,7 +916,15 @@ export async function toggleImportedTransactionFlag(input: {
     input.flag === 'reviewed'
       ? { isReviewed: input.value }
       : { isIgnored: input.value };
-  const updated = await updateImportedTransaction(companyId, input.id, patch);
+  const res = await guardPeriod(
+    async () => ({
+      row: await updateImportedTransaction(companyId, input.id, patch),
+      error: null as string | null,
+    }),
+    (msg) => ({ row: undefined, error: msg }),
+  );
+  if (res.error) return { ok: false, error: res.error };
+  const updated = res.row;
   if (!updated) return { ok: false, error: 'Transaction not found.' };
   // Ignoring / un-ignoring changes whether the txn posts to the GL at all.
   if (input.flag === 'ignored') await syncTxnGlSafe(companyId, updated.id);
@@ -1190,6 +1271,13 @@ export async function applyRuleAction(input: {
     };
   }
 
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(txn.transactionDate)],
+    'This bank transaction',
+  );
+  if (closedMsg) return { ok: true, skipped: true, reason: closedMsg };
+
   const actions = ruleForMatch.actions;
   const company = await getActiveCompany();
   const vatCtx = await resolveRuleVatContext(company, actions);
@@ -1394,8 +1482,16 @@ export async function bulkApplyRuleAction(input: {
     onlyTriagable: true,
   });
 
+  // Rules never touch rows in closed periods — those months are final.
+  const closedMonths = await listClosedMonths(companyId);
   const targetIds: string[] = [];
   for (const t of txns) {
+    if (
+      closedMonths.size > 0 &&
+      closedMonths.has(monthStartOf(String(t.transactionDate)))
+    ) {
+      continue;
+    }
     const txnLike = toTxnForMatching({
       bankAccountId: t.bankAccountId,
       description: t.description,
@@ -1512,19 +1608,52 @@ export async function bulkCategorizeTransactionsAction(input: {
     };
   }
 
+  // Category / job / cost code are GL fields — rows dated in a closed
+  // period keep theirs. (Payee and the review flag alone are fine.)
+  let targetIds = ids;
+  let skippedClosed = 0;
+  if (patch.accountingAccountId || patch.projectId || patch.costCodeId) {
+    const closedMonths = await listClosedMonths(companyId);
+    if (closedMonths.size > 0) {
+      const open: string[] = [];
+      for (const id of ids) {
+        const t = await getImportedTransaction(companyId, id);
+        if (t && closedMonths.has(monthStartOf(String(t.transactionDate)))) {
+          skippedClosed++;
+        } else {
+          open.push(id);
+        }
+      }
+      targetIds = open;
+    }
+  }
+  if (targetIds.length === 0) {
+    return {
+      ok: false,
+      error: `All ${skippedClosed} selected transaction${skippedClosed === 1 ? ' is' : 's are'} in a closed period — their categories are final.`,
+    };
+  }
+
   const applied = await bulkCategorizeTransactions(
     companyId,
-    ids,
+    targetIds,
     patch,
     markReviewed,
   );
 
   if (patch.accountingAccountId || patch.projectId) {
-    await syncTxnGlSafe(companyId, ...ids);
+    await syncTxnGlSafe(companyId, ...targetIds);
   }
 
   revalidatePath(`/banking/accounts/${input.bankAccountId}`);
   revalidatePath(`/banking/accounts/${input.bankAccountId}/categorize`);
+  if (skippedClosed > 0) {
+    return {
+      ok: true,
+      applied,
+      error: `${skippedClosed} transaction${skippedClosed === 1 ? '' : 's'} in a closed period ${skippedClosed === 1 ? 'was' : 'were'} left unchanged.`,
+    };
+  }
   return { ok: true, applied };
 }
 
@@ -3020,16 +3149,32 @@ export async function unmatchTransactionAction(input: {
   if (matches.length === 0) {
     return { ok: false, error: 'No active match to reverse.' };
   }
+  const unmatchTxn = await getImportedTransaction(companyId, input.transactionId);
+  const closedMsg = unmatchTxn
+    ? await closedPeriodMessageFor(
+        companyId,
+        [String(unmatchTxn.transactionDate)],
+        'This bank match',
+      )
+    : null;
+  if (closedMsg) return { ok: false, error: closedMsg };
   // Demo-auth guard: only stamp reversed_by when the user row exists (same
   // FK-safety pattern as matched_by everywhere else).
   const reversedBy = await safeMatchUserId(user.id);
-  for (const match of matches) {
-    await reverseMatchAtomic({
-      companyId,
-      matchId: match.id,
-      reversedByUserId: reversedBy,
-    });
-  }
+  const failed = await guardPeriod(
+    async () => {
+      for (const match of matches) {
+        await reverseMatchAtomic({
+          companyId,
+          matchId: match.id,
+          reversedByUserId: reversedBy,
+        });
+      }
+      return null;
+    },
+    (msg) => msg,
+  );
+  if (failed) return { ok: false, error: failed };
   await syncTxnGlSafe(
     companyId,
     input.transactionId,

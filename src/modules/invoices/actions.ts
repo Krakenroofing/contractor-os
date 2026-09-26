@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { guardPeriod } from '@/lib/period-guard';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
@@ -81,12 +82,15 @@ export async function setInvoiceRevenueCategoryAction(input: {
     accountingAccountId = a.data;
   }
 
-  const updated = await setInvoiceRevenueCategory(
-    companyId,
-    id.data,
-    accountingAccountId,
+  const res = await guardPeriod(
+    async () => ({
+      updated: await setInvoiceRevenueCategory(companyId, id.data, accountingAccountId),
+      error: null as string | null,
+    }),
+    (msg) => ({ updated: undefined, error: msg }),
   );
-  if (!updated) return { ok: false, error: 'Invoice not found.' };
+  if (res.error) return { ok: false, error: res.error };
+  if (!res.updated) return { ok: false, error: 'Invoice not found.' };
   revalidatePath(`/invoices/${id.data}`);
   revalidatePath('/reports/profit-loss');
   return { ok: true };
@@ -128,11 +132,18 @@ export async function bulkSetInvoiceRevenueCategoryAction(input: {
     return { ok: false, error: 'Pick a revenue category to assign.' };
   }
 
-  const applied = await bulkSetInvoiceRevenueCategory(
-    companyId,
-    ids,
-    accountingAccountId,
+  const bulk = await guardPeriod(
+    async () => ({
+      applied: await bulkSetInvoiceRevenueCategory(companyId, ids, accountingAccountId),
+      error: null as string | null,
+    }),
+    (msg) => ({
+      applied: 0,
+      error: `${msg} Deselect invoices from closed months and try again.`,
+    }),
   );
+  if (bulk.error) return { ok: false, error: bulk.error };
+  const applied = bulk.applied;
   revalidatePath('/invoices/categorize-revenue');
   revalidatePath('/reports/profit-loss');
   return { ok: true, applied };

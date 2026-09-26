@@ -40,6 +40,7 @@ import { deleteJournalEntriesForSource } from '@/lib/data/general-ledger';
 import { syncBankTxnGl } from '@/modules/accounting/lib/gl-posting';
 import { createTransferPairAtomic } from '@/lib/data/transaction-matches';
 import { getUserNamesByIds } from '@/lib/data/users';
+import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
 
 const EPSILON = 0.005;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -516,6 +517,20 @@ export async function updateManualTransactionAction(
   // receipt / invoice / transfer pair was matched against — changing it would
   // silently desync the match, so that still requires unmatching first.
   const signedNext = input.direction === 'out' ? -input.amount : input.amount;
+
+  // Date or amount changes move the GL — not allowed in (or into) a closed
+  // period. Description-only fixes stay allowed.
+  if (
+    String(txn.transactionDate) !== input.transactionDate ||
+    Math.round(signedNext * 100) !== Math.round(Number(txn.amount) * 100)
+  ) {
+    const closedMsg = await closedPeriodMessageFor(
+      auth.companyId,
+      [String(txn.transactionDate), input.transactionDate],
+      'This entry',
+    );
+    if (closedMsg) return { formError: closedMsg };
+  }
   if (
     txn.reconciledAt &&
     Math.round(signedNext * 100) !== Math.round(Number(txn.amount) * 100)
@@ -576,6 +591,12 @@ export async function deleteManualTransactionAction(
   const guarded = await guardManualTxn(auth.companyId, transactionId);
   if ('error' in guarded) return { formError: guarded.error };
   const { txn } = guarded;
+  const closedMsg = await closedPeriodMessageFor(
+    auth.companyId,
+    [String(txn.transactionDate)],
+    'This entry',
+  );
+  if (closedMsg) return { formError: closedMsg };
 
   const ok = await deleteManualBankTransaction(auth.companyId, txn.id);
   if (!ok) return { formError: 'Could not delete the entry.' };
