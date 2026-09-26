@@ -9,7 +9,11 @@ import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
 import {
   JournalEntryForm,
   type JournalAccountOption,
+  type JournalIcLink,
 } from '@/modules/accounting/components/journal-entry-form';
+import { requireAuth } from '@/lib/auth';
+import { listIntercompanyLinks } from '@/lib/data/intercompany';
+import { canPostInPartner } from '@/modules/accounting/lib/intercompany-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +43,34 @@ export default async function NewJournalEntryPage({
       label: `${a.code ? `${a.code} ` : ''}${a.name}`,
       group: a.rollupGroup,
     }));
+
+  // Intercompany accounts in this company → where their mirrors post (P7).
+  const user = await requireAuth();
+  const icLinks: JournalIcLink[] = [];
+  for (const link of await listIntercompanyLinks(company.id)) {
+    const allowed = await canPostInPartner(user.id, link.partnerCompanyId);
+    const partnerAccounts = allowed
+      ? await listAccountingAccounts(link.partnerCompanyId)
+      : [];
+    const partnerParents = new Set(
+      partnerAccounts.map((a) => a.parentId).filter((p): p is string => !!p),
+    );
+    icLinks.push({
+      accountId: link.accountId,
+      partnerCompanyId: link.partnerCompanyId,
+      partnerName: link.partnerName,
+      clearingAccountId: link.clearingAccountId,
+      partnerAccounts: allowed
+        ? partnerAccounts
+            .filter((a) => !a.isArchived && !partnerParents.has(a.id))
+            .map((a) => ({
+              id: a.id,
+              label: `${a.code ? `${a.code} ` : ''}${a.name}`,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label))
+        : null,
+    });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const original =
@@ -74,6 +106,7 @@ export default async function NewJournalEntryPage({
 
       <JournalEntryForm
         accounts={options}
+        icLinks={icLinks}
         defaultDate={original ? correctionDate : today}
         prefill={
           original

@@ -38,6 +38,13 @@ export type PostJournalEntryInput = {
   sourceType?: string;
   sourceId?: string | null;
   createdByUserId?: string | null;
+  /** Intercompany mirror: what this entry mirrors in the partner company. */
+  icOrigin?: {
+    companyId: string;
+    entryId?: string | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
+  };
   lines: JournalLineInput[];
 };
 
@@ -90,6 +97,14 @@ export async function postJournalEntry(
         sourceType: input.sourceType ?? 'manual',
         sourceId: input.sourceId ?? null,
         createdByUserId: input.createdByUserId ?? null,
+        ...(input.icOrigin
+          ? {
+              icOriginCompanyId: input.icOrigin.companyId,
+              icOriginEntryId: input.icOrigin.entryId ?? null,
+              icOriginSourceType: input.icOrigin.sourceType ?? null,
+              icOriginSourceId: input.icOrigin.sourceId ?? null,
+            }
+          : {}),
       })
       .returning({ id: journalEntries.id });
     await tx.insert(journalLines).values(

@@ -73,6 +73,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
         'Goods received vs vendor bills per PO line — received-not-billed and billed-not-received, tied to the GR/IR clearing account.',
     },
     {
+      href: '/reports/intercompany',
+      label: 'Intercompany',
+      description:
+        'Kraken ↔ TRB intercompany balances side by side (they must net to zero), month by month, with every one-sided posting and a one-click mirror.',
+    },
+    {
       href: '/reports/control-exceptions',
       label: 'Control Exceptions',
       description:

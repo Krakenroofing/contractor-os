@@ -48,6 +48,13 @@ export const journalEntries = pgTable(
       { onDelete: 'set null' },
     ),
     createdByUserId: uuid('created_by_user_id'),
+    // Intercompany mirror (roadmap P7): what this entry mirrors in the
+    // partner company — its entry, or for system-posted lines (entries a
+    // GL rebuild regenerates) the source document.
+    icOriginCompanyId: uuid('ic_origin_company_id'),
+    icOriginEntryId: uuid('ic_origin_entry_id'),
+    icOriginSourceType: text('ic_origin_source_type'),
+    icOriginSourceId: uuid('ic_origin_source_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

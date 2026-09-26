@@ -2,7 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
+import {
+  findMirrorEntries,
+  getEntryIcOrigin,
+  getIntercompanyLink,
+  listIntercompanyLinks,
+  postIntercompanyMirror,
+} from '@/lib/data/intercompany';
+import { canPostInPartner } from './lib/intercompany-access';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
 import { canCreate, canView } from '@/lib/permissions';
@@ -67,6 +75,9 @@ export async function postManualJournalEntryAction(input: {
     credit: number;
     description?: string | null;
   }>;
+  /** Intercompany mirror offsets: partner company id → account in the
+   *  partner's books (default: its Intercompany Clearing account). */
+  mirrorOffsets?: Record<string, string | null>;
 }): Promise<PostJournalEntryResult> {
   const user = await requireAuth();
   const role = await getActiveRole();
@@ -83,7 +94,53 @@ export async function postManualJournalEntryAction(input: {
         'Invalid journal entry.',
     };
   }
-  const companyId = await getActiveCompanyId();
+  const company = await getActiveCompany();
+  const companyId = company.id;
+
+  // Intercompany (P7): lines on an intercompany account post their mirror
+  // in the partner company. Everything is checked BEFORE this side posts.
+  const links = await listIntercompanyLinks(companyId);
+  const mirrors: Array<{
+    partnerLink: NonNullable<Awaited<ReturnType<typeof getIntercompanyLink>>>;
+    partnerName: string;
+    net: number;
+    offsetAccountId: string | null;
+  }> = [];
+  for (const link of links) {
+    const net =
+      Math.round(
+        parsed.data.lines
+          .filter((l) => l.accountId === link.accountId)
+          .reduce((s, l) => s + l.debit - l.credit, 0) * 100,
+      ) / 100;
+    if (net === 0) continue;
+    if (!(await canPostInPartner(user.id, link.partnerCompanyId))) {
+      return {
+        ok: false,
+        error: `This entry moves the intercompany account with ${link.partnerName}. Its mirror posts in ${link.partnerName}'s books, so you need owner or accounting access there.`,
+      };
+    }
+    const partnerLink = await getIntercompanyLink(link.partnerCompanyId, companyId);
+    if (!partnerLink) {
+      return {
+        ok: false,
+        error: `${link.partnerName} has no intercompany account set up for ${company.name} yet (Reports → Intercompany).`,
+      };
+    }
+    const closed = await closedPeriodMessageFor(
+      link.partnerCompanyId,
+      [parsed.data.entryDate],
+      `The ${link.partnerName} mirror`,
+    );
+    if (closed) return { ok: false, error: closed };
+    mirrors.push({
+      partnerLink,
+      partnerName: link.partnerName,
+      net,
+      offsetAccountId: input.mirrorOffsets?.[link.partnerCompanyId] || null,
+    });
+  }
+
   try {
     const { id } = await postJournalEntry(companyId, {
       entryDate: parsed.data.entryDate,
@@ -97,8 +154,35 @@ export async function postManualJournalEntryAction(input: {
         description: l.description ?? null,
       })),
     });
+    for (const m of mirrors) {
+      try {
+        await postIntercompanyMirror({
+          originCompanyId: companyId,
+          originCompanyName: company.name,
+          partnerLink: m.partnerLink,
+          originNet: m.net,
+          entryDate: parsed.data.entryDate,
+          memo: parsed.data.memo ?? null,
+          originEntryId: id,
+          offsetAccountId: m.offsetAccountId,
+          createdByUserId: user.id,
+        });
+      } catch (err) {
+        // Keep both books consistent: take this side back out.
+        await reverseJournalEntry(companyId, id, {
+          entryDate: parsed.data.entryDate,
+          memo: 'Reversal — intercompany mirror could not post',
+          createdByUserId: user.id,
+        });
+        return {
+          ok: false,
+          error: `The ${m.partnerName} mirror could not post, so this entry was reversed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        };
+      }
+    }
     revalidatePath('/accounting/journal');
     revalidatePath('/reports/trial-balance');
+    revalidatePath('/reports/intercompany');
     return { ok: true, id };
   } catch (err) {
     const error =
@@ -413,6 +497,35 @@ export async function reverseJournalEntryAction(input: {
   ))
     ? today
     : original.entryDate;
+
+  // Intercompany pair (P7): an entry and its mirror are reversed together
+  // so the two companies' books keep agreeing.
+  const pairTargets: Array<{ companyId: string; entryId: string; entryDate: string }> = [];
+  const origin = await getEntryIcOrigin(companyId, id.data);
+  const originCompanyId = origin?.originCompanyId ?? companyId;
+  const originEntryId = origin?.originEntryId ?? id.data;
+  if (origin) {
+    const o = await getJournalEntryWithLines(origin.originCompanyId, origin.originEntryId);
+    if (o && !o.reversedByEntryId) {
+      pairTargets.push({
+        companyId: origin.originCompanyId,
+        entryId: origin.originEntryId,
+        entryDate: o.entryDate,
+      });
+    }
+  }
+  for (const m of await findMirrorEntries(originCompanyId, originEntryId)) {
+    if (m.id !== id.data) pairTargets.push({ companyId: m.companyId, entryId: m.id, entryDate: m.entryDate });
+  }
+  for (const t of pairTargets) {
+    if (!(await canPostInPartner(user.id, t.companyId))) {
+      return {
+        ok: false,
+        error:
+          'This entry is one half of an intercompany pair; reversing it also reverses the other company’s side, which needs owner or accounting access there.',
+      };
+    }
+  }
   const guarded = await guardPeriod(
     async () => ({
       res: await reverseJournalEntry(companyId, id.data, {
@@ -429,7 +542,24 @@ export async function reverseJournalEntryAction(input: {
   if (guarded.error) return { ok: false, error: guarded.error };
   const res = guarded.res;
   if (!res) return { ok: false, error: 'Entry not found or already reversed.' };
+  for (const t of pairTargets) {
+    const closed = await closedPeriodMessageFor(t.companyId, [t.entryDate], 'x');
+    try {
+      await reverseJournalEntry(t.companyId, t.entryId, {
+        entryDate: closed ? today : t.entryDate,
+        memo: 'Reversal — intercompany pair reversed together',
+        createdByUserId: user.id,
+      });
+    } catch {
+      return {
+        ok: false,
+        error:
+          'This side was reversed, but the other company’s side could not be — reverse it there (Reports → Intercompany shows it).',
+      };
+    }
+  }
   revalidatePath('/accounting/journal');
   revalidatePath('/reports/trial-balance');
+  revalidatePath('/reports/intercompany');
   return { ok: true };
 }

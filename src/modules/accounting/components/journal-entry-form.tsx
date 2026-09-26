@@ -62,14 +62,26 @@ export type JournalEntryPrefill = {
   }>;
 };
 
+/** An intercompany account in this company and where its mirror posts. */
+export type JournalIcLink = {
+  accountId: string;
+  partnerCompanyId: string;
+  partnerName: string;
+  /** Null when the user can't post in the partner company. */
+  partnerAccounts: Array<{ id: string; label: string }> | null;
+  clearingAccountId: string | null;
+};
+
 export function JournalEntryForm({
   accounts,
   defaultDate,
   prefill,
+  icLinks = [],
 }: {
   accounts: JournalAccountOption[];
   defaultDate: string;
   prefill?: JournalEntryPrefill;
+  icLinks?: JournalIcLink[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -90,6 +102,18 @@ export function JournalEntryForm({
   // so the files ride along in memory and upload the moment the post succeeds.
   const [staged, setStaged] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mirrorOffsets, setMirrorOffsets] = useState<Record<string, string>>({});
+  // Intercompany lines in this entry → the mirror each one posts.
+  const icHits = icLinks
+    .map((link) => ({
+      link,
+      net: round2(
+        lines
+          .filter((l) => l.accountId === link.accountId)
+          .reduce((s, l) => s + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0),
+      ),
+    }))
+    .filter((h) => h.net !== 0);
 
   const grouped = useMemo(
     () =>
@@ -143,6 +167,7 @@ export function JournalEntryForm({
         entryDate,
         memo: memo || null,
         lines: payloadLines,
+        mirrorOffsets,
       });
       if (!res.ok) {
         setError(res.error);
@@ -292,6 +317,51 @@ export function JournalEntryForm({
           </tbody>
         </table>
       </div>
+
+      {icHits.map(({ link, net }) => (
+        <div
+          key={link.partnerCompanyId}
+          className="rounded-md border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900"
+        >
+          <div className="font-medium">
+            Intercompany — mirror posts in {link.partnerName}
+          </div>
+          {link.partnerAccounts === null ? (
+            <p className="mt-1 text-xs">
+              You need owner or accounting access in {link.partnerName} to post
+              this entry (its mirror lands in their books).
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs">
+                {link.partnerName}&apos;s intercompany account is{' '}
+                {net > 0 ? 'credited' : 'debited'} {money(Math.abs(net))} on the
+                same date. Offset it to:
+              </p>
+              <div className="mt-2 max-w-md">
+                <Select
+                  value={mirrorOffsets[link.partnerCompanyId] ?? ''}
+                  onChange={(e) =>
+                    setMirrorOffsets((prev) => ({
+                      ...prev,
+                      [link.partnerCompanyId]: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">
+                    Intercompany Clearing (reclassify later)
+                  </option>
+                  {link.partnerAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
 
       <div className="rounded-md border border-slate-200 p-3">
         <div className="flex flex-wrap items-center gap-2">
