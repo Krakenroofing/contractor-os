@@ -34,6 +34,7 @@ import {
 } from '@/modules/receipts/components/attachments-list';
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
 import { ThreeWayMatchPanel } from '@/modules/receipts/components/three-way-match-panel';
+import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
 import { analyzeBillMatch, tolerancesOf } from '@/lib/data/three-way-match';
 import { findDuplicatesForBill } from '@/lib/data/duplicate-bills';
 import { visibleCompanyIds } from '@/lib/data/visible-companies';
@@ -580,6 +581,11 @@ export default async function ReceiptDetailPage({
           )}
         </div>
       </div>
+
+      <DocumentFlowCard
+        companyId={company.id}
+        anchor={{ type: 'bill', id: receipt.id }}
+      />
     </div>
   );
 }

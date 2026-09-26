@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
 import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
@@ -1042,6 +1043,7 @@ export default async function InvoiceDetailPage({
         </p>
       )}
 
+      <DocumentFlowCard companyId={companyId} anchor={{ type: 'invoice', id: invoice.id }} />
       <ActivityLogCard entityType="invoice" entityId={invoice.id} />
     </div>
   );

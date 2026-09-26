@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getActiveCompanyId } from '@/lib/active-company';
+import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
 import { getActiveRole } from '@/lib/active-role';
 import { canCreate, canView } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
@@ -275,6 +276,11 @@ export default async function CreditMemoDetailPage({
           }}
         />
       )}
+
+      <DocumentFlowCard
+        companyId={companyId}
+        anchor={{ type: 'credit_memo', id: cm.id }}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
@@ -434,6 +435,7 @@ export default async function ChangeOrderDetailPage({
         </CardContent>
       </Card>
 
+      <DocumentFlowCard companyId={companyId} anchor={{ type: 'change_order', id: co.id }} />
       <ActivityLogCard entityType="change_order" entityId={co.id} />
     </div>
   );
