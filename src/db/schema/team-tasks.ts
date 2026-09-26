@@ -36,6 +36,15 @@ export const teamTasks = pgTable(
     // "(edited)" marker — null until the body is first edited.
     editedAt: timestamp('edited_at', { withTimezone: true }),
     status: teamTaskStatusEnum('status').notNull().default('open'),
+    // Requests page (roadmap P8): urgency + where an open request stands.
+    priority: text('priority')
+      .$type<'low' | 'normal' | 'high' | 'urgent'>()
+      .notNull()
+      .default('normal'),
+    stage: text('stage')
+      .$type<'new' | 'in_progress' | 'waiting'>()
+      .notNull()
+      .default('new'),
 
     resolvedBy: uuid('resolved_by').references(() => users.id, {
       onDelete: 'set null',

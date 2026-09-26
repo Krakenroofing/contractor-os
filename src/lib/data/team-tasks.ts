@@ -331,6 +331,27 @@ export async function softDeleteTeamTaskReply(
   return rows[0];
 }
 
+/** Requests page (P8): set a request's priority and/or working stage. */
+export async function updateTeamTaskMeta(
+  companyId: string,
+  id: string,
+  patch: Partial<Pick<TeamTask, 'priority' | 'stage'>>,
+): Promise<TeamTask | undefined> {
+  const db = requireDb();
+  const rows = await db
+    .update(teamTasks)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(
+      and(
+        eq(teamTasks.id, id),
+        eq(teamTasks.companyId, companyId),
+        isNull(teamTasks.deletedAt),
+      ),
+    )
+    .returning();
+  return rows[0];
+}
+
 export async function resolveTeamTask(
   companyId: string,
   id: string,

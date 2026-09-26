@@ -1,7 +1,7 @@
 // Data layer for the double-entry general ledger (Phase 3). DB-only.
 
 import 'server-only';
-import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import {
   accountingAccounts,
   journalEntries,
@@ -1028,6 +1028,31 @@ export async function listJournalEntries(
 
 /** One journal entry with its lines — for the journal page's ?entry= deep
  *  link (drill-downs land on the exact entry). */
+/** The live journal entry a document posted (invoice, bill, payment, …),
+ *  for the "document → journal entry" drill. Null when it posts none. */
+export async function getJournalEntryIdForSource(
+  companyId: string,
+  sourceType: string,
+  sourceId: string,
+): Promise<string | null> {
+  if (!isDatabaseConfigured()) return null;
+  const db = getDb()!;
+  const [row] = await db
+    .select({ id: journalEntries.id })
+    .from(journalEntries)
+    .where(
+      and(
+        eq(journalEntries.companyId, companyId),
+        eq(journalEntries.sourceType, sourceType),
+        eq(journalEntries.sourceId, sourceId),
+        isNull(journalEntries.reversedByEntryId),
+      ),
+    )
+    .orderBy(desc(journalEntries.createdAt))
+    .limit(1);
+  return row?.id ?? null;
+}
+
 export async function getJournalEntryWithLines(
   companyId: string,
   entryId: string,

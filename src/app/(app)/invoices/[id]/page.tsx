@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
+import { getJournalEntryIdForSource } from '@/lib/data/general-ledger';
 import { notFound, redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { BackButton } from '@/components/back-button';
@@ -69,6 +70,10 @@ export default async function InvoiceDetailPage({
 
   const invoice = await getInvoice(companyId, id);
   if (!invoice) notFound();
+  // Document → journal entry drill (P8).
+  const invoiceJournalEntryId = canView(role, 'accounting_accounts')
+    ? await getJournalEntryIdForSource(companyId, 'invoice', invoice.id)
+    : null;
 
   const project = await getProject(companyId, invoice.projectId);
   const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
@@ -1043,6 +1048,16 @@ export default async function InvoiceDetailPage({
         </p>
       )}
 
+      {invoiceJournalEntryId && (
+        <p className="text-sm">
+          <a
+            href={`/accounting/journal?entry=${invoiceJournalEntryId}`}
+            className="text-blue-700 hover:underline"
+          >
+            Journal entry for this invoice →
+          </a>
+        </p>
+      )}
       <DocumentFlowCard companyId={companyId} anchor={{ type: 'invoice', id: invoice.id }} />
       <ActivityLogCard entityType="invoice" entityId={invoice.id} />
     </div>

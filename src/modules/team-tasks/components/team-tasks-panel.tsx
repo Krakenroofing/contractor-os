@@ -5,10 +5,10 @@ import { buildTeamTasks } from '../lib/build-team-tasks';
 import { TaskComposer } from './task-composer';
 import { TaskItem } from './task-item';
 
-// Dashboard "Team notes & tasks" panel — a per-company shared inbox. Anyone
-// who can post sees the composer; owners/accounting can resolve & reopen;
-// admins or the original poster can delete. Resolved notes leave the
-// dashboard and live in the archive (nothing needs deleting).
+// Requests (roadmap P8; formerly the dashboard "Team notes & tasks" panel) —
+// a per-company shared inbox, most urgent first. Anyone who can post sees
+// the composer; owners/accounting set priority/stage and resolve; admins or
+// the poster can delete. Resolved requests live in the archive.
 export async function TeamTasksPanel({
   companyId,
   role,
@@ -26,7 +26,7 @@ export async function TeamTasksPanel({
     <section className="space-y-3">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
-          Team notes &amp; tasks
+          Open requests
         </h2>
         <div className="flex items-baseline gap-3">
           <p className="text-xs text-slate-400 tabular-nums">
@@ -50,8 +50,8 @@ export async function TeamTasksPanel({
 
           {tasks.length === 0 ? (
             <p className="text-sm text-slate-500">
-              No open notes. Anything the team flags for the office shows up
-              here; resolved notes live in the archive.
+              No open requests. Anything the team flags for the office shows
+              up here; resolved requests live in the archive.
             </p>
           ) : (
             <ul className="space-y-2">

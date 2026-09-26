@@ -107,14 +107,20 @@ export default async function ReceiptsPage({
   // for the VAT-offset rollup. The rollup is intentionally independent of
   // the user's filters — the question it answers ("which quarter does our
   // VAT offset roll up into?") is global, not list-scoped.
-  const [receipts, projects, vendors, allPostedForVat] = await Promise.all([
-    listReceipts(company.id, filters),
+  // ?blocked=1 — posted bills held by a 3-way-match payment block (the
+  // dashboard's work-queue tile links here).
+  const blockedOnly = sp.blocked === '1';
+  const [allReceipts, projects, vendors, allPostedForVat] = await Promise.all([
+    listReceipts(company.id, blockedOnly ? { ...filters, status: 'posted' } : filters),
     listProjects(company.id),
     listVendors(company.id),
     company.isVatActive
       ? listReceipts(company.id, { status: 'posted', limit: 5000 })
       : Promise.resolve([]),
   ]);
+  const receipts = blockedOnly
+    ? allReceipts.filter((r) => r.paymentBlocked)
+    : allReceipts;
   const projectById = new Map(projects.map((p) => [p.id, p.name]));
   const vendorById = new Map(vendors.map((v) => [v.id, v.name]));
 

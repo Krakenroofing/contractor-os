@@ -17,6 +17,7 @@ import { ACTIVITY_OWNER_EMAIL } from '@/lib/activity-owner';
 
 const mainNav: { href: string; label: string; resource: Resource }[] = [
   { href: '/dashboard', label: 'Dashboard', resource: 'dashboard' },
+  { href: '/requests', label: 'Requests', resource: 'team_tasks' },
   { href: '/projects', label: 'Projects', resource: 'projects' },
   { href: '/work-orders', label: 'Work Orders', resource: 'projects' },
   { href: '/photos', label: 'Photos', resource: 'daily_reports' },

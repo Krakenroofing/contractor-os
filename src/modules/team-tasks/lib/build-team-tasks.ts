@@ -28,6 +28,8 @@ export type TeamTaskView = {
   id: string;
   body: string;
   status: 'open' | 'done';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  stage: 'new' | 'in_progress' | 'waiting';
   createdById: string | null;
   createdByName: string;
   createdAtISO: string;
@@ -100,11 +102,22 @@ export async function buildTeamTasks(
     repliesByTask.set(r.taskId, list);
   }
 
+  // Requests read most-urgent first; within a priority, newest first.
+  const RANK = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
+  if (mode === 'inbox') {
+    tasks.sort(
+      (a, b) =>
+        RANK[a.priority] - RANK[b.priority] ||
+        b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
   return {
     tasks: tasks.map((t) => ({
       id: t.id,
       body: t.body,
       status: t.status,
+      priority: t.priority,
+      stage: t.stage,
       createdById: t.createdBy,
       createdByName: t.createdByName || 'Team member',
       createdAtISO: t.createdAt.toISOString(),

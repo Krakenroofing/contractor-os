@@ -21,7 +21,7 @@ import { buildRemainingBillable } from '@/modules/dashboard/lib/remaining-billab
 import { listAccountingReviewItems } from '@/lib/data/accounting-review';
 import { listWorkOrders } from '@/lib/data/work-orders';
 import { QuickReportsCard } from '@/modules/reports/components/quick-reports-card';
-import { TeamTasksPanel } from '@/modules/team-tasks/components/team-tasks-panel';
+import { getWorkQueueCounts } from '@/lib/data/work-queues';
 import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +51,7 @@ export default async function DashboardPage() {
   // Field-submitted work orders waiting on the office (review → client →
   // invoice → post). Surfaced as an alert card so a fresh service call is
   // impossible to miss.
+  const queues = await getWorkQueueCounts(company.id, company.poApprovalLimit);
   const canSeeWorkOrders = canView(role, 'projects');
   const submittedWorkOrders = canSeeWorkOrders
     ? await listWorkOrders(company.id, { status: 'submitted' })
@@ -132,13 +133,110 @@ export default async function DashboardPage() {
         )}
       </header>
 
-      {/* ===== Team notes & tasks (shared admin inbox) ===== */}
-      {canSeeTeamTasks && (
-        <TeamTasksPanel
-          companyId={company.id}
-          role={role}
-          currentUserId={user.id}
-        />
+      {/* ===== Work queues (roadmap P8): what's waiting on the office. Team
+          notes moved to their own Requests page. ===== */}
+      {queues && (
+        <section className="space-y-3">
+          <h2 className="text-xs uppercase tracking-wide font-medium text-slate-500">
+            Work queues
+          </h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+            {canSeeTeamTasks && (
+              <QueueTile
+                label="Requests"
+                count={queues.openRequests}
+                hint={
+                  queues.urgentRequests > 0
+                    ? `${queues.urgentRequests} urgent / high`
+                    : 'open'
+                }
+                href="/requests"
+                tone={queues.urgentRequests > 0 ? 'red' : 'slate'}
+              />
+            )}
+            {canSeeReceipts && (
+              <QueueTile
+                label="Bills to approve"
+                count={queues.billsToApprove}
+                hint="submitted for posting"
+                href="/banking/receipts?status=submitted"
+                tone="amber"
+              />
+            )}
+            {canSeeReceipts && (
+              <QueueTile
+                label="Parked bills"
+                count={queues.parkedBills}
+                hint={`${queues.parkedOver30} older than 30 days`}
+                href="/banking/bills/parked"
+                tone={queues.parkedOver30 > 0 ? 'amber' : 'slate'}
+              />
+            )}
+            {canSeeReceipts && (
+              <QueueTile
+                label="Payment blocked"
+                count={queues.paymentBlocked}
+                hint="3-way match exceptions"
+                href="/banking/receipts?blocked=1"
+                tone="red"
+              />
+            )}
+            {canSeePOs && (
+              <QueueTile
+                label="POs to approve"
+                count={queues.posToApprove}
+                hint="over the approval limit"
+                href="/purchase-orders"
+                tone="amber"
+              />
+            )}
+            {canSeePOs && (
+              <QueueTile
+                label="POs to receive"
+                count={queues.posToReceive}
+                hint="issued, not fully received"
+                href="/purchase-orders"
+                tone="slate"
+              />
+            )}
+            {canSeeStatementImports && (
+              <QueueTile
+                label="Bank lines to review"
+                count={queues.bankToReview}
+                hint="match or categorize"
+                href="/banking"
+                tone="slate"
+              />
+            )}
+            {canView(role, 'accounting_accounts') && (
+              <QueueTile
+                label="Received, not billed"
+                count={queues.receivedNotBilled}
+                hint="GR/IR open lines"
+                href="/reports/grir"
+                tone="slate"
+              />
+            )}
+            {(role === 'owner' || role === 'accounting') && (
+              <QueueTile
+                label="Control exceptions"
+                count={queues.controlExceptions}
+                hint="self-approvals to review"
+                href="/reports/control-exceptions"
+                tone="amber"
+              />
+            )}
+            {(role === 'owner' || role === 'accounting') && (
+              <QueueTile
+                label="Intercompany"
+                count={null}
+                hint="balances & one-sided items"
+                href="/reports/intercompany"
+                tone="slate"
+              />
+            )}
+          </div>
+        </section>
       )}
 
       {/* ===== Headline KPIs ===== */}
@@ -589,6 +687,44 @@ export default async function DashboardPage() {
 }
 
 // ===== Components =====
+
+function QueueTile({
+  label,
+  count,
+  hint,
+  href,
+  tone,
+}: {
+  label: string;
+  count: number | null;
+  hint: string;
+  href: string;
+  tone: 'red' | 'amber' | 'slate';
+}) {
+  const active = count === null || count > 0;
+  const color = !active
+    ? 'text-slate-300'
+    : tone === 'red'
+      ? 'text-red-700'
+      : tone === 'amber'
+        ? 'text-amber-700'
+        : 'text-slate-900';
+  return (
+    <a href={href}>
+      <Card className="h-full transition-colors hover:border-slate-400">
+        <CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+          <p className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>
+            {count === null ? '→' : count.toLocaleString()}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {count === 0 ? 'all clear' : hint}
+          </p>
+        </CardContent>
+      </Card>
+    </a>
+  );
+}
 
 function KPI({
   label,

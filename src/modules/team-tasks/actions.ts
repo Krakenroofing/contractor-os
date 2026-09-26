@@ -18,6 +18,7 @@ import {
   softDeleteTeamTask,
   softDeleteTeamTaskReply,
   updateTeamTaskBody,
+  updateTeamTaskMeta,
   updateTeamTaskReplyBody,
   TeamTasksNotAvailableInDemoError,
 } from '@/lib/data/team-tasks';
@@ -285,6 +286,7 @@ export async function createTeamTaskAction(
   });
 
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
 
   if (failures.length > 0) {
     return {
@@ -358,6 +360,7 @@ export async function replyToTeamTaskAction(
   });
 
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   if (failures.length > 0) {
     return {
       ok: true,
@@ -401,6 +404,7 @@ export async function editTeamTaskReplyAction(
     };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }
 
@@ -439,6 +443,7 @@ export async function editTeamTaskAction(
     };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }
 
@@ -471,12 +476,42 @@ export async function deleteTeamTaskReplyAction(
     };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }
 
 // =============================================================================
 // Resolve / reopen / delete — admin actions on the shared inbox.
 // =============================================================================
+
+/** Requests page (P8): priority / stage. Owners + accounting, or the poster. */
+export async function setTeamTaskMetaAction(input: {
+  taskId: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  stage?: 'new' | 'in_progress' | 'waiting';
+}): Promise<TeamTaskActionState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  const parsed = z
+    .object({
+      taskId: z.string().uuid(),
+      priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
+      stage: z.enum(['new', 'in_progress', 'waiting']).optional(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { formError: 'Invalid request update.' };
+  const companyId = await getActiveCompanyId();
+  const task = await getTeamTask(companyId, parsed.data.taskId);
+  if (!task) return { formError: 'Request not found.' };
+  if (!canResolveTeamTask(role) && task.createdBy !== user.id) {
+    return { formError: 'Only owners, accounting or the poster can change this.' };
+  }
+  const { taskId, ...patch } = parsed.data;
+  await updateTeamTaskMeta(companyId, taskId, patch);
+  revalidatePath('/dashboard');
+  revalidatePath('/requests');
+  return { ok: true };
+}
 
 export async function resolveTeamTaskAction(
   taskId: string,
@@ -509,6 +544,7 @@ export async function resolveTeamTaskAction(
     return { formError: err instanceof Error ? err.message : 'Could not update task.' };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }
 
@@ -533,6 +569,7 @@ export async function reopenTeamTaskAction(
     return { formError: err instanceof Error ? err.message : 'Could not reopen task.' };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }
 
@@ -567,5 +604,6 @@ export async function deleteTeamTaskAction(
     return { formError: err instanceof Error ? err.message : 'Could not delete task.' };
   }
   revalidatePath('/dashboard');
+  revalidatePath('/requests');
   return { ok: true };
 }

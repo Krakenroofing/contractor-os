@@ -15,6 +15,7 @@ import {
   editTeamTaskAction,
   editTeamTaskReplyAction,
   replyToTeamTaskAction,
+  setTeamTaskMetaAction,
   type TeamTaskActionState,
 } from '../actions';
 import type {
@@ -147,11 +148,15 @@ export function TaskItem({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
             <span className="font-medium text-slate-700">{task.createdByName}</span>
             <span>·</span>
             <span>{relativeTime(task.createdAtISO)}</span>
-            {done && <Badge tone="green">Resolved</Badge>}
+            {done ? (
+              <Badge tone="green">Resolved</Badge>
+            ) : (
+              <RequestMeta task={task} canEdit={canResolve || canDelete} />
+            )}
           </div>
           <EditableBody
             body={task.body}
@@ -205,6 +210,74 @@ export function TaskItem({
         </div>
       </div>
     </li>
+  );
+}
+
+const PRIORITY_STYLE: Record<TeamTaskView['priority'], string> = {
+  urgent: 'bg-red-100 text-red-800 border-red-200',
+  high: 'bg-amber-100 text-amber-800 border-amber-200',
+  normal: 'bg-slate-100 text-slate-600 border-slate-200',
+  low: 'bg-slate-50 text-slate-400 border-slate-200',
+};
+const STAGE_LABEL: Record<TeamTaskView['stage'], string> = {
+  new: 'New',
+  in_progress: 'In progress',
+  waiting: 'Waiting',
+};
+
+/** Priority + stage of an open request (Requests page, roadmap P8). */
+function RequestMeta({ task, canEdit }: { task: TeamTaskView; canEdit: boolean }) {
+  const router = useRouter();
+  const [priority, setPriority] = useState(task.priority);
+  const [stage, setStage] = useState(task.stage);
+  async function save(patch: { priority?: TeamTaskView['priority']; stage?: TeamTaskView['stage'] }) {
+    await setTeamTaskMetaAction({ taskId: task.id, ...patch });
+    router.refresh();
+  }
+  if (!canEdit) {
+    return (
+      <>
+        <span className={`rounded border px-1.5 py-0.5 capitalize ${PRIORITY_STYLE[priority]}`}>
+          {priority}
+        </span>
+        <span className="rounded border border-slate-200 px-1.5 py-0.5">
+          {STAGE_LABEL[stage]}
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      <select
+        value={priority}
+        onChange={(e) => {
+          const v = e.target.value as TeamTaskView['priority'];
+          setPriority(v);
+          void save({ priority: v });
+        }}
+        className={`rounded border px-1 py-0.5 text-xs capitalize ${PRIORITY_STYLE[priority]}`}
+        aria-label="Priority"
+      >
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="normal">Normal</option>
+        <option value="low">Low</option>
+      </select>
+      <select
+        value={stage}
+        onChange={(e) => {
+          const v = e.target.value as TeamTaskView['stage'];
+          setStage(v);
+          void save({ stage: v });
+        }}
+        className="rounded border border-slate-200 px-1 py-0.5 text-xs"
+        aria-label="Stage"
+      >
+        <option value="new">New</option>
+        <option value="in_progress">In progress</option>
+        <option value="waiting">Waiting</option>
+      </select>
+    </>
   );
 }
 

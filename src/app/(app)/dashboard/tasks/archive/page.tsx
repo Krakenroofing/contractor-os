@@ -28,26 +28,26 @@ export default async function TeamTasksArchivePage() {
     <div className="p-8 max-w-3xl space-y-6">
       <Breadcrumbs
         items={[
-          { href: '/dashboard', label: 'Dashboard' },
-          { label: 'Resolved notes' },
+          { href: '/requests', label: 'Requests' },
+          { label: 'Resolved' },
         ]}
       />
 
       <div className="flex items-start justify-between gap-4">
         <header>
           <h1 className="text-2xl font-semibold text-slate-900">
-            Resolved notes &amp; tasks
+            Resolved requests
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Everything the team has marked resolved for{' '}
             <span className="font-medium text-slate-900">{company.name}</span>{' '}
-            — kept for the record, off the dashboard. Reopen anything that
-            needs more work and it goes back to the inbox.
+            — kept for the record. Reopen anything that needs more work and it
+            goes back to Requests.
           </p>
         </header>
-        <Link href={{ pathname: '/dashboard' }}>
+        <Link href={{ pathname: '/requests' }}>
           <Button variant="outline" size="sm">
-            ← Dashboard
+            ← Requests
           </Button>
         </Link>
       </div>

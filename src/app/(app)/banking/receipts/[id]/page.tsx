@@ -35,6 +35,7 @@ import {
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
 import { ThreeWayMatchPanel } from '@/modules/receipts/components/three-way-match-panel';
 import { DocumentFlowCard } from '@/modules/document-flow/components/document-flow-card';
+import { getJournalEntryIdForSource } from '@/lib/data/general-ledger';
 import { analyzeBillMatch, tolerancesOf } from '@/lib/data/three-way-match';
 import { findDuplicatesForBill } from '@/lib/data/duplicate-bills';
 import { visibleCompanyIds } from '@/lib/data/visible-companies';
@@ -239,6 +240,12 @@ export default async function ReceiptDetailPage({
   const combinedDupWarning =
     [invoiceDupWarning, dupWarning].filter(Boolean).join(' ') || null;
 
+  // Document → journal entry drill (P8).
+  const journalEntryId =
+    receipt.status === 'posted' && canView(role, 'accounting_accounts')
+      ? await getJournalEntryIdForSource(company.id, 'receipt', receipt.id)
+      : null;
+
   // 3-way match vs the PO and its goods receipts (GR/IR POs only).
   const billMatch = await analyzeBillMatch(
     company.id,
@@ -339,6 +346,16 @@ export default async function ReceiptDetailPage({
             >
               Created from {sourcePo.number} →
             </Link>
+          </p>
+        )}
+        {journalEntryId && (
+          <p className="mt-1 text-sm">
+            <a
+              href={`/accounting/journal?entry=${journalEntryId}`}
+              className="text-blue-700 hover:underline"
+            >
+              Journal entry →
+            </a>
           </p>
         )}
       </div>
