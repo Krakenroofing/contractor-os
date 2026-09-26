@@ -62,7 +62,17 @@ export function ReceiptPostPanel(props: PostPanelProps) {
     )
       return;
     startTransition(async () => {
-      const res = await postReceiptAction({ id: props.receiptId });
+      let res = await postReceiptAction({ id: props.receiptId });
+      // Over the approval limit and you entered it: an owner may approve
+      // their own bill with a reason (logged for the other owner).
+      if (!res.ok && res.needsReason) {
+        const reason = window.prompt(`${res.error}\n\nReason:`);
+        if (!reason || !reason.trim()) return;
+        res = await postReceiptAction({
+          id: props.receiptId,
+          selfApprovalReason: reason.trim(),
+        });
+      }
       if (!res.ok && res.error) alert(res.error);
       router.refresh();
     });

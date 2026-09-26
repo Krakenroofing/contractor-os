@@ -143,6 +143,8 @@ export async function updateAccountingSettingsAction(
     matchQtyTolerancePct: formData.get('matchQtyTolerancePct') ?? '0',
     matchPriceTolerancePct: formData.get('matchPriceTolerancePct') ?? '2',
     matchPriceToleranceAmount: formData.get('matchPriceToleranceAmount') ?? '5',
+    poApprovalLimit: formData.get('poApprovalLimit') ?? '',
+    billApprovalLimit: formData.get('billApprovalLimit') ?? '',
   });
 
   if (!parsed.success) {
@@ -166,6 +168,12 @@ export async function updateAccountingSettingsAction(
     matchQtyTolerancePct: Number(data.matchQtyTolerancePct).toFixed(3),
     matchPriceTolerancePct: Number(data.matchPriceTolerancePct).toFixed(3),
     matchPriceToleranceAmount: Number(data.matchPriceToleranceAmount).toFixed(2),
+    poApprovalLimit:
+      data.poApprovalLimit.trim() === '' ? null : Number(data.poApprovalLimit).toFixed(2),
+    billApprovalLimit:
+      data.billApprovalLimit.trim() === ''
+        ? null
+        : Number(data.billApprovalLimit).toFixed(2),
   });
 
   if (!updated) {

@@ -286,6 +286,35 @@ export function AccountingSettingsForm({
         </div>
       </fieldset>
 
+      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
+        <legend className="px-2 text-sm font-medium text-slate-700">
+          Approvals &amp; separation of duties
+        </legend>
+        <p className="text-xs text-slate-500">
+          Purchase orders and bills above these amounts need an approver other
+          than whoever entered them (for bills, also other than whoever set up
+          the vendor). An owner may approve their own with a reason — it&apos;s
+          logged on the Control Exceptions report for the other owner. Leave
+          blank for no approval step.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:max-w-xl">
+          <Field label="PO approval limit ($)" error={err('poApprovalLimit')}>
+            <Input
+              name="poApprovalLimit"
+              inputMode="decimal"
+              defaultValue={company.poApprovalLimit ?? ''}
+            />
+          </Field>
+          <Field label="Bill approval limit ($)" error={err('billApprovalLimit')}>
+            <Input
+              name="billApprovalLimit"
+              inputMode="decimal"
+              defaultValue={company.billApprovalLimit ?? ''}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save accounting settings'}

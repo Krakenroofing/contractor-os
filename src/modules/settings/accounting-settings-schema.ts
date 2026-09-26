@@ -45,6 +45,13 @@ export const accountingSettingsFormSchema = z.object({
     .refine((v) => v.trim() !== '' && Number(v) >= 0, {
       message: 'Must be zero or more',
     }),
+  // Approval limits (empty = no approval step).
+  poApprovalLimit: z
+    .string()
+    .refine((v) => v.trim() === '' || Number(v) >= 0, { message: 'Must be zero or more' }),
+  billApprovalLimit: z
+    .string()
+    .refine((v) => v.trim() === '' || Number(v) >= 0, { message: 'Must be zero or more' }),
 });
 
 export type AccountingSettingsFormParsed = z.output<

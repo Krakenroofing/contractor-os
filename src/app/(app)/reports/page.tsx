@@ -73,6 +73,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
         'Goods received vs vendor bills per PO line — received-not-billed and billed-not-received, tied to the GR/IR clearing account.',
     },
     {
+      href: '/reports/control-exceptions',
+      label: 'Control Exceptions',
+      description:
+        'Approvals that bypassed separation of duties — an owner approving a PO or bill they entered — with the reason, for the other owner to review.',
+    },
+    {
       href: '/reports/duplicate-bills',
       label: 'Duplicate Supplier Invoices',
       description:

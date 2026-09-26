@@ -634,6 +634,7 @@ export async function backfillPurchaseOrderAction(
 
   try {
     await createPurchaseOrder(companyId, {
+      historical: true,
       number: data.number,
       projectId: data.projectId,
       vendorId: data.vendorId,

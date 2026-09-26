@@ -217,6 +217,9 @@ export default async function ReceiptsPage({
               <Link href={{ pathname: '/banking/receipts/bulk' }}>
                 <Button variant="outline">Bulk upload</Button>
               </Link>
+              <Link href={{ pathname: '/banking/bills/parked' }}>
+                <Button variant="outline">Parked queue</Button>
+              </Link>
               <Link href={{ pathname: '/banking/bills/new' }}>
                 <Button variant="outline">New bill</Button>
               </Link>

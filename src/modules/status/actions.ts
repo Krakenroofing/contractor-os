@@ -167,6 +167,11 @@ export async function transitionStatusAction(
     if (err instanceof EntityNotFoundError) {
       return { formError: 'Record not found in active company.' };
     }
+    const { approvalNeededMessage } = await import('@/lib/data/approvals');
+    const approval = approvalNeededMessage(err);
+    if (approval) {
+      return { formError: `${approval} Use “Approve” on the PO.` };
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to update status: ${message}` };
   }

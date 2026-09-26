@@ -10,9 +10,11 @@ import { formatMoney } from '@/lib/money';
 import { CompanyStandardTerms } from '@/components/company-standard-terms';
 import { DocumentBranding } from '@/components/document-branding';
 import { DocumentDownloadButtons } from '@/components/document-download-buttons';
-import { getActiveCompanyId } from '@/lib/active-company';
+import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
-import { canCreate } from '@/lib/permissions';
+import { canApproveReceipt, canCreate } from '@/lib/permissions';
+import { getUserNamesByIds } from '@/lib/data/users';
+import { PoApprovalPanel } from '@/modules/purchase-orders/components/po-approval-panel';
 import { loadCostCodeMap } from '@/lib/data/cost-codes';
 import { listInventoryItems } from '@/lib/data/inventory-items';
 import { getLandedCost } from '@/lib/data/landed-costs';
@@ -56,6 +58,12 @@ export default async function PurchaseOrderDetailPage({
   if (!po) notFound();
 
   const vendor = await getVendor(companyId, po.vendorId);
+  const activeCompany = await getActiveCompany();
+  const poLimit =
+    activeCompany.poApprovalLimit === null ? null : Number(activeCompany.poApprovalLimit);
+  const approvalNames = await getUserNamesByIds(
+    [po.createdByUserId, po.approvedByUserId].filter((x): x is string => Boolean(x)),
+  );
   const project = await getProject(companyId, po.projectId);
   const customer = project ? await getCustomer(companyId, project.customerId) : undefined;
   const lines = await getPurchaseOrderLines(po.id);
@@ -302,6 +310,33 @@ export default async function PurchaseOrderDetailPage({
           <StatusBadge entityType="purchase_order" status={po.status} />
         </div>
       </div>
+
+      {poLimit !== null &&
+        Number(po.total) > poLimit &&
+        (po.status === 'draft' || po.approvedAt) &&
+        po.status !== 'void' && (
+          <PoApprovalPanel
+            poId={po.id}
+            status={po.status}
+            total={Number(po.total)}
+            limit={poLimit}
+            approved={
+              po.approvedAt
+                ? {
+                    byName: po.approvedByUserId
+                      ? (approvalNames.get(po.approvedByUserId) ?? null)
+                      : null,
+                    at: po.approvedAt.toISOString().slice(0, 10),
+                    total: Number(po.approvedTotal ?? 0),
+                  }
+                : null
+            }
+            creatorName={
+              po.createdByUserId ? (approvalNames.get(po.createdByUserId) ?? null) : null
+            }
+            canApprove={canApproveReceipt(role)}
+          />
+        )}
 
       <StatusPanel
         entityType="purchase_order"

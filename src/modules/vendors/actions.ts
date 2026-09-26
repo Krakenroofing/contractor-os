@@ -1,5 +1,7 @@
 'use server';
 
+import { getUserNamesByIds } from '@/lib/data/users';
+
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
@@ -78,6 +80,13 @@ function readForm(formData: FormData) {
   };
 }
 
+/** Who is setting the vendor up (P6 SoD) — null for the demo user. */
+async function creatorIdForFk(): Promise<string | null> {
+  const u = await requireAuth();
+  const known = await getUserNamesByIds([u.id]);
+  return known.has(u.id) ? u.id : null;
+}
+
 export async function createVendorAction(
   _prev: CreateVendorState,
   formData: FormData,
@@ -108,6 +117,7 @@ export async function createVendorAction(
 
   try {
     const vendor = await createVendor(companyId, {
+      createdByUserId: await creatorIdForFk(),
       name: data.name,
       primaryContactName: emptyToNull(data.primaryContactName ?? null),
       email: emptyToNull(data.email ?? null),
@@ -179,6 +189,7 @@ export async function createVendorInlineAction(input: {
   }
   try {
     const vendor = await createVendor(companyId, {
+      createdByUserId: await creatorIdForFk(),
       name: parsed.data.name,
       primaryContactName: null,
       email: null,

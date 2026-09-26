@@ -49,6 +49,7 @@ import {
   updateReceipt,
   updateReceiptLine,
   countLiveAttachmentsForStoragePath,
+  setParkedOwner,
   voidAndCopyPostedReceipt,
 } from '@/lib/data/receipts';
 import {
@@ -63,7 +64,8 @@ import {
   type UpsertReceiptLineInput,
 } from './schema';
 import { computeVat, vatQuarterForDate } from './lib/vat';
-import { listVendors } from '@/lib/data/vendors';
+import { getVendor, listVendors } from '@/lib/data/vendors';
+import { checkApproval, recordControlException } from '@/lib/data/approvals';
 import { getUserNamesByIds } from '@/lib/data/users';
 import {
   closedPeriodMessageFor,
@@ -728,7 +730,9 @@ export async function rejectReceiptAction(input: {
  */
 export async function postReceiptAction(input: {
   id: string;
-}): Promise<{ ok: boolean; error?: string }> {
+  /** Owner approving a bill they entered, over the approval limit (P6). */
+  selfApprovalReason?: string;
+}): Promise<{ ok: boolean; error?: string; needsReason?: boolean }> {
   const user = await requireAuth();
   const role = await getActiveRole();
   if (!canApproveReceipt(role)) {
@@ -770,6 +774,28 @@ export async function postReceiptAction(input: {
     return {
       ok: false,
       error: `${closedMsg} (Change the bill date to the day it's being recorded, then post.)`,
+    };
+  }
+
+  // Separation of duties (P6): over the bill approval limit, whoever entered
+  // the bill or set up its vendor can't also approve it for payment.
+  const vendorRow = receipt.vendorId
+    ? await getVendor(company.id, receipt.vendorId)
+    : undefined;
+  const approval = checkApproval({
+    amount: Number(receipt.total),
+    limit: company.billApprovalLimit,
+    actorId: user.id,
+    role,
+    creatorIds: [receipt.uploadedByUserId, vendorRow?.createdByUserId],
+    reason: input.selfApprovalReason,
+    what: `This ${Number(receipt.total).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} bill`,
+  });
+  if (!approval.ok) {
+    return {
+      ok: false,
+      error: approval.error,
+      needsReason: approval.code === 'reason_required',
     };
   }
 
@@ -937,6 +963,19 @@ export async function postReceiptAction(input: {
   } catch {
     /* best-effort — Rebuild can resync */
   }
+  if (approval.selfApproval) {
+    await recordControlException({
+      companyId: company.id,
+      kind: 'bill_self_approval',
+      entityType: 'bill',
+      entityId: receipt.id,
+      entityLabel: `Bill${receipt.vendorInvoiceNumber ? ` #${receipt.vendorInvoiceNumber}` : ''}${vendorRow ? ` · ${vendorRow.name}` : ''}`,
+      amount: Number(receipt.total),
+      userId: auditUserId,
+      reason: approval.reason,
+    });
+  }
+
   // Payments already matched to this bill (a corrected copy inherits its
   // original's) only become AP settlements once the bill is posted.
   try {
@@ -1041,6 +1080,33 @@ export async function voidAndCorrectReceiptAction(input: {
     revalidatePath(`/purchase-orders/${receipt.purchaseOrderId}`);
   }
   return { ok: true, newId: result.newId };
+}
+
+/** Parked-bill queue (P6): hand drafts to the person who'll get them posted. */
+export async function assignParkedOwnerAction(input: {
+  ids: string[];
+  ownerUserId: string | null;
+}): Promise<{ ok: boolean; error?: string; updated?: number }> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can assign bills.' };
+  }
+  const parsed = z
+    .object({
+      ids: z.array(z.string().uuid()).min(1).max(1000),
+      ownerUserId: z.string().uuid().nullable(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid selection.' };
+  const companyId = await getActiveCompanyId();
+  const updated = await setParkedOwner(
+    companyId,
+    parsed.data.ids,
+    parsed.data.ownerUserId,
+  );
+  revalidatePath('/banking/bills/parked');
+  return { ok: true, updated };
 }
 
 /** Approver override: pay a bill despite its 3-way-match exceptions. The

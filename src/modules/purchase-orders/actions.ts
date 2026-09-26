@@ -6,8 +6,13 @@ import { z } from 'zod';
 import { getActiveCompany, getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { canCreate, ROLE_LABELS } from '@/lib/permissions';
-import { appendActivity } from '@/lib/mock-store';
+import { canApproveReceipt, canCreate, ROLE_LABELS } from '@/lib/permissions';
+import { appendActivity, updateEntityStatus } from '@/lib/mock-store';
+import {
+  approvalNeededMessage,
+  checkApproval,
+  recordControlException,
+} from '@/lib/data/approvals';
 import {
   calcPOTotals,
   multiply,
@@ -22,6 +27,7 @@ import {
   getPurchaseOrder,
   getPurchaseOrderLines,
   renamePurchaseOrder,
+  setPurchaseOrderApproval,
   setPurchaseOrderVendorInvoiceNumber,
   updatePurchaseOrderHeader,
   updatePurchaseOrderWithLines,
@@ -90,6 +96,13 @@ export type UpdatePurchaseOrderHeaderState = {
   formError?: string;
 };
 
+function needsPoApproval(
+  company: { poApprovalLimit: string | null },
+  total: number,
+): boolean {
+  return company.poApprovalLimit !== null && total > Number(company.poApprovalLimit);
+}
+
 function emptyToNull(v: string | null | undefined): string | null {
   if (v === null || v === undefined) return null;
   const t = v.trim();
@@ -154,15 +167,21 @@ export async function createPurchaseOrderAction(
     };
   });
 
-  const companyId = await getActiveCompanyId();
+  const user = await requireAuth();
+  const company = await getActiveCompany();
+  const companyId = company.id;
+  const knownCreator = await getUserNamesByIds([user.id]);
   let createdId: string;
   try {
     const po = await createPurchaseOrder(companyId, {
+      createdByUserId: knownCreator.has(user.id) ? user.id : null,
       number: data.number,
       projectId: data.projectId,
       vendorId: data.vendorId,
       landedCostEntryId: emptyToNull(data.landedCostEntryId ?? null),
-      status: data.status,
+      // Over the approval limit it can't go out yet — save it as a draft
+      // awaiting approval (the PO page offers Approve & issue).
+      status: needsPoApproval(company, totals.total) ? 'draft' : data.status,
       issueDate: emptyToNull(data.issueDate ?? null),
       expectedDeliveryDate: emptyToNull(data.expectedDeliveryDate ?? null),
       notes: emptyToNull(data.notes ?? null),
@@ -329,7 +348,9 @@ export async function updatePurchaseOrderAction(
     shipping: Number(data.shipping),
   });
 
-  const result = await updatePurchaseOrderWithLines(companyId, data.id, {
+  let result: Awaited<ReturnType<typeof updatePurchaseOrderWithLines>>;
+  try {
+  result = await updatePurchaseOrderWithLines(companyId, data.id, {
     projectId: data.projectId,
     vendorId: data.vendorId,
     issueDate: emptyToNull(data.issueDate ?? null),
@@ -357,6 +378,15 @@ export async function updatePurchaseOrderAction(
       };
     }),
   });
+  } catch (err) {
+    const approval = approvalNeededMessage(err);
+    if (approval) {
+      return {
+        formError: `${approval} The new total is above what was approved — save it lower, or have an approver re-approve the PO.`,
+      };
+    }
+    throw err;
+  }
   if (!result.ok) return { formError: result.error };
 
   appendActivity(companyId, {
@@ -426,6 +456,84 @@ export async function cancelRemainingPoAction(
   if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
   return { ok: true };
 }
+
+// ===== Approval (roadmap P6) =====
+
+/**
+ * Approve a PO over the company's approval limit — by someone other than
+ * its creator, or by an owner with a logged reason. Optionally issues it in
+ * the same step. The DB trigger refuses to issue an over-limit PO (or raise
+ * an issued PO's total) past what was approved.
+ */
+export async function approvePurchaseOrderAction(input: {
+  id: string;
+  reason?: string;
+  issue?: boolean;
+}): Promise<{ ok: boolean; error?: string; needsReason?: boolean }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can approve purchase orders.' };
+  }
+  const company = await getActiveCompany();
+  const po = await getPurchaseOrder(company.id, input.id);
+  if (!po) return { ok: false, error: 'Purchase order not found.' };
+  if (po.status === 'void' || po.status === 'closed') {
+    return { ok: false, error: `This PO is ${po.status}.` };
+  }
+  const check = checkApproval({
+    amount: Number(po.total),
+    limit: company.poApprovalLimit,
+    actorId: user.id,
+    role,
+    creatorIds: [po.createdByUserId],
+    reason: input.reason,
+    what: `PO ${po.number}`,
+  });
+  if (!check.ok) {
+    return { ok: false, error: check.error, needsReason: check.code === 'reason_required' };
+  }
+  const known = await getUserNamesByIds([user.id]);
+  const actorId = known.has(user.id) ? user.id : null;
+  await setPurchaseOrderApproval(company.id, po.id, {
+    approvedByUserId: actorId,
+    approvedTotal: po.total,
+  });
+  if (check.selfApproval) {
+    await recordControlException({
+      companyId: company.id,
+      kind: 'po_self_approval',
+      entityType: 'purchase_order',
+      entityId: po.id,
+      entityLabel: `PO ${po.number}`,
+      amount: Number(po.total),
+      userId: actorId,
+      reason: check.reason,
+    });
+  }
+  if (input.issue && po.status === 'draft') {
+    try {
+      await updateEntityStatus(company.id, 'purchase_order', po.id, 'issued');
+    } catch (err) {
+      return {
+        ok: false,
+        error: `Approved, but could not issue: ${err instanceof Error ? err.message : 'unknown error'}`,
+      };
+    }
+  }
+  appendActivity(company.id, {
+    entityType: 'purchase_order',
+    entityId: po.id,
+    kind: 'po_approved',
+    summary: `Approved for ${formatMoneyPlain(Number(po.total))}${check.selfApproval ? ` (own entry — ${check.reason})` : ''}${input.issue && po.status === 'draft' ? ' and issued' : ''}`,
+    actorRole: ROLE_LABELS[role],
+  });
+  revalidatePOPaths(po.id, po.projectId);
+  return { ok: true };
+}
+
+const formatMoneyPlain = (n: number) =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 // ===== Link a product to a PO line (any status but void) =====
 
@@ -1443,7 +1551,9 @@ export async function createPoFromExtractedAction(
 
   let createdId: string;
   try {
+    const knownCreator = await getUserNamesByIds([user.id]);
     const po = await createPurchaseOrder(companyId, {
+      createdByUserId: knownCreator.has(user.id) ? user.id : null,
       number: finalNumber,
       projectId: data.projectId,
       vendorId: data.vendorId,

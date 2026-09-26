@@ -135,6 +135,12 @@ export const receipts = pgTable(
       'payment_block_released_by_user_id',
     ).references(() => users.id, { onDelete: 'set null' }),
 
+    // Parked-bill queue owner (P6): who's responsible for getting this
+    // draft posted. Null = whoever uploaded it.
+    parkedOwnerUserId: uuid('parked_owner_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+
     isBillable: boolean('is_billable').notNull().default(false),
     isReimbursable: boolean('is_reimbursable').notNull().default(false),
     notes: text('notes'),

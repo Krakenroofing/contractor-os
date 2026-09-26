@@ -56,6 +56,17 @@ export const purchaseOrders = pgTable(
     // GR/IR rules apply (set by DB trigger at insert from the company's
     // cutover date; never changes afterwards).
     grir: boolean('grir').notNull().default(false),
+    // Approval (roadmap P6): over the company limit, a PO needs an approver
+    // other than its creator before it's issued; the approved amount caps
+    // later increases (DB trigger kops_po_approval_guard).
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    approvedTotal: numeric('approved_total', { precision: 14, scale: 2 }),
     issuedAt: timestamp('issued_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -133,6 +133,17 @@ export const companies = pgTable('companies', {
     .notNull()
     .default('5'),
 
+  // Approvals (roadmap P6). POs / bills over these amounts need an approver
+  // other than their creator (owners may self-approve with a logged
+  // reason). Null = no approval step.
+  poApprovalLimit: numeric('po_approval_limit', { precision: 14, scale: 2 }).default(
+    '5000',
+  ),
+  billApprovalLimit: numeric('bill_approval_limit', {
+    precision: 14,
+    scale: 2,
+  }).default('5000'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

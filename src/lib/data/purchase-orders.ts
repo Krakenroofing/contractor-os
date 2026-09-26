@@ -38,6 +38,11 @@ export async function nextPurchaseOrderNumber(companyId: string): Promise<string
 }
 
 export type CreatePurchaseOrderInput = {
+  /** Who raised it — they can't also approve it over the limit (P6). */
+  createdByUserId?: string | null;
+  /** Historical backfill of an order that already went out: recorded as
+   *  approved at entry so the approval gate doesn't apply to history. */
+  historical?: boolean;
   number: string;
   projectId: string;
   vendorId: string;
@@ -239,6 +244,14 @@ export async function createPurchaseOrder(
         shipping: input.shipping,
         total: input.total,
         notes: input.notes,
+        createdByUserId: input.createdByUserId ?? null,
+        ...(input.historical
+          ? {
+              approvedAt: now,
+              approvedTotal: input.total,
+              approvedByUserId: input.createdByUserId ?? null,
+            }
+          : {}),
         issuedAt: input.status !== 'draft' && input.status !== 'void' ? now : null,
         closedAt: input.status === 'closed' ? now : null,
       })
@@ -266,6 +279,24 @@ export async function createPurchaseOrder(
     return po;
   }
   return mockCreate(companyId, input);
+}
+
+/** Record a PO approval (roadmap P6) for its current total. */
+export async function setPurchaseOrderApproval(
+  companyId: string,
+  id: string,
+  input: { approvedByUserId: string | null; approvedTotal: string },
+): Promise<void> {
+  const db = getDb()!;
+  await db
+    .update(purchaseOrders)
+    .set({
+      approvedByUserId: input.approvedByUserId,
+      approvedAt: new Date(),
+      approvedTotal: input.approvedTotal,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(purchaseOrders.id, id), eq(purchaseOrders.companyId, companyId)));
 }
 
 /**

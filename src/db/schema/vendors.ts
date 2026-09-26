@@ -43,6 +43,9 @@ export const vendors = pgTable(
     defaultCostCodeId: uuid('default_cost_code_id'),
     defaultCostType: text('default_cost_type'),
     defaultAccountingAccountId: uuid('default_accounting_account_id'),
+    // Who set the vendor up — they can't also approve its bills (P6 SoD).
+    // FK to users lives in SQL (importing users here would cycle).
+    createdByUserId: uuid('created_by_user_id'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -644,6 +644,75 @@ export async function voidAndCopyPostedReceipt(input: {
   });
 }
 
+/** Parked-bill queue (P6): every draft / submitted bill with its owner
+ *  (assigned, else uploader) and vendor, oldest first. */
+export async function listParkedBills(companyId: string): Promise<
+  Array<{
+    id: string;
+    status: string;
+    vendorName: string | null;
+    vendorInvoiceNumber: string | null;
+    receiptDate: string;
+    total: string;
+    currency: string;
+    createdAt: Date;
+    ownerUserId: string | null;
+    assigned: boolean;
+    notes: string | null;
+  }>
+> {
+  if (!isDatabaseConfigured()) return [];
+  const rows = await getDb()!.execute(sql`
+    SELECT r.id, r.status, v.name AS vendor_name, r.vendor_invoice_number,
+           r.receipt_date, r.total, r.currency, r.created_at,
+           COALESCE(r.parked_owner_user_id, r.uploaded_by_user_id) AS owner_user_id,
+           (r.parked_owner_user_id IS NOT NULL) AS assigned, r.notes
+      FROM receipts r
+      LEFT JOIN vendors v ON v.id = r.vendor_id
+     WHERE r.company_id = ${companyId}
+       AND r.deleted_at IS NULL
+       AND r.status IN ('draft', 'submitted')
+     ORDER BY r.created_at ASC
+     LIMIT 3000
+  `);
+  return (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    status: String(r.status),
+    vendorName: (r.vendor_name as string | null) ?? null,
+    vendorInvoiceNumber: (r.vendor_invoice_number as string | null) ?? null,
+    receiptDate:
+      r.receipt_date instanceof Date
+        ? r.receipt_date.toISOString().slice(0, 10)
+        : String(r.receipt_date).slice(0, 10),
+    total: String(r.total),
+    currency: String(r.currency),
+    createdAt: new Date(r.created_at as string | Date),
+    ownerUserId: (r.owner_user_id as string | null) ?? null,
+    assigned: Boolean(r.assigned),
+    notes: (r.notes as string | null) ?? null,
+  }));
+}
+
+export async function setParkedOwner(
+  companyId: string,
+  ids: string[],
+  ownerUserId: string | null,
+): Promise<number> {
+  const rows = await requireDb()
+    .update(receipts)
+    .set({ parkedOwnerUserId: ownerUserId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(receipts.companyId, companyId),
+        inArray(receipts.id, ids),
+        inArray(receipts.status, ['draft', 'submitted']),
+        isNull(receipts.deletedAt),
+      ),
+    )
+    .returning({ id: receipts.id });
+  return rows.length;
+}
+
 /** Live attachment rows pointing at one stored file. A voided bill and its
  *  corrected copy share the same blob, so the blob may only be removed once
  *  nothing references it. */
