@@ -14,7 +14,6 @@ import {
 import { listJournalEntryAttachments } from '@/lib/data/journal-entry-attachments';
 import { createSignedJournalAttachmentUrl } from '@/lib/storage/journal-entry-attachments';
 import { ReverseEntryButton } from '@/modules/accounting/components/reverse-entry-button';
-import { DeleteEntryButton } from '@/modules/accounting/components/delete-entry-button';
 import { RebuildGlButton } from '@/modules/accounting/components/rebuild-gl-button';
 import {
   JournalEntryAttachments,
@@ -186,29 +185,12 @@ export default async function JournalPage({
                       <span className="text-sm font-medium tabular-nums text-slate-700">
                         {formatMoney(totalDebit)}
                       </span>
-                      {canEdit &&
-                        e.sourceType === 'manual' &&
-                        !reversed &&
-                        !isReversal && (
-                          <Link
-                            href={`/accounting/journal/${e.id}/edit` as never}
-                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Edit
-                          </Link>
-                        )}
                       {canEdit && !reversed && !isReversal && (
-                        <ReverseEntryButton entryId={e.id} />
+                        <ReverseEntryButton
+                          entryId={e.id}
+                          allowCorrect={e.sourceType === 'manual'}
+                        />
                       )}
-                      {canEdit &&
-                        e.sourceType === 'manual' &&
-                        !reversed &&
-                        !isReversal && (
-                          <DeleteEntryButton
-                            entryId={e.id}
-                            label={`${e.entryDate} · ${e.memo ?? 'no memo'}`}
-                          />
-                        )}
                     </div>
                   </div>
                   <table className="w-full text-xs">

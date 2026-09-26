@@ -5,12 +5,14 @@
 // in <StatusPanel> alongside the other status moves so it stays in one
 // place; this bar just exposes the high-frequency actions.
 
-import { useActionState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import {
   deleteDraftInvoiceAction,
+  voidAndReissueInvoiceAction,
 } from '@/modules/invoices/actions';
 
 const initialDeleteState: { ok?: boolean; formError?: string } = {};
@@ -31,10 +33,34 @@ export function InvoiceActionsBar({
     initialDeleteState,
   );
 
+  const router = useRouter();
+  const [reissuing, startReissue] = useTransition();
+  const [reissueError, setReissueError] = useState<string | null>(null);
+
   const isVoid = status === 'void';
+  const isIssued = !isVoid && status !== 'draft';
   const canHardDelete = allowEdit && status === 'draft' && !hasPayments;
   const canEdit = allowEdit && !isVoid;
   const canRecordPayment = allowEdit && !isVoid && status !== 'paid';
+  const canReissue = allowEdit && isIssued && !hasPayments;
+
+  function reissue() {
+    if (
+      !confirm(
+        'Void this invoice and reissue it?\n\nThis invoice stays on record as VOID under its number. A new draft copy opens with the next invoice number for you to correct and send.',
+      )
+    )
+      return;
+    startReissue(async () => {
+      setReissueError(null);
+      const res = await voidAndReissueInvoiceAction(id);
+      if (!res.ok || !res.newId) {
+        setReissueError(res.error ?? 'Could not reissue.');
+        return;
+      }
+      router.push(`/invoices/${res.newId}/edit`);
+    });
+  }
 
   return (
     <div className="space-y-2">
@@ -42,9 +68,20 @@ export function InvoiceActionsBar({
         {canEdit && (
           <Link href={`/invoices/${id}/edit`}>
             <Button size="sm" variant="outline">
-              Edit
+              {isIssued ? 'Edit notes & terms' : 'Edit'}
             </Button>
           </Link>
+        )}
+        {canReissue && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={reissue}
+            disabled={reissuing}
+            title="Issued invoices are final — void this one (it keeps its number) and open a corrected draft copy"
+          >
+            {reissuing ? 'Reissuing…' : 'Void & reissue'}
+          </Button>
         )}
         {canRecordPayment && (
           <Link href={`/payments/new?invoiceId=${id}`}>
@@ -66,6 +103,13 @@ export function InvoiceActionsBar({
       </div>
       {deleteState.formError && (
         <p className="text-xs text-red-600">{deleteState.formError}</p>
+      )}
+      {reissueError && <p className="text-xs text-red-600">{reissueError}</p>}
+      {isIssued && hasPayments && allowEdit && (
+        <p className="text-xs text-slate-500">
+          This invoice is issued and has payments — its amounts are final. To
+          correct the money, use <strong>Issue credit memo</strong>.
+        </p>
       )}
       {!canHardDelete && allowEdit && status === 'draft' && hasPayments && (
         <p className="text-xs text-slate-500">

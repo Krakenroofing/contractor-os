@@ -6,10 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import {
-  postManualJournalEntryAction,
-  updateManualJournalEntryAction,
-} from '../gl-actions';
+import { postManualJournalEntryAction } from '../gl-actions';
 import { uploadJournalAttachments } from '../lib/journal-attachment-upload';
 
 export type JournalAccountOption = { id: string; label: string; group: string };
@@ -53,10 +50,9 @@ function money(n: number): string {
   }
 }
 
-export type JournalEntryInitial = {
-  /** Editing an existing MANUAL entry when set; omitted = new entry. */
-  entryId: string;
-  entryDate: string;
+/** Starting values for a NEW entry — the "Reverse & correct" flow copies
+ *  the reversed original's lines here. Posted entries are never edited. */
+export type JournalEntryPrefill = {
   memo: string;
   lines: Array<{
     accountId: string;
@@ -69,19 +65,19 @@ export type JournalEntryInitial = {
 export function JournalEntryForm({
   accounts,
   defaultDate,
-  initial,
+  prefill,
 }: {
   accounts: JournalAccountOption[];
   defaultDate: string;
-  initial?: JournalEntryInitial;
+  prefill?: JournalEntryPrefill;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [entryDate, setEntryDate] = useState(initial?.entryDate ?? defaultDate);
-  const [memo, setMemo] = useState(initial?.memo ?? '');
+  const [entryDate, setEntryDate] = useState(defaultDate);
+  const [memo, setMemo] = useState(prefill?.memo ?? '');
   const [lines, setLines] = useState<Line[]>(
-    initial && initial.lines.length >= 2
-      ? initial.lines.map((l) => ({
+    prefill && prefill.lines.length >= 2
+      ? prefill.lines.map((l) => ({
           accountId: l.accountId,
           debit: l.debit > 0 ? l.debit.toFixed(2) : '',
           credit: l.credit > 0 ? l.credit.toFixed(2) : '',
@@ -143,18 +139,11 @@ export function JournalEntryForm({
       return;
     }
     startTransition(async () => {
-      const res = initial
-        ? await updateManualJournalEntryAction({
-            entryId: initial.entryId,
-            entryDate,
-            memo: memo || null,
-            lines: payloadLines,
-          })
-        : await postManualJournalEntryAction({
-            entryDate,
-            memo: memo || null,
-            lines: payloadLines,
-          });
+      const res = await postManualJournalEntryAction({
+        entryDate,
+        memo: memo || null,
+        lines: payloadLines,
+      });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -174,11 +163,7 @@ export function JournalEntryForm({
           return;
         }
       }
-      router.push(
-        (initial
-          ? `/accounting/journal?entry=${initial.entryId}`
-          : `/accounting/journal?entry=${res.id}`) as never,
-      );
+      router.push(`/accounting/journal?entry=${res.id}` as never);
       router.refresh();
     });
   }
@@ -352,9 +337,8 @@ export function JournalEntryForm({
           />
         </div>
         <p className="mt-1 text-xs text-slate-400">
-          {initial
-            ? 'Files added here upload when you save; files already on the entry are managed from the journal.'
-            : 'Attach the spreadsheet, screenshot, or statement behind this adjustment — they upload with the entry.'}
+          Attach the spreadsheet, screenshot, or statement behind this
+          adjustment — they upload with the entry.
         </p>
       </div>
 
@@ -365,11 +349,7 @@ export function JournalEntryForm({
         <div className="flex-1" />
         {error && <span className="text-xs text-red-600">{error}</span>}
         <Button type="button" onClick={submit} disabled={pending || !balanced}>
-          {pending
-            ? 'Saving…'
-            : initial
-              ? 'Save changes'
-              : 'Post entry'}
+          {pending ? 'Posting…' : 'Post entry'}
         </Button>
       </div>
     </div>

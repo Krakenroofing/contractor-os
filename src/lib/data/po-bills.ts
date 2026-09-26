@@ -34,6 +34,7 @@ export async function sumBilledByPoLine(
         inArray(receiptLines.purchaseOrderLineId, lineIds),
         isNull(receiptLines.deletedAt),
         isNull(receipts.deletedAt),
+        ne(receipts.status, 'void'),
       ),
     )
     .groupBy(receiptLines.purchaseOrderLineId);
@@ -94,6 +95,8 @@ export async function findBillByVendorInvoiceNumber(
         eq(receipts.vendorId, vendorId),
         sql`lower(${receipts.vendorInvoiceNumber}) = lower(${vendorInvoiceNumber})`,
         isNull(receipts.deletedAt),
+        // A voided bill's corrected copy carries the same supplier number.
+        ne(receipts.status, 'void'),
         excludeReceiptId ? ne(receipts.id, excludeReceiptId) : undefined,
       ),
     )

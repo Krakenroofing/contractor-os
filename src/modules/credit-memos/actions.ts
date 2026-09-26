@@ -17,6 +17,10 @@ import {
   voidCreditMemo,
 } from '@/lib/data/credit-memos';
 import { createDeductChangeOrderForRefund } from '@/lib/data/change-orders';
+import {
+  closedPeriodMessageFor,
+  periodClosedMessage,
+} from '@/lib/data/accounting-periods';
 
 // ---------- Issue ----------
 
@@ -220,22 +224,19 @@ export async function updateCreditMemoAction(
   const companyId = await getActiveCompanyId();
   const existing = await getCreditMemo(companyId, parsed.data.creditMemoId);
   if (!existing) return { formError: 'Credit memo not found.' };
-  // A refund credit that booked a deduct CO keeps its amount — the CO
-  // reduced the contract by the matching net, and editing one side alone
-  // would silently unbalance "still billable".
+  // Issued credit memos are final on the figures that hit revenue and AR:
+  // amount and date change only through Void & reissue.
   if (
-    existing.changeOrderId &&
-    Number(parsed.data.amount).toFixed(2) !== Number(existing.amount).toFixed(2)
+    Number(parsed.data.amount).toFixed(2) !== Number(existing.amount).toFixed(2) ||
+    parsed.data.issueDate !== String(existing.issueDate)
   ) {
     return {
       formError:
-        'This credit booked a deduct change order for its amount — void both and reissue instead of changing the amount.',
+        'An issued credit memo’s amount and date are final. Use “Void & reissue” to replace it with the corrected figures.',
     };
   }
   try {
     await updateCreditMemo(companyId, parsed.data.creditMemoId, {
-      issueDate: parsed.data.issueDate,
-      amount: Number(parsed.data.amount),
       reason: parsed.data.reason,
       notes: parsed.data.notes?.trim() || null,
       invoiceId: parsed.data.invoiceId || null,
@@ -430,6 +431,96 @@ export async function voidCreditMemoAction(
   revalidatePath('/invoices');
   revalidatePath('/customers');
   return { ok: true };
+}
+
+// ---------- Void & reissue ----------
+
+const reissueSchema = z.object({
+  id: z.string().uuid('Invalid credit memo id'),
+  issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a valid date'),
+  amount: z
+    .string()
+    .refine(
+      (v) => Number.isFinite(Number(v)) && Number(v) > 0,
+      'Amount must be positive',
+    ),
+  reason: z.string().min(1, 'Reason is required').max(500),
+});
+
+export type ReissueCreditState = ApplyCreditState & { newId?: string };
+
+/** The correction path for an issued credit memo: void it (it keeps its
+ *  number, on record as void) and issue a replacement with the corrected
+ *  amount / date under the next number. Unapplied credits only. */
+export async function voidAndReissueCreditMemoAction(
+  _prev: ReissueCreditState,
+  formData: FormData,
+): Promise<ReissueCreditState> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { formError: 'No permission to reissue credits.' };
+  }
+  const parsed = reissueSchema.safeParse({
+    id: formData.get('id'),
+    issueDate: formData.get('issueDate'),
+    amount: formData.get('amount'),
+    reason: formData.get('reason'),
+  });
+  if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
+  const companyId = await getActiveCompanyId();
+  const cm = await getCreditMemo(companyId, parsed.data.id);
+  if (!cm) return { formError: 'Credit memo not found.' };
+  if (cm.status === 'void') return { formError: 'This credit memo is already void.' };
+  if (Number(cm.appliedAmount) > 0.005) {
+    return {
+      formError:
+        'This credit has been applied or refunded — unapply those first, then void & reissue.',
+    };
+  }
+  if (cm.changeOrderId) {
+    return {
+      formError:
+        'This credit booked a deduct change order for its amount — void the change order and this credit, then issue a new one.',
+    };
+  }
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(cm.issueDate), parsed.data.issueDate],
+    'This credit memo',
+  );
+  if (closedMsg) return { formError: closedMsg };
+
+  let newId: string;
+  try {
+    await voidCreditMemo(companyId, cm.id);
+    const replacement = await createCreditMemo(companyId, {
+      customerId: cm.customerId,
+      projectId: cm.projectId,
+      invoiceId: cm.invoiceId,
+      issueDate: parsed.data.issueDate,
+      amount: Number(parsed.data.amount),
+      reason: parsed.data.reason,
+      notes: [cm.notes, `Replaces ${cm.number} (voided).`]
+        .filter(Boolean)
+        .join('\n'),
+      createdByUserId: user.id,
+      changeOrderId: null,
+    });
+    newId = replacement.id;
+  } catch (err) {
+    return {
+      formError:
+        periodClosedMessage(err) ??
+        (err instanceof Error ? err.message : 'Could not reissue the credit.'),
+    };
+  }
+  revalidatePath('/invoices');
+  revalidatePath('/customers');
+  revalidatePath('/reports/accounts-receivable');
+  revalidatePath(`/credit-memos/${cm.id}`);
+  if (cm.invoiceId) revalidatePath(`/invoices/${cm.invoiceId}`);
+  return { ok: true, newId };
 }
 
 // Suppress unused-import linter for redirect in case we add a redirect

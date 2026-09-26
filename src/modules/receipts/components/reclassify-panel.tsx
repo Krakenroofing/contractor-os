@@ -1,13 +1,11 @@
 'use client';
 
-// Reclassify a POSTED bill without unposting it.
+// Reclassify a POSTED bill in place (open posting periods only).
 //
-// Unposting a bill that's already matched to a bank payment costs the whole
-// chain — unmatch, unpost, edit, repost, rematch. The corrections that come up
-// after the fact (wrong category, wrong bill date, wrong job) don't move any
-// money, so they're safe to make in place. Amounts are deliberately NOT here:
-// changing one changes AP and the bank match, and that still needs a real
-// unpost.
+// The corrections that come up after the fact (wrong category, wrong bill
+// date, wrong job) don't move any money, so they're safe to make in place.
+// Amounts are deliberately NOT here: changing one changes AP and the bank
+// match, so it goes through Void & correct.
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -100,12 +98,12 @@ export function ReclassifyPanel({
           variant="outline"
           onClick={() => setOpen(true)}
         >
-          Reclassify without unposting
+          Reclassify
         </Button>
         <p className="mt-1 text-xs text-slate-500">
           Change the bill date, the job, the cost code, or the accounting
           category on a posted bill — the job costs and the ledger follow. The
-          bank match stays intact. Amounts still need an unpost.
+          bank match stays intact. Amounts need Void &amp; correct.
         </p>
       </div>
     );
@@ -238,8 +236,8 @@ export function ReclassifyPanel({
       <p className="text-xs text-slate-500">
         Each line needs either a job + cost code (it becomes a job cost) or an
         accounting category (it stays overhead). Amounts, vendor, and VAT are
-        not editable here — those change what the bill owes, so they still need
-        Unpost.
+        not editable here — those change what the bill owes, so they go
+        through Void &amp; correct.
       </p>
     </div>
   );

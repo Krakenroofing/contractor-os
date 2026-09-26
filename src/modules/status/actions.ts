@@ -128,6 +128,20 @@ export async function transitionStatusAction(
     }
   }
 
+  // Voiding an invoice that has payments would silently drop those payments
+  // from the ledger (the GL skips payments on void invoices), leaving the
+  // matched deposits unbalanced in Undeposited Funds. Payments have to go
+  // first — or the correction is a credit memo.
+  if (entityRaw === 'invoice' && action === 'mark_void') {
+    const { getInvoicePayments } = await import('@/lib/data/invoice-payments');
+    const pays = await getInvoicePayments(entityId);
+    if (pays.length > 0) {
+      return {
+        formError: `This invoice has ${pays.length} payment${pays.length === 1 ? '' : 's'} recorded — voiding it would orphan that cash. Issue a credit memo for the correction, or remove the payments first.`,
+      };
+    }
+  }
+
   // Mark-Paid on an invoice carries an optional paid-date so VAT / cash
   // reports bucket the synthetic payment into the right quarter. Validate
   // it lightly; fall through to "today" inside the data layer if missing.

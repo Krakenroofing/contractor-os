@@ -8,7 +8,13 @@ import { logDocumentNumber } from '@/lib/data/document-numbers';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { canCreate } from '@/lib/permissions';
+import { canCreate, ROLE_LABELS } from '@/lib/permissions';
+import { appendActivity, updateEntityStatus } from '@/lib/mock-store';
+import { getInvoicePayments } from '@/lib/data/invoice-payments';
+import {
+  closedPeriodMessageFor,
+  periodClosedMessage,
+} from '@/lib/data/accounting-periods';
 import {
   add,
   multiply,
@@ -24,6 +30,7 @@ import {
   deleteDraftInvoice,
   DuplicateInvoiceNumberError,
   getInvoice,
+  getInvoiceLineItems,
   listInvoices,
   setInvoiceRevenueCategory,
   updateInvoiceFull,
@@ -764,6 +771,125 @@ export async function updateInvoiceFullAction(
   if (projectReassigned) revalidatePath(`/projects/${data.projectId}`);
   if (retainage > 0) revalidatePath('/retainage');
   redirect(`/invoices/${data.id}`);
+}
+
+// =====================================================================
+// Void & reissue — the correction path for an ISSUED invoice (roadmap P1:
+// posted documents are final). The original is voided and keeps its
+// number on record; a new DRAFT copy with the next system number opens
+// for editing. Refused while payments sit on the invoice — use a credit
+// memo there (or remove the payments first) so cash history stays intact.
+// =====================================================================
+
+export async function voidAndReissueInvoiceAction(
+  invoiceId: string,
+): Promise<{ ok: boolean; error?: string; newId?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'invoices')) {
+    return { ok: false, error: 'Not allowed to void invoices.' };
+  }
+  if (!z.string().uuid().safeParse(invoiceId).success) {
+    return { ok: false, error: 'Invalid invoice.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const existing = await getInvoice(companyId, invoiceId);
+  if (!existing) return { ok: false, error: 'Invoice not found.' };
+  if (existing.status === 'draft') {
+    return { ok: false, error: 'Drafts can be edited directly — no reissue needed.' };
+  }
+  if (existing.status === 'void') {
+    return { ok: false, error: 'This invoice is already void.' };
+  }
+  const payments = await getInvoicePayments(existing.id);
+  if (payments.length > 0) {
+    return {
+      ok: false,
+      error: `This invoice has ${payments.length} payment${payments.length === 1 ? '' : 's'} recorded — issue a credit memo for the correction instead (or remove the payments first).`,
+    };
+  }
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(existing.invoiceDate)],
+    'This invoice',
+  );
+  if (closedMsg) return { ok: false, error: closedMsg };
+
+  const lines = await getInvoiceLineItems(existing.id);
+  // Keep the original date when its month is still open; else today.
+  const today = new Date().toISOString().slice(0, 10);
+  const reissueDate = String(existing.invoiceDate);
+
+  let newId: string;
+  try {
+    await updateEntityStatus(companyId, 'invoice', existing.id, 'void');
+    const copy = await createInvoice(companyId, {
+      number: '',
+      projectId: existing.projectId,
+      proposalId: existing.proposalId,
+      changeOrderId: existing.changeOrderId,
+      templateId: existing.templateId,
+      status: 'draft',
+      billingType: existing.billingType,
+      invoiceDate: reissueDate || today,
+      dueDate: existing.dueDate,
+      subtotal: existing.subtotal,
+      taxAmount: existing.taxAmount,
+      retainagePercent: existing.retainagePercent,
+      retainageAmount: existing.retainageAmount,
+      retainageReleased: toMoneyString(0),
+      expectedRetainageReleaseDate: existing.expectedRetainageReleaseDate,
+      total: existing.total,
+      amountPaid: toMoneyString(0),
+      notes: existing.notes,
+      termsOverride: existing.termsOverride,
+      purchaseOrderNumber: existing.purchaseOrderNumber,
+      billingLabel: existing.billingLabel,
+      percentOfContract: existing.percentOfContract,
+      billAgainstRevised: existing.billAgainstRevised,
+      lines: lines.map((l) => ({
+        costCodeId: l.costCodeId,
+        inventoryItemId: l.inventoryItemId,
+        description: l.description,
+        unit: l.unit,
+        quantity: l.quantity,
+        unitCost: l.unitCost,
+        lineTotal: l.lineTotal,
+        isProjectCredit: l.isProjectCredit,
+      })),
+    });
+    newId = copy.id;
+    appendActivity(companyId, {
+      entityType: 'invoice',
+      entityId: existing.id,
+      kind: 'invoice_voided_reissued',
+      summary: `Voided and reissued as invoice #${copy.number} (draft) by ${user.name || user.email}`,
+      actorRole: ROLE_LABELS[role],
+    });
+    appendActivity(companyId, {
+      entityType: 'invoice',
+      entityId: copy.id,
+      kind: 'invoice_reissue_of',
+      summary: `Reissue of voided invoice #${existing.number}`,
+      actorRole: ROLE_LABELS[role],
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: periodClosedMessage(err) ?? (err instanceof Error ? err.message : 'Could not reissue.'),
+    };
+  }
+
+  try {
+    await syncInvoiceGl(companyId, existing.id);
+    await recomputeProjectContractTotals(existing.projectId);
+  } catch {
+    /* best-effort — Rebuild can resync */
+  }
+  revalidatePath('/invoices');
+  revalidatePath(`/invoices/${existing.id}`);
+  if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+  return { ok: true, newId };
 }
 
 // =====================================================================

@@ -285,9 +285,11 @@ export default async function ReceiptDetailPage({
         </h1>
         <p className="text-sm text-slate-500">
           {receipt.status === 'posted'
-            ? 'Posted to job costs. Date, job, cost code and category can still be corrected below; changing an amount needs an Unpost.'
+            ? 'Posted — final. Date, job, cost code and category can still be corrected below; changing an amount goes through Void & correct.'
             : receipt.status === 'void'
-              ? 'Void receipt.'
+              ? receipt.postedAt
+                ? 'Void — this bill was posted, then voided. Kept on record; it no longer counts anywhere.'
+                : 'Void receipt.'
               : receipt.status === 'submitted'
                 ? 'Submitted for review. Waiting for an approver.'
                 : 'Draft. Attach a photo and Submit / Post when ready.'}
@@ -317,7 +319,8 @@ export default async function ReceiptDetailPage({
             <CardContent className="space-y-4">
               {/* Posted bills: the classification fields are still editable in
                   place, because none of them move money. Amounts are not —
-                  those change AP and the bank match, so they need an unpost. */}
+                  those change AP and the bank match, so they go through
+                  Void & correct. */}
               {receipt.status === 'posted' && canApprove && lines.length > 0 && (
                 <ReclassifyPanel
                   receiptId={receipt.id}
@@ -443,6 +446,7 @@ export default async function ReceiptDetailPage({
               <ReceiptPostPanel
                 receiptId={receipt.id}
                 status={receipt.status}
+                wasPosted={Boolean(receipt.postedAt)}
                 postBlockers={postBlockers}
                 hasPotentialDuplicate={Boolean(dupWarning)}
                 potentialDuplicateMessage={dupWarning ?? undefined}

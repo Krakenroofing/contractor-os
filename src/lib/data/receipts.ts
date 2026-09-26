@@ -19,6 +19,9 @@ import {
   receipts,
   receiptLines,
   receiptAttachments,
+  jobCostEntries,
+  transactionMatches,
+  vendorCreditApplications,
   type Receipt,
   type NewReceipt,
   type ReceiptLine,
@@ -432,4 +435,227 @@ export async function softDeleteReceiptAttachment(
     )
     .returning();
   return rows[0];
+}
+
+/**
+ * Posted bills are final: a correction voids the original (it stays on
+ * record, its GL entry is cleared by the caller's re-sync) and opens an
+ * editable draft copy. The copy inherits the lines, attachments, bank
+ * payments matched to the original and any vendor credits applied to it, so
+ * posting the copy settles exactly what the original settled.
+ * Caller must have checked the posting period for the bill and its payments.
+ */
+export async function voidAndCopyPostedReceipt(input: {
+  companyId: string;
+  receiptId: string;
+  userId: string | null;
+}): Promise<{
+  newId: string;
+  movedTransactionIds: string[];
+  projectIds: string[];
+}> {
+  const db = requireDb();
+  return db.transaction(async (tx) => {
+    const [orig] = await tx
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.id, input.receiptId),
+          eq(receipts.companyId, input.companyId),
+          isNull(receipts.deletedAt),
+        ),
+      )
+      .for('update');
+    if (!orig || orig.status !== 'posted') {
+      throw new Error('Only a posted bill can be voided and corrected.');
+    }
+    const lines = await tx
+      .select()
+      .from(receiptLines)
+      .where(
+        and(
+          eq(receiptLines.companyId, input.companyId),
+          eq(receiptLines.receiptId, orig.id),
+          isNull(receiptLines.deletedAt),
+        ),
+      )
+      .orderBy(asc(receiptLines.sortOrder), asc(receiptLines.createdAt));
+    const now = new Date();
+
+    // Unwind the job-cost side of the original posting.
+    const jceIds = [
+      ...lines.map((l) => l.postedJobCostEntryId),
+      orig.postedJobCostEntryId,
+    ].filter((x): x is string => !!x);
+    if (jceIds.length > 0) {
+      await tx
+        .update(jobCostEntries)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(jobCostEntries.companyId, input.companyId),
+            inArray(jobCostEntries.id, jceIds),
+            isNull(jobCostEntries.deletedAt),
+          ),
+        );
+    }
+    await tx
+      .update(receiptLines)
+      .set({ postedJobCostEntryId: null, reimbursementPayoutId: null, updatedAt: now })
+      .where(
+        and(
+          eq(receiptLines.companyId, input.companyId),
+          eq(receiptLines.receiptId, orig.id),
+        ),
+      );
+    const stamp = now.toISOString().slice(0, 10);
+    await tx
+      .update(receipts)
+      .set({
+        status: 'void',
+        postedJobCostEntryId: null,
+        notes: `${orig.notes ? `${orig.notes}\n` : ''}[Voided ${stamp} — re-entered as a corrected draft.]`,
+        updatedAt: now,
+      })
+      .where(eq(receipts.id, orig.id));
+
+    const [copy] = await tx
+      .insert(receipts)
+      .values({
+        companyId: orig.companyId,
+        projectId: orig.projectId,
+        costCodeId: orig.costCodeId,
+        vendorId: orig.vendorId,
+        accountingAccountId: orig.accountingAccountId,
+        paymentSourceType: orig.paymentSourceType,
+        bankAccountId: orig.bankAccountId,
+        paymentMethodId: orig.paymentMethodId,
+        receiptDate: orig.receiptDate,
+        dueDate: orig.dueDate,
+        currency: orig.currency,
+        subtotal: orig.subtotal,
+        vatAmount: orig.vatAmount,
+        total: orig.total,
+        vatRatePercent: orig.vatRatePercent,
+        vatIncluded: orig.vatIncluded,
+        vatRecoverable: orig.vatRecoverable,
+        vatPeriodQuarter: orig.vatPeriodQuarter,
+        vendorTin: orig.vendorTin,
+        costType: orig.costType,
+        vendorInvoiceNumber: orig.vendorInvoiceNumber,
+        purchaseOrderId: orig.purchaseOrderId,
+        status: 'draft',
+        isBillable: orig.isBillable,
+        isReimbursable: orig.isReimbursable,
+        notes: orig.notes,
+        uploadedByUserId: input.userId ?? orig.uploadedByUserId,
+      })
+      .returning({ id: receipts.id });
+
+    if (lines.length > 0) {
+      await tx.insert(receiptLines).values(
+        lines.map((l) => ({
+          companyId: l.companyId,
+          receiptId: copy.id,
+          sortOrder: l.sortOrder,
+          projectId: l.projectId,
+          costCodeId: l.costCodeId,
+          accountingAccountId: l.accountingAccountId,
+          costType: l.costType,
+          description: l.description,
+          purchaseOrderLineId: l.purchaseOrderLineId,
+          subtotal: l.subtotal,
+          vatAmount: l.vatAmount,
+          total: l.total,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          vatRatePercent: l.vatRatePercent,
+          isBillable: l.isBillable,
+          isReimbursable: l.isReimbursable,
+          paidByUserId: l.paidByUserId,
+          reimbursementPayoutId: l.reimbursementPayoutId,
+        })),
+      );
+    }
+
+    const atts = await tx
+      .select()
+      .from(receiptAttachments)
+      .where(
+        and(
+          eq(receiptAttachments.companyId, input.companyId),
+          eq(receiptAttachments.receiptId, orig.id),
+          isNull(receiptAttachments.deletedAt),
+        ),
+      );
+    if (atts.length > 0) {
+      await tx.insert(receiptAttachments).values(
+        atts.map((a) => ({
+          companyId: a.companyId,
+          receiptId: copy.id,
+          storagePath: a.storagePath,
+          mimeType: a.mimeType,
+          byteSize: a.byteSize,
+          originalFilename: a.originalFilename,
+          kind: a.kind,
+          uploadedAt: a.uploadedAt,
+          uploadedByUserId: a.uploadedByUserId,
+        })),
+      );
+    }
+
+    const moved = await tx
+      .update(transactionMatches)
+      .set({ receiptId: copy.id, updatedAt: now })
+      .where(
+        and(
+          eq(transactionMatches.companyId, input.companyId),
+          eq(transactionMatches.receiptId, orig.id),
+          isNull(transactionMatches.reversedAt),
+        ),
+      )
+      .returning({ txnId: transactionMatches.importedTransactionId });
+    await tx
+      .update(vendorCreditApplications)
+      .set({ receiptId: copy.id })
+      .where(
+        and(
+          eq(vendorCreditApplications.companyId, input.companyId),
+          eq(vendorCreditApplications.receiptId, orig.id),
+        ),
+      );
+
+    const projectIds = [
+      ...new Set(
+        lines.map((l) => l.projectId).filter((p): p is string => !!p),
+      ),
+    ];
+    return {
+      newId: copy.id,
+      movedTransactionIds: [...new Set(moved.map((m) => m.txnId))],
+      projectIds,
+    };
+  });
+}
+
+/** Live attachment rows pointing at one stored file. A voided bill and its
+ *  corrected copy share the same blob, so the blob may only be removed once
+ *  nothing references it. */
+export async function countLiveAttachmentsForStoragePath(
+  companyId: string,
+  storagePath: string,
+): Promise<number> {
+  const db = requireDb();
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(receiptAttachments)
+    .where(
+      and(
+        eq(receiptAttachments.companyId, companyId),
+        eq(receiptAttachments.storagePath, storagePath),
+        isNull(receiptAttachments.deletedAt),
+      ),
+    );
+  return Number(row?.n ?? 0);
 }

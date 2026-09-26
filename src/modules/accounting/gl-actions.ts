@@ -21,6 +21,7 @@ import {
 } from '@/lib/data/journal-entry-attachments';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { guardPeriod } from '@/lib/period-guard';
+import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
 import {
   ALLOWED_JOURNAL_ATTACHMENT_MIME,
   JOURNAL_ENTRY_ATTACHMENTS_BUCKET,
@@ -110,83 +111,23 @@ export async function postManualJournalEntryAction(input: {
   }
 }
 
-/** Rewrite a MANUAL journal entry (date, memo, lines) in place. System
- *  entries and reversal pairs are refused by the data layer. */
-export async function updateManualJournalEntryAction(input: {
+// Posted journal entries are FINAL (roadmap Priority 1): no edit in place,
+// no delete. Manual entries post on save (there is no draft state), so the
+// only correction is Reverse — which keeps both the original and its
+// mirror on record — followed by a new corrected entry.
+const JE_FINAL_ERROR =
+  'Posted journal entries are final. Use “Reverse & correct” — the original and its reversal both stay on record, and a pre-filled corrected entry opens.';
+
+export async function updateManualJournalEntryAction(_input: {
   entryId: string;
-  entryDate: string;
-  memo?: string | null;
-  lines: Array<{
-    accountId: string;
-    debit: number;
-    credit: number;
-    description?: string | null;
-  }>;
 }): Promise<PostJournalEntryResult> {
-  await requireAuth();
-  const role = await getActiveRole();
-  if (!canCreate(role, 'settings')) {
-    return { ok: false, error: 'You do not have permission to edit journal entries.' };
-  }
-  const entryId = z.string().uuid().safeParse(input.entryId);
-  if (!entryId.success) return { ok: false, error: 'Invalid entry.' };
-  const parsed = postSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error:
-        parsed.error.flatten().formErrors[0] ??
-        Object.values(parsed.error.flatten().fieldErrors)[0]?.[0] ??
-        'Invalid journal entry.',
-    };
-  }
-  const companyId = await getActiveCompanyId();
-  const res = await guardPeriod(
-    () =>
-      updateManualJournalEntry(companyId, entryId.data, {
-        entryDate: parsed.data.entryDate,
-        memo: parsed.data.memo ?? null,
-        lines: parsed.data.lines.map((l) => ({
-          accountId: l.accountId,
-          debit: l.debit,
-          credit: l.credit,
-          description: l.description ?? null,
-        })),
-      }),
-    (msg) => ({ error: msg }),
-  );
-  if ('error' in res) return { ok: false, error: res.error };
-  revalidatePath('/accounting/journal');
-  revalidatePath('/reports/trial-balance');
-  return { ok: true, id: res.id };
+  return { ok: false, error: JE_FINAL_ERROR };
 }
 
-/** Delete a MANUAL journal entry and its attachments outright. For test or
- *  mistyped entries — anything with real history should be reversed. */
 export async function deleteManualJournalEntryAction(
-  entryId: string,
+  _entryId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAuth();
-  const role = await getActiveRole();
-  if (!canCreate(role, 'settings')) {
-    return { ok: false, error: 'You do not have permission to delete journal entries.' };
-  }
-  const id = z.string().uuid().safeParse(entryId);
-  if (!id.success) return { ok: false, error: 'Invalid entry.' };
-  const companyId = await getActiveCompanyId();
-  const res = await guardPeriod(
-    () => deleteManualJournalEntry(companyId, id.data),
-    (msg) => ({
-      error: `${msg} Reverse the entry instead — the reversal posts in an open period.`,
-    }),
-  );
-  if ('error' in res) return { ok: false, error: res.error };
-  for (const path of res.storagePaths) {
-    await deleteJournalAttachmentBlob(path);
-  }
-  revalidatePath('/accounting/journal');
-  revalidatePath('/reports/trial-balance');
-  return { ok: true };
+  return { ok: false, error: JE_FINAL_ERROR };
 }
 
 export type RebuildGlState = {
@@ -448,7 +389,8 @@ export async function getJournalAttachmentViewUrlAction(
 /** Reverse a posted journal entry (creates a mirror entry). */
 export async function reverseJournalEntryAction(input: {
   entryId: string;
-  entryDate: string;
+  /** Ignored when absent: the server picks the reversal date. */
+  entryDate?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const user = await requireAuth();
   const role = await getActiveRole();
@@ -458,10 +400,23 @@ export async function reverseJournalEntryAction(input: {
   const id = z.string().uuid().safeParse(input.entryId);
   if (!id.success) return { ok: false, error: 'Invalid entry.' };
   const companyId = await getActiveCompanyId();
+  // Standard reversal dating: on the ORIGINAL date while that month is open
+  // (the correction nets to zero inside the same month), otherwise today —
+  // a closed month can't take new postings.
+  const original = await getJournalEntryWithLines(companyId, id.data);
+  if (!original) return { ok: false, error: 'Entry not found.' };
+  const today = new Date().toISOString().slice(0, 10);
+  const reversalDate = (await closedPeriodMessageFor(
+    companyId,
+    [original.entryDate],
+    'x',
+  ))
+    ? today
+    : original.entryDate;
   const guarded = await guardPeriod(
     async () => ({
       res: await reverseJournalEntry(companyId, id.data, {
-        entryDate: input.entryDate,
+        entryDate: reversalDate,
         createdByUserId: user.id,
       }),
       error: null as string | null,

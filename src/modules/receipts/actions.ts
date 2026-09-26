@@ -9,7 +9,10 @@ import {
 } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
-import { syncReceiptGl } from '@/modules/accounting/lib/gl-posting';
+import {
+  syncBankTxnGl,
+  syncReceiptGl,
+} from '@/modules/accounting/lib/gl-posting';
 import {
   can,
   canApproveReceipt,
@@ -45,6 +48,8 @@ import {
   softDeleteReceiptLine,
   updateReceipt,
   updateReceiptLine,
+  countLiveAttachmentsForStoragePath,
+  voidAndCopyPostedReceipt,
 } from '@/lib/data/receipts';
 import {
   createJobCostEntry,
@@ -60,7 +65,11 @@ import {
 import { computeVat, vatQuarterForDate } from './lib/vat';
 import { listVendors } from '@/lib/data/vendors';
 import { getUserNamesByIds } from '@/lib/data/users';
-import { closedPeriodMessageFor } from '@/lib/data/accounting-periods';
+import {
+  closedPeriodMessageFor,
+  periodClosedMessage,
+} from '@/lib/data/accounting-periods';
+import { listBankPaymentsForReceipt } from '@/lib/data/transaction-matches';
 import {
   extractReceipt,
   isOcrConfigured,
@@ -589,7 +598,12 @@ export async function deleteReceiptAttachmentAction(input: {
   if (!target) return { ok: false, error: 'Attachment not found.' };
   await softDeleteReceiptAttachment(companyId, input.attachmentId);
   try {
-    await deleteReceiptBlob(target.storagePath);
+    if (
+      (await countLiveAttachmentsForStoragePath(companyId, target.storagePath)) ===
+      0
+    ) {
+      await deleteReceiptBlob(target.storagePath);
+    }
   } catch {
     /* swallow */
   }
@@ -857,60 +871,12 @@ export async function postReceiptAction(input: {
   } catch {
     /* best-effort — Rebuild can resync */
   }
-
-  revalidatePath('/banking/receipts');
-  revalidatePath(`/banking/receipts/${receipt.id}`);
-  return { ok: true };
-}
-
-/** Reverse a Post — soft-deletes every linked job_cost_entries row, clears
- *  each line's posted ref, flips the receipt back to draft. Approver-only:
- *  unposting is an accounting action, not a field-user undo. */
-export async function unpostReceiptAction(input: {
-  id: string;
-}): Promise<{ ok: boolean; error?: string }> {
-  await requireAuth();
-  const role = await getActiveRole();
-  if (!canApproveReceipt(role)) {
-    return { ok: false, error: 'Only owners or accounting can unpost.' };
-  }
-  const companyId = await getActiveCompanyId();
-  const receipt = await getReceipt(companyId, input.id);
-  if (!receipt) return { ok: false, error: 'Receipt not found.' };
-  if (receipt.status !== 'posted') {
-    return { ok: false, error: 'Receipt is not posted.' };
-  }
-  const closedMsg = await closedPeriodMessageFor(
-    companyId,
-    [String(receipt.receiptDate)],
-    'This bill',
-  );
-  if (closedMsg) return { ok: false, error: closedMsg };
-  const lines = await listReceiptLines(companyId, receipt.id);
-
-  for (const line of lines) {
-    if (line.postedJobCostEntryId) {
-      await softDeleteJobCostEntry(companyId, line.postedJobCostEntryId);
-      await updateReceiptLine(companyId, line.id, {
-        postedJobCostEntryId: null,
-      });
-      if (line.projectId) {
-        revalidatePath(`/job-costing/${line.projectId}`);
-      }
-    }
-  }
-
-  await updateReceipt(companyId, receipt.id, {
-    status: 'draft',
-    postedAt: null,
-    // Clear the approval audit too — the receipt is effectively un-approved.
-    approvedAt: null,
-    approvedByUserId: null,
-  });
-
-  // Clear the receipt's GL entry now it's back to draft. Best-effort.
+  // Payments already matched to this bill (a corrected copy inherits its
+  // original's) only become AP settlements once the bill is posted.
   try {
-    await syncReceiptGl(companyId, receipt.id);
+    for (const p of await listBankPaymentsForReceipt(company.id, receipt.id)) {
+      await syncBankTxnGl(company.id, p.importedTransactionId);
+    }
   } catch {
     /* best-effort */
   }
@@ -918,6 +884,97 @@ export async function unpostReceiptAction(input: {
   revalidatePath('/banking/receipts');
   revalidatePath(`/banking/receipts/${receipt.id}`);
   return { ok: true };
+}
+
+const POSTED_BILL_FINAL =
+  'Posted bills are final. Use “Void & correct” — the original stays on record as void and an editable copy opens.';
+
+/** Retired: posted bills are final. Kept so stale clients get a clear
+ *  message instead of a missing-action error. */
+export async function unpostReceiptAction(_input: {
+  id: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAuth();
+  return { ok: false, error: POSTED_BILL_FINAL };
+}
+
+/**
+ * The correction path for a posted bill: void it (kept on record with its
+ * number, job cost and GL cleared) and open a draft copy carrying the same
+ * lines, attachments, matched bank payments and applied vendor credits.
+ * Refused while the bill — or any payment matched to it — sits in a closed
+ * posting period.
+ */
+export async function voidAndCorrectReceiptAction(input: {
+  id: string;
+}): Promise<{ ok: boolean; error?: string; newId?: string }> {
+  const user = await requireAuth();
+  const role = await getActiveRole();
+  if (!canApproveReceipt(role)) {
+    return { ok: false, error: 'Only owners or accounting can correct a posted bill.' };
+  }
+  const companyId = await getActiveCompanyId();
+  const receipt = await getReceipt(companyId, input.id);
+  if (!receipt) return { ok: false, error: 'Bill not found.' };
+  if (receipt.status !== 'posted') {
+    return { ok: false, error: 'Only a posted bill can be voided and corrected.' };
+  }
+  const closedMsg = await closedPeriodMessageFor(
+    companyId,
+    [String(receipt.receiptDate)],
+    'This bill',
+  );
+  if (closedMsg) return { ok: false, error: closedMsg };
+  const payments = await listBankPaymentsForReceipt(companyId, receipt.id);
+  const paymentClosedMsg = await closedPeriodMessageFor(
+    companyId,
+    payments.map((p) => String(p.transactionDate)),
+    'A bank payment matched to this bill',
+  );
+  if (paymentClosedMsg) {
+    return {
+      ok: false,
+      error: `${paymentClosedMsg} Record the correction as a new bill or vendor credit dated in the open period instead.`,
+    };
+  }
+
+  const knownUsers = await getUserNamesByIds([user.id]);
+  let result: Awaited<ReturnType<typeof voidAndCopyPostedReceipt>>;
+  try {
+    result = await voidAndCopyPostedReceipt({
+      companyId,
+      receiptId: receipt.id,
+      userId: knownUsers.has(user.id) ? user.id : null,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      error: periodClosedMessage(e) ?? 'Could not void and correct this bill.',
+    };
+  }
+
+  // GL follows the documents: the void clears the original's entry, and the
+  // moved bank payments fall back to their own category until the copy posts.
+  try {
+    await syncReceiptGl(companyId, receipt.id);
+  } catch {
+    /* best-effort — Rebuild can resync */
+  }
+  for (const txnId of result.movedTransactionIds) {
+    try {
+      await syncBankTxnGl(companyId, txnId);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  for (const p of result.projectIds) revalidatePath(`/job-costing/${p}`);
+  revalidatePath('/banking/receipts');
+  revalidatePath(`/banking/receipts/${receipt.id}`);
+  if (receipt.purchaseOrderId) {
+    revalidatePath(`/purchase-orders/${receipt.purchaseOrderId}`);
+  }
+  return { ok: true, newId: result.newId };
 }
 
 export async function voidReceiptAction(input: {
@@ -932,7 +989,7 @@ export async function voidReceiptAction(input: {
   const receipt = await getReceipt(companyId, input.id);
   if (!receipt) return { ok: false, error: 'Receipt not found.' };
   if (receipt.status === 'posted') {
-    return { ok: false, error: 'Unpost the receipt before voiding.' };
+    return { ok: false, error: POSTED_BILL_FINAL };
   }
   await updateReceipt(companyId, receipt.id, { status: 'void' });
   revalidatePath('/banking/receipts');
@@ -951,8 +1008,9 @@ export async function deleteReceiptAction(input: {
   const companyId = await getActiveCompanyId();
   const receipt = await getReceipt(companyId, input.id);
   if (!receipt) return { ok: false, error: 'Receipt not found.' };
-  if (receipt.status === 'posted') {
-    return { ok: false, error: 'Unpost the receipt before deleting.' };
+  if (receipt.status === 'posted' || receipt.postedAt) {
+    // A bill that ever posted stays on record (voided, never deleted).
+    return { ok: false, error: POSTED_BILL_FINAL };
   }
   await softDeleteReceipt(companyId, input.id);
   revalidatePath('/banking/receipts');

@@ -4,7 +4,8 @@
 // inline forms. Lives on /credit-memos/[id] so the operator can drive
 // the credit's entire lifecycle from one page.
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +15,10 @@ import {
   refundCreditMemoAction,
   unapplyCreditMemoApplicationAction,
   updateCreditMemoAction,
+  voidAndReissueCreditMemoAction,
   voidCreditMemoAction,
   type ApplyCreditState,
+  type ReissueCreditState,
 } from '../actions';
 
 const initial: ApplyCreditState = {};
@@ -150,7 +153,7 @@ function ManagePanel({
             variant={tab === 'void' ? 'destructive' : 'outline'}
             onClick={() => setTab(tab === 'void' ? null : 'void')}
           >
-            Void credit
+            Void / reissue
           </Button>
         )}
       </div>
@@ -173,7 +176,87 @@ function ManagePanel({
         <RefundForm creditMemoId={creditMemoId} openBalance={openBalance} />
       )}
       {tab === 'void' && <VoidForm creditMemoId={creditMemoId} />}
+      {tab === 'void' && current && !current.hasDeductCO && (
+        <ReissueForm creditMemoId={creditMemoId} current={current} />
+      )}
     </div>
+  );
+}
+
+function ReissueForm({
+  creditMemoId,
+  current,
+}: {
+  creditMemoId: string;
+  current: CreditMemoCurrent;
+}) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(
+    voidAndReissueCreditMemoAction,
+    initial as ReissueCreditState,
+  );
+  useEffect(() => {
+    if (state.ok && state.newId) {
+      router.push(`/credit-memos/${state.newId}` as never);
+    }
+  }, [state.ok, state.newId, router]);
+  return (
+    <form
+      action={formAction}
+      onSubmit={(e) => {
+        if (
+          !window.confirm(
+            'Void this credit memo and issue a replacement with the figures below?\n\nThe original keeps its number and stays on record as void; the replacement takes the next number.',
+          )
+        ) {
+          e.preventDefault();
+        }
+      }}
+      className="space-y-3 border-t border-slate-200 pt-3"
+    >
+      {state.formError && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+          {state.formError}
+        </div>
+      )}
+      <input type="hidden" name="id" value={creditMemoId} />
+      <p className="text-xs text-slate-600">
+        <span className="font-medium text-slate-800">Void &amp; reissue</span>{' '}
+        — replace this credit with corrected figures. Same customer, project
+        and invoice link.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Issue date" error={state.errors?.issueDate?.[0]}>
+          <Input
+            name="issueDate"
+            type="date"
+            defaultValue={current.issueDate}
+            required
+          />
+        </Field>
+        <Field label="Amount" error={state.errors?.amount?.[0]}>
+          <Input
+            name="amount"
+            type="number"
+            step="0.01"
+            min="0.01"
+            defaultValue={current.amount.toFixed(2)}
+            required
+          />
+        </Field>
+        <Field label="Reason" error={state.errors?.reason?.[0]}>
+          <Input
+            name="reason"
+            defaultValue={current.reason}
+            maxLength={500}
+            required
+          />
+        </Field>
+      </div>
+      <Button type="submit" variant="outline" disabled={pending}>
+        {pending ? 'Reissuing…' : 'Void & reissue'}
+      </Button>
+    </form>
   );
 }
 
@@ -204,37 +287,28 @@ function EditForm({
         </div>
       )}
       <input type="hidden" name="creditMemoId" value={creditMemoId} />
+      <p className="text-xs text-slate-500">
+        Amount and issue date are final once issued — use “Void &amp;
+        reissue” to correct them.
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Field label="Issue date" error={state.errors?.issueDate?.[0]}>
+        <Field label="Issue date (final)" error={state.errors?.issueDate?.[0]}>
           <Input
             name="issueDate"
             type="date"
-            defaultValue={current.issueDate}
-            required
+            value={current.issueDate}
+            readOnly
+            className="bg-slate-50 text-slate-500"
           />
         </Field>
-        <Field
-          label={
-            current.hasDeductCO
-              ? 'Amount (locked — deduct CO)'
-              : current.appliedAmount > 0.005
-                ? `Amount (min ${current.appliedAmount.toFixed(2)} applied)`
-                : 'Amount'
-          }
-          error={state.errors?.amount?.[0]}
-        >
+        <Field label="Amount (final)" error={state.errors?.amount?.[0]}>
           <Input
             name="amount"
             type="number"
             step="0.01"
-            defaultValue={current.amount.toFixed(2)}
-            readOnly={current.hasDeductCO}
-            title={
-              current.hasDeductCO
-                ? 'This credit booked a matching deduct change order — void both and reissue to change the amount.'
-                : undefined
-            }
-            required
+            value={current.amount.toFixed(2)}
+            readOnly
+            className="bg-slate-50 text-slate-500"
           />
         </Field>
         <Field label="Invoice this credit relates to" error={state.errors?.invoiceId?.[0]}>

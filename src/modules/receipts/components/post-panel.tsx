@@ -9,13 +9,15 @@ import {
   postReceiptAction,
   rejectReceiptAction,
   submitReceiptAction,
-  unpostReceiptAction,
+  voidAndCorrectReceiptAction,
   voidReceiptAction,
 } from '../actions';
 
 export type PostPanelProps = {
   receiptId: string;
   status: 'draft' | 'submitted' | 'posted' | 'void';
+  /** A void bill that had been posted — kept on record, never deletable. */
+  wasPosted?: boolean;
   /** Precise reasons the receipt can't post yet (per line), empty when
    *  postable. Rendered as a checklist so the greyed-out button explains
    *  itself instead of leaving the operator to guess. */
@@ -79,17 +81,21 @@ export function ReceiptPostPanel(props: PostPanelProps) {
     });
   }
 
-  function onUnpost() {
+  function onVoidAndCorrect() {
     if (
       !confirm(
-        'Unpost this receipt? All linked job-cost entries will be removed.',
+        'Void this bill and open a corrected copy?\n\nThe original stays on record as void (its job cost and GL entry are cleared). An editable draft copy opens with the same lines and attachments; any bank payments or vendor credits move to the copy and settle it once you post it.',
       )
     )
       return;
     startTransition(async () => {
-      const res = await unpostReceiptAction({ id: props.receiptId });
-      if (!res.ok && res.error) alert(res.error);
-      router.refresh();
+      const res = await voidAndCorrectReceiptAction({ id: props.receiptId });
+      if (!res.ok) {
+        alert(res.error ?? 'Could not void and correct this bill.');
+        router.refresh();
+        return;
+      }
+      router.push(`/banking/receipts/${res.newId}` as never);
     });
   }
 
@@ -114,6 +120,14 @@ export function ReceiptPostPanel(props: PostPanelProps) {
 
   // ===== Void =====
   if (props.status === 'void') {
+    if (props.wasPosted) {
+      return (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          This bill was posted, then voided. It stays on record for the audit
+          trail and no longer counts toward job cost, AP or the P&amp;L.
+        </div>
+      );
+    }
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         This receipt is void. Delete to remove from the list, or recover via DB.
@@ -144,7 +158,8 @@ export function ReceiptPostPanel(props: PostPanelProps) {
           {props.approvedAt ? ` on ${props.approvedAt}` : ''}
           {props.approvedByName ? ` by ${props.approvedByName}` : ''}.
           Job-cost lines post to job costing; overhead lines (category only)
-          post to the P&amp;L.
+          post to the P&amp;L. Posted bills are final — to change one, void
+          it and post the corrected copy.
         </p>
         {props.canApprove && (
           <Button
@@ -152,9 +167,9 @@ export function ReceiptPostPanel(props: PostPanelProps) {
             variant="outline"
             size="sm"
             disabled={pending}
-            onClick={onUnpost}
+            onClick={onVoidAndCorrect}
           >
-            {pending ? '…' : 'Unpost'}
+            {pending ? 'Working…' : 'Void & correct'}
           </Button>
         )}
       </div>
