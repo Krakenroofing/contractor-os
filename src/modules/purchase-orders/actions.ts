@@ -45,6 +45,10 @@ import {
   periodClosedMessage,
 } from '@/lib/data/accounting-periods';
 import { syncGoodsReceiptGl } from '@/modules/accounting/lib/gl-posting';
+import {
+  upsertVendorItemNumber,
+  VendorNumberTakenError,
+} from '@/lib/data/vendor-item-numbers';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getDefaultLocation } from '@/lib/data/inventory-locations';
 import { createProjectDocument } from '@/lib/data/project-documents';
@@ -437,6 +441,8 @@ export async function setPoLineProductAction(input: {
   poId: string;
   lineId: string;
   inventoryItemId: string | null;
+  /** The PO vendor's own item number — remembered on the product. */
+  vendorItemNumber?: string;
 }): Promise<SetPoLineProductState> {
   const user = await requireAuth();
   const role = await getActiveRole();
@@ -448,6 +454,7 @@ export async function setPoLineProductAction(input: {
       poId: z.string().uuid(),
       lineId: z.string().uuid(),
       inventoryItemId: z.string().uuid().nullable(),
+      vendorItemNumber: z.string().trim().max(80).optional(),
     })
     .safeParse(input);
   if (!parsed.success) return { error: 'Invalid product link.' };
@@ -481,6 +488,26 @@ export async function setPoLineProductAction(input: {
     return {
       error: err instanceof Error ? err.message : 'Failed to link the product.',
     };
+  }
+  if (parsed.data.inventoryItemId && parsed.data.vendorItemNumber) {
+    const po = await getPurchaseOrder(companyId, parsed.data.poId);
+    if (po) {
+      try {
+        await upsertVendorItemNumber({
+          companyId,
+          vendorId: po.vendorId,
+          inventoryItemId: parsed.data.inventoryItemId,
+          vendorItemNumber: parsed.data.vendorItemNumber,
+        });
+      } catch (err) {
+        return {
+          error:
+            err instanceof VendorNumberTakenError
+              ? 'Product linked, but that vendor item number already belongs to a different product — fix it on the product page.'
+              : 'Product linked, but the vendor item number could not be saved.',
+        };
+      }
+    }
   }
   revalidatePath(`/purchase-orders/${parsed.data.poId}`);
   revalidatePath('/inventory');

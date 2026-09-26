@@ -11,6 +11,7 @@ import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listInventoryItems } from '@/lib/data/inventory-items';
+import { vendorNumbersByItem } from '@/lib/data/vendor-item-numbers';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import {
   getPurchaseOrder,
@@ -88,6 +89,7 @@ export default async function NewPurchaseOrderPage({
     projectId: l.projectId,
     label: `${l.name} · ${formatMoney(l.totalLandedCost)} total`,
   }));
+  const vendorNumbers = await vendorNumbersByItem(companyId);
   const products = (await listInventoryItems(companyId)).map((p) => ({
     id: p.id,
     name: p.name,
@@ -96,6 +98,7 @@ export default async function NewPurchaseOrderPage({
     unit: p.unit,
     defaultCost: Number(p.defaultCost),
     defaultCostCodeId: p.defaultCostCodeId ?? null,
+    vendorNumbers: vendorNumbers.get(p.id) ?? [],
   }));
 
   return (

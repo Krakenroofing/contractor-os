@@ -18,6 +18,11 @@ import { getLandedCost } from '@/lib/data/landed-costs';
 import { getPurchaseOrder, getPurchaseOrderLines } from '@/lib/data/purchase-orders';
 import { listPoReceiptsForPO } from '@/lib/data/po-receipts';
 import { listBillsForPo } from '@/lib/data/po-bills';
+import {
+  expectedCostCodeFor,
+  listCategoryCostCodes,
+  vendorNumbersByItem,
+} from '@/lib/data/vendor-item-numbers';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
@@ -83,6 +88,22 @@ export default async function PurchaseOrderDetailPage({
   const canLinkProducts = allowCreate && po.status !== 'void';
   const inventoryItems = await listInventoryItems(companyId);
   const itemNameById = new Map(inventoryItems.map((p) => [p.id, p.name]));
+  const itemById = new Map(inventoryItems.map((p) => [p.id, p]));
+  const [vendorNumbers, categoryDefaults] = await Promise.all([
+    vendorNumbersByItem(companyId),
+    listCategoryCostCodes(companyId),
+  ]);
+  const expectedCodeMap = await loadCostCodeMap(
+    companyId,
+    lines
+      .map((l) =>
+        expectedCostCodeFor(
+          l.inventoryItemId ? itemById.get(l.inventoryItemId) : undefined,
+          categoryDefaults,
+        ),
+      )
+      .filter((x): x is string => Boolean(x)),
+  );
   const products = canLinkProducts
     ? inventoryItems.map((p) => ({
         id: p.id,
@@ -92,6 +113,7 @@ export default async function PurchaseOrderDetailPage({
         unit: p.unit,
         defaultCost: Number(p.defaultCost),
         defaultCostCodeId: p.defaultCostCodeId ?? null,
+        vendorNumbers: vendorNumbers.get(p.id) ?? [],
       }))
     : [];
 
@@ -436,11 +458,24 @@ export default async function PurchaseOrderDetailPage({
                   inventoryItemName: l.inventoryItemId
                     ? (itemNameById.get(l.inventoryItemId) ?? null)
                     : null,
+                  expectedCostCode: (() => {
+                    const expected = expectedCostCodeFor(
+                      l.inventoryItemId
+                        ? itemById.get(l.inventoryItemId)
+                        : undefined,
+                      categoryDefaults,
+                    );
+                    return expected && expected !== l.costCodeId
+                      ? (expectedCodeMap.get(expected)?.code ?? null)
+                      : null;
+                  })(),
                 };
               })}
               poId={po.id}
               products={products}
               canEditProducts={canLinkProducts}
+              vendorId={po.vendorId}
+              vendorName={vendor?.name ?? null}
             />
           )}
         </CardContent>

@@ -13,19 +13,23 @@ export type InventoryMatchCandidate = {
   unit: string | null;
   defaultCost: number;
   defaultCostCodeId?: string | null;
+  /** Suppliers' own item numbers for this product. */
+  vendorNumbers?: Array<{ vendorId: string; number: string }>;
 };
 
 export type InventoryMatchResult = {
   candidate: InventoryMatchCandidate;
   score: number;
-  reason: 'sku' | 'name' | 'substring' | 'words';
+  reason: 'vendor_number' | 'sku' | 'name' | 'substring' | 'words';
 };
 
 export type MatchInput = {
   /** Free-text description from the source row (Excel/PDF). */
   description: string;
-  /** Optional SKU pulled from the source row. */
+  /** Optional SKU / item code pulled from the source row. */
   sku?: string | null;
+  /** The document's vendor — its item numbers match exactly. */
+  vendorId?: string | null;
 };
 
 function normalize(s: string | null | undefined): string {
@@ -60,6 +64,21 @@ function scoreOne(
   c: InventoryMatchCandidate,
 ): InventoryMatchResult | null {
   const qSku = normalize(input.sku ?? '');
+  if (input.vendorId) {
+    const mine = (c.vendorNumbers ?? [])
+      .filter((v) => v.vendorId === input.vendorId)
+      .map((v) => normalize(v.number))
+      .filter((n) => n !== '');
+    if (qSku !== '' && mine.includes(qSku)) {
+      return { candidate: c, score: 1, reason: 'vendor_number' };
+    }
+    // Supplier invoices often lead the description with their item number
+    // ("12345 GAF TIMBERLINE HDZ …") — a whole-token hit is near-certain.
+    const descTokens = new Set(normalize(input.description).split(' '));
+    if (mine.some((n) => n.length >= 3 && !n.includes(' ') && descTokens.has(n))) {
+      return { candidate: c, score: 0.98, reason: 'vendor_number' };
+    }
+  }
   const cSku = normalize(c.sku ?? '');
   if (qSku !== '' && cSku !== '' && qSku === cSku) {
     return { candidate: c, score: 1, reason: 'sku' };

@@ -14,6 +14,8 @@ export type ProductPickerOption = {
   // Phase 6.2: surfaced so the Excel/PDF upload dialogs can pre-fill the
   // matched line's cost code. The picker itself ignores this field.
   defaultCostCodeId?: string | null;
+  /** Suppliers' own item numbers for this product (roadmap P4). */
+  vendorNumbers?: Array<{ vendorId: string; number: string }>;
 };
 
 export type SelectedProduct = {
@@ -45,7 +47,11 @@ export function ProductPicker({
   onItemSelected,
   placeholder = '— Search product —',
   defaultNewName = '',
+  vendorId,
 }: {
+  /** The document's vendor: their products list first, searchable (and
+   *  labeled) by the vendor's own item number. */
+  vendorId?: string | null;
   name?: string;
   value: string;
   options: ProductPickerOption[];
@@ -66,6 +72,20 @@ export function ProductPicker({
     ...localOptions,
     ...options.filter((o) => !localOptions.some((l) => l.id === o.id)),
   ];
+  const vendorNumberOf = (o: ProductPickerOption) =>
+    vendorId
+      ? (o.vendorNumbers ?? [])
+          .filter((v) => v.vendorId === vendorId)
+          .map((v) => v.number)
+          .join(' / ')
+      : '';
+  // The vendor's own catalog first (stable order within each group).
+  const ordered = vendorId
+    ? [
+        ...merged.filter((o) => vendorNumberOf(o)),
+        ...merged.filter((o) => !vendorNumberOf(o)),
+      ]
+    : merged;
 
   return (
     <>
@@ -106,12 +126,16 @@ export function ProductPicker({
         {/* Kept at the top (not buried under the whole catalog) so adding a
             product is discoverable without scrolling hundreds of rows. */}
         <option value={ADD_NEW}>+ Add new product…</option>
-        {merged.map((o) => (
-          <option key={o.id} value={o.id}>
-            {[o.category, o.name].filter(Boolean).join(' • ')}
-            {o.sku ? ` (${o.sku})` : ''}
-          </option>
-        ))}
+        {ordered.map((o) => {
+          const vn = vendorNumberOf(o);
+          return (
+            <option key={o.id} value={o.id}>
+              {vn ? `#${vn} · ` : ''}
+              {[o.category, o.name].filter(Boolean).join(' • ')}
+              {o.sku ? ` (${o.sku})` : ''}
+            </option>
+          );
+        })}
       </Select>
 
       <QuickAddProductDrawer

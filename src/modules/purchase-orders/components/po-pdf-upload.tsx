@@ -583,7 +583,7 @@ function PreviewPhase({
     initialEditable?.lines ??
     extracted.lines.map((l) => {
       const top = matchInventoryItem(
-        { description: l.description },
+        { description: l.description, vendorId },
         products,
         { topN: 1 },
       )[0];
@@ -767,7 +767,7 @@ function PreviewPhase({
             <TableBody>
               {lines.map((l) => {
                 const suggestions = matchInventoryItem(
-                  { description: l.description },
+                  { description: l.description, vendorId },
                   allProducts,
                   { topN: 5 },
                 );

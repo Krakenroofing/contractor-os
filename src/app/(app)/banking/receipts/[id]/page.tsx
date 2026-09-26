@@ -35,6 +35,8 @@ import {
 import { ReceiptPostPanel } from '@/modules/receipts/components/post-panel';
 import { ThreeWayMatchPanel } from '@/modules/receipts/components/three-way-match-panel';
 import { analyzeBillMatch, tolerancesOf } from '@/lib/data/three-way-match';
+import { findDuplicatesForBill } from '@/lib/data/duplicate-bills';
+import { visibleCompanyIds } from '@/lib/data/visible-companies';
 import { ReclassifyPanel } from '@/modules/receipts/components/reclassify-panel';
 import { OcrPanel } from '@/modules/receipts/components/ocr-panel';
 import { isOcrConfigured } from '@/lib/ocr/document-ai';
@@ -216,6 +218,25 @@ export default async function ReceiptDetailPage({
     ...p,
     bankAccountName: bankAccountName.get(p.bankAccountId) ?? null,
   }));
+
+  // Same supplier invoice already entered — in this company or the other
+  // one (the $421.32 ABC invoice booked in both Kraken and TRB).
+  const invoiceDupes = await findDuplicatesForBill(
+    await visibleCompanyIds(),
+    receipt.id,
+    receipt.vendorInvoiceNumber,
+  );
+  const invoiceDupWarning =
+    invoiceDupes.length > 0
+      ? `Invoice #${receipt.vendorInvoiceNumber} looks already entered: ${invoiceDupes
+          .map(
+            (d) =>
+              `${d.companyId === company.id ? 'this company' : d.companyName} — ${d.vendorName ?? 'no vendor'}, $${d.total.toFixed(2)}, ${d.receiptDate} (${d.status})`,
+          )
+          .join('; ')}.`
+      : null;
+  const combinedDupWarning =
+    [invoiceDupWarning, dupWarning].filter(Boolean).join(' ') || null;
 
   // 3-way match vs the PO and its goods receipts (GR/IR POs only).
   const billMatch = await analyzeBillMatch(
@@ -463,8 +484,8 @@ export default async function ReceiptDetailPage({
                 status={receipt.status}
                 wasPosted={Boolean(receipt.postedAt)}
                 postBlockers={postBlockers}
-                hasPotentialDuplicate={Boolean(dupWarning)}
-                potentialDuplicateMessage={dupWarning ?? undefined}
+                hasPotentialDuplicate={Boolean(combinedDupWarning)}
+                potentialDuplicateMessage={combinedDupWarning ?? undefined}
                 canApprove={canApprove}
                 canSubmit={canSubmit}
                 submittedAt={

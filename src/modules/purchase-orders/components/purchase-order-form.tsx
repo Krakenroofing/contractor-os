@@ -570,6 +570,7 @@ export function PurchaseOrderForm({
                 <ProductPicker
                   value={line.inventoryItemId}
                   options={products}
+                  vendorId={vendorId}
                   defaultNewName={line.description}
                   onItemSelected={(picked) => {
                     if (!picked) {
@@ -591,8 +592,15 @@ export function PurchaseOrderForm({
                           ? picked.defaultCost.toString()
                           : fallbackFromCostCode || line.unitCost
                         : line.unitCost;
+                    const itemDefaultCode =
+                      products.find((p) => p.id === picked.id)
+                        ?.defaultCostCodeId ?? '';
                     updateLine(line.rowId, {
                       inventoryItemId: picked.id,
+                      // The product's default cost code fills an empty line.
+                      ...(line.costCodeId === '' && itemDefaultCode
+                        ? { costCodeId: itemDefaultCode }
+                        : {}),
                       description:
                         line.description.trim() === '' ? picked.name : line.description,
                       unit:
@@ -603,6 +611,7 @@ export function PurchaseOrderForm({
                     });
                   }}
                 />
+                <div className="min-w-0">
                 <CostCodePicker
                   value={line.costCodeId}
                   options={allCostCodes}
@@ -620,6 +629,21 @@ export function PurchaseOrderForm({
                     ])
                   }
                 />
+                {(() => {
+                  const expected = line.inventoryItemId
+                    ? products.find((p) => p.id === line.inventoryItemId)
+                        ?.defaultCostCodeId
+                    : null;
+                  if (!expected || !line.costCodeId || expected === line.costCodeId)
+                    return null;
+                  const code = allCostCodes.find((c) => c.id === expected)?.code;
+                  return (
+                    <p className="mt-0.5 text-[11px] text-amber-700">
+                      ⚠ This product normally posts to {code ?? 'another code'}.
+                    </p>
+                  );
+                })()}
+                </div>
                 {/* Split-PO job override: this line's cost books to the
                     selected job instead of the PO's project — one order,
                     many jobs (50 rolls to A, 50 to B). */}
@@ -765,6 +789,7 @@ export function PurchaseOrderForm({
         products={products}
         costCodes={costCodes}
         onInsert={appendImported}
+        vendorId={vendorId}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

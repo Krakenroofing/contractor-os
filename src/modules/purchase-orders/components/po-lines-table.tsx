@@ -39,6 +39,9 @@ export type PoLineRow = {
   lineTotal: string;
   inventoryItemId: string;
   inventoryItemName: string | null;
+  /** The linked product's (or its category's) default cost code when the
+   *  line is coded differently — shown as a warning. */
+  expectedCostCode?: string | null;
 };
 
 export function PoLinesTable({
@@ -46,7 +49,11 @@ export function PoLinesTable({
   poId,
   products,
   canEditProducts,
+  vendorId,
+  vendorName,
 }: {
+  vendorId?: string;
+  vendorName?: string | null;
   lines: PoLineRow[];
   poId: string;
   /** Catalog for the inline product link; empty + !canEditProducts hides the column's editor. */
@@ -136,6 +143,14 @@ export function PoLinesTable({
             <TableRow key={l.id}>
               <TableCell className="font-mono text-xs text-slate-700">
                 {l.costCode}
+                {l.expectedCostCode && (
+                  <span
+                    className="ml-1 cursor-help text-amber-600"
+                    title={`This product normally posts to ${l.expectedCostCode}. Check the cost code.`}
+                  >
+                    ⚠ {l.expectedCostCode}?
+                  </span>
+                )}
               </TableCell>
               <TableCell className="text-xs">
                 {l.jobOverridden ? (
@@ -159,6 +174,8 @@ export function PoLinesTable({
                     itemName={l.inventoryItemName}
                     description={l.description}
                     products={products}
+                    vendorId={vendorId}
+                    vendorName={vendorName}
                   />
                 ) : (
                   <span className="text-slate-600">

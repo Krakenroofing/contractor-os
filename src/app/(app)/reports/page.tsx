@@ -73,6 +73,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
         'Goods received vs vendor bills per PO line — received-not-billed and billed-not-received, tied to the GR/IR clearing account.',
     },
     {
+      href: '/reports/duplicate-bills',
+      label: 'Duplicate Supplier Invoices',
+      description:
+        'The same vendor invoice number entered twice — in one company or across Kraken and TRB — with the same vendor or amount.',
+    },
+    {
       href: '/reports/document-numbers',
       label: 'Document Number Audit',
       description:

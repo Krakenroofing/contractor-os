@@ -7,6 +7,7 @@ import { getActiveRole } from '@/lib/active-role';
 import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listInventoryItems } from '@/lib/data/inventory-items';
+import { vendorNumbersByItem } from '@/lib/data/vendor-item-numbers';
 import { getCustomer } from '@/lib/data/customers';
 import { listProjects } from '@/lib/data/projects';
 import { listVendors } from '@/lib/data/vendors';
@@ -37,6 +38,7 @@ export default async function UploadPurchaseOrderPage() {
     code: c.code,
     description: c.description,
   }));
+  const vendorNumbers = await vendorNumbersByItem(companyId);
   const products = (await listInventoryItems(companyId)).map((p) => ({
     id: p.id,
     name: p.name,
@@ -45,6 +47,7 @@ export default async function UploadPurchaseOrderPage() {
     unit: p.unit,
     defaultCost: Number(p.defaultCost),
     defaultCostCodeId: p.defaultCostCodeId ?? null,
+    vendorNumbers: vendorNumbers.get(p.id) ?? [],
   }));
 
   return (

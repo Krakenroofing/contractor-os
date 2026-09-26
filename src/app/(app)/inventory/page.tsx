@@ -6,6 +6,9 @@ import { canCreate } from '@/lib/permissions';
 import { listInventoryItems } from '@/lib/data/inventory-items';
 import { getOnHandMap } from '@/lib/data/inventory-movements';
 import { ProductsListClient } from '@/modules/inventory/components/products-list-client';
+import { CategoryCostCodesCard } from '@/modules/inventory/components/category-cost-codes-card';
+import { listCategoryCostCodes } from '@/lib/data/vendor-item-numbers';
+import { listCostCodes } from '@/lib/data/cost-codes';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +34,28 @@ export default async function InventoryPage() {
   }));
 
   const activeCount = rows.filter((r) => !r.archived).length;
+
+  // Category defaults (roadmap P4) — one row per category in use.
+  const [categoryDefaults, costCodes] = await Promise.all([
+    listCategoryCostCodes(companyId),
+    listCostCodes(companyId),
+  ]);
+  const catCounts = new Map<string, number>();
+  for (const it of items) {
+    const c = it.category?.trim();
+    if (c && !it.archivedAt) catCounts.set(c, (catCounts.get(c) ?? 0) + 1);
+  }
+  const categories = [...catCounts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([category, count]) => ({
+      category,
+      count,
+      costCodeId: categoryDefaults.get(category.toLowerCase()) ?? null,
+    }));
+  const costCodeOptions = costCodes.map((c) => ({
+    id: c.id,
+    label: `${c.code} — ${c.description}`,
+  }));
 
   return (
     <div className="p-8 space-y-6 max-w-7xl">
@@ -60,6 +85,12 @@ export default async function InventoryPage() {
           )}
         </div>
       </header>
+
+      <CategoryCostCodesCard
+        categories={categories}
+        costCodes={costCodeOptions}
+        canEdit={allowCreate}
+      />
 
       <ProductsListClient products={rows} />
     </div>

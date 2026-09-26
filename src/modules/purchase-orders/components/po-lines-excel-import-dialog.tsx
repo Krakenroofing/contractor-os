@@ -54,7 +54,10 @@ export function PoLinesExcelImportDialog({
   products,
   costCodes,
   onInsert,
+  vendorId,
 }: {
+  /** The PO vendor — its item numbers match exactly. */
+  vendorId?: string | null;
   open: boolean;
   onClose: () => void;
   products: InventoryMatchCandidate[];
@@ -83,7 +86,7 @@ export function PoLinesExcelImportDialog({
       const parsed = parsePoLinesBuffer(buf);
       const preview: PreviewRow[] = parsed.rows.map((r) => {
         const top = matchInventoryItem(
-          { description: r.description, sku: r.sku },
+          { description: r.description, sku: r.sku, vendorId },
           products,
           { topN: 1 },
         )[0];
@@ -233,7 +236,7 @@ export function PoLinesExcelImportDialog({
                   <TableBody>
                     {rows.map((r) => {
                       const suggestions = matchInventoryItem(
-                        { description: r.description, sku: r.sku },
+                        { description: r.description, sku: r.sku, vendorId },
                         products,
                         { topN: 5 },
                       );

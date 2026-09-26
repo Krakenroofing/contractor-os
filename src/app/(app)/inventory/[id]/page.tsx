@@ -28,6 +28,9 @@ import { poReceiptLines, poReceipts, purchaseOrders } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { ArchiveProductForm } from '@/modules/inventory/components/archive-product-form';
 import { AdjustOnHandForm } from '@/modules/inventory/components/adjust-on-hand-form';
+import { VendorItemNumbersCard } from '@/modules/inventory/components/vendor-item-numbers-card';
+import { listVendorNumbersForItem } from '@/lib/data/vendor-item-numbers';
+import { listVendors } from '@/lib/data/vendors';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +92,13 @@ export default async function ProductDetailPage({
   const defaultLocation = locations.find((l) => l.isDefault);
   const locationMap = new Map(locations.map((l) => [l.id, l.name] as const));
   const onHandByLocation = await getOnHandByItemAndLocation(companyId, item.id);
+  const [vendorNumberRows, vendorList] = await Promise.all([
+    listVendorNumbersForItem(companyId, item.id),
+    listVendors(companyId),
+  ]);
+  const vendorOptions = vendorList
+    .map((v) => ({ id: v.id, name: v.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="p-8 max-w-5xl space-y-6">
@@ -125,6 +135,18 @@ export default async function ProductDetailPage({
           </div>
         )}
       </header>
+
+      <VendorItemNumbersCard
+        itemId={item.id}
+        rows={vendorNumberRows.map((r) => ({
+          id: r.id,
+          vendorName: r.vendorName,
+          number: r.vendorItemNumber,
+          description: r.vendorDescription,
+        }))}
+        vendors={vendorOptions}
+        canEdit={allowEdit}
+      />
 
       <Card>
         <CardHeader>

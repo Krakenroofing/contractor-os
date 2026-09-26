@@ -42,6 +42,7 @@ export * from './period-pay-overrides';
 export * from './period-paystub-snapshots';
 export * from './paystub-adjustments';
 export * from './inventory-items';
+export * from './vendor-item-numbers';
 export * from './inventory-movements';
 export * from './inventory-locations';
 export * from './credit-memos';

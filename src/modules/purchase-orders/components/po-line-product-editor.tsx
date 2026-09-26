@@ -21,7 +21,13 @@ export function PoLineProductEditor({
   itemName,
   description,
   products,
+  vendorId,
+  vendorName,
 }: {
+  /** The PO's vendor — their products list first, and their item number
+   *  for this product can be saved to the catalog while linking. */
+  vendorId?: string;
+  vendorName?: string | null;
   poId: string;
   lineId: string;
   itemId: string;
@@ -33,6 +39,7 @@ export function PoLineProductEditor({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(itemId);
+  const [vendorNumber, setVendorNumber] = useState('');
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +50,7 @@ export function PoLineProductEditor({
         poId,
         lineId,
         inventoryItemId: value || null,
+        vendorItemNumber: vendorNumber.trim() || undefined,
       });
       if (res.error) {
         setError(res.error);
@@ -85,9 +93,20 @@ export function PoLineProductEditor({
       <ProductPicker
         value={value}
         options={products}
+        vendorId={vendorId}
         defaultNewName={description}
         onItemSelected={(picked) => setValue(picked?.id ?? '')}
       />
+      {vendorId && value && (
+        <input
+          type="text"
+          value={vendorNumber}
+          maxLength={80}
+          onChange={(e) => setVendorNumber(e.target.value)}
+          placeholder={`${vendorName ?? 'Vendor'} item # (optional — saved to the catalog)`}
+          className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+        />
+      )}
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" onClick={save} disabled={pending}>
           {pending ? 'Saving…' : 'Save'}
