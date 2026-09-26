@@ -119,6 +119,9 @@ export function InvoiceEditForm({
     updateInvoiceFullAction,
     initialState,
   );
+  // Issued invoices are final: money, lines and date lock; text fields and
+  // reporting classification stay editable (the server enforces the same).
+  const locked = initial.status !== 'draft';
 
   const [lines, setLines] = useState<LineDraft[]>(
     initial.lines.map((l) => ({
@@ -132,7 +135,7 @@ export function InvoiceEditForm({
       isDeduction: !l.isProjectCredit && (Number(l.unitCost) || 0) < 0,
     })),
   );
-  const [number, setNumber] = useState(initial.number);
+  const number = initial.number;
   // Only mutable when the linked project was deleted (projectLinkBroken).
   const [projectId, setProjectId] = useState(initial.projectId);
   const [billingType, setBillingType] = useState<BillingType>(initial.billingType);
@@ -286,26 +289,28 @@ export function InvoiceEditForm({
           live project below to re-link it — the project field locks again
           once a valid project is assigned.
         </div>
+      ) : locked ? (
+        <div className="rounded-md bg-slate-50 border border-slate-300 px-4 py-3 text-sm text-slate-800">
+          🔒 <strong>This invoice has been issued ({initial.status}) — its lines,
+          amounts, date and number are final.</strong> You can still update the
+          notes, terms, due date, PO number, billing label, template, and which
+          contract bucket it bills against. To correct the money, issue a credit
+          memo, or use <strong>Void &amp; reissue</strong> on the invoice page.
+        </div>
       ) : (
         <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-          Editing existing invoice. <strong>Customer</strong> and{' '}
+          Editing a draft invoice. <strong>Customer</strong> and{' '}
           <strong>project</strong> are locked — to move this invoice, void it and
-          create a new one. The invoice number can be changed (it must stay unique).
-          After saving, balance and status auto-derive from existing payments
-          against the new total.
+          create a new one. The invoice number is system-assigned and can&apos;t
+          change. Once the invoice is sent, its amounts become final.
         </div>
       )}
 
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Invoice number" error={err('number')} required>
-            <Input
-              name="number"
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              required
-            />
+          <Field label="Invoice number (system-assigned)" error={err('number')}>
+            <Input name="number" value={number} readOnly />
           </Field>
           <Field label="Status (derived from payments)">
             <Input value={initial.status} readOnly disabled />
@@ -352,12 +357,17 @@ export function InvoiceEditForm({
           <Field label="Customer (locked)">
             <Input value={initial.customerLabel} readOnly disabled />
           </Field>
-          <Field label="Invoice date" error={err('invoiceDate')} required>
+          <Field
+            label={locked ? 'Invoice date (final)' : 'Invoice date'}
+            error={err('invoiceDate')}
+            required
+          >
             <Input
               name="invoiceDate"
               type="date"
               value={invoiceDate}
               onChange={(e) => setInvoiceDate(e.target.value)}
+              readOnly={locked}
               required
             />
           </Field>
@@ -410,9 +420,12 @@ export function InvoiceEditForm({
         </div>
       </fieldset>
 
-      <fieldset className="border border-slate-200 rounded-lg p-4 space-y-3">
+      <fieldset
+        disabled={locked}
+        className={`border border-slate-200 rounded-lg p-4 space-y-3 ${locked ? 'opacity-70' : ''}`}
+      >
         <legend className="px-2 text-sm font-medium text-slate-700">
-          Billing breakdown
+          Billing breakdown{locked ? ' (final)' : ''}
         </legend>
         <p className="text-xs text-slate-500">
           To credit an amount off this bill (a deposit already paid, a
@@ -587,6 +600,7 @@ export function InvoiceEditForm({
                 name="taxAmount"
                 inputMode="decimal"
                 value={taxDisplay}
+                readOnly={locked}
                 onChange={(e) => {
                   setTaxAmount(e.target.value);
                   setTaxAmountManual(true);
@@ -621,6 +635,7 @@ export function InvoiceEditForm({
               name="retainagePercent"
               inputMode="decimal"
               value={retainagePercent}
+              readOnly={locked}
               onChange={(e) => {
                 setRetainagePercent(e.target.value);
                 setRetainageAmountManual(false);
@@ -640,6 +655,7 @@ export function InvoiceEditForm({
               name="retainageAmount"
               inputMode="decimal"
               value={retainageDisplay}
+              readOnly={locked}
               onChange={(e) => {
                 setRetainageAmount(e.target.value);
                 setRetainageAmountManual(true);

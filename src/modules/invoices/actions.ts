@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { guardPeriod } from '@/lib/period-guard';
+import { logDocumentNumber } from '@/lib/data/document-numbers';
 import { getActiveCompanyId } from '@/lib/active-company';
 import { getActiveRole } from '@/lib/active-role';
 import { requireAuth } from '@/lib/auth';
@@ -27,6 +28,7 @@ import {
   setInvoiceRevenueCategory,
   updateInvoiceFull,
   updateInvoiceHeader,
+  updateInvoiceTexts,
 } from '@/lib/data/invoices';
 import { getAccountingAccount } from '@/lib/data/accounting-accounts';
 import { syncInvoiceGl } from '@/modules/accounting/lib/gl-posting';
@@ -206,6 +208,35 @@ export async function createInvoiceAction(
   if (coErr) return { errors: { changeOrderId: [coErr] } };
   const companyId = await getActiveCompanyId();
 
+  // Numbers are system-assigned by the database counter. The only way to
+  // supply one is a HISTORICAL invoice (re-entering a QuickBooks-era
+  // invoice under its original number) — owner/accounting only, never a
+  // duplicate of a live invoice, and logged as an external number.
+  const wantsExternal = formData.get('externalNumber') === 'on';
+  let invoiceNumber = '';
+  if (wantsExternal) {
+    if (role !== 'owner' && role !== 'accounting') {
+      return {
+        formError:
+          'Only the owner or accounting can enter a historical invoice number.',
+      };
+    }
+    invoiceNumber = (data.number ?? '').trim();
+    if (!invoiceNumber) {
+      return { errors: { number: ['Enter the invoice’s original number.'] } };
+    }
+    const clash = (await listInvoices(companyId)).find(
+      (i) => i.number === invoiceNumber && i.status !== 'void',
+    );
+    if (clash) {
+      return {
+        errors: {
+          number: ['That number is already used by an invoice that isn’t void.'],
+        },
+      };
+    }
+  }
+
   // When the user leaves the template dropdown on "— Default —", auto-attach
   // the company's default template so VAT / labels / branding apply without
   // the user having to pick the template manually on every invoice.
@@ -269,7 +300,7 @@ export async function createInvoiceAction(
   let createdId: string;
   try {
     const inv = await createInvoice(companyId, {
-      number: data.number,
+      number: invoiceNumber,
       projectId: data.projectId,
       proposalId: emptyToNull(data.proposalId ?? null),
       changeOrderId: emptyToNull(data.changeOrderId ?? null),
@@ -300,6 +331,18 @@ export async function createInvoiceAction(
       lines: persistLines,
     });
     createdId = inv.id;
+    if (wantsExternal) {
+      const user = await requireAuth();
+      await logDocumentNumber({
+        companyId,
+        docType: 'invoice',
+        number: inv.number,
+        event: 'external',
+        documentId: inv.id,
+        userName: user.name || user.email,
+        note: 'Historical invoice entered under its original number',
+      });
+    }
   } catch (err) {
     if (err instanceof DuplicateInvoiceNumberError) {
       return { errors: { number: ['That invoice number is already used'] } };
@@ -538,24 +581,9 @@ export async function updateInvoiceFullAction(
   if (existing.status === 'void') {
     return { formError: 'Voided invoices cannot be edited.' };
   }
-  // Invoice number is editable, but must stay unique within the company.
-  // (Customer/project are still locked — moving an invoice is void+recreate.)
-  const newNumber = data.number.trim();
-  if (existing.number !== newNumber) {
-    if (newNumber === '') {
-      return { errors: { number: ['Invoice number is required.'] } };
-    }
-    const clash = (await listInvoices(companyId)).find(
-      (i) => i.id !== data.id && i.number === newNumber,
-    );
-    if (clash) {
-      return {
-        errors: {
-          number: ['That invoice number is already used by another invoice.'],
-        },
-      };
-    }
-  }
+  // Numbers are system-assigned and final — the edit form shows it read-only
+  // and anything submitted is ignored.
+  const newNumber = existing.number;
   // The project link is normally immutable (void + recreate to move an
   // invoice). Exception: when the linked project has been deleted the invoice
   // is orphaned — reconciliation flags it and nothing else can repair it — so
@@ -575,6 +603,48 @@ export async function updateInvoiceFullAction(
       return { errors: { projectId: ['Pick a valid project.'] } };
     }
     projectReassigned = true;
+  }
+
+  // Posted (sent / partial / paid / overdue) invoices are FINAL: amounts,
+  // lines, date and number can't change (roadmap Priority 1). What still
+  // saves is presentation and reporting classification — notes, terms,
+  // due date, PO #, billing label, template, billing type, and which
+  // contract bucket (CO) it rolls up under — plus the orphaned-project
+  // re-link repair. Money corrections go through a credit memo, or
+  // Void & reissue.
+  if (existing.status !== 'draft') {
+    try {
+      await updateInvoiceTexts(companyId, data.id, {
+        dueDate: data.dueDate && data.dueDate !== '' ? data.dueDate : null,
+        notes: data.notes && data.notes !== '' ? data.notes : null,
+        termsOverride:
+          data.termsOverride && data.termsOverride !== '' ? data.termsOverride : null,
+        purchaseOrderNumber:
+          data.purchaseOrderNumber && data.purchaseOrderNumber !== ''
+            ? data.purchaseOrderNumber
+            : null,
+        billingLabel:
+          data.billingLabel && data.billingLabel !== '' ? data.billingLabel : null,
+        expectedRetainageReleaseDate:
+          data.expectedRetainageReleaseDate && data.expectedRetainageReleaseDate !== ''
+            ? data.expectedRetainageReleaseDate
+            : null,
+        billingType: data.billingType,
+        templateId: emptyToNull(data.templateId ?? null) ?? existing.templateId,
+        changeOrderId:
+          !projectReassigned && data.changeOrderId && data.changeOrderId.trim() !== ''
+            ? data.changeOrderId
+            : null,
+        ...(projectReassigned ? { projectId: data.projectId } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      return { formError: `Failed to save invoice: ${message}` };
+    }
+    revalidatePath('/invoices');
+    revalidatePath(`/invoices/${data.id}`);
+    if (existing.projectId) revalidatePath(`/projects/${existing.projectId}`);
+    redirect(`/invoices/${data.id}`);
   }
 
   // Recompute totals server-authoritatively, exactly as createInvoiceAction does.
@@ -735,6 +805,17 @@ export async function deleteDraftInvoiceAction(
           'Cannot delete: invoice has payments or retainage releases attached. Void it instead.',
       };
     }
+    // The number was issued — record why it's missing so the sequence
+    // audit can account for every number.
+    const user = await requireAuth();
+    await logDocumentNumber({
+      companyId,
+      docType: 'invoice',
+      number: existing.number,
+      event: 'deleted_draft',
+      documentId: existing.id,
+      userName: user.name || user.email,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return { formError: `Failed to delete invoice: ${message}` };

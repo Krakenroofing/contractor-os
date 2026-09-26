@@ -83,7 +83,9 @@ export const invoiceLineSchema = z.object({
 });
 
 export const invoiceFormSchema = z.object({
-  number: z.string().min(1, 'Invoice number is required').max(50),
+  // System-assigned on create (database counter); only an owner/accounting
+  // "historical invoice" entry supplies one. Blank = assign the next.
+  number: z.string().max(50).optional().or(z.literal('')).transform((v) => v ?? ''),
   projectId: z.string().uuid('Pick a project'),
   proposalId: optionalString,
   changeOrderId: optionalString,

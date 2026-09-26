@@ -254,6 +254,36 @@ export async function updateInvoiceHeader(
 }
 
 /**
+ * Presentation / classification fields only — what may still change on a
+ * posted (non-draft) invoice. Never touches money, lines, date or number.
+ */
+export async function updateInvoiceTexts(
+  companyId: string,
+  id: string,
+  patch: {
+    dueDate: string | null;
+    notes: string | null;
+    termsOverride: string | null;
+    purchaseOrderNumber: string | null;
+    billingLabel: string | null;
+    expectedRetainageReleaseDate: string | null;
+    billingType: Invoice['billingType'];
+    templateId: string | null;
+    changeOrderId: string | null;
+    projectId?: string;
+  },
+): Promise<Invoice | undefined> {
+  if (!isDatabaseConfigured()) return undefined;
+  const db = getDb()!;
+  const rows = await db
+    .update(invoices)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(and(eq(invoices.id, id), eq(invoices.companyId, companyId)))
+    .returning();
+  return rows[0];
+}
+
+/**
  * Bulk-set the revenue category on many invoices in one UPDATE. Powers the
  * "Categorize revenue" tool. Reporting tag only — doesn't touch money/status.
  * Returns the count updated.

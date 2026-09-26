@@ -252,7 +252,11 @@ export function InvoiceForm({
   defaultDueDate,
   companyVatRatePercent = 0,
   proofreadAvailable = false,
+  canUseExternalNumber = false,
 }: {
+  /** Owner / accounting: may enter a historical invoice's original number
+   *  instead of taking the next system number. */
+  canUseExternalNumber?: boolean;
   projects: InvoiceFormProjectOption[];
   proposals: InvoiceFormProposalOption[];
   changeOrders: InvoiceFormChangeOrderOption[];
@@ -379,7 +383,9 @@ export function InvoiceForm({
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
   const [billingLabel, setBillingLabel] = useState('');
   // Header fields controlled so a saved draft restores them.
-  const [invoiceNumber, setInvoiceNumber] = useState(defaultNumber);
+  // System-assigned unless this is a historical entry (external number).
+  const [externalNumber, setExternalNumber] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [status, setStatus] = useState<string>('draft');
   const [proposalId, setProposalId] = useState<string>('');
   const [changeOrderId, setChangeOrderId] = useState<string>('');
@@ -770,13 +776,45 @@ export function InvoiceForm({
       <fieldset className="border border-slate-200 rounded-lg p-4 space-y-4">
         <legend className="px-2 text-sm font-medium text-slate-700">Invoice header</legend>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Field label="Invoice number" error={err('number')} required>
-            <Input
-              name="number"
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-              required
-            />
+          <Field
+            label={
+              externalNumber
+                ? 'Original invoice number (historical)'
+                : 'Invoice number (assigned when saved)'
+            }
+            error={err('number')}
+          >
+            {externalNumber ? (
+              <>
+                <input type="hidden" name="externalNumber" value="on" />
+                <Input
+                  name="number"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  placeholder="e.g. 1006"
+                  required
+                />
+              </>
+            ) : (
+              <>
+                <input type="hidden" name="number" value="" />
+                <Input value={defaultNumber ? `${defaultNumber} (next)` : 'Next in sequence'} readOnly />
+              </>
+            )}
+            {canUseExternalNumber && (
+              <label className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={externalNumber}
+                  onChange={(e) => {
+                    setExternalNumber(e.target.checked);
+                    setInvoiceNumber('');
+                  }}
+                />
+                Historical invoice — keep its original number (e.g. re-entering a
+                QuickBooks invoice)
+              </label>
+            )}
           </Field>
           <Field label="Status" error={err('status')}>
             <Select

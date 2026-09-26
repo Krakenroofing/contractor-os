@@ -26,7 +26,6 @@ import {
   type CreditMemoApplication,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
-import { nextNumberInSequence } from '@/lib/next-number';
 
 // Method marker on the contra invoice_payment a credit application writes.
 const CREDIT_MEMO_PAYMENT_METHOD = 'credit_memo';
@@ -98,23 +97,6 @@ export type CreateCreditMemoInput = {
   changeOrderId?: string | null;
 };
 
-/**
- * Generate the next credit-memo number for this company, following the
- * sequence already in use ("CM-YYYY-NNN" for fresh companies).
- */
-async function nextCreditMemoNumber(companyId: string): Promise<string> {
-  if (!isDatabaseConfigured()) return 'CM-DEMO-001';
-  const db = getDb()!;
-  const rows = await db
-    .select({ number: creditMemos.number, createdAt: creditMemos.createdAt })
-    .from(creditMemos)
-    .where(eq(creditMemos.companyId, companyId));
-  return nextNumberInSequence(
-    rows,
-    `CM-${new Date().getFullYear()}-001`,
-  );
-}
-
 export async function createCreditMemo(
   companyId: string,
   input: CreateCreditMemoInput,
@@ -123,7 +105,6 @@ export async function createCreditMemo(
   if (!(input.amount > 0)) {
     throw new Error('Credit memo amount must be positive.');
   }
-  const number = await nextCreditMemoNumber(companyId);
   const [row] = await db
     .insert(creditMemos)
     .values({
@@ -132,7 +113,9 @@ export async function createCreditMemo(
       projectId: input.projectId,
       invoiceId: input.invoiceId,
       changeOrderId: input.changeOrderId ?? null,
-      number,
+      // Blank → the database counter assigns CM-YYYY-NNN inside this insert
+      // (gapless; migration 2026-09-26b_document_numbering.sql).
+      number: '',
       issueDate: input.issueDate,
       amount: input.amount.toFixed(2),
       appliedAmount: '0',

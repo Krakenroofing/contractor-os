@@ -16,6 +16,7 @@ import { getOpenCreditByCustomerMap } from '@/lib/data/credit-memos';
 import { parseMoney } from '@/lib/money';
 import { normalizeStatus } from '@/lib/status-machine';
 import { nextNumberInSequence } from '@/lib/next-number';
+import { peekNextInvoiceNumber } from '@/lib/data/document-numbers';
 import {
   getWorkOrderWithDetails,
   listWorkOrders,
@@ -25,8 +26,10 @@ import { InvoiceForm } from '@/modules/invoices/components/invoice-form';
 export const dynamic = 'force-dynamic';
 
 async function nextInvoiceNumber(companyId: string): Promise<string> {
-  // Follow whatever numbering scheme the operator actually uses (e.g. plain
-  // "1040" / "6071") instead of assuming an INV-YYYY-NNN format.
+  // Display only: the database counter assigns the real number on save.
+  // Falls back to the old series-following guess in demo mode.
+  const peek = await peekNextInvoiceNumber(companyId);
+  if (peek) return peek;
   const existing = await listInvoices(companyId);
   return nextNumberInSequence(
     existing,
@@ -323,6 +326,7 @@ export default async function NewInvoicePage({
         defaultDueDate={due}
         companyVatRatePercent={Number(activeCompany.vatRatePercent)}
         proofreadAvailable={Boolean(process.env.ANTHROPIC_API_KEY)}
+        canUseExternalNumber={role === 'owner' || role === 'accounting'}
       />
     </div>
   );

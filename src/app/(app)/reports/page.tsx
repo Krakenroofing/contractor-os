@@ -66,6 +66,12 @@ const ACCOUNTING_REPORTS: { href: string; label: string; description: string }[]
       description:
         'Every expense line in one list — filter by bank/card account, categories, job, vendor, and payment method.',
     },
+    {
+      href: '/reports/document-numbers',
+      label: 'Document Number Audit',
+      description:
+        'Proves invoice and credit-memo numbering is complete — every number issued, voided, or explained, with any gap flagged.',
+    },
   ];
 
 export default async function ReportsIndexPage() {
