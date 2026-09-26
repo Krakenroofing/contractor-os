@@ -24,8 +24,10 @@ import { listBillsForPo } from '@/lib/data/po-bills';
 import {
   expectedCostCodeFor,
   listCategoryCostCodes,
+  resolvePoLineAccounts,
   vendorNumbersByItem,
 } from '@/lib/data/vendor-item-numbers';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
 import { getCustomer } from '@/lib/data/customers';
 import { getProject } from '@/lib/data/projects';
 import { getVendor } from '@/lib/data/vendors';
@@ -102,6 +104,18 @@ export default async function PurchaseOrderDetailPage({
     vendorNumbersByItem(companyId),
     listCategoryCostCodes(companyId),
   ]);
+  const [resolvedAccounts, accountRows] = await Promise.all([
+    resolvePoLineAccounts(
+      companyId,
+      po.vendorId,
+      lines.map((l) => ({
+        accountingAccountId: l.accountingAccountId,
+        inventoryItemId: l.inventoryItemId,
+      })),
+    ),
+    listAccountingAccounts(companyId),
+  ]);
+  const accountNameById = new Map(accountRows.map((a) => [a.id, a.name]));
   const expectedCodeMap = await loadCostCodeMap(
     companyId,
     lines
@@ -494,6 +508,12 @@ export default async function PurchaseOrderDetailPage({
                   inventoryItemName: l.inventoryItemId
                     ? (itemNameById.get(l.inventoryItemId) ?? null)
                     : null,
+                  accountName: (() => {
+                    const idx = lines.indexOf(l);
+                    const acct = resolvedAccounts[idx];
+                    return acct ? (accountNameById.get(acct) ?? null) : null;
+                  })(),
+                  accountAuto: !l.accountingAccountId,
                   expectedCostCode: (() => {
                     const expected = expectedCostCodeFor(
                       l.inventoryItemId

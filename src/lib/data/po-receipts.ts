@@ -34,6 +34,7 @@ import {
   type PurchaseOrder,
 } from '@/db/schema';
 import { getDb, isDatabaseConfigured } from '@/db';
+import { resolvePoLineAccounts } from '@/lib/data/vendor-item-numbers';
 
 export type CreatePoReceiptInput = {
   receivedAt: Date;
@@ -195,6 +196,20 @@ export async function createPoReceipt(
           .from(vendors)
           .where(eq(vendors.id, po.vendorId))
           .limit(1);
+        const resolved = await resolvePoLineAccounts(
+          companyId,
+          po.vendorId,
+          nonZeroLines.map((l) => {
+            const pl = poLineById.get(l.poLineId)!;
+            return {
+              accountingAccountId: pl.accountingAccountId,
+              inventoryItemId: pl.inventoryItemId,
+            };
+          }),
+        );
+        const accountByPoLine = new Map(
+          nonZeroLines.map((l, i) => [l.poLineId, resolved[i]]),
+        );
         const rows = nonZeroLines
           .map((l) => {
             const pl = poLineById.get(l.poLineId)!;
@@ -207,7 +222,7 @@ export async function createPoReceipt(
             companyId,
             projectId: pl.projectId ?? po.projectId,
             costCodeId: pl.costCodeId,
-            accountingAccountId: vendor?.accountId ?? null,
+            accountingAccountId: accountByPoLine.get(pl.id) ?? vendor?.accountId ?? null,
             source: 'po_receipt' as const,
             sourceRefId: receiptId,
             costType: 'materials' as const,

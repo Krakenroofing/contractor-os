@@ -52,6 +52,7 @@ import {
 } from '@/lib/data/accounting-periods';
 import { syncGoodsReceiptGl } from '@/modules/accounting/lib/gl-posting';
 import {
+  resolvePoLineAccounts,
   upsertVendorItemNumber,
   VendorNumberTakenError,
 } from '@/lib/data/vendor-item-numbers';
@@ -158,6 +159,7 @@ export async function createPurchaseOrderAction(
     return {
       costCodeId: l.costCodeId,
       inventoryItemId: emptyToNull(l.inventoryItemId ?? null),
+      accountingAccountId: emptyToNull(l.accountingAccountId ?? null),
       projectId: lineProject === data.projectId ? null : lineProject,
       description: l.description,
       unit: emptyToNull(l.unit ?? null),
@@ -1147,6 +1149,16 @@ export async function createBillFromPoAction(
     uploadedByUserId: knownUsers.has(user.id) ? user.id : null,
   });
 
+  // Each line's accounting category: the PO line's own → its product's →
+  // the product category's → the vendor's default.
+  const lineAccounts = await resolvePoLineAccounts(
+    company.id,
+    po.vendorId,
+    computedLines.map(({ line }) => ({
+      accountingAccountId: line.accountingAccountId,
+      inventoryItemId: line.inventoryItemId,
+    })),
+  );
   for (const [idx, { line, net, quantity, unitCost, description }] of computedLines.entries()) {
     await createReceiptLine({
       companyId: company.id,
@@ -1155,7 +1167,7 @@ export async function createBillFromPoAction(
       // Split POs: the bill line lands on the LINE's job, not the header's.
       projectId: line.projectId ?? po.projectId,
       costCodeId: line.costCodeId,
-      accountingAccountId: defaultAccountId,
+      accountingAccountId: lineAccounts[idx] ?? defaultAccountId,
       purchaseOrderLineId: line.id,
       description,
       subtotal: toMoneyString(net),

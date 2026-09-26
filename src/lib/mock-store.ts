@@ -433,6 +433,7 @@ function buildPurchaseOrder(
     return {
       id: randomUUID(),
       purchaseOrderId: poId,
+      accountingAccountId: null,
       projectId: null,
       costCodeId: code.id,
       inventoryItemId: null,
@@ -3414,6 +3415,7 @@ export function createMockPurchaseOrder(
     store.purchaseOrderLines.push({
       id: randomUUID(),
       purchaseOrderId: poId,
+      accountingAccountId: null,
       projectId: null,
       costCodeId: l.costCodeId,
       inventoryItemId: l.inventoryItemId ?? null,

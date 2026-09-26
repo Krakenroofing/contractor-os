@@ -21,6 +21,9 @@ export type PoBillLine = {
   unitCost: number;
   lineTotal: number;
   billedAmount: number;
+  /** GR/IR orders: received but not yet billed — the default to bill.
+   *  Null for older POs (they default to the unbilled remainder). */
+  receivedNotBilledQty?: number | null;
 };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -63,6 +66,16 @@ export function PoBillForm({
   const [rows, setRows] = useState<Record<string, LineState>>(() => {
     const init: Record<string, LineState> = {};
     for (const l of lines) {
+      if (l.receivedNotBilledQty != null) {
+        const qty = Math.round(l.receivedNotBilledQty * 10000) / 10000;
+        const amount = r2(qty * l.unitCost);
+        init[l.id] = {
+          checked: qty > 0,
+          quantity: qty !== 0 ? String(qty) : '',
+          amount: amount.toFixed(2),
+        };
+        continue;
+      }
       // Signed on purpose: a PO credit line (negative total) bills as a
       // negative amount, so "remaining" can be below zero and still count.
       const remaining = r2(l.lineTotal - l.billedAmount);

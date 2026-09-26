@@ -41,9 +41,11 @@ export const inventoryCategoryCostCodes = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
     category: text('category').notNull(),
-    costCodeId: uuid('cost_code_id')
-      .notNull()
-      .references(() => costCodes.id, { onDelete: 'cascade' }),
+    costCodeId: uuid('cost_code_id').references(() => costCodes.id, {
+      onDelete: 'cascade',
+    }),
+    // Default accounting category for the category's products (FK in SQL).
+    accountingAccountId: uuid('accounting_account_id'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

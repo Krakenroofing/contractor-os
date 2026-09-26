@@ -1,7 +1,8 @@
 import 'server-only';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   inventoryCategoryCostCodes,
+  inventoryItems,
   vendorItemNumbers,
   vendors,
   type VendorItemNumber,
@@ -117,19 +118,73 @@ export async function deleteVendorItemNumber(
     );
 }
 
-// ----- Category default cost codes -----
+// ----- Category defaults (cost code + accounting category) -----
 
-export async function listCategoryCostCodes(
+export type CategoryDefaults = { costCodeId: string | null; accountId: string | null };
+
+/** lower(category) → its default cost code and accounting category. */
+export async function listCategoryDefaults(
   companyId: string,
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<Map<string, CategoryDefaults>> {
+  const out = new Map<string, CategoryDefaults>();
   if (!isDatabaseConfigured()) return out;
   const rows = await getDb()!
     .select()
     .from(inventoryCategoryCostCodes)
     .where(eq(inventoryCategoryCostCodes.companyId, companyId));
-  for (const r of rows) out.set(r.category.trim().toLowerCase(), r.costCodeId);
+  for (const r of rows) {
+    out.set(r.category.trim().toLowerCase(), {
+      costCodeId: r.costCodeId,
+      accountId: r.accountingAccountId,
+    });
+  }
   return out;
+}
+
+/** lower(category) → default cost code (the P4 shape). */
+export async function listCategoryCostCodes(
+  companyId: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const [k, v] of await listCategoryDefaults(companyId)) {
+    if (v.costCodeId) out.set(k, v.costCodeId);
+  }
+  return out;
+}
+
+/** Set one or both of a category's defaults; a row with neither is removed. */
+export async function setCategoryDefaults(
+  companyId: string,
+  category: string,
+  patch: { costCodeId?: string | null; accountId?: string | null },
+): Promise<void> {
+  const db = getDb()!;
+  const cat = category.trim();
+  if (!cat) return;
+  const where = and(
+    eq(inventoryCategoryCostCodes.companyId, companyId),
+    eq(inventoryCategoryCostCodes.category, cat),
+  );
+  const [existing] = await db.select().from(inventoryCategoryCostCodes).where(where);
+  const next = {
+    costCodeId:
+      patch.costCodeId !== undefined ? patch.costCodeId : (existing?.costCodeId ?? null),
+    accountingAccountId:
+      patch.accountId !== undefined
+        ? patch.accountId
+        : (existing?.accountingAccountId ?? null),
+  };
+  if (!next.costCodeId && !next.accountingAccountId) {
+    await db.delete(inventoryCategoryCostCodes).where(where);
+    return;
+  }
+  await db
+    .insert(inventoryCategoryCostCodes)
+    .values({ companyId, category: cat, ...next })
+    .onConflictDoUpdate({
+      target: [inventoryCategoryCostCodes.companyId, inventoryCategoryCostCodes.category],
+      set: { ...next, updatedAt: new Date() },
+    });
 }
 
 export async function setCategoryCostCode(
@@ -137,27 +192,7 @@ export async function setCategoryCostCode(
   category: string,
   costCodeId: string | null,
 ): Promise<void> {
-  const db = getDb()!;
-  const cat = category.trim();
-  if (!cat) return;
-  if (!costCodeId) {
-    await db
-      .delete(inventoryCategoryCostCodes)
-      .where(
-        and(
-          eq(inventoryCategoryCostCodes.companyId, companyId),
-          eq(inventoryCategoryCostCodes.category, cat),
-        ),
-      );
-    return;
-  }
-  await db
-    .insert(inventoryCategoryCostCodes)
-    .values({ companyId, category: cat, costCodeId })
-    .onConflictDoUpdate({
-      target: [inventoryCategoryCostCodes.companyId, inventoryCategoryCostCodes.category],
-      set: { costCodeId, updatedAt: new Date() },
-    });
+  await setCategoryDefaults(companyId, category, { costCodeId });
 }
 
 /** The cost code a product should normally post to: its own default, else
@@ -170,4 +205,87 @@ export function expectedCostCodeFor(
   if (item.defaultCostCodeId) return item.defaultCostCodeId;
   const cat = item.category?.trim().toLowerCase();
   return cat ? (categoryDefaults.get(cat) ?? null) : null;
+}
+
+/** A product's effective defaults: its own, else its category's. */
+export function effectiveItemDefaults(
+  item: {
+    defaultCostCodeId: string | null;
+    defaultAccountingAccountId: string | null;
+    category: string | null;
+  },
+  categoryDefaults: Map<string, CategoryDefaults>,
+): CategoryDefaults {
+  const cat = categoryDefaults.get(item.category?.trim().toLowerCase() ?? '');
+  return {
+    costCodeId: item.defaultCostCodeId ?? cat?.costCodeId ?? null,
+    accountId: item.defaultAccountingAccountId ?? cat?.accountId ?? null,
+  };
+}
+
+/** Last unit price paid per product per vendor (latest PO line, by PO
+ *  date) — the default unit cost when that vendor's product is picked. */
+export async function lastPricesByItem(
+  companyId: string,
+): Promise<Map<string, Array<{ vendorId: string; unitCost: number }>>> {
+  const out = new Map<string, Array<{ vendorId: string; unitCost: number }>>();
+  if (!isDatabaseConfigured()) return out;
+  const rows = await getDb()!.execute(sql`
+    SELECT DISTINCT ON (pl.inventory_item_id, po.vendor_id)
+           pl.inventory_item_id, po.vendor_id, pl.unit_cost
+      FROM purchase_order_lines pl
+      JOIN purchase_orders po ON po.id = pl.purchase_order_id
+     WHERE po.company_id = ${companyId} AND po.status <> 'void'
+       AND pl.inventory_item_id IS NOT NULL AND pl.unit_cost > 0
+     ORDER BY pl.inventory_item_id, po.vendor_id,
+              COALESCE(po.issue_date, po.created_at::date) DESC, po.created_at DESC`);
+  for (const r of rows as unknown as Array<Record<string, string>>) {
+    const arr = out.get(r.inventory_item_id) ?? [];
+    arr.push({ vendorId: r.vendor_id, unitCost: Number(r.unit_cost) });
+    out.set(r.inventory_item_id, arr);
+  }
+  return out;
+}
+
+/**
+ * Accounting category for PO lines, by the standing chain: the line's own
+ * → its product's default → the product category's default → the vendor's
+ * default. Null only when none of them is set.
+ */
+export async function resolvePoLineAccounts(
+  companyId: string,
+  vendorId: string,
+  lines: Array<{ accountingAccountId: string | null; inventoryItemId: string | null }>,
+): Promise<Array<string | null>> {
+  if (!isDatabaseConfigured()) return lines.map((l) => l.accountingAccountId);
+  const db = getDb()!;
+  const itemIds = [
+    ...new Set(lines.map((l) => l.inventoryItemId).filter((x): x is string => !!x)),
+  ];
+  const items = itemIds.length
+    ? await db
+        .select({
+          id: inventoryItems.id,
+          category: inventoryItems.category,
+          defaultCostCodeId: inventoryItems.defaultCostCodeId,
+          defaultAccountingAccountId: inventoryItems.defaultAccountingAccountId,
+        })
+        .from(inventoryItems)
+        .where(
+          and(eq(inventoryItems.companyId, companyId), inArray(inventoryItems.id, itemIds)),
+        )
+    : [];
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const catDefaults = await listCategoryDefaults(companyId);
+  const [vendor] = await db
+    .select({ accountId: vendors.defaultAccountingAccountId })
+    .from(vendors)
+    .where(and(eq(vendors.id, vendorId), eq(vendors.companyId, companyId)))
+    .limit(1);
+  return lines.map((l) => {
+    if (l.accountingAccountId) return l.accountingAccountId;
+    const item = l.inventoryItemId ? itemById.get(l.inventoryItemId) : undefined;
+    const fromItem = item ? effectiveItemDefaults(item, catDefaults).accountId : null;
+    return fromItem ?? vendor?.accountId ?? null;
+  });
 }

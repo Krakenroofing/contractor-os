@@ -19,6 +19,8 @@ export type CreateInventoryItemInput = {
   defaultCostCodeId: string | null;
   /** Hand-set supplier; omitted = leave as is (null clears it). */
   supplierVendorId?: string | null;
+  /** Default accounting category for PO/bill lines of this product. */
+  defaultAccountingAccountId?: string | null;
   isTaxable: boolean;
   qbGlAccountText: string | null;
   notes: string | null;

@@ -11,7 +11,14 @@ import { canCreate } from '@/lib/permissions';
 import { formatMoney } from '@/lib/money';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listInventoryItems } from '@/lib/data/inventory-items';
-import { vendorNumbersByItem } from '@/lib/data/vendor-item-numbers';
+import {
+  effectiveItemDefaults,
+  lastPricesByItem,
+  listCategoryDefaults,
+  vendorNumbersByItem,
+} from '@/lib/data/vendor-item-numbers';
+import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { costAccountOptions } from '@/modules/accounting/lib/cost-account-options';
 import { listLandedCosts } from '@/lib/data/landed-costs';
 import {
   getPurchaseOrder,
@@ -55,6 +62,7 @@ export default async function NewPurchaseOrderPage({
         lines: sourceLines.map((l) => ({
           inventoryItemId: l.inventoryItemId ?? '',
           costCodeId: l.costCodeId,
+          accountingAccountId: l.accountingAccountId ?? '',
           description: l.description,
           unit: l.unit ?? '',
           quantity: String(l.quantityOrdered ?? '0'),
@@ -73,7 +81,11 @@ export default async function NewPurchaseOrderPage({
       };
     }),
   );
-  const vendors = (await listVendors(companyId)).map((v) => ({ id: v.id, label: v.name }));
+  const vendors = (await listVendors(companyId)).map((v) => ({
+    id: v.id,
+    label: v.name,
+    defaultAccountId: v.defaultAccountingAccountId ?? null,
+  }));
   const customers = (await listCustomers(companyId)).map((c) => ({
     id: c.id,
     name: c.name,
@@ -89,7 +101,12 @@ export default async function NewPurchaseOrderPage({
     projectId: l.projectId,
     label: `${l.name} · ${formatMoney(l.totalLandedCost)} total`,
   }));
-  const vendorNumbers = await vendorNumbersByItem(companyId);
+  const [vendorNumbers, categoryDefaults, lastPrices, accountRows] = await Promise.all([
+    vendorNumbersByItem(companyId),
+    listCategoryDefaults(companyId),
+    lastPricesByItem(companyId),
+    listAccountingAccounts(companyId),
+  ]);
   const products = (await listInventoryItems(companyId)).map((p) => ({
     id: p.id,
     name: p.name,
@@ -97,8 +114,11 @@ export default async function NewPurchaseOrderPage({
     sku: p.sku,
     unit: p.unit,
     defaultCost: Number(p.defaultCost),
-    defaultCostCodeId: p.defaultCostCodeId ?? null,
+    // Effective defaults: the product's own, else its category's.
+    defaultCostCodeId: effectiveItemDefaults(p, categoryDefaults).costCodeId,
+    defaultAccountingAccountId: effectiveItemDefaults(p, categoryDefaults).accountId,
     vendorNumbers: vendorNumbers.get(p.id) ?? [],
+    lastPrices: lastPrices.get(p.id) ?? [],
   }));
 
   return (
@@ -137,6 +157,7 @@ export default async function NewPurchaseOrderPage({
         costCodes={costCodes}
         landedCosts={landedCosts}
         products={products}
+        accounts={costAccountOptions(accountRows)}
         defaultNumber={await nextPurchaseOrderNumber(companyId)}
         defaults={defaults}
       />

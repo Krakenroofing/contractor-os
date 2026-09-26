@@ -45,6 +45,8 @@ export const poLineSchema = z.object({
   /** Line-level job override — '' means "the PO's project". Lets one PO
    *  split a purchase across jobs (50 rolls to A, 50 to B). */
   projectId: z.string().uuid().optional().or(z.literal('')),
+  /** Accounting category; '' = resolve product → category → vendor. */
+  accountingAccountId: z.string().uuid().optional().or(z.literal('')),
   description: z.string().min(1, 'Description is required').max(500),
   unit: z.string().max(20).optional().or(z.literal('')),
   quantity: signedNumericString,

@@ -11,7 +11,11 @@ import {
   getPurchaseOrder,
   getPurchaseOrderLines,
 } from '@/lib/data/purchase-orders';
-import { listBillsForPo, sumBilledByPoLine } from '@/lib/data/po-bills';
+import {
+  listBillsForPo,
+  sumBilledByPoLine,
+  sumBilledQtyByPoLine,
+} from '@/lib/data/po-bills';
 import { getVendor } from '@/lib/data/vendors';
 import {
   PoBillForm,
@@ -50,6 +54,10 @@ export default async function PoBillPage({
     listBillsForPo(company.id, po.id),
     getVendor(company.id, po.vendorId),
   ]);
+  const billedQty = await sumBilledQtyByPoLine(
+    company.id,
+    poLines.map((l) => l.id),
+  );
 
   const lines: PoBillLine[] = poLines.map((l) => ({
     id: l.id,
@@ -59,6 +67,10 @@ export default async function PoBillPage({
     unitCost: Number(l.unitCost),
     lineTotal: Number(l.lineTotal),
     billedAmount: billed.get(l.id) ?? 0,
+    // GR/IR orders bill what arrived: default to received, not yet billed.
+    receivedNotBilledQty: po.grir
+      ? Math.max(0, Number(l.quantityReceived) - (billedQty.get(l.id) ?? 0))
+      : null,
   }));
 
   return (

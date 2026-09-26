@@ -38,6 +38,7 @@ import {
   type ImportedLine,
 } from './po-lines-excel-import-dialog';
 import { UpdateDefaultsDialog } from './update-defaults-dialog';
+import { setInventoryItemDefaultsAction } from '@/modules/inventory/vendor-number-actions';
 
 const initialState: CreatePurchaseOrderState = {};
 
@@ -45,6 +46,10 @@ type LineDraft = {
   rowId: string;
   inventoryItemId: string;
   costCodeId: string;
+  /** Accounting category; '' = resolved at bill time (product → category → vendor). */
+  accountingAccountId: string;
+  /** Which fields the system filled in (shown with an "auto" tag until changed). */
+  auto?: { costCode?: boolean; account?: boolean; unitCost?: boolean };
   /** Line-level job override; '' = the PO's project. */
   projectId: string;
   description: string;
@@ -54,7 +59,7 @@ type LineDraft = {
 };
 
 type ProjectOption = { id: string; label: string };
-type VendorOption = { id: string; label: string };
+type VendorOption = { id: string; label: string; defaultAccountId?: string | null };
 // Phase 2 cost-code defaultCost: surface here so the line picker can fall
 // back to it when the linked inventory item has no defaultCost (or no
 // inventory item is linked at all — labor / one-off / services).
@@ -71,6 +76,7 @@ function newEmptyLine(): LineDraft {
     rowId: crypto.randomUUID(),
     inventoryItemId: '',
     costCodeId: '',
+    accountingAccountId: '',
     projectId: '',
     description: '',
     unit: '',
@@ -89,6 +95,7 @@ export type PurchaseOrderFormDefaults = {
   lines?: Array<{
     inventoryItemId: string;
     costCodeId: string;
+    accountingAccountId?: string;
     projectId?: string;
     description: string;
     unit: string;
@@ -122,9 +129,12 @@ export function PurchaseOrderForm({
   costCodes,
   landedCosts,
   products,
+  accounts = [],
   defaultNumber,
   defaults,
 }: {
+  /** Accounting categories a purchase can post to. */
+  accounts?: Array<{ id: string; label: string }>;
   projects: ProjectOption[];
   vendors: VendorOption[];
   customers: CustomerPickerOption[];
@@ -146,6 +156,7 @@ export function PurchaseOrderForm({
         rowId: crypto.randomUUID(),
         inventoryItemId: l.inventoryItemId,
         costCodeId: l.costCodeId,
+        accountingAccountId: l.accountingAccountId ?? '',
         projectId: l.projectId ?? '',
         description: l.description,
         unit: l.unit,
@@ -238,6 +249,7 @@ export function PurchaseOrderForm({
             ...l,
             // Drafts saved before line-level jobs existed lack projectId.
             projectId: l.projectId ?? '',
+            accountingAccountId: l.accountingAccountId ?? '',
             rowId: crypto.randomUUID(),
           }))
         : [newEmptyLine()],
@@ -262,6 +274,7 @@ export function PurchaseOrderForm({
       rowId: crypto.randomUUID(),
       inventoryItemId: l.inventoryItemId,
       costCodeId: l.costCodeId,
+      accountingAccountId: '',
       projectId: '',
       description: l.description,
       unit: l.unit,
@@ -301,6 +314,7 @@ export function PurchaseOrderForm({
   const linesPayload = lines.map((l) => ({
     costCodeId: l.costCodeId,
     inventoryItemId: l.inventoryItemId,
+    accountingAccountId: l.accountingAccountId,
     projectId: l.projectId,
     description: l.description,
     unit: l.unit,
@@ -312,12 +326,77 @@ export function PurchaseOrderForm({
     setLines((prev) => prev.map((l) => (l.rowId === rowId ? { ...l, ...patch } : l)));
   };
 
+  // ----- Auto-fill (Olga, 2026-09-26): cost code, accounting category and
+  // price fill themselves from the product → its category → the vendor.
+  // Defaults saved from this form during the session override the loaded ones.
+  const [savedDefaults, setSavedDefaults] = useState<
+    Record<string, { costCodeId?: string; accountId?: string }>
+  >({});
+  const productById = useMemo(
+    () => new Map(products.map((p) => [p.id, p])),
+    [products],
+  );
+  const itemDefaults = (itemId: string) => {
+    const p = productById.get(itemId);
+    return {
+      costCodeId: savedDefaults[itemId]?.costCodeId ?? p?.defaultCostCodeId ?? '',
+      accountId:
+        savedDefaults[itemId]?.accountId ?? p?.defaultAccountingAccountId ?? '',
+    };
+  };
+  const vendorDefaultAccount = (vid: string) =>
+    vendors.find((v) => v.id === vid)?.defaultAccountId ?? '';
+  const lastPrice = (itemId: string, vid: string) =>
+    productById.get(itemId)?.lastPrices?.find((lp) => lp.vendorId === vid)?.unitCost ??
+    null;
+
+  // A new vendor refreshes whatever the system filled (never a hand entry):
+  // the vendor's default category on product-less lines, and last prices.
+  useEffect(() => {
+    if (!vendorId) return;
+    setLines((prev) =>
+      prev.map((l) => {
+        const next = { ...l, auto: { ...l.auto } };
+        const itemAccount = l.inventoryItemId ? itemDefaults(l.inventoryItemId).accountId : '';
+        if ((l.accountingAccountId === '' || l.auto?.account) && !itemAccount) {
+          const acct = vendorDefaultAccount(vendorId);
+          if (acct) {
+            next.accountingAccountId = acct;
+            next.auto!.account = true;
+          }
+        }
+        if (l.inventoryItemId && l.auto?.unitCost) {
+          const lp = lastPrice(l.inventoryItemId, vendorId);
+          if (lp !== null) next.unitCost = String(lp);
+        }
+        return next;
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorId]);
+
+  async function saveItemDefault(
+    itemId: string,
+    patch: { costCodeId?: string; accountId?: string },
+  ) {
+    const res = await setInventoryItemDefaultsAction({ itemId, ...patch });
+    if (res.ok) {
+      setSavedDefaults((prev) => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }));
+    }
+  }
+
   // New lines land at the TOP so a long PO doesn't mean scrolling to the
   // bottom after every "+ Add line"; adding clears any sort so the new row
   // is visibly first.
   const addLine = () => {
     setSort(null);
-    setLines((prev) => [newEmptyLine(), ...prev]);
+    const acct = vendorDefaultAccount(vendorId);
+    setLines((prev) => [
+      acct
+        ? { ...newEmptyLine(), accountingAccountId: acct, auto: { account: true } }
+        : newEmptyLine(),
+      ...prev,
+    ]);
   };
 
   // Manual reorder — line the rows up with the supplier's own PO for easy
@@ -368,6 +447,7 @@ export function PurchaseOrderForm({
         return {
           ...l,
           costCodeId,
+          auto: { ...l.auto, costCode: false },
           description:
             l.description.trim() === '' && code ? code.description : l.description,
           unitCost: nextUnitCost,
@@ -522,6 +602,7 @@ export function PurchaseOrderForm({
           <div className="hidden md:grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 px-1 text-xs font-medium text-slate-500">
             <span>Product</span>
             <span>Cost code</span>
+            <span>Category</span>
             <span>Job</span>
             <SortableHeader
               label="Description"
@@ -565,7 +646,7 @@ export function PurchaseOrderForm({
             return (
               <div
                 key={line.rowId}
-                className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 items-start"
+                className="grid grid-cols-1 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,0.7fr)_minmax(0,0.6fr)_minmax(0,1fr)_minmax(0,0.95fr)_auto] gap-2 items-start"
               >
                 <ProductPicker
                   value={line.inventoryItemId}
@@ -577,37 +658,43 @@ export function PurchaseOrderForm({
                       updateLine(line.rowId, { inventoryItemId: '' });
                       return;
                     }
-                    // Inheritance chain for unitCost when the line is still
-                    // empty: inventory item > cost code > leave zero.
+                    // Price: last paid to THIS vendor, else the product's
+                    // default, else the cost code's — only into an empty or
+                    // system-filled price, never over a typed one.
+                    const defs = itemDefaults(picked.id);
+                    const priceIsFree =
+                      (Number(line.unitCost) || 0) === 0 || line.auto?.unitCost;
+                    const lp = vendorId ? lastPrice(picked.id, vendorId) : null;
                     const costCodeRow = allCostCodes.find(
-                      (c) => c.id === line.costCodeId,
+                      (c) => c.id === (defs.costCodeId || line.costCodeId),
                     );
-                    const fallbackFromCostCode =
-                      costCodeRow?.defaultCost != null && costCodeRow.defaultCost > 0
-                        ? String(costCodeRow.defaultCost)
-                        : '';
-                    const nextUnitCost =
-                      (Number(line.unitCost) || 0) === 0
-                        ? picked.defaultCost > 0
-                          ? picked.defaultCost.toString()
-                          : fallbackFromCostCode || line.unitCost
-                        : line.unitCost;
-                    const itemDefaultCode =
-                      products.find((p) => p.id === picked.id)
-                        ?.defaultCostCodeId ?? '';
+                    const price =
+                      lp ??
+                      (picked.defaultCost > 0
+                        ? picked.defaultCost
+                        : costCodeRow?.defaultCost != null && costCodeRow.defaultCost > 0
+                          ? costCodeRow.defaultCost
+                          : null);
+                    const codeIsFree = line.costCodeId === '' || line.auto?.costCode;
+                    const acctIsFree = line.accountingAccountId === '' || line.auto?.account;
+                    const account = defs.accountId || vendorDefaultAccount(vendorId);
                     updateLine(line.rowId, {
                       inventoryItemId: picked.id,
-                      // The product's default cost code fills an empty line.
-                      ...(line.costCodeId === '' && itemDefaultCode
-                        ? { costCodeId: itemDefaultCode }
-                        : {}),
+                      ...(codeIsFree && defs.costCodeId ? { costCodeId: defs.costCodeId } : {}),
+                      ...(acctIsFree && account ? { accountingAccountId: account } : {}),
+                      ...(priceIsFree && price !== null ? { unitCost: String(price) } : {}),
+                      auto: {
+                        costCode:
+                          codeIsFree && defs.costCodeId ? true : line.auto?.costCode && codeIsFree,
+                        account: acctIsFree && account ? true : line.auto?.account && acctIsFree,
+                        unitCost: priceIsFree && price !== null ? true : false,
+                      },
                       description:
                         line.description.trim() === '' ? picked.name : line.description,
                       unit:
                         line.unit.trim() === '' && picked.unit
                           ? picked.unit
                           : line.unit,
-                      unitCost: nextUnitCost,
                     });
                   }}
                 />
@@ -629,20 +716,73 @@ export function PurchaseOrderForm({
                     ])
                   }
                 />
+                {line.auto?.costCode && line.costCodeId && <AutoTag />}
                 {(() => {
-                  const expected = line.inventoryItemId
-                    ? products.find((p) => p.id === line.inventoryItemId)
-                        ?.defaultCostCodeId
-                    : null;
-                  if (!expected || !line.costCodeId || expected === line.costCodeId)
-                    return null;
+                  if (!line.inventoryItemId || !line.costCodeId) return null;
+                  const expected = itemDefaults(line.inventoryItemId).costCodeId;
+                  if (expected === line.costCodeId) return null;
                   const code = allCostCodes.find((c) => c.id === expected)?.code;
+                  const chosen = allCostCodes.find((c) => c.id === line.costCodeId)?.code;
                   return (
                     <p className="mt-0.5 text-[11px] text-amber-700">
-                      ⚠ This product normally posts to {code ?? 'another code'}.
+                      {expected ? `⚠ Usually ${code ?? 'another code'}. ` : ''}
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() =>
+                          void saveItemDefault(line.inventoryItemId, {
+                            costCodeId: line.costCodeId,
+                          })
+                        }
+                      >
+                        Make {chosen ?? 'this'} the product&apos;s default
+                      </button>
                     </p>
                   );
                 })()}
+                </div>
+                <div className="min-w-0">
+                  <select
+                    value={line.accountingAccountId}
+                    onChange={(e) =>
+                      updateLine(line.rowId, {
+                        accountingAccountId: e.target.value,
+                        auto: { ...line.auto, account: false },
+                      })
+                    }
+                    title="Accounting category this line's cost posts to"
+                    className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                  >
+                    <option value="">Auto (product → vendor)</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                  {line.auto?.account && line.accountingAccountId && <AutoTag />}
+                  {(() => {
+                    if (!line.inventoryItemId || !line.accountingAccountId) return null;
+                    const expected = itemDefaults(line.inventoryItemId).accountId;
+                    if (expected === line.accountingAccountId) return null;
+                    const label = accounts.find((a) => a.id === expected)?.label;
+                    return (
+                      <p className="mt-0.5 text-[11px] text-amber-700">
+                        {expected ? `⚠ Usually ${label ?? 'another category'}. ` : ''}
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() =>
+                            void saveItemDefault(line.inventoryItemId, {
+                              accountId: line.accountingAccountId,
+                            })
+                          }
+                        >
+                          Make this the product&apos;s default
+                        </button>
+                      </p>
+                    );
+                  })()}
                 </div>
                 {/* Split-PO job override: this line's cost books to the
                     selected job instead of the PO's project — one order,
@@ -685,10 +825,22 @@ export function PurchaseOrderForm({
                   <Input
                     value={line.unitCost}
                     onChange={(e) =>
-                      updateLine(line.rowId, { unitCost: e.target.value })
+                      updateLine(line.rowId, {
+                        unitCost: e.target.value,
+                        auto: { ...line.auto, unitCost: false },
+                      })
                     }
                     inputMode="decimal"
                   />
+                  {line.auto?.unitCost && (
+                    <AutoTag
+                      title={
+                        vendorId && lastPrice(line.inventoryItemId, vendorId) !== null
+                          ? 'Last price paid to this vendor'
+                          : 'Product default cost'
+                      }
+                    />
+                  )}
                   {/* "Update defaults" link appears only when the entered cost
                       differs from the linked product / cost code's standing
                       default. Two-checkbox confirm dialog requires explicit
@@ -873,6 +1025,18 @@ export function PurchaseOrderForm({
         )}
       </div>
     </form>
+  );
+}
+
+/** Marks a value the system filled in; editing the field removes it. */
+function AutoTag({ title }: { title?: string }) {
+  return (
+    <span
+      className="mt-0.5 inline-block rounded bg-blue-50 px-1 text-[10px] font-medium uppercase tracking-wide text-blue-700"
+      title={title ?? 'Filled in automatically — change it to override'}
+    >
+      auto
+    </span>
   );
 }
 

@@ -16,6 +16,10 @@ export type ProductPickerOption = {
   defaultCostCodeId?: string | null;
   /** Suppliers' own item numbers for this product (roadmap P4). */
   vendorNumbers?: Array<{ vendorId: string; number: string }>;
+  /** Effective default accounting category (product's, else category's). */
+  defaultAccountingAccountId?: string | null;
+  /** Last unit price paid, per vendor. */
+  lastPrices?: Array<{ vendorId: string; unitCost: number }>;
 };
 
 export type SelectedProduct = {

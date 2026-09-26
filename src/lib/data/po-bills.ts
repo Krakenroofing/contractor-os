@@ -44,6 +44,34 @@ export async function sumBilledByPoLine(
   return map;
 }
 
+/** Quantity billed so far per PO line (non-void, non-deleted bills). */
+export async function sumBilledQtyByPoLine(
+  companyId: string,
+  poLineIds: string[],
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!isDatabaseConfigured() || poLineIds.length === 0) return map;
+  const rows = await getDb()!
+    .select({
+      poLineId: receiptLines.purchaseOrderLineId,
+      qty: sql<string>`COALESCE(SUM(${receiptLines.quantity}), 0)`,
+    })
+    .from(receiptLines)
+    .innerJoin(receipts, eq(receipts.id, receiptLines.receiptId))
+    .where(
+      and(
+        eq(receiptLines.companyId, companyId),
+        inArray(receiptLines.purchaseOrderLineId, poLineIds),
+        isNull(receiptLines.deletedAt),
+        isNull(receipts.deletedAt),
+        ne(receipts.status, 'void'),
+      ),
+    )
+    .groupBy(receiptLines.purchaseOrderLineId);
+  for (const r of rows) if (r.poLineId) map.set(r.poLineId, Number(r.qty));
+  return map;
+}
+
 /** Job-costed amount already posted by bills, per PO line — what those
  *  bills' job-cost entries carry (posted, non-deleted bills only). */
 export async function sumPostedJobCostedByPoLine(

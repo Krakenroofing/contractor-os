@@ -58,6 +58,8 @@ export type CreatePurchaseOrderInput = {
   lines: Array<{
     costCodeId: string;
     inventoryItemId: string | null;
+    /** Accounting category; null = resolved at bill / receipt time. */
+    accountingAccountId?: string | null;
     /** Line-level job override; null = the PO header's project. */
     projectId?: string | null;
     description: string;
@@ -264,6 +266,7 @@ export async function createPurchaseOrder(
           purchaseOrderId: po.id,
           costCodeId: l.costCodeId,
           inventoryItemId: l.inventoryItemId,
+          accountingAccountId: l.accountingAccountId ?? null,
           projectId: l.projectId ?? null,
           description: l.description,
           unit: l.unit,

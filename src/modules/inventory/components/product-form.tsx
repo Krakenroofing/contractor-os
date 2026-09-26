@@ -23,6 +23,7 @@ export type ProductFormInitialValues = {
   defaultCost: string;
   defaultCostCodeId: string;
   supplierVendorId?: string;
+  defaultAccountingAccountId?: string;
   isTaxable: 'yes' | 'no';
   qbGlAccountText: string;
   notes: string;
@@ -48,12 +49,15 @@ export function ProductForm({
   initial,
   costCodes = [],
   vendors = [],
+  accounts = [],
   derivedSupplierName = null,
 }: {
   mode?: Mode;
   initial?: ProductFormInitialValues;
   costCodes?: Option[];
   vendors?: Option[];
+  /** Expense / COGS / asset accounts for the default accounting category. */
+  accounts?: Option[];
   /** Supplier the list shows when none is set by hand (from the latest PO). */
   derivedSupplierName?: string | null;
 }) {
@@ -113,6 +117,23 @@ export function ProductForm({
             {costCodes.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field
+          label="Default accounting category"
+          error={err('defaultAccountingAccountId')}
+        >
+          <Select
+            name="defaultAccountingAccountId"
+            defaultValue={values.defaultAccountingAccountId ?? ''}
+          >
+            <option value="">— From the category / vendor —</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
               </option>
             ))}
           </Select>

@@ -42,6 +42,10 @@ export type PoLineRow = {
   /** The linked product's (or its category's) default cost code when the
    *  line is coded differently — shown as a warning. */
   expectedCostCode?: string | null;
+  /** Accounting category the line posts to, and whether it was resolved
+   *  automatically (product → category → vendor) rather than set. */
+  accountName?: string | null;
+  accountAuto?: boolean;
 };
 
 export function PoLinesTable({
@@ -90,6 +94,7 @@ export function PoLinesTable({
         <TableHeader>
           <TableRow>
             <TableHead>Cost code</TableHead>
+            <TableHead>Category</TableHead>
             <TableHead>Job</TableHead>
             <TableHead>
               <SortableHeader
@@ -149,6 +154,14 @@ export function PoLinesTable({
                     title={`This product normally posts to ${l.expectedCostCode}. Check the cost code.`}
                   >
                     ⚠ {l.expectedCostCode}?
+                  </span>
+                )}
+              </TableCell>
+              <TableCell className="text-xs text-slate-600">
+                {l.accountName ?? '—'}
+                {l.accountName && l.accountAuto && (
+                  <span className="ml-1 rounded bg-blue-50 px-1 text-[10px] uppercase text-blue-700" title="From the product, its category, or the vendor">
+                    auto
                   </span>
                 )}
               </TableCell>

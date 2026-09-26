@@ -29,6 +29,9 @@ export const inventoryItems = pgTable(
     defaultCostCodeId: uuid('default_cost_code_id').references(() => costCodes.id, {
       onDelete: 'set null',
     }),
+    // Default accounting category (GL account) for PO/bill lines of this
+    // product. FK in SQL (accounting_accounts would cycle here).
+    defaultAccountingAccountId: uuid('default_accounting_account_id'),
     // Usual supplier, set by hand. Null = the inventory list derives it from
     // the latest PO the product was received on.
     supplierVendorId: uuid('supplier_vendor_id').references(() => vendors.id, {
