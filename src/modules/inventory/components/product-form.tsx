@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { CategorySelect, type CategoryOption } from './category-select';
 import {
   createInventoryItemAction,
   updateInventoryItemAction,
@@ -50,8 +51,11 @@ export function ProductForm({
   costCodes = [],
   vendors = [],
   accounts = [],
+  categories = [],
   derivedSupplierName = null,
 }: {
+  /** Managed Group > Category list; empty = free-text category. */
+  categories?: CategoryOption[];
   mode?: Mode;
   initial?: ProductFormInitialValues;
   costCodes?: Option[];
@@ -86,11 +90,15 @@ export function ProductForm({
         </Field>
 
         <Field label="Category" error={err('category')}>
-          <Input
-            name="category"
-            placeholder="02 Site Work"
-            defaultValue={values.category}
-          />
+          {categories.length > 0 ? (
+            <CategorySelect
+              name="category"
+              defaultValue={values.category}
+              options={categories}
+            />
+          ) : (
+            <Input name="category" defaultValue={values.category} />
+          )}
         </Field>
 
         <Field label="SKU" error={err('sku')}>

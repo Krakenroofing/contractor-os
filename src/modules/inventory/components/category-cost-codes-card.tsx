@@ -8,16 +8,25 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { setCategoryDefaultsAction } from '../vendor-number-actions';
+import {
+  addInventoryCategoryAction,
+  setCategoryDefaultsAction,
+} from '../vendor-number-actions';
 
 export function CategoryCostCodesCard({
   categories,
   costCodes,
   accounts,
   canEdit,
+  managed = false,
+  groups = [],
 }: {
+  /** The company keeps a managed Group > Category list. */
+  managed?: boolean;
+  groups?: string[];
   categories: Array<{
     category: string;
+    group?: string | null;
     costCodeId: string | null;
     accountId: string | null;
     count: number;
@@ -30,6 +39,22 @@ export function CategoryCostCodesCard({
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [newGroup, setNewGroup] = useState('');
+  const [newName, setNewName] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+
+  function add() {
+    setAddError(null);
+    start(async () => {
+      const res = await addInventoryCategoryAction({ group: newGroup, name: newName });
+      if (!res.ok) {
+        setAddError(res.error ?? 'Could not add.');
+        return;
+      }
+      setNewName('');
+      router.refresh();
+    });
+  }
   const setCount = categories.filter((c) => c.costCodeId || c.accountId).length;
 
   function save(category: string, patch: { costCodeId?: string | null; accountId?: string | null }) {
@@ -65,9 +90,14 @@ export function CategoryCostCodesCard({
             PO lines coded differently show a ⚠.
           </p>
           <div className="divide-y divide-slate-100">
-            {categories.map((c) => (
+            {categories.map((c, i) => (
+              <div key={c.category}>
+              {c.group && c.group !== categories[i - 1]?.group && (
+                <div className="pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {c.group}
+                </div>
+              )}
               <div
-                key={c.category}
                 className="flex flex-wrap items-center justify-between gap-3 py-1.5"
               >
                 <span className="text-slate-700">
@@ -114,8 +144,40 @@ export function CategoryCostCodesCard({
                   </select>
                 </span>
               </div>
+              </div>
             ))}
           </div>
+          {managed && canEdit && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <input
+                list="inventory-category-groups"
+                value={newGroup}
+                onChange={(e) => setNewGroup(e.target.value)}
+                placeholder="Group"
+                className="h-9 w-56 rounded-md border border-slate-300 px-2 text-sm"
+              />
+              <datalist id="inventory-category-groups">
+                {groups.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="New category name"
+                className="h-9 w-72 rounded-md border border-slate-300 px-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={pending || !newGroup.trim() || !newName.trim()}
+                onClick={add}
+                className="h-9 rounded-md border border-slate-300 px-3 text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                Add category
+              </button>
+              {addError && <span className="text-xs text-red-600">{addError}</span>}
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

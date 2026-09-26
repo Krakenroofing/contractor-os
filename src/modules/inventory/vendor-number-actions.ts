@@ -9,6 +9,7 @@ import { canCreate } from '@/lib/permissions';
 import { getInventoryItem, updateInventoryItem } from '@/lib/data/inventory-items';
 import { getVendor } from '@/lib/data/vendors';
 import {
+  addInventoryCategory,
   deleteVendorItemNumber,
   setCategoryCostCode,
   setCategoryDefaults,
@@ -142,6 +143,29 @@ export async function setCategoryDefaultsAction(input: {
   });
   revalidatePath('/inventory');
   revalidatePath('/purchase-orders');
+  return { ok: true };
+}
+
+/** Add a category to the managed Group > Category list. */
+export async function addInventoryCategoryAction(input: {
+  group: string;
+  name: string;
+}): Promise<Result> {
+  await requireAuth();
+  const role = await getActiveRole();
+  if (!canCreate(role, 'inventory')) return { ok: false, error: 'No permission.' };
+  const parsed = z
+    .object({
+      group: z.string().trim().min(1, 'Pick or type a group').max(120),
+      name: z.string().trim().min(1, 'Type the category name').max(200),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input.' };
+  }
+  const companyId = await getActiveCompanyId();
+  await addInventoryCategory(companyId, parsed.data.group, parsed.data.name);
+  revalidatePath('/inventory');
   return { ok: true };
 }
 

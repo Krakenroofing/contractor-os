@@ -1,6 +1,7 @@
 import 'server-only';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  inventoryCategories,
   inventoryCategoryCostCodes,
   inventoryItems,
   vendorItemNumbers,
@@ -116,6 +117,62 @@ export async function deleteVendorItemNumber(
     .where(
       and(eq(vendorItemNumbers.id, id), eq(vendorItemNumbers.companyId, companyId)),
     );
+}
+
+// ----- Managed category list (Group > Category) -----
+
+export type InventoryCategoryOption = { id: string; group: string; name: string };
+
+export async function listInventoryCategories(
+  companyId: string,
+): Promise<InventoryCategoryOption[]> {
+  if (!isDatabaseConfigured()) return [];
+  const rows = await getDb()!
+    .select()
+    .from(inventoryCategories)
+    .where(
+      and(
+        eq(inventoryCategories.companyId, companyId),
+        isNull(inventoryCategories.archivedAt),
+      ),
+    )
+    .orderBy(asc(inventoryCategories.sortOrder), asc(inventoryCategories.name));
+  return rows.map((r) => ({ id: r.id, group: r.groupName, name: r.name }));
+}
+
+/** The canonical category name for free text, or undefined when the
+ *  company manages its list and the text isn't on it. Null = blank. */
+export async function canonicalCategory(
+  companyId: string,
+  text: string | null,
+): Promise<string | null | undefined> {
+  const t = (text ?? '').trim();
+  if (!t) return null;
+  const list = await listInventoryCategories(companyId);
+  if (list.length === 0) return t; // no managed list — free text allowed
+  return list.find((c) => c.name.toLowerCase() === t.toLowerCase())?.name;
+}
+
+export async function addInventoryCategory(
+  companyId: string,
+  group: string,
+  name: string,
+): Promise<void> {
+  const db = getDb()!;
+  const [last] = await db
+    .select({ max: sql<number>`COALESCE(MAX(${inventoryCategories.sortOrder}), 0)` })
+    .from(inventoryCategories)
+    .where(eq(inventoryCategories.companyId, companyId));
+  await db
+    .insert(inventoryCategories)
+    .values({
+      companyId,
+      groupName: group.trim(),
+      name: name.trim(),
+      source: 'Added',
+      sortOrder: Number(last?.max ?? 0) + 10,
+    })
+    .onConflictDoNothing();
 }
 
 // ----- Category defaults (cost code + accounting category) -----

@@ -25,6 +25,8 @@ export type ProductRow = {
   id: string;
   name: string;
   category: string | null;
+  /** The category's group in the managed list (Group > Category). */
+  group?: string | null;
   sku: string | null;
   unit: string | null;
   defaultCost: number;
@@ -51,6 +53,7 @@ const distinct = (values: Array<string | null>) =>
 export function ProductsListClient({ products }: { products: ProductRow[] }) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [group, setGroup] = useState('');
   const [supplier, setSupplier] = useState('');
   const [unit, setUnit] = useState('');
   const [stock, setStock] = useState('');
@@ -73,6 +76,10 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
     [products],
   );
   const unitOptions = useMemo(() => distinct(products.map((p) => p.unit)), [products]);
+  const groupOptions = useMemo(
+    () => distinct(products.map((p) => p.group ?? null)),
+    [products],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,6 +88,7 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
     const max = costMax.trim() === '' ? null : Number(costMax);
     const rows = products.filter((p) => {
       if (!showArchived && p.archived) return false;
+      if (group !== '' && (p.group ?? '') !== group) return false;
       if (category !== '' && (p.category ?? '') !== category) return false;
       if (supplier === NONE ? p.supplierName : supplier !== '' && p.supplierName !== supplier)
         return false;
@@ -132,6 +140,7 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
     products,
     search,
     category,
+    group,
     supplier,
     unit,
     stock,
@@ -153,6 +162,9 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
         onSearchChange={setSearch}
         searchPlaceholder="Search name, SKU, category, supplier…"
         filters={[
+          ...(groupOptions.length > 0
+            ? [{ label: 'Group', value: group, onChange: setGroup, options: groupOptions }]
+            : []),
           ...(categoryOptions.length > 0
             ? [{ label: 'Category', value: category, onChange: setCategory, options: categoryOptions }]
             : []),
@@ -174,6 +186,7 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
         onClear={() => {
           setSearch('');
           setCategory('');
+          setGroup('');
           setSupplier('');
           setUnit('');
           setStock('');
@@ -268,7 +281,12 @@ export function ProductsListClient({ products }: { products: ProductRow[] }) {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-slate-600">{p.category ?? '—'}</TableCell>
+                  <TableCell className="text-slate-600">
+                    {p.category ?? '—'}
+                    {p.group && (
+                      <span className="block text-[11px] text-slate-400">{p.group}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-slate-600">{p.sku ?? '—'}</TableCell>
                   <TableCell className="text-slate-600">{p.unit ?? '—'}</TableCell>
                   <TableCell className="text-slate-600">

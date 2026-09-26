@@ -1,4 +1,12 @@
-import { pgTable, uuid, text, timestamp, index, primaryKey } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  index,
+  integer,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
 import { companies } from './companies';
 import { vendors } from './vendors';
 import { inventoryItems } from './inventory-items';
@@ -54,3 +62,21 @@ export const inventoryCategoryCostCodes = pgTable(
 );
 
 export type InventoryCategoryCostCode = typeof inventoryCategoryCostCodes.$inferSelect;
+
+// The managed product-category list (Olga, 2026-09-26): ABC Supply's
+// structure, two levels — Group > Category. inventory_items.category holds
+// the category NAME (unique per company, case-insensitive).
+export const inventoryCategories = pgTable('inventory_categories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyId: uuid('company_id')
+    .notNull()
+    .references(() => companies.id, { onDelete: 'cascade' }),
+  groupName: text('group_name').notNull(),
+  name: text('name').notNull(),
+  source: text('source'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type InventoryCategory = typeof inventoryCategories.$inferSelect;

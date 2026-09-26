@@ -7,6 +7,7 @@ import { canCreate } from '@/lib/permissions';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { listVendors } from '@/lib/data/vendors';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { listInventoryCategories } from '@/lib/data/vendor-item-numbers';
 import { costAccountOptions } from '@/modules/accounting/lib/cost-account-options';
 import { ProductForm } from '@/modules/inventory/components/product-form';
 
@@ -21,6 +22,7 @@ export default async function NewProductPage() {
     listVendors(companyId),
     listAccountingAccounts(companyId),
   ]);
+  const categories = await listInventoryCategories(companyId);
   return (
     <div className="p-8 max-w-3xl space-y-6">
       <Link href="/inventory">
@@ -44,6 +46,7 @@ export default async function NewProductPage() {
           .map((v) => ({ id: v.id, label: v.name }))
           .sort((a, b) => a.label.localeCompare(b.label))}
         accounts={costAccountOptions(accounts)}
+        categories={categories.map((c) => ({ group: c.group, name: c.name }))}
       />
     </div>
   );

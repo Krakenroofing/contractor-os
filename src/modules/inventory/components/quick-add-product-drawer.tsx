@@ -1,5 +1,6 @@
 'use client';
 
+import { CategorySelect, type CategoryOption } from './category-select';
 import { useEffect, useState, useTransition } from 'react';
 import { Drawer } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import {
   createInventoryItemInlineAction,
+  listInventoryCategoriesAction,
   type InlineProduct,
 } from '../actions';
 
@@ -29,6 +31,7 @@ export function QuickAddProductDrawer({
 }) {
   const [name, setName] = useState(initialName);
   const [category, setCategory] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[] | null>(null);
   const [sku, setSku] = useState('');
   const [unit, setUnit] = useState('');
   const [defaultCost, setDefaultCost] = useState('0');
@@ -46,6 +49,13 @@ export function QuickAddProductDrawer({
     setDefaultCost('0');
     setIsTaxable('yes');
     setError(null);
+    // The managed Group > Category list, fetched once per page.
+    if (categoryOptions === null) {
+      listInventoryCategoriesAction()
+        .then(setCategoryOptions)
+        .catch(() => setCategoryOptions([]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialName]);
 
   function save() {
@@ -64,7 +74,12 @@ export function QuickAddProductDrawer({
         isTaxable,
       });
       if (!res.ok) {
-        setError(res.error ?? res.errors?.name?.[0] ?? 'Could not create the product.');
+        setError(
+          res.error ??
+            res.errors?.name?.[0] ??
+            res.errors?.category?.[0] ??
+            'Could not create the product.',
+        );
         return;
       }
       onCreated(res.item);
@@ -101,11 +116,15 @@ export function QuickAddProductDrawer({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label>Category</Label>
-            <Input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="07 Roofing"
-            />
+            {categoryOptions && categoryOptions.length > 0 ? (
+              <CategorySelect
+                value={category}
+                onChange={setCategory}
+                options={categoryOptions}
+              />
+            ) : (
+              <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>SKU</Label>

@@ -25,6 +25,25 @@ import {
   unarchiveInventoryLocation,
 } from '@/lib/data/inventory-locations';
 import { inventoryItemFormSchema } from './schema';
+import {
+  canonicalCategory,
+  listInventoryCategories,
+} from '@/lib/data/vendor-item-numbers';
+
+const CATEGORY_ERROR =
+  'Pick a category from the list (Inventory → Category defaults to add one).';
+
+/** The managed Group > Category list, for pickers that load it on demand. */
+export async function listInventoryCategoriesAction(): Promise<
+  Array<{ group: string; name: string }>
+> {
+  await requireAuth();
+  const companyId = await getActiveCompanyId();
+  return (await listInventoryCategories(companyId)).map((c) => ({
+    group: c.group,
+    name: c.name,
+  }));
+}
 
 export type InventoryItemState = {
   errors?: Record<string, string[]>;
@@ -86,9 +105,14 @@ export async function createInventoryItemAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
   const companyId = await getActiveCompanyId();
+  const category = await canonicalCategory(companyId, parsed.data.category ?? null);
+  if (category === undefined) return { errors: { category: [CATEGORY_ERROR] } };
   let createdId: string;
   try {
-    const item = await createInventoryItem(companyId, toCreateInput(parsed.data));
+    const item = await createInventoryItem(companyId, {
+      ...toCreateInput(parsed.data),
+      category,
+    });
     createdId = item.id;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -147,8 +171,15 @@ export async function createInventoryItemInlineAction(input: {
     return { ok: false, errors: parsed.error.flatten().fieldErrors };
   }
   const companyId = await getActiveCompanyId();
+  const category = await canonicalCategory(companyId, parsed.data.category ?? null);
+  if (category === undefined) {
+    return { ok: false, errors: { category: [CATEGORY_ERROR] } };
+  }
   try {
-    const item = await createInventoryItem(companyId, toCreateInput(parsed.data));
+    const item = await createInventoryItem(companyId, {
+      ...toCreateInput(parsed.data),
+      category,
+    });
     revalidatePath('/inventory');
     revalidatePath('/purchase-orders/new');
     return {
@@ -189,12 +220,13 @@ export async function updateInventoryItemAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
   const companyId = await getActiveCompanyId();
+  const category = await canonicalCategory(companyId, parsed.data.category ?? null);
+  if (category === undefined) return { errors: { category: [CATEGORY_ERROR] } };
   try {
-    const updated = await updateInventoryItem(
-      companyId,
-      idResult.data,
-      toCreateInput(parsed.data),
-    );
+    const updated = await updateInventoryItem(companyId, idResult.data, {
+      ...toCreateInput(parsed.data),
+      category,
+    });
     if (!updated) {
       return { formError: 'Product not found in the active company.' };
     }

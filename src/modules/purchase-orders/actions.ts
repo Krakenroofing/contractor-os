@@ -38,6 +38,7 @@ import {
   recalcReceiptHeaderTotals,
 } from '@/lib/data/receipts';
 import { getVendor } from '@/lib/data/vendors';
+import { getInventoryItem } from '@/lib/data/inventory-items';
 import { getUserNamesByIds } from '@/lib/data/users';
 import { findBillByVendorInvoiceNumber } from '@/lib/data/po-bills';
 import {
@@ -598,6 +599,26 @@ export async function setPoLineProductAction(input: {
     return {
       error: err instanceof Error ? err.message : 'Failed to link the product.',
     };
+  }
+  // ABC-imported products carry ABC's own item # as their SKU, so linking
+  // one on an ABC order records it as the ABC item # automatically.
+  if (parsed.data.inventoryItemId && !parsed.data.vendorItemNumber) {
+    const po = await getPurchaseOrder(companyId, parsed.data.poId);
+    const vendor = po ? await getVendor(companyId, po.vendorId) : undefined;
+    const item = await getInventoryItem(companyId, parsed.data.inventoryItemId);
+    if (po && vendor && /^abc supply/i.test(vendor.name) && item?.sku?.trim()) {
+      try {
+        await upsertVendorItemNumber({
+          companyId,
+          vendorId: po.vendorId,
+          inventoryItemId: item.id,
+          vendorItemNumber: item.sku.trim(),
+          vendorDescription: item.name,
+        });
+      } catch {
+        /* that # already belongs to another product — leave it */
+      }
+    }
   }
   if (parsed.data.inventoryItemId && parsed.data.vendorItemNumber) {
     const po = await getPurchaseOrder(companyId, parsed.data.poId);

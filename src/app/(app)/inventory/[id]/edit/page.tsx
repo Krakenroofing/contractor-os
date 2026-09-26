@@ -11,6 +11,7 @@ import {
 } from '@/lib/data/inventory-items';
 import { listVendors } from '@/lib/data/vendors';
 import { listAccountingAccounts } from '@/lib/data/accounting-accounts';
+import { listInventoryCategories } from '@/lib/data/vendor-item-numbers';
 import { costAccountOptions } from '@/modules/accounting/lib/cost-account-options';
 import { listCostCodes } from '@/lib/data/cost-codes';
 import { ProductForm } from '@/modules/inventory/components/product-form';
@@ -33,6 +34,7 @@ export default async function EditProductPage({
     derivedSuppliersByItem(companyId),
     listAccountingAccounts(companyId),
   ]);
+  const categories = await listInventoryCategories(companyId);
   if (!item) notFound();
 
   return (
@@ -77,6 +79,7 @@ export default async function EditProductPage({
           .sort((a, b) => a.label.localeCompare(b.label))}
         derivedSupplierName={derived.get(item.id)?.vendorName ?? null}
         accounts={costAccountOptions(accounts)}
+        categories={categories.map((c) => ({ group: c.group, name: c.name }))}
       />
     </div>
   );
